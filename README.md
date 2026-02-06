@@ -31,6 +31,40 @@ go build -o wgmesh
 
 ## Quick Start
 
+### Decentralized Mode (Secret-Based Discovery)
+
+Use this mode when you want nodes to self-discover and peer automatically via DHT.
+
+```bash
+# 1) Generate a mesh secret (run once)
+./wgmesh init --secret
+
+# 2) Join on each node using the same secret
+./wgmesh join --secret "wgmesh://v1/<your-secret>"
+
+# 3) Check local derived mesh parameters
+./wgmesh status --secret "wgmesh://v1/<your-secret>"
+```
+
+Common `join` options:
+
+```bash
+./wgmesh join \
+  --secret "wgmesh://v1/<your-secret>" \
+  --advertise-routes "192.168.10.0/24,10.0.0.0/8" \
+  --listen-port 51820 \
+  --interface wg0 \
+  --log-level debug
+```
+
+You can also test direct encrypted peer exchange between two nodes:
+
+```bash
+./wgmesh test-peer --secret "wgmesh://v1/<your-secret>" --peer <ip:port>
+```
+
+### Centralized Mode (SSH Deployment)
+
 ### 1. Initialize a new mesh
 
 ```bash
