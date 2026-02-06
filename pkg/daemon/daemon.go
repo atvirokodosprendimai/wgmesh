@@ -228,10 +228,6 @@ func (d *Daemon) reconcileLoop() {
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
 	peers := d.peerStore.GetActive()
-	if len(peers) == 0 {
-		return
-	}
-
 	for _, peer := range peers {
 		// Skip ourselves
 		if peer.WGPubKey == d.localNode.WGPubKey {
@@ -242,6 +238,10 @@ func (d *Daemon) reconcile() {
 		if err := d.configurePeer(peer); err != nil {
 			log.Printf("Failed to configure peer %s: %v", peer.WGPubKey[:8]+"...", err)
 		}
+	}
+
+	if err := d.syncPeerRoutes(peers); err != nil {
+		log.Printf("Failed to sync peer routes: %v", err)
 	}
 
 	// Cleanup stale peers
