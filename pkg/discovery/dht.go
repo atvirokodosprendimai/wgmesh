@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +22,7 @@ const (
 	DHTQueryInterval       = 30 * time.Second
 	DHTQueryIntervalStable = 60 * time.Second
 	DHTBootstrapTimeout    = 30 * time.Second
+	DHTPersistInterval     = 2 * time.Minute
 	DHTMethod              = "dht"
 )
 
@@ -102,6 +105,7 @@ func (d *DHTDiscovery) Start() error {
 	// Start background goroutines
 	go d.announceLoop()
 	go d.queryLoop()
+	go d.persistLoop()
 
 	log.Printf("[DHT] Discovery started, listening on port %d", d.exchange.Port())
 	return nil
@@ -120,6 +124,7 @@ func (d *DHTDiscovery) Stop() error {
 	d.cancel()
 
 	if d.server != nil {
+		d.persistNodes()
 		d.server.Close()
 	}
 
@@ -180,6 +185,7 @@ func (d *DHTDiscovery) initDHTServer() error {
 	}
 
 	d.server = server
+	d.loadPersistedNodes()
 
 	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", d.dhtPort)
 
@@ -228,6 +234,65 @@ func (d *DHTDiscovery) initDHTServer() error {
 	// Continue anyway even if bootstrap seems slow
 	log.Printf("[DHT] Bootstrap timeout, continuing with %d nodes (discovery may be slow)", server.NumNodes())
 	return nil
+}
+
+func (d *DHTDiscovery) persistLoop() {
+	ticker := time.NewTicker(DHTPersistInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.persistNodes()
+		}
+	}
+}
+
+func (d *DHTDiscovery) nodesFilePath() string {
+	return filepath.Join("/var/lib/wgmesh", fmt.Sprintf("%s-dht.nodes", d.config.InterfaceName))
+}
+
+func (d *DHTDiscovery) loadPersistedNodes() {
+	if d.server == nil {
+		return
+	}
+
+	file := d.nodesFilePath()
+	added, err := d.server.AddNodesFromFile(file)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			log.Printf("[DHT] Failed to load persisted nodes from %s: %v", file, err)
+		}
+		return
+	}
+
+	if added > 0 {
+		log.Printf("[DHT] Loaded %d persisted DHT nodes from %s", added, file)
+	}
+}
+
+func (d *DHTDiscovery) persistNodes() {
+	if d.server == nil {
+		return
+	}
+
+	nodes := d.server.Nodes()
+	if len(nodes) == 0 {
+		return
+	}
+
+	file := d.nodesFilePath()
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
+		log.Printf("[DHT] Failed to create DHT state directory: %v", err)
+		return
+	}
+
+	if err := dht.WriteNodesToFile(nodes, file); err != nil {
+		log.Printf("[DHT] Failed to persist DHT nodes to %s: %v", file, err)
+		return
+	}
 }
 
 // announceLoop periodically announces our presence to the DHT
