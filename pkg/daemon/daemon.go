@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -28,6 +29,12 @@ type Daemon struct {
 
 	// Discovery layer (DHT discovery will be attached)
 	dhtDiscovery DiscoveryLayer
+
+	// Epoch manager for Dandelion++ privacy
+	epochManager *EpochManager
+
+	// Cache stop channel
+	cacheStopCh chan struct{}
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -244,6 +251,9 @@ func (d *Daemon) reconcile() {
 		log.Printf("Failed to sync peer routes: %v", err)
 	}
 
+	// Check for mesh IP collisions
+	d.CheckAndResolveCollisions()
+
 	// Cleanup stale peers
 	removed := d.peerStore.CleanupStale()
 	for _, pubKey := range removed {
@@ -335,6 +345,13 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	}
 	d.setLocalWGEndpoint()
 
+	// Restore peers from cache for faster startup
+	RestoreFromCache(d.config.InterfaceName, d.peerStore)
+
+	// Start peer cache saver
+	d.cacheStopCh = make(chan struct{})
+	go StartCacheSaver(d.config.InterfaceName, d.peerStore, d.cacheStopCh)
+
 	// Now create DHT discovery with the initialized local node
 	// Import is handled via interface to avoid circular dependency
 	dhtFactory := GetDHTDiscoveryFactory()
@@ -351,6 +368,14 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		defer d.dhtDiscovery.Stop()
 	} else {
 		log.Printf("Warning: DHT discovery factory not set, running without DHT")
+	}
+
+	// Start epoch manager for privacy features
+	if d.config.Privacy {
+		d.epochManager = NewEpochManager(d.config.Keys.EpochSeed)
+		d.epochManager.Start(d.getPrivacyPeers)
+		defer d.epochManager.Stop()
+		log.Printf("Privacy mode enabled (Dandelion++ relay)")
 	}
 
 	// Setup signal handling
@@ -372,6 +397,9 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	case <-d.ctx.Done():
 		log.Printf("Context cancelled, shutting down...")
 	}
+
+	// Stop cache saver
+	close(d.cacheStopCh)
 
 	d.cancel()
 	return nil
@@ -398,4 +426,20 @@ func (d *Daemon) setLocalWGEndpoint() {
 		return
 	}
 	d.localNode.WGEndpoint = net.JoinHostPort("0.0.0.0", strconv.Itoa(d.config.WGListenPort))
+}
+
+// getPrivacyPeers returns current peers formatted for the privacy layer
+func (d *Daemon) getPrivacyPeers() []privacy.PeerInfo {
+	peers := d.peerStore.GetActive()
+	result := make([]privacy.PeerInfo, 0, len(peers))
+	for _, p := range peers {
+		if p.WGPubKey != d.localNode.WGPubKey {
+			result = append(result, privacy.PeerInfo{
+				WGPubKey: p.WGPubKey,
+				MeshIP:   p.MeshIP,
+				Endpoint: p.Endpoint,
+			})
+		}
+	}
+	return result
 }
