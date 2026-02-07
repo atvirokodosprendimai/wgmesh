@@ -24,6 +24,7 @@ type Config struct {
 	WGListenPort    int
 	AdvertiseRoutes []string
 	LogLevel        string
+	Privacy         bool
 }
 
 // DaemonOpts holds options for the daemon
@@ -33,6 +34,7 @@ type DaemonOpts struct {
 	WGListenPort    int
 	AdvertiseRoutes []string
 	LogLevel        string
+	Privacy         bool
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -69,6 +71,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		WGListenPort:    listenPort,
 		AdvertiseRoutes: opts.AdvertiseRoutes,
 		LogLevel:        logLevel,
+		Privacy:         opts.Privacy,
 	}, nil
 }
 
