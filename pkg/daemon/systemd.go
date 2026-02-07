@@ -16,6 +16,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+EnvironmentFile=/etc/wgmesh/secret.env
 ExecStart={{.ExecStart}}
 Restart=always
 RestartSec=5
@@ -55,8 +56,8 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 		cfg.BinaryPath = path
 	}
 
-	// Build ExecStart command
-	args := []string{cfg.BinaryPath, "join", "--secret", fmt.Sprintf("%q", cfg.Secret)}
+	// Build ExecStart command - use env var for secret to avoid exposing in process list
+	args := []string{cfg.BinaryPath, "join", "--secret", "${WGMESH_SECRET}"}
 
 	if cfg.InterfaceName != "" && cfg.InterfaceName != DefaultInterface {
 		args = append(args, "--interface", cfg.InterfaceName)
@@ -92,6 +93,18 @@ func InstallSystemdService(cfg SystemdServiceConfig) error {
 	unit, err := GenerateSystemdUnit(cfg)
 	if err != nil {
 		return fmt.Errorf("failed to generate unit file: %w", err)
+	}
+
+	// Write secret to environment file with restricted permissions
+	secretDir := "/etc/wgmesh"
+	if err := os.MkdirAll(secretDir, 0700); err != nil {
+		return fmt.Errorf("failed to create secret directory (run as root?): %w", err)
+	}
+
+	secretEnv := fmt.Sprintf("WGMESH_SECRET=%s\n", cfg.Secret)
+	secretPath := filepath.Join(secretDir, "secret.env")
+	if err := os.WriteFile(secretPath, []byte(secretEnv), 0600); err != nil {
+		return fmt.Errorf("failed to write secret file (run as root?): %w", err)
 	}
 
 	// Write unit file

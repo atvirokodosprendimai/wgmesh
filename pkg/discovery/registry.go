@@ -106,7 +106,7 @@ func (r *RendezvousRegistry) searchRegistry() ([]*daemon.PeerInfo, error) {
 
 	// Use token if available for higher rate limits
 	if token := os.Getenv("GITHUB_TOKEN"); token != "" {
-		req.Header.Set("Authorization", "token "+token)
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	resp, err := r.client.Do(req)
@@ -220,7 +220,7 @@ func (r *RendezvousRegistry) createIssue(myInfo *daemon.PeerInfo, token string) 
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "wgmesh")
 
@@ -275,7 +275,7 @@ func (r *RendezvousRegistry) updatePeerList(myInfo *daemon.PeerInfo, token strin
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "wgmesh")
 
@@ -363,7 +363,7 @@ func (r *RendezvousRegistry) UpdatePeerListWithAll(peers []*daemon.PeerInfo) err
 		return err
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("Authorization", "token "+token)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "wgmesh")
 

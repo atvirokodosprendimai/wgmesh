@@ -422,9 +422,10 @@ func qrCmd() {
 func printTextQR(data string) {
 	// Generate a simple visual representation using Unicode block characters
 	// This is a placeholder - a real implementation would use go-qrcode
+	const maxLineWidth = 40 // Maximum characters per line for readability
 	width := len(data)
-	if width > 40 {
-		width = 40
+	if width > maxLineWidth {
+		width = maxLineWidth
 	}
 
 	border := strings.Repeat("██", width+2)

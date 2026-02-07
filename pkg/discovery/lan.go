@@ -203,7 +203,7 @@ func (l *LANDiscovery) listenLoop() {
 			RoutableNetworks: announcement.RoutableNetworks,
 		}
 
-		log.Printf("[LAN] Discovered peer %s (%s) at %s", peer.WGPubKey[:8]+"...", peer.MeshIP, peer.Endpoint)
+		log.Printf("[LAN] Discovered peer %s (%s) at %s", safeTruncate(peer.WGPubKey, 8), peer.MeshIP, peer.Endpoint)
 		l.peerStore.Update(peer, LANMethod)
 	}
 }
@@ -233,4 +233,12 @@ func (l *LANDiscovery) MarshalJSON() ([]byte, error) {
 		"multicast_addr": l.multicastAddr.String(),
 		"running":        l.running,
 	})
+}
+
+// safeTruncate safely truncates a string for logging
+func safeTruncate(s string, maxLen int) string {
+	if len(s) > maxLen {
+		return s[:maxLen] + "..."
+	}
+	return s
 }

@@ -33,6 +33,16 @@ func TestGenerateSystemdUnit(t *testing.T) {
 	if !strings.Contains(unit, "[Service]") {
 		t.Error("Unit should contain [Service] section")
 	}
+	if !strings.Contains(unit, "EnvironmentFile") {
+		t.Error("Unit should use EnvironmentFile for secret")
+	}
+	if !strings.Contains(unit, "${WGMESH_SECRET}") {
+		t.Error("Unit should reference WGMESH_SECRET env var")
+	}
+	// Secret should NOT appear directly in the unit file
+	if strings.Contains(unit, "test-secret-that-is-long-enough") {
+		t.Error("Secret should not appear directly in unit file")
+	}
 }
 
 func TestGenerateSystemdUnitDefaults(t *testing.T) {

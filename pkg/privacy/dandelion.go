@@ -98,7 +98,7 @@ func (d *DandelionRouter) HandleAnnounce(msg DandelionAnnounce) {
 	// Decide: fluff or continue stem?
 	if ShouldFluff(msg.HopCount) {
 		// Transition to fluff phase - announce publicly
-		log.Printf("[Dandelion] Fluffing announcement from %s after %d hops", msg.OriginPubkey[:8]+"...", msg.HopCount)
+		log.Printf("[Dandelion] Fluffing announcement from %s after %d hops", truncateKey(msg.OriginPubkey), msg.HopCount)
 		if onFluff != nil {
 			onFluff(msg)
 		}
@@ -108,7 +108,7 @@ func (d *DandelionRouter) HandleAnnounce(msg DandelionAnnounce) {
 	// Continue stem phase - relay to a deterministic peer
 	if epoch != nil && len(epoch.RelayPeers) > 0 {
 		relay := epoch.RelayPeers[int(msg.HopCount)%len(epoch.RelayPeers)]
-		log.Printf("[Dandelion] Relaying via stem to %s (hop %d)", relay.WGPubKey[:8]+"...", msg.HopCount)
+		log.Printf("[Dandelion] Relaying via stem to %s (hop %d)", truncateKey(relay.WGPubKey), msg.HopCount)
 		if onStem != nil {
 			onStem(msg, relay)
 		}
@@ -199,13 +199,17 @@ func selectRelayPeers(epochSeed [32]byte, epochID uint64, allPeers []PeerInfo, c
 func peerKeys(peers []PeerInfo) []string {
 	keys := make([]string, len(peers))
 	for i, p := range peers {
-		if len(p.WGPubKey) > 8 {
-			keys[i] = p.WGPubKey[:8] + "..."
-		} else {
-			keys[i] = p.WGPubKey
-		}
+		keys[i] = truncateKey(p.WGPubKey)
 	}
 	return keys
+}
+
+// truncateKey safely truncates a key for logging
+func truncateKey(key string) string {
+	if len(key) > 8 {
+		return key[:8] + "..."
+	}
+	return key
 }
 
 // EpochRotationLoop runs the epoch rotation in a background goroutine

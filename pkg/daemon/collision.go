@@ -92,7 +92,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 	for _, collision := range collisions {
 		winner, loser := DeterministicWinner(collision.Peer1, collision.Peer2)
 		log.Printf("[Collision] Mesh IP collision detected: %s claimed by %s and %s",
-			collision.MeshIP, winner.WGPubKey[:8]+"...", loser.WGPubKey[:8]+"...")
+			collision.MeshIP, safeKeyPrefix(winner.WGPubKey), safeKeyPrefix(loser.WGPubKey))
 
 		// If we are the loser, re-derive our IP
 		if loser.WGPubKey == d.localNode.WGPubKey {
@@ -107,9 +107,17 @@ func (d *Daemon) CheckAndResolveCollisions() {
 		} else {
 			// The loser is a remote peer - update our expectation of their IP
 			newIP := ResolveCollision(collision, d.config.Keys.MeshSubnet, d.config.Secret)
-			log.Printf("[Collision] Remote peer %s should re-derive to %s", loser.WGPubKey[:8]+"...", newIP)
+			log.Printf("[Collision] Remote peer %s should re-derive to %s", safeKeyPrefix(loser.WGPubKey), newIP)
 		}
 	}
+}
+
+// safeKeyPrefix safely returns a prefix of a key for logging
+func safeKeyPrefix(key string) string {
+	if len(key) > 8 {
+		return key[:8] + "..."
+	}
+	return key
 }
 
 // DeriveMeshIPWithCollisionCheck derives a mesh IP and checks for collisions
