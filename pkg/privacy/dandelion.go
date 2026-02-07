@@ -2,10 +2,12 @@ package privacy
 
 import (
 	"crypto/hmac"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math/big"
 	"math/rand"
 	"sort"
 	"sync"
@@ -19,6 +21,8 @@ const (
 	MaxStemHops = 4
 	// DandelionMethod is the discovery method label
 	DandelionMethod = "dandelion"
+	// DefaultEpochDuration is the default duration for relay epochs
+	DefaultEpochDuration = 10 * time.Minute
 )
 
 // DandelionAnnounce represents an announcement being relayed through the Dandelion++ protocol
@@ -66,7 +70,7 @@ func NewDandelionRouter(epochSeed [32]byte) *DandelionRouter {
 		epoch: &Epoch{
 			ID:        0,
 			StartedAt: time.Now(),
-			Duration:  10 * time.Minute,
+			Duration:  DefaultEpochDuration,
 		},
 	}
 }
@@ -93,7 +97,12 @@ func (d *DandelionRouter) HandleAnnounce(msg DandelionAnnounce) {
 	epoch := d.epoch
 	d.mu.RUnlock()
 
-	msg.HopCount++
+	// Cap HopCount to prevent uint8 overflow from malformed messages
+	if msg.HopCount >= MaxStemHops {
+		msg.HopCount = MaxStemHops
+	} else {
+		msg.HopCount++
+	}
 
 	// Decide: fluff or continue stem?
 	if ShouldFluff(msg.HopCount) {
@@ -127,8 +136,13 @@ func ShouldFluff(hopCount uint8) bool {
 	if hopCount >= MaxStemHops {
 		return true
 	}
-	// 10% probability per hop
-	return rand.Float64() < FluffProbability
+	// Use crypto/rand for unpredictable stem/fluff decisions
+	n, err := cryptorand.Int(cryptorand.Reader, big.NewInt(100))
+	if err != nil {
+		// On error, default to fluff for safety
+		return true
+	}
+	return n.Int64() < int64(FluffProbability*100)
 }
 
 // RotateEpoch rotates the relay epoch with new peers
@@ -145,7 +159,7 @@ func (d *DandelionRouter) RotateEpoch(allPeers []PeerInfo) {
 		ID:         newEpochID,
 		RelayPeers: relayPeers,
 		StartedAt:  time.Now(),
-		Duration:   10 * time.Minute,
+		Duration:   DefaultEpochDuration,
 	}
 
 	if len(relayPeers) > 0 {
@@ -157,7 +171,20 @@ func (d *DandelionRouter) RotateEpoch(allPeers []PeerInfo) {
 func (d *DandelionRouter) GetEpoch() *Epoch {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+
+	if d.epoch == nil {
+		return nil
+	}
+
 	epochCopy := *d.epoch
+
+	// Deep-copy RelayPeers slice so callers cannot mutate internal state.
+	if epochCopy.RelayPeers != nil {
+		relayPeersCopy := make([]PeerInfo, len(epochCopy.RelayPeers))
+		copy(relayPeersCopy, epochCopy.RelayPeers)
+		epochCopy.RelayPeers = relayPeersCopy
+	}
+
 	return &epochCopy
 }
 
@@ -214,7 +241,7 @@ func truncateKey(key string) string {
 
 // EpochRotationLoop runs the epoch rotation in a background goroutine
 func (d *DandelionRouter) EpochRotationLoop(stopCh <-chan struct{}, getPeers func() []PeerInfo) {
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(DefaultEpochDuration)
 	defer ticker.Stop()
 
 	// Initial rotation
@@ -233,7 +260,10 @@ func (d *DandelionRouter) EpochRotationLoop(stopCh <-chan struct{}, getPeers fun
 // CreateAnnounce creates a new Dandelion announcement for the local node
 func CreateAnnounce(pubkey, meshIP, endpoint string, routableNetworks []string) DandelionAnnounce {
 	nonce := make([]byte, 16)
-	rand.Read(nonce)
+	if _, err := cryptorand.Read(nonce); err != nil {
+		// Fallback: this should never fail with crypto/rand
+		log.Printf("[Dandelion] Warning: crypto/rand failed: %v", err)
+	}
 
 	return DandelionAnnounce{
 		OriginPubkey:     pubkey,

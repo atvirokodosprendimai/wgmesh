@@ -351,6 +351,14 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Start peer cache saver
 	d.cacheStopCh = make(chan struct{})
 	go StartCacheSaver(d.config.InterfaceName, d.peerStore, d.cacheStopCh)
+	defer func() {
+		select {
+		case <-d.cacheStopCh:
+			// Already closed
+		default:
+			close(d.cacheStopCh)
+		}
+	}()
 
 	// Now create DHT discovery with the initialized local node
 	// Import is handled via interface to avoid circular dependency
@@ -397,9 +405,6 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	case <-d.ctx.Done():
 		log.Printf("Context cancelled, shutting down...")
 	}
-
-	// Stop cache saver
-	close(d.cacheStopCh)
 
 	d.cancel()
 	return nil

@@ -64,12 +64,15 @@ func (g *MeshGossip) Start() error {
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		// Fall back to binding on all interfaces if mesh IP binding fails
-		addr = &net.UDPAddr{Port: int(g.port) + 100}
+		addr = &net.UDPAddr{Port: int(g.port)}
 		conn, err = net.ListenUDP("udp", addr)
 		if err != nil {
 			return fmt.Errorf("failed to bind gossip port: %w", err)
 		}
 	}
+
+	// Update port to match actual bound port
+	g.port = uint16(conn.LocalAddr().(*net.UDPAddr).Port)
 
 	g.conn = conn
 	g.running = true

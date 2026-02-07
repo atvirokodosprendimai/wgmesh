@@ -64,7 +64,7 @@ func ResolveCollision(collision CollisionInfo, meshSubnet [2]byte, secret string
 
 // DeriveMeshIPWithNonce derives a mesh IP with a collision avoidance nonce
 func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce int) string {
-	input := fmt.Sprintf("%s%s|nonce=%d", wgPubKey, secret, nonce)
+	input := fmt.Sprintf("%d:%s|%d:%s|nonce=%d", len(wgPubKey), wgPubKey, len(secret), secret, nonce)
 	hash := sha256.Sum256([]byte(input))
 
 	suffix := binary.BigEndian.Uint16(hash[:2])

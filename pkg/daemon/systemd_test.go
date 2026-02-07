@@ -43,6 +43,10 @@ func TestGenerateSystemdUnit(t *testing.T) {
 	if strings.Contains(unit, "test-secret-that-is-long-enough") {
 		t.Error("Secret should not appear directly in unit file")
 	}
+	// NoNewPrivileges should be enabled
+	if !strings.Contains(unit, "NoNewPrivileges=yes") {
+		t.Error("Unit should have NoNewPrivileges=yes")
+	}
 }
 
 func TestGenerateSystemdUnitDefaults(t *testing.T) {
@@ -79,5 +83,39 @@ func TestGenerateSystemdUnitWithRoutes(t *testing.T) {
 
 	if !strings.Contains(unit, "--advertise-routes 192.168.0.0/24,10.0.0.0/8") {
 		t.Error("Unit should contain advertise routes")
+	}
+}
+
+func TestGenerateSystemdUnitWithPrivacy(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:     "test-secret-that-is-long-enough",
+		BinaryPath: "/usr/local/bin/wgmesh",
+		Privacy:    true,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--privacy") {
+		t.Error("Unit should contain --privacy flag when Privacy is true")
+	}
+}
+
+func TestGenerateSystemdUnitWithoutPrivacy(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:     "test-secret-that-is-long-enough",
+		BinaryPath: "/usr/local/bin/wgmesh",
+		Privacy:    false,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if strings.Contains(unit, "--privacy") {
+		t.Error("Unit should not contain --privacy flag when Privacy is false")
 	}
 }
