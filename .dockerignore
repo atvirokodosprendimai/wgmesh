@@ -5,6 +5,7 @@
 # Documentation
 *.md
 !README.md
+!DOCKER.md
 
 # Test files
 test-*.sh

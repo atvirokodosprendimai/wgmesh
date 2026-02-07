@@ -47,6 +47,10 @@ RUN chmod +x /usr/local/bin/wgmesh
 EXPOSE 51820/udp
 
 # Run as non-root user for better security
+# Note: For WireGuard interface management, the container needs to run with
+# --privileged flag and --network host. The non-root user is used by default
+# for general operations, but privileged operations will need appropriate
+# Docker run flags.
 RUN addgroup -g 1000 wgmesh && \
     adduser -D -u 1000 -G wgmesh wgmesh && \
     chown -R wgmesh:wgmesh /data
