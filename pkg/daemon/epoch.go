@@ -2,13 +2,8 @@ package daemon
 
 import (
 	"log"
-	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
-)
-
-const (
-	EpochDuration = 10 * time.Minute
 )
 
 // EpochManager manages relay peer epochs for Dandelion++ privacy
@@ -28,7 +23,7 @@ func NewEpochManager(epochSeed [32]byte) *EpochManager {
 // Start begins epoch rotation
 func (em *EpochManager) Start(getPeers func() []privacy.PeerInfo) {
 	go em.router.EpochRotationLoop(em.stopCh, getPeers)
-	log.Printf("[Epoch] Epoch management started (rotation every %v)", EpochDuration)
+	log.Printf("[Epoch] Epoch management started (rotation every %v)", privacy.DefaultEpochDuration)
 }
 
 // Stop stops epoch rotation

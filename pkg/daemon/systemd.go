@@ -17,13 +17,13 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/wgmesh/secret.env
-ExecStart={{.ExecStart}}
+ExecStart=/bin/sh -c 'exec {{.ExecStart}}'
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
 
 # Security hardening
-NoNewPrivileges=no
+NoNewPrivileges=yes
 ProtectSystem=full
 ProtectHome=true
 ReadWritePaths=/var/lib/wgmesh
@@ -68,6 +68,9 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	if len(cfg.AdvertiseRoutes) > 0 {
 		args = append(args, "--advertise-routes", strings.Join(cfg.AdvertiseRoutes, ","))
 	}
+	if cfg.Privacy {
+		args = append(args, "--privacy")
+	}
 
 	data := struct {
 		ExecStart string
@@ -101,7 +104,10 @@ func InstallSystemdService(cfg SystemdServiceConfig) error {
 		return fmt.Errorf("failed to create secret directory (run as root?): %w", err)
 	}
 
-	secretEnv := fmt.Sprintf("WGMESH_SECRET=%s\n", cfg.Secret)
+	// Quote the secret value for safe systemd environment file parsing
+	escapedSecret := strings.ReplaceAll(cfg.Secret, `\`, `\\`)
+	escapedSecret = strings.ReplaceAll(escapedSecret, `"`, `\"`)
+	secretEnv := fmt.Sprintf("WGMESH_SECRET=\"%s\"\n", escapedSecret)
 	secretPath := filepath.Join(secretDir, "secret.env")
 	if err := os.WriteFile(secretPath, []byte(secretEnv), 0600); err != nil {
 		return fmt.Errorf("failed to write secret file (run as root?): %w", err)
@@ -144,6 +150,16 @@ func UninstallSystemdService() error {
 	if err := os.Remove(unitPath); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("failed to remove unit file: %w", err)
 	}
+
+	// Remove secret environment file
+	secretDir := "/etc/wgmesh"
+	secretPath := filepath.Join(secretDir, "secret.env")
+	if err := os.Remove(secretPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove secret file: %w", err)
+	}
+
+	// Attempt to remove secret directory (ignore errors; it may not be empty or may not exist)
+	_ = os.Remove(secretDir)
 
 	// Reload systemd
 	exec.Command("systemctl", "daemon-reload").Run()

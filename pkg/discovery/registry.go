@@ -80,10 +80,10 @@ func (r *RendezvousRegistry) FindOrCreate(myInfo *daemon.PeerInfo) ([]*daemon.Pe
 			log.Printf("[Registry] No GITHUB_TOKEN set, cannot create registry entry (search-only mode)")
 		}
 	} else {
-		// Update existing entry with our info
+		// Update existing entry — merge our info with existing peers
 		token := os.Getenv("GITHUB_TOKEN")
 		if token != "" {
-			if err := r.updatePeerList(myInfo, token); err != nil {
+			if err := r.updatePeerListMerged(myInfo, peers, token); err != nil {
 				log.Printf("[Registry] Failed to update registry entry: %v", err)
 			}
 		}
@@ -249,13 +249,27 @@ func (r *RendezvousRegistry) createIssue(myInfo *daemon.PeerInfo, token string) 
 	return nil
 }
 
-// updatePeerList updates the registry with current peer information
-func (r *RendezvousRegistry) updatePeerList(myInfo *daemon.PeerInfo, token string) error {
+// updatePeerListMerged updates the registry, merging myInfo with existing peers
+func (r *RendezvousRegistry) updatePeerListMerged(myInfo *daemon.PeerInfo, existingPeers []*daemon.PeerInfo, token string) error {
 	if r.issueNum == 0 {
 		return fmt.Errorf("no issue number set")
 	}
 
-	body, err := r.buildIssueBody([]*daemon.PeerInfo{myInfo})
+	// Merge: start with myInfo, then add existing peers (deduplicate by pubkey)
+	merged := []*daemon.PeerInfo{myInfo}
+	seen := map[string]bool{myInfo.WGPubKey: true}
+	for _, p := range existingPeers {
+		if p.WGPubKey == "" || seen[p.WGPubKey] {
+			continue
+		}
+		seen[p.WGPubKey] = true
+		merged = append(merged, p)
+		if len(merged) >= RegistryMaxPeers {
+			break
+		}
+	}
+
+	body, err := r.buildIssueBody(merged)
 	if err != nil {
 		return fmt.Errorf("failed to build issue body: %w", err)
 	}
