@@ -1,0 +1,30 @@
+# Git files
+.git
+.gitignore
+
+# Documentation
+*.md
+!README.md
+!DOCKER.md
+
+# Test files
+test-*.sh
+*.test
+*_test.go
+
+# Build artifacts
+wgmesh
+mesh-state.json
+
+# Temporary files
+tmp/
+temp/
+*.swp
+*.swo
+*~
+
+# IDE files
+.vscode/
+.idea/
+*.iml
+.DS_Store
