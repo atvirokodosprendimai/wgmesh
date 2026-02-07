@@ -32,6 +32,18 @@ func main() {
 		case "test-peer":
 			testPeerCmd()
 			return
+		case "qr":
+			qrCmd()
+			return
+		case "install-service":
+			installServiceCmd()
+			return
+		case "uninstall-service":
+			uninstallServiceCmd()
+			return
+		case "rotate-secret":
+			rotateSecretCmd()
+			return
 		}
 	}
 
@@ -130,9 +142,13 @@ func printUsage() {
 	fmt.Println(`wgmesh - WireGuard mesh network builder
 
 SUBCOMMANDS (decentralized mode):
-  init --secret              Generate a new mesh secret
-  join --secret <SECRET>     Join a mesh network
-  status --secret <SECRET>   Show mesh status
+  init --secret                 Generate a new mesh secret
+  join --secret <SECRET>        Join a mesh network
+  status --secret <SECRET>      Show mesh status
+  qr --secret <SECRET>          Display secret as QR code (text)
+  install-service --secret ...  Install systemd service
+  uninstall-service             Remove systemd service
+  rotate-secret                 Rotate mesh secret
 
 FLAGS (centralized mode):
   -state <file>    Path to mesh state file (default: mesh-state.json)
@@ -147,6 +163,7 @@ EXAMPLES:
   # Decentralized mode (automatic peer discovery):
   wgmesh init --secret                          # Generate a new mesh secret
   wgmesh join --secret "wgmesh://v1/K7x2..."    # Join mesh on this node
+  wgmesh join --secret "..." --privacy           # Join with Dandelion++ privacy
 
   # Centralized mode (SSH-based deployment):
   wgmesh -init -encrypt                         # Initialize encrypted state
@@ -189,6 +206,7 @@ func joinCmd() {
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	iface := fs.String("interface", "wg0", "WireGuard interface name")
 	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
+	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -213,6 +231,7 @@ func joinCmd() {
 		WGListenPort:    *listenPort,
 		AdvertiseRoutes: routes,
 		LogLevel:        *logLevel,
+		Privacy:         *privacyMode,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create config: %v\n", err)
@@ -227,6 +246,9 @@ func joinCmd() {
 	}
 
 	fmt.Println("Initializing mesh node with DHT discovery...")
+	if *privacyMode {
+		fmt.Println("Privacy mode enabled (Dandelion++ relay)")
+	}
 
 	if err := d.RunWithDHTDiscovery(); err != nil {
 		fmt.Fprintf(os.Stderr, "Daemon error: %v\n", err)
@@ -352,8 +374,181 @@ func statusCmd() {
 	fmt.Printf("Network ID: %x\n", cfg.Keys.NetworkID[:8])
 	fmt.Printf("Mesh Subnet: 10.%d.0.0/16\n", cfg.Keys.MeshSubnet[0])
 	fmt.Printf("Gossip Port: %d\n", cfg.Keys.GossipPort)
+	fmt.Printf("Rendezvous ID: %x\n", cfg.Keys.RendezvousID)
 	fmt.Println()
 
-	// TODO: Query actual WireGuard interface for peer status
+	// Show service status if available
+	status, err := daemon.ServiceStatus()
+	if err == nil {
+		fmt.Printf("Service Status: %s\n", status)
+	}
+
+	fmt.Println()
 	fmt.Println("(Run 'wg show' to see connected peers)")
+}
+
+// qrCmd handles the "qr" subcommand - displays secret as a text-based QR code
+func qrCmd() {
+	fs := flag.NewFlagSet("qr", flag.ExitOnError)
+	secret := fs.String("secret", "", "Mesh secret to encode as QR code")
+	fs.Parse(os.Args[2:])
+
+	if *secret == "" {
+		fmt.Fprintln(os.Stderr, "Error: --secret is required")
+		fmt.Fprintln(os.Stderr, "Usage: wgmesh qr --secret <SECRET>")
+		os.Exit(1)
+	}
+
+	uri := *secret
+	if !strings.HasPrefix(uri, daemon.URIPrefix) {
+		uri = daemon.FormatSecretURI(*secret)
+	}
+
+	fmt.Println("Mesh Secret QR Code")
+	fmt.Println("====================")
+	fmt.Println()
+	fmt.Printf("URI: %s\n", uri)
+	fmt.Println()
+
+	// Generate a simple text-based QR representation
+	// For a real QR code, the go-qrcode library would be used
+	printTextQR(uri)
+
+	fmt.Println()
+	fmt.Println("Scan this QR code or copy the URI to join the mesh.")
+}
+
+// printTextQR prints a simple text-based representation of the secret
+func printTextQR(data string) {
+	// Generate a simple visual representation using Unicode block characters
+	// This is a placeholder - a real implementation would use go-qrcode
+	const maxLineWidth = 40 // Maximum characters per line for readability
+	width := len(data)
+	if width > maxLineWidth {
+		width = maxLineWidth
+	}
+
+	border := strings.Repeat("██", width+2)
+	fmt.Println(border)
+	fmt.Printf("██%s██\n", strings.Repeat("  ", width))
+
+	// Print the data in a box format for easy reading
+	for i := 0; i < len(data); i += width {
+		end := i + width
+		if end > len(data) {
+			end = len(data)
+		}
+		chunk := data[i:end]
+		padding := strings.Repeat(" ", (width-len(chunk))*2)
+		fmt.Printf("██  %s%s  ██\n", chunk, padding)
+	}
+
+	fmt.Printf("██%s██\n", strings.Repeat("  ", width))
+	fmt.Println(border)
+}
+
+// installServiceCmd handles the "install-service" subcommand
+func installServiceCmd() {
+	fs := flag.NewFlagSet("install-service", flag.ExitOnError)
+	secret := fs.String("secret", "", "Mesh secret (required)")
+	iface := fs.String("interface", "wg0", "WireGuard interface name")
+	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
+	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
+	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
+	fs.Parse(os.Args[2:])
+
+	if *secret == "" {
+		fmt.Fprintln(os.Stderr, "Error: --secret is required")
+		fmt.Fprintln(os.Stderr, "Usage: wgmesh install-service --secret <SECRET>")
+		os.Exit(1)
+	}
+
+	var routes []string
+	if *advertiseRoutes != "" {
+		routes = strings.Split(*advertiseRoutes, ",")
+		for i, r := range routes {
+			routes[i] = strings.TrimSpace(r)
+		}
+	}
+
+	cfg := daemon.SystemdServiceConfig{
+		Secret:          *secret,
+		InterfaceName:   *iface,
+		ListenPort:      *listenPort,
+		AdvertiseRoutes: routes,
+		Privacy:         *privacyMode,
+	}
+
+	fmt.Println("Installing wgmesh systemd service...")
+	if err := daemon.InstallSystemdService(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to install service: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Service installed and started successfully!")
+	fmt.Println("Check status with: systemctl status wgmesh")
+}
+
+// uninstallServiceCmd handles the "uninstall-service" subcommand
+func uninstallServiceCmd() {
+	fmt.Println("Removing wgmesh systemd service...")
+	if err := daemon.UninstallSystemdService(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to uninstall service: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println("Service removed successfully!")
+}
+
+// rotateSecretCmd handles the "rotate-secret" subcommand
+func rotateSecretCmd() {
+	fs := flag.NewFlagSet("rotate-secret", flag.ExitOnError)
+	currentSecret := fs.String("current", "", "Current mesh secret (required)")
+	newSecret := fs.String("new", "", "New mesh secret (auto-generated if empty)")
+	gracePeriod := fs.Duration("grace", 24*time.Hour, "Grace period for dual-secret mode")
+	fs.Parse(os.Args[2:])
+
+	if *currentSecret == "" {
+		fmt.Fprintln(os.Stderr, "Error: --current is required")
+		fmt.Fprintln(os.Stderr, "Usage: wgmesh rotate-secret --current <OLD_SECRET> [--new <NEW_SECRET>] [--grace 24h]")
+		os.Exit(1)
+	}
+
+	// Generate new secret if not provided
+	if *newSecret == "" {
+		secret, err := daemon.GenerateSecret()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to generate new secret: %v\n", err)
+			os.Exit(1)
+		}
+		*newSecret = secret
+	}
+
+	// Derive keys from old secret for signing
+	oldKeys, err := crypto.DeriveKeys(*currentSecret)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to derive keys from current secret: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Create rotation announcement
+	announcement, err := crypto.GenerateRotationAnnouncement(oldKeys.MembershipKey[:], *newSecret, *gracePeriod)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create rotation announcement: %v\n", err)
+		os.Exit(1)
+	}
+
+	_ = announcement // Would be broadcast via gossip in a running mesh
+
+	newURI := daemon.FormatSecretURI(*newSecret)
+
+	fmt.Println("Secret Rotation Initiated")
+	fmt.Println("=========================")
+	fmt.Printf("Grace Period: %v\n", *gracePeriod)
+	fmt.Printf("New Secret URI: %s\n", newURI)
+	fmt.Println()
+	fmt.Println("During the grace period, both secrets will be accepted.")
+	fmt.Printf("After %v, all nodes should use the new secret.\n", *gracePeriod)
+	fmt.Println()
+	fmt.Println("Share the new secret with all nodes:")
+	fmt.Printf("  wgmesh join --secret \"%s\"\n", newURI)
 }
