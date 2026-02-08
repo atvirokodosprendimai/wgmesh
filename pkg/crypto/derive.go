@@ -16,12 +16,15 @@ const (
 
 // DerivedKeys holds all keys and parameters derived from a shared secret
 type DerivedKeys struct {
-	NetworkID    [20]byte // DHT infohash (20 bytes for BEP 5)
-	GossipKey    [32]byte // Symmetric encryption key for peer exchange
-	MeshSubnet   [2]byte  // Deterministic /16 subnet
-	MulticastID  [4]byte  // Multicast group discriminator
-	PSK          [32]byte // WireGuard PresharedKey
-	GossipPort   uint16   // In-mesh gossip port
+	NetworkID     [20]byte // DHT infohash (20 bytes for BEP 5)
+	GossipKey     [32]byte // Symmetric encryption key for peer exchange
+	MeshSubnet    [2]byte  // Deterministic /16 subnet
+	MulticastID   [4]byte  // Multicast group discriminator
+	PSK           [32]byte // WireGuard PresharedKey
+	GossipPort    uint16   // In-mesh gossip port
+	RendezvousID  [8]byte  // For GitHub Issue search term
+	MembershipKey [32]byte // For token generation/validation
+	EpochSeed     [32]byte // For relay peer rotation
 }
 
 // DeriveKeys derives all cryptographic keys from a shared secret
@@ -62,6 +65,20 @@ func DeriveKeys(secret string) (*DerivedKeys, error) {
 		return nil, fmt.Errorf("failed to derive gossip port: %w", err)
 	}
 	keys.GossipPort = 51821 + (binary.BigEndian.Uint16(portBytes[:]) % 1000)
+
+	// rendezvous_id = SHA256(secret || "rv")[0:8]
+	rvHash := sha256.Sum256([]byte(secret + "rv"))
+	copy(keys.RendezvousID[:], rvHash[:8])
+
+	// membership_key = HKDF(secret, salt="wgmesh-membership-v1", 32 bytes)
+	if err := deriveHKDF(secret, "wgmesh-membership-v1", keys.MembershipKey[:]); err != nil {
+		return nil, fmt.Errorf("failed to derive membership key: %w", err)
+	}
+
+	// epoch_seed = HKDF(secret, salt="wgmesh-epoch-v1", 32 bytes)
+	if err := deriveHKDF(secret, "wgmesh-epoch-v1", keys.EpochSeed[:]); err != nil {
+		return nil, fmt.Errorf("failed to derive epoch seed: %w", err)
+	}
 
 	return keys, nil
 }

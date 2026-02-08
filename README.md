@@ -23,10 +23,39 @@ A Go-based tool for building and managing WireGuard mesh networks with support f
 
 ## Installation
 
+### From Source
+
 ```bash
-git clone https://github.com/atvirokodosprendimai/wgmesh.git
-cd wgmeshbuilder
+git clone https://github.com/nycterent/wgmesh.git
+cd wgmesh
 go build -o wgmesh
+```
+
+### Using Docker
+
+Docker images are automatically built for multiple architectures (amd64, arm64, arm/v7) and are available from GitHub Container Registry:
+
+```bash
+# Pull the latest image
+docker pull ghcr.io/nycterent/wgmesh:latest
+
+# Or pull a specific version
+docker pull ghcr.io/nycterent/wgmesh:v1.0.0
+
+# Run wgmesh in a container
+docker run --rm ghcr.io/nycterent/wgmesh:latest --help
+
+# Run with state file mounted
+docker run --rm -v $(pwd)/data:/data ghcr.io/nycterent/wgmesh:latest -state /data/mesh-state.json -list
+```
+
+**Note**: For full WireGuard functionality, the container needs privileged access and network host mode:
+
+```bash
+docker run --rm --privileged --network host \
+  -v $(pwd)/data:/data \
+  ghcr.io/nycterent/wgmesh:latest join \
+  --secret "wgmesh://v1/<your-secret>"
 ```
 
 ## Quick Start
