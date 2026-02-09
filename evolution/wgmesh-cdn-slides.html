@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wgmesh Anycast CDN Architecture</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #0a0a0f;
+            --bg-card: #12121a;
+            --bg-accent: #1a1a2e;
+            --text-primary: #e6edf3;
+            --text-muted: #7d8590;
+            --green: #00ff88;
+            --blue: #00d4ff;
+            --purple: #a855f7;
+            --orange: #ff6b35;
+            --yellow: #fbbf24;
+            --red: #ff6b6b;
+            --pink: #ec4899;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+            scroll-snap-type: y mandatory;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Slide container */
+        .slide {
+            min-height: 100vh;
+            padding: 4rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            scroll-snap-align: start;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* Backgrounds */
+        .slide::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        .slide-1::before {
+            background: 
+                radial-gradient(ellipse at 20% 80%, rgba(0, 255, 136, 0.15) 0%, transparent 50%),
+                radial-gradient(ellipse at 80% 20%, rgba(0, 212, 255, 0.15) 0%, transparent 50%);
+        }
+
+        .slide-2::before {
+            background: 
+                radial-gradient(ellipse at 50% 50%, rgba(168, 85, 247, 0.1) 0%, transparent 60%);
+        }
+
+        .slide-3::before {
+            background: 
+                radial-gradient(ellipse at 30% 70%, rgba(255, 107, 53, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse at 70% 30%, rgba(251, 191, 36, 0.12) 0%, transparent 50%);
+        }
+
+        /* Grid pattern overlay */
+        .grid-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 60px 60px;
+            pointer-events: none;
+        }
+
+        .content {
+            position: relative;
+            z-index: 1;
+            max-width: 1400px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* Typography */
+        h1 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: clamp(3rem, 8vw, 6rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            background: linear-gradient(135deg, var(--green) 0%, var(--blue) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        h2 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: clamp(2rem, 5vw, 3.5rem);
+            font-weight: 700;
+            margin-bottom: 2rem;
+            color: var(--text-primary);
+        }
+
+        h3 {
+            font-family: 'Space Grotesk', sans-serif;
+            font-size: 1.5rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: var(--green);
+        }
+
+        .subtitle {
+            font-size: 1.5rem;
+            color: var(--text-muted);
+            max-width: 600px;
+            font-weight: 300;
+        }
+
+        .tag {
+            display: inline-block;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 255, 136, 0.1);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+            border-radius: 100px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--green);
+            margin-bottom: 1rem;
+        }
+
+        /* Code blocks */
+        .code-block {
+            background: var(--bg-card);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 12px;
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            margin: 1rem 0;
+        }
+
+        .code-block .comment { color: var(--text-muted); }
+        .code-block .keyword { color: var(--purple); }
+        .code-block .string { color: var(--green); }
+        .code-block .number { color: var(--orange); }
+
+        /* Cards */
+        .card-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1.5rem;
+            margin-top: 2rem;
+        }
+
+        .card {
+            background: var(--bg-card);
+            border: 1px solid rgba(255,255,255,0.08);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--green), var(--blue));
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(0, 255, 136, 0.3);
+            transform: translateY(-4px);
+        }
+
+        .card:hover::before {
+            opacity: 1;
+        }
+
+        .card-icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .card h4 {
+            font-size: 1.25rem;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
+        }
+
+        .card p {
+            color: var(--text-muted);
+            font-size: 0.95rem;
+        }
+
+        /* Architecture diagram */
+        .architecture {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            margin: 2rem 0;
+        }
+
+        .arch-layer {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 1.5rem;
+            background: var(--bg-card);
+            border-radius: 12px;
+            border-left: 4px solid;
+            animation: slideIn 0.5s ease forwards;
+            opacity: 0;
+            transform: translateX(-20px);
+        }
+
+        .arch-layer:nth-child(1) { border-color: var(--blue); animation-delay: 0.1s; }
+        .arch-layer:nth-child(2) { border-color: var(--green); animation-delay: 0.2s; }
+        .arch-layer:nth-child(3) { border-color: var(--purple); animation-delay: 0.3s; }
+        .arch-layer:nth-child(4) { border-color: var(--orange); animation-delay: 0.4s; }
+        .arch-layer:nth-child(5) { border-color: var(--yellow); animation-delay: 0.5s; }
+
+        @keyframes slideIn {
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        .arch-label {
+            min-width: 140px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+        }
+
+        .arch-content {
+            flex: 1;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .arch-node {
+            background: rgba(255,255,255,0.05);
+            padding: 0.75rem 1.25rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .arch-node.highlight {
+            background: rgba(0, 255, 136, 0.15);
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        /* Flow arrows */
+        .flow-connector {
+            display: flex;
+            justify-content: center;
+            padding: 0.5rem 0;
+            color: var(--text-muted);
+            font-size: 1.5rem;
+        }
+
+        /* Table */
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 2rem 0;
+            font-size: 0.95rem;
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 1rem 1.5rem;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.08);
+        }
+
+        .comparison-table th {
+            background: var(--bg-card);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .comparison-table tr:hover td {
+            background: rgba(255,255,255,0.02);
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 100px;
+            font-size: 0.8rem;
+            font-weight: 600;
+        }
+
+        .badge-green { background: rgba(0, 255, 136, 0.15); color: var(--green); }
+        .badge-blue { background: rgba(0, 212, 255, 0.15); color: var(--blue); }
+        .badge-purple { background: rgba(168, 85, 247, 0.15); color: var(--purple); }
+        .badge-orange { background: rgba(255, 107, 53, 0.15); color: var(--orange); }
+
+        /* Network diagram */
+        .network-diagram {
+            display: grid;
+            grid-template-rows: auto auto auto auto auto;
+            gap: 0;
+            padding: 2rem;
+            background: var(--bg-card);
+            border-radius: 16px;
+            margin: 2rem 0;
+            position: relative;
+        }
+
+        .diagram-row {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 2rem;
+            padding: 1rem 0;
+            position: relative;
+        }
+
+        .diagram-node {
+            background: var(--bg-accent);
+            padding: 1rem 1.5rem;
+            border-radius: 12px;
+            text-align: center;
+            min-width: 120px;
+            border: 1px solid rgba(255,255,255,0.1);
+            position: relative;
+            z-index: 2;
+        }
+
+        .diagram-node.dns { border-color: var(--blue); }
+        .diagram-node.user { border-color: var(--purple); }
+        .diagram-node.edge { border-color: var(--orange); }
+        .diagram-node.mesh { 
+            border-color: var(--green); 
+            background: rgba(0, 255, 136, 0.1);
+            min-width: 200px;
+        }
+        .diagram-node.origin { border-color: var(--yellow); }
+
+        .diagram-node-label {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            margin-bottom: 0.25rem;
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        .diagram-node-title {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .diagram-arrow {
+            color: var(--text-muted);
+            font-size: 1.5rem;
+            display: flex;
+            justify-content: center;
+            padding: 0.25rem 0;
+        }
+
+        /* Two legs visualization */
+        .two-legs {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin: 2rem 0;
+        }
+
+        .leg {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 2rem;
+            border: 2px solid;
+        }
+
+        .leg.public { border-color: var(--orange); }
+        .leg.mesh { border-color: var(--green); }
+
+        .leg h4 {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .leg-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+        }
+
+        .leg.public .leg-icon { background: rgba(255, 107, 53, 0.2); }
+        .leg.mesh .leg-icon { background: rgba(0, 255, 136, 0.2); }
+
+        /* Navigation */
+        .nav {
+            position: fixed;
+            right: 2rem;
+            top: 50%;
+            transform: translateY(-50%);
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            z-index: 100;
+        }
+
+        .nav-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .nav-dot:hover,
+        .nav-dot.active {
+            background: var(--green);
+            transform: scale(1.3);
+        }
+
+        /* Slide counter */
+        .slide-counter {
+            position: fixed;
+            bottom: 2rem;
+            left: 2rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            z-index: 100;
+        }
+
+        /* Progress bar */
+        .progress {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 3px;
+            background: linear-gradient(90deg, var(--green), var(--blue));
+            z-index: 100;
+            transition: width 0.3s ease;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .slide {
+                padding: 2rem;
+            }
+            
+            .two-legs {
+                grid-template-columns: 1fr;
+            }
+
+            .nav {
+                display: none;
+            }
+        }
+
+        /* Animations */
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .pulse {
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-10px); }
+        }
+
+        .float {
+            animation: float 3s ease-in-out infinite;
+        }
+
+        /* Bullet points */
+        .bullet-list {
+            list-style: none;
+            margin: 1.5rem 0;
+        }
+
+        .bullet-list li {
+            padding: 0.75rem 0;
+            padding-left: 2rem;
+            position: relative;
+            color: var(--text-muted);
+        }
+
+        .bullet-list li::before {
+            content: '→';
+            position: absolute;
+            left: 0;
+            color: var(--green);
+            font-weight: bold;
+        }
+
+        .bullet-list li strong {
+            color: var(--text-primary);
+        }
+
+        /* Highlight box */
+        .highlight-box {
+            background: linear-gradient(135deg, rgba(0, 255, 136, 0.1), rgba(0, 212, 255, 0.1));
+            border: 1px solid rgba(0, 255, 136, 0.2);
+            border-radius: 12px;
+            padding: 1.5rem 2rem;
+            margin: 2rem 0;
+        }
+
+        .highlight-box p {
+            font-size: 1.1rem;
+            color: var(--text-primary);
+        }
+
+        /* Emoji flag */
+        .flag {
+            font-size: 1.5rem;
+            margin-right: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="progress" id="progress"></div>
+    
+    <nav class="nav">
+        <button class="nav-dot active" data-slide="0"></button>
+        <button class="nav-dot" data-slide="1"></button>
+        <button class="nav-dot" data-slide="2"></button>
+        <button class="nav-dot" data-slide="3"></button>
+        <button class="nav-dot" data-slide="4"></button>
+        <button class="nav-dot" data-slide="5"></button>
+        <button class="nav-dot" data-slide="6"></button>
+        <button class="nav-dot" data-slide="7"></button>
+    </nav>
+
+    <div class="slide-counter">
+        <span id="current">01</span> / <span id="total">08</span>
+    </div>
+
+    <!-- Slide 1: Title -->
+    <section class="slide slide-1" id="slide-0">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">wgmesh + BGP Anycast</span>
+            <h1>Global CDN<br>Zero Infrastructure</h1>
+            <p class="subtitle">Build a worldwide content delivery network using WireGuard mesh and anycast routing. No central servers required.</p>
+            
+            <div class="card-grid" style="margin-top: 4rem;">
+                <div class="card">
+                    <div class="card-icon">🌍</div>
+                    <h4>Global Reach</h4>
+                    <p>Users automatically route to nearest edge via BGP anycast</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🔐</div>
+                    <h4>Fully Encrypted</h4>
+                    <p>WireGuard mesh encrypts all internal traffic</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🏠</div>
+                    <h4>Hidden Origins</h4>
+                    <p>Backend servers can be anywhere—even your home</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 2: The Problem -->
+    <section class="slide slide-2" id="slide-1">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">The Challenge</span>
+            <h2>Traditional CDN = Vendor Lock-in</h2>
+            
+            <div class="two-legs" style="margin-top: 3rem;">
+                <div class="card">
+                    <h4 style="color: var(--red);">❌ Traditional CDN</h4>
+                    <ul class="bullet-list">
+                        <li><strong>Cloudflare/AWS</strong> controls your traffic</li>
+                        <li><strong>Pay per GB</strong> — costs scale linearly</li>
+                        <li><strong>Vendor lock-in</strong> — hard to migrate</li>
+                        <li><strong>No self-hosting</strong> — origins must be public</li>
+                        <li><strong>Compliance risk</strong> — data through 3rd party</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h4 style="color: var(--green);">✅ wgmesh CDN</h4>
+                    <ul class="bullet-list">
+                        <li><strong>You own everything</strong> — full control</li>
+                        <li><strong>Fixed cost</strong> — ~$5/mo per edge PoP</li>
+                        <li><strong>Portable</strong> — works on any VPS</li>
+                        <li><strong>Origins anywhere</strong> — home server OK</li>
+                        <li><strong>Your network</strong> — data stays private</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 3: Architecture Overview -->
+    <section class="slide slide-3" id="slide-2">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">Architecture</span>
+            <h2>How It Works</h2>
+            
+            <div class="network-diagram">
+                <div class="diagram-row">
+                    <div class="diagram-node dns">
+                        <div class="diagram-node-label">DNS</div>
+                        <div class="diagram-node-title">www.delfi.lt → 2001:db8::1</div>
+                    </div>
+                </div>
+                
+                <div class="diagram-arrow">↓ same IP for everyone</div>
+                
+                <div class="diagram-row">
+                    <div class="diagram-node user">
+                        <div class="diagram-node-label">🇺🇸 US</div>
+                        <div class="diagram-node-title">User</div>
+                    </div>
+                    <div class="diagram-node user">
+                        <div class="diagram-node-label">🇪🇺 EU</div>
+                        <div class="diagram-node-title">User</div>
+                    </div>
+                    <div class="diagram-node user">
+                        <div class="diagram-node-label">🇯🇵 Asia</div>
+                        <div class="diagram-node-title">User</div>
+                    </div>
+                </div>
+                
+                <div class="diagram-arrow">↓ BGP routes to nearest</div>
+                
+                <div class="diagram-row">
+                    <div class="diagram-node edge">
+                        <div class="diagram-node-label">Vultr LA</div>
+                        <div class="diagram-node-title">Edge PoP</div>
+                    </div>
+                    <div class="diagram-node edge">
+                        <div class="diagram-node-label">Hetzner DE</div>
+                        <div class="diagram-node-title">Edge PoP</div>
+                    </div>
+                    <div class="diagram-node edge">
+                        <div class="diagram-node-label">Vultr Tokyo</div>
+                        <div class="diagram-node-title">Edge PoP</div>
+                    </div>
+                </div>
+                
+                <div class="diagram-arrow">↓ encrypted tunnel</div>
+                
+                <div class="diagram-row">
+                    <div class="diagram-node mesh">
+                        <div class="diagram-node-label">wgmesh</div>
+                        <div class="diagram-node-title">🔐 WireGuard Full Mesh (10.77.0.0/16)</div>
+                    </div>
+                </div>
+                
+                <div class="diagram-arrow">↓ routes to internal IP</div>
+                
+                <div class="diagram-row">
+                    <div class="diagram-node origin">
+                        <div class="diagram-node-label">🏠 Japan</div>
+                        <div class="diagram-node-title">WordPress</div>
+                    </div>
+                    <div class="diagram-node origin">
+                        <div class="diagram-node-label">🇱🇹 Lithuania</div>
+                        <div class="diagram-node-title">API</div>
+                    </div>
+                    <div class="diagram-node origin">
+                        <div class="diagram-node-label">☁️ B2</div>
+                        <div class="diagram-node-title">Media</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 4: Two Legs -->
+    <section class="slide slide-1" id="slide-3">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">Edge Node Design</span>
+            <h2>The "Two Legs" Pattern</h2>
+            <p class="subtitle">Each edge server has two network interfaces: one public (anycast), one private (mesh).</p>
+            
+            <div class="two-legs">
+                <div class="leg public">
+                    <h4>
+                        <div class="leg-icon">🌐</div>
+                        Public Leg (eth0)
+                    </h4>
+                    <div class="code-block">
+                        <span class="comment"># Anycast IP - same on ALL edge nodes</span><br>
+                        eth0: <span class="string">2001:db8:any::1</span><br><br>
+                        <span class="comment"># BGP announces to upstream</span><br>
+                        <span class="keyword">neighbor</span> vultr <span class="keyword">announce</span> 2001:db8::/48<br><br>
+                        <span class="comment"># nginx terminates TLS here</span><br>
+                        listen <span class="number">443</span> ssl;
+                    </div>
+                    <p style="color: var(--text-muted); margin-top: 1rem;">Users connect here. BGP magic routes them to the nearest edge.</p>
+                </div>
+                <div class="leg mesh">
+                    <h4>
+                        <div class="leg-icon">🔐</div>
+                        Mesh Leg (wg0)
+                    </h4>
+                    <div class="code-block">
+                        <span class="comment"># Unique mesh IP per node</span><br>
+                        wg0: <span class="string">10.77.0.10</span>/16<br><br>
+                        <span class="comment"># Auto-joins mesh with secret</span><br>
+                        wgmesh join --secret <span class="string">'cdn-2025'</span><br><br>
+                        <span class="comment"># Backend routing</span><br>
+                        proxy_pass http://<span class="string">10.77.1.50</span>;
+                    </div>
+                    <p style="color: var(--text-muted); margin-top: 1rem;">Internal traffic flows through encrypted WireGuard mesh.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 5: BGP Anycast Explained -->
+    <section class="slide slide-2" id="slide-4">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">BGP Anycast</span>
+            <h2>How Same IP Works Everywhere</h2>
+            
+            <div class="highlight-box">
+                <p>💡 <strong>Anycast</strong> = Multiple servers announce the same IP prefix. Internet routers automatically send traffic to the <em>nearest</em> announcer.</p>
+            </div>
+            
+            <div class="architecture">
+                <div class="arch-layer">
+                    <div class="arch-label">🇺🇸 US User</div>
+                    <div class="arch-content">
+                        <div class="arch-node">Requests 2001:db8::1</div>
+                        <div class="arch-node">→</div>
+                        <div class="arch-node">US ISP sees route via Vultr LA (2 hops)</div>
+                        <div class="arch-node">→</div>
+                        <div class="arch-node highlight">US Edge</div>
+                    </div>
+                </div>
+                <div class="arch-layer">
+                    <div class="arch-label">🇪🇺 EU User</div>
+                    <div class="arch-content">
+                        <div class="arch-node">Requests 2001:db8::1</div>
+                        <div class="arch-node">→</div>
+                        <div class="arch-node">EU ISP sees route via Hetzner (1 hop)</div>
+                        <div class="arch-node">→</div>
+                        <div class="arch-node highlight">EU Edge</div>
+                    </div>
+                </div>
+                <div class="arch-layer">
+                    <div class="arch-label">🇯🇵 Asia User</div>
+                    <div class="arch-content">
+                        <div class="arch-node">Requests 2001:db8::1</div>
+                        <div class="arch-node">→</div>
+                        <div class="arch-node">Asia ISP sees route via Vultr Tokyo (2 hops)</div>
+                        <div class="arch-node">→</div>
+                        <div class="arch-node highlight">Asia Edge</div>
+                    </div>
+                </div>
+            </div>
+            
+            <p style="color: var(--text-muted); text-align: center; margin-top: 2rem;">
+                No GeoDNS needed. No latency from DNS resolution. Pure routing magic.
+            </p>
+        </div>
+    </section>
+
+    <!-- Slide 6: How to Get BYOIP -->
+    <section class="slide slide-3" id="slide-5">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">Getting Started</span>
+            <h2>How to Get Your Own IP Prefix</h2>
+            
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Option</th>
+                        <th>Difficulty</th>
+                        <th>Cost</th>
+                        <th>Time</th>
+                        <th>Notes</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><strong>Vultr BGP</strong></td>
+                        <td><span class="badge badge-green">Easy</span></td>
+                        <td>$0 extra</td>
+                        <td>24-48h</td>
+                        <td>Request via support ticket, they allocate /48</td>
+                    </tr>
+                    <tr>
+                        <td><strong>Path.net</strong></td>
+                        <td><span class="badge badge-green">Easy</span></td>
+                        <td>~$20/mo/PoP</td>
+                        <td>Instant</td>
+                        <td>Built for anycast, prefix included</td>
+                    </tr>
+                    <tr>
+                        <td><strong>BuyVM</strong></td>
+                        <td><span class="badge badge-green">Easy</span></td>
+                        <td>~$3.50/mo</td>
+                        <td>24h</td>
+                        <td>Budget option with BGP, request prefix</td>
+                    </tr>
+                    <tr>
+                        <td><strong>RIPE LIR</strong></td>
+                        <td><span class="badge badge-orange">Hard</span></td>
+                        <td>€1400/yr</td>
+                        <td>Weeks</td>
+                        <td>Own your prefix forever, more paperwork</td>
+                    </tr>
+                    <tr>
+                        <td><strong>GeoDNS (No BGP)</strong></td>
+                        <td><span class="badge badge-blue">Easiest</span></td>
+                        <td>Free</td>
+                        <td>Instant</td>
+                        <td>Cloudflare DNS geo-steering, no anycast</td>
+                    </tr>
+                </tbody>
+            </table>
+            
+            <div class="highlight-box">
+                <p>🚀 <strong>Recommended:</strong> Start with GeoDNS (free), same wgmesh backbone. Add true anycast later when you have a prefix.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 7: Quick Start -->
+    <section class="slide slide-1" id="slide-6">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">Quick Start</span>
+            <h2>Deploy in 5 Minutes</h2>
+            
+            <div class="card-grid">
+                <div class="card">
+                    <h4>1. Spin up edge VPS</h4>
+                    <div class="code-block">
+                        <span class="comment"># Vultr, Hetzner, or any VPS</span><br>
+                        <span class="comment"># One in each region you want</span><br>
+                        US: Vultr Los Angeles<br>
+                        EU: Hetzner Falkenstein<br>
+                        Asia: Vultr Tokyo
+                    </div>
+                </div>
+                <div class="card">
+                    <h4>2. Join the mesh</h4>
+                    <div class="code-block">
+                        <span class="comment"># Same command on each edge</span><br>
+                        wgmesh join \<br>
+                        &nbsp;&nbsp;--secret <span class="string">'my-cdn-secret-2025'</span>
+                    </div>
+                </div>
+                <div class="card">
+                    <h4>3. Configure nginx</h4>
+                    <div class="code-block">
+                        <span class="keyword">upstream</span> backend {<br>
+                        &nbsp;&nbsp;server <span class="string">10.77.1.50</span>:<span class="number">80</span>;<br>
+                        }<br><br>
+                        <span class="keyword">server</span> {<br>
+                        &nbsp;&nbsp;listen <span class="number">443</span> ssl;<br>
+                        &nbsp;&nbsp;proxy_pass http://backend;<br>
+                        }
+                    </div>
+                </div>
+                <div class="card">
+                    <h4>4. Join origin to mesh</h4>
+                    <div class="code-block">
+                        <span class="comment"># On your home server / origin</span><br>
+                        wgmesh join \<br>
+                        &nbsp;&nbsp;--secret <span class="string">'my-cdn-secret-2025'</span><br><br>
+                        <span class="comment"># Gets mesh IP 10.77.1.50</span><br>
+                        <span class="comment"># Now reachable from all edges!</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 8: Summary -->
+    <section class="slide slide-2" id="slide-7">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">Summary</span>
+            <h2>Your Own Global CDN</h2>
+            
+            <div class="card-grid" style="margin-bottom: 3rem;">
+                <div class="card">
+                    <div class="card-icon">💰</div>
+                    <h4>~$15-20/mo Total</h4>
+                    <p>3x $5 VPS for global coverage. Origins can be free (home server).</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">⚡</div>
+                    <h4>5 Minute Setup</h4>
+                    <p>One command per node. Auto-discovery handles the rest.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🔒</div>
+                    <h4>End-to-End Encrypted</h4>
+                    <p>TLS to edge, WireGuard to origin. No cleartext ever.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🏠</div>
+                    <h4>Origin Anywhere</h4>
+                    <p>Home server, Raspberry Pi, or any cloud. Behind NAT = OK.</p>
+                </div>
+            </div>
+            
+            <div class="highlight-box" style="text-align: center;">
+                <p style="font-size: 1.5rem; margin-bottom: 1rem;">
+                    <strong>wgmesh join --secret 'your-secret'</strong>
+                </p>
+                <p style="color: var(--text-muted);">
+                    That's it. Same command everywhere. Mesh forms automatically.
+                </p>
+            </div>
+            
+            <p style="text-align: center; margin-top: 3rem; color: var(--text-muted);">
+                <a href="https://github.com/ituoga/wgmeshbuilder" style="color: var(--green); text-decoration: none;">
+                    github.com/ituoga/wgmeshbuilder →
+                </a>
+            </p>
+        </div>
+    </section>
+
+    <script>
+        // Navigation
+        const slides = document.querySelectorAll('.slide');
+        const navDots = document.querySelectorAll('.nav-dot');
+        const progress = document.getElementById('progress');
+        const currentSlide = document.getElementById('current');
+        const totalSlides = document.getElementById('total');
+
+        totalSlides.textContent = String(slides.length).padStart(2, '0');
+
+        // Update on scroll
+        function updateNav() {
+            const scrollPos = window.scrollY;
+            const windowHeight = window.innerHeight;
+            
+            slides.forEach((slide, index) => {
+                const slideTop = slide.offsetTop;
+                const slideBottom = slideTop + slide.offsetHeight;
+                
+                if (scrollPos >= slideTop - windowHeight/2 && scrollPos < slideBottom - windowHeight/2) {
+                    navDots.forEach(dot => dot.classList.remove('active'));
+                    navDots[index].classList.add('active');
+                    currentSlide.textContent = String(index + 1).padStart(2, '0');
+                }
+            });
+
+            // Progress bar
+            const docHeight = document.documentElement.scrollHeight - window.innerHeight;
+            const scrollPercent = (scrollPos / docHeight) * 100;
+            progress.style.width = scrollPercent + '%';
+        }
+
+        window.addEventListener('scroll', updateNav);
+
+        // Click navigation
+        navDots.forEach(dot => {
+            dot.addEventListener('click', () => {
+                const slideIndex = parseInt(dot.dataset.slide);
+                slides[slideIndex].scrollIntoView({ behavior: 'smooth' });
+            });
+        });
+
+        // Keyboard navigation
+        document.addEventListener('keydown', (e) => {
+            const currentIndex = Array.from(navDots).findIndex(dot => dot.classList.contains('active'));
+            
+            if (e.key === 'ArrowDown' || e.key === 'ArrowRight' || e.key === ' ') {
+                e.preventDefault();
+                if (currentIndex < slides.length - 1) {
+                    slides[currentIndex + 1].scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+            
+            if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+                e.preventDefault();
+                if (currentIndex > 0) {
+                    slides[currentIndex - 1].scrollIntoView({ behavior: 'smooth' });
+                }
+            }
+        });
+
+        // Initial state
+        updateNav();
+    </script>
+</body>
+</html>
