@@ -27,7 +27,8 @@ type MeshGossip struct {
 	gossipKey [32]byte
 	port      uint16
 
-	conn *net.UDPConn
+	conn     *net.UDPConn
+	exchange *PeerExchange
 
 	mu      sync.RWMutex
 	running bool
@@ -46,6 +47,19 @@ func NewMeshGossip(config *daemon.Config, localNode *LocalNode, peerStore *daemo
 	}, nil
 }
 
+// NewMeshGossipWithExchange creates a new in-mesh gossip instance that reuses the peer exchange socket.
+func NewMeshGossipWithExchange(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore, exchange *PeerExchange) (*MeshGossip, error) {
+	return &MeshGossip{
+		config:    config,
+		localNode: localNode,
+		peerStore: peerStore,
+		gossipKey: config.Keys.GossipKey,
+		port:      config.Keys.GossipPort,
+		exchange:  exchange,
+		stopCh:    make(chan struct{}),
+	}, nil
+}
+
 // Start begins in-mesh gossip
 func (g *MeshGossip) Start() error {
 	g.mu.Lock()
@@ -53,6 +67,13 @@ func (g *MeshGossip) Start() error {
 
 	if g.running {
 		return fmt.Errorf("gossip already running")
+	}
+
+	if g.exchange != nil {
+		g.running = true
+		go g.gossipLoop()
+		log.Printf("[Gossip] In-mesh gossip started via exchange on port %d", g.port)
+		return nil
 	}
 
 	// Bind to mesh IP on gossip port
@@ -153,6 +174,19 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		}
 	}
 
+	// Send to the peer's mesh IP on the gossip port
+	targetAddr := &net.UDPAddr{
+		IP:   net.ParseIP(target.MeshIP),
+		Port: int(g.port),
+	}
+
+	if g.exchange != nil {
+		if err := g.exchange.SendAnnounce(targetAddr); err != nil {
+			log.Printf("[Gossip] Failed to send to %s: %v", target.MeshIP, err)
+		}
+		return
+	}
+
 	announcement := crypto.CreateAnnouncement(
 		g.localNode.WGPubKey,
 		g.localNode.MeshIP,
@@ -165,12 +199,6 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 	if err != nil {
 		log.Printf("[Gossip] Failed to seal gossip message: %v", err)
 		return
-	}
-
-	// Send to the peer's mesh IP on the gossip port
-	targetAddr := &net.UDPAddr{
-		IP:   net.ParseIP(target.MeshIP),
-		Port: int(g.port),
 	}
 
 	if _, err := g.conn.WriteToUDP(data, targetAddr); err != nil {
@@ -209,31 +237,43 @@ func (g *MeshGossip) listenLoop() {
 			continue
 		}
 
-		if announcement.WGPubKey == g.localNode.WGPubKey {
+		g.handleAnnouncement(announcement)
+	}
+}
+
+// HandleAnnounce processes an incoming gossip announcement.
+func (g *MeshGossip) HandleAnnounce(announcement *crypto.PeerAnnouncement) {
+	g.handleAnnouncement(announcement)
+}
+
+func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement) {
+	if announcement == nil {
+		return
+	}
+	if announcement.WGPubKey == g.localNode.WGPubKey {
+		return
+	}
+
+	// Update the sender's info
+	peer := &daemon.PeerInfo{
+		WGPubKey:         announcement.WGPubKey,
+		MeshIP:           announcement.MeshIP,
+		Endpoint:         announcement.WGEndpoint,
+		RoutableNetworks: announcement.RoutableNetworks,
+	}
+	g.peerStore.Update(peer, GossipMethod)
+
+	// Process transitive peers
+	for _, kp := range announcement.KnownPeers {
+		if kp.WGPubKey == g.localNode.WGPubKey {
 			continue
 		}
-
-		// Update the sender's info
-		peer := &daemon.PeerInfo{
-			WGPubKey:         announcement.WGPubKey,
-			MeshIP:           announcement.MeshIP,
-			Endpoint:         announcement.WGEndpoint,
-			RoutableNetworks: announcement.RoutableNetworks,
+		transitivePeer := &daemon.PeerInfo{
+			WGPubKey: kp.WGPubKey,
+			MeshIP:   kp.MeshIP,
+			Endpoint: kp.WGEndpoint,
 		}
-		g.peerStore.Update(peer, GossipMethod)
-
-		// Process transitive peers
-		for _, kp := range announcement.KnownPeers {
-			if kp.WGPubKey == g.localNode.WGPubKey {
-				continue
-			}
-			transitivePeer := &daemon.PeerInfo{
-				WGPubKey: kp.WGPubKey,
-				MeshIP:   kp.MeshIP,
-				Endpoint: kp.WGEndpoint,
-			}
-			g.peerStore.Update(transitivePeer, GossipMethod+"-transitive")
-		}
+		g.peerStore.Update(transitivePeer, GossipMethod+"-transitive")
 	}
 }
 
