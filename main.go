@@ -164,6 +164,7 @@ EXAMPLES:
   wgmesh init --secret                          # Generate a new mesh secret
   wgmesh join --secret "wgmesh://v1/K7x2..."    # Join mesh on this node
   wgmesh join --secret "..." --privacy           # Join with Dandelion++ privacy
+  wgmesh join --secret "..." --gossip            # Enable in-mesh gossip
 
   # Centralized mode (SSH-based deployment):
   wgmesh -init -encrypt                         # Initialize encrypted state
@@ -207,6 +208,7 @@ func joinCmd() {
 	iface := fs.String("interface", "wg0", "WireGuard interface name")
 	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
+	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -232,6 +234,7 @@ func joinCmd() {
 		AdvertiseRoutes: routes,
 		LogLevel:        *logLevel,
 		Privacy:         *privacyMode,
+		Gossip:          *gossipMode,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create config: %v\n", err)
@@ -248,6 +251,9 @@ func joinCmd() {
 	fmt.Println("Initializing mesh node with DHT discovery...")
 	if *privacyMode {
 		fmt.Println("Privacy mode enabled (Dandelion++ relay)")
+	}
+	if *gossipMode {
+		fmt.Println("In-mesh gossip enabled")
 	}
 
 	if err := d.RunWithDHTDiscovery(); err != nil {
@@ -455,6 +461,7 @@ func installServiceCmd() {
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
+	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -477,6 +484,7 @@ func installServiceCmd() {
 		ListenPort:      *listenPort,
 		AdvertiseRoutes: routes,
 		Privacy:         *privacyMode,
+		Gossip:          *gossipMode,
 	}
 
 	fmt.Println("Installing wgmesh systemd service...")
