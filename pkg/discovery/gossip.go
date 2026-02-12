@@ -162,18 +162,6 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 	// Pick a random peer
 	target := candidates[rand.Intn(len(candidates))]
 
-	// Build known peers list
-	var knownPeers []crypto.KnownPeer
-	for _, p := range peers {
-		if p.WGPubKey != target.WGPubKey {
-			knownPeers = append(knownPeers, crypto.KnownPeer{
-				WGPubKey:   p.WGPubKey,
-				MeshIP:     p.MeshIP,
-				WGEndpoint: p.Endpoint,
-			})
-		}
-	}
-
 	// Send to the peer's mesh IP on the gossip port
 	targetAddr := &net.UDPAddr{
 		IP:   net.ParseIP(target.MeshIP),
@@ -185,6 +173,18 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 			log.Printf("[Gossip] Failed to send to %s: %v", target.MeshIP, err)
 		}
 		return
+	}
+
+	// Build known peers list
+	var knownPeers []crypto.KnownPeer
+	for _, p := range peers {
+		if p.WGPubKey != target.WGPubKey {
+			knownPeers = append(knownPeers, crypto.KnownPeer{
+				WGPubKey:   p.WGPubKey,
+				MeshIP:     p.MeshIP,
+				WGEndpoint: p.Endpoint,
+			})
+		}
 	}
 
 	announcement := crypto.CreateAnnouncement(
