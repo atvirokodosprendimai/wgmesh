@@ -158,8 +158,11 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	case crypto.MessageTypeReply:
 		pe.handleReply(announcement, remoteAddr)
 	case crypto.MessageTypeAnnounce:
-		if pe.announceHandler != nil {
-			pe.announceHandler(announcement)
+		pe.mu.RLock()
+		handler := pe.announceHandler
+		pe.mu.RUnlock()
+		if handler != nil {
+			handler(announcement)
 		}
 	default:
 		log.Printf("[Exchange] Unknown message type: %s", envelope.MessageType)
@@ -382,6 +385,8 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 
 // SetAnnounceHandler sets a handler for gossip announcements.
 func (pe *PeerExchange) SetAnnounceHandler(handler func(*crypto.PeerAnnouncement)) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
 	pe.announceHandler = handler
 }
 
