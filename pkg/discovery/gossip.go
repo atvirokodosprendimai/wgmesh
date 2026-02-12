@@ -163,8 +163,13 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 	target := candidates[rand.Intn(len(candidates))]
 
 	// Send to the peer's mesh IP on the gossip port
+	ip := net.ParseIP(target.MeshIP)
+	if ip == nil {
+		log.Printf("[Gossip] Invalid mesh IP for peer %s: %s", target.WGPubKey, target.MeshIP)
+		return
+	}
 	targetAddr := &net.UDPAddr{
-		IP:   net.ParseIP(target.MeshIP),
+		IP:   ip,
 		Port: int(g.port),
 	}
 

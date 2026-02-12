@@ -1,6 +1,6 @@
 # How to Test Gossip
 
-This repo includes an in-mesh gossip implementation in `pkg/discovery/gossip.go`.
+This repository includes an in-mesh gossip implementation in `pkg/discovery/gossip.go`.
 Gossip is enabled by passing the `--gossip` flag to `wgmesh join`, which starts
 the `MeshGossip` component alongside DHT-based discovery.
 
