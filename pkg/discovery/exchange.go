@@ -34,6 +34,8 @@ type PeerExchange struct {
 
 	pendingMu      sync.Mutex
 	pendingReplies map[string]chan *daemon.PeerInfo
+
+	announceHandler func(*crypto.PeerAnnouncement)
 }
 
 // NewPeerExchange creates a new peer exchange handler
@@ -155,6 +157,13 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		pe.handleHello(announcement, remoteAddr)
 	case crypto.MessageTypeReply:
 		pe.handleReply(announcement, remoteAddr)
+	case crypto.MessageTypeAnnounce:
+		pe.mu.RLock()
+		handler := pe.announceHandler
+		pe.mu.RUnlock()
+		if handler != nil {
+			handler(announcement)
+		}
 	default:
 		log.Printf("[Exchange] Unknown message type: %s", envelope.MessageType)
 	}
@@ -372,6 +381,13 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 
 	_, err = pe.conn.WriteToUDP(data, remoteAddr)
 	return err
+}
+
+// SetAnnounceHandler sets a handler for gossip announcements.
+func (pe *PeerExchange) SetAnnounceHandler(handler func(*crypto.PeerAnnouncement)) {
+	pe.mu.Lock()
+	defer pe.mu.Unlock()
+	pe.announceHandler = handler
 }
 
 // MarshalJSON implements json.Marshaler for debugging

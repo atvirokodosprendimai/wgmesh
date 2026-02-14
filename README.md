@@ -83,7 +83,8 @@ Common `join` options:
   --advertise-routes "192.168.10.0/24,10.0.0.0/8" \
   --listen-port 51820 \
   --interface wg0 \
-  --log-level debug
+  --log-level debug \
+  --gossip
 ```
 
 You can also test direct encrypted peer exchange between two nodes:
