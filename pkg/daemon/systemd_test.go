@@ -119,3 +119,37 @@ func TestGenerateSystemdUnitWithoutPrivacy(t *testing.T) {
 		t.Error("Unit should not contain --privacy flag when Privacy is false")
 	}
 }
+
+func TestGenerateSystemdUnitWithGossip(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:     "test-secret-that-is-long-enough",
+		BinaryPath: "/usr/local/bin/wgmesh",
+		Gossip:     true,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--gossip") {
+		t.Error("Unit should contain --gossip flag when Gossip is true")
+	}
+}
+
+func TestGenerateSystemdUnitWithoutGossip(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:     "test-secret-that-is-long-enough",
+		BinaryPath: "/usr/local/bin/wgmesh",
+		Gossip:     false,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if strings.Contains(unit, "--gossip") {
+		t.Error("Unit should not contain --gossip flag when Gossip is false")
+	}
+}

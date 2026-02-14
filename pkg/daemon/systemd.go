@@ -39,6 +39,7 @@ type SystemdServiceConfig struct {
 	ListenPort      int
 	AdvertiseRoutes []string
 	Privacy         bool
+	Gossip          bool
 	BinaryPath      string
 }
 
@@ -70,6 +71,9 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	}
 	if cfg.Privacy {
 		args = append(args, "--privacy")
+	}
+	if cfg.Gossip {
+		args = append(args, "--gossip")
 	}
 
 	data := struct {

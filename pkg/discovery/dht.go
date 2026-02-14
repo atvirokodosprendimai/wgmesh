@@ -40,6 +40,7 @@ type DHTDiscovery struct {
 	localNode *LocalNode
 	peerStore *daemon.PeerStore
 	exchange  *PeerExchange
+	gossip    *MeshGossip
 	server    *dht.Server
 	dhtPort   int
 
@@ -91,13 +92,35 @@ func (d *DHTDiscovery) Start() error {
 	d.running = true
 	d.mu.Unlock()
 
+	// Create in-mesh gossip and wire announce handler BEFORE starting exchange
+	// to avoid a race between the exchange listener goroutine and handler setup.
+	if d.config.Gossip {
+		gossip, err := NewMeshGossipWithExchange(d.config, d.localNode, d.peerStore, d.exchange)
+		if err != nil {
+			return fmt.Errorf("failed to create gossip: %w", err)
+		}
+		d.gossip = gossip
+		d.exchange.SetAnnounceHandler(d.gossip.HandleAnnounce)
+	}
+
 	// Start the peer exchange server (listens for incoming connections)
 	if err := d.exchange.Start(); err != nil {
 		return fmt.Errorf("failed to start peer exchange: %w", err)
 	}
 
+	// Start gossip loop after exchange is listening
+	if d.gossip != nil {
+		if err := d.gossip.Start(); err != nil {
+			d.exchange.Stop()
+			return fmt.Errorf("failed to start gossip: %w", err)
+		}
+	}
+
 	// Initialize DHT server
 	if err := d.initDHTServer(); err != nil {
+		if d.gossip != nil {
+			d.gossip.Stop()
+		}
 		d.exchange.Stop()
 		return fmt.Errorf("failed to initialize DHT server: %w", err)
 	}
@@ -126,6 +149,10 @@ func (d *DHTDiscovery) Stop() error {
 	if d.server != nil {
 		d.persistNodes()
 		d.server.Close()
+	}
+
+	if d.gossip != nil {
+		d.gossip.Stop()
 	}
 
 	if d.exchange != nil {

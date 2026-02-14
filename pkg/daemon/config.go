@@ -25,6 +25,7 @@ type Config struct {
 	AdvertiseRoutes []string
 	LogLevel        string
 	Privacy         bool
+	Gossip          bool
 }
 
 // DaemonOpts holds options for the daemon
@@ -35,6 +36,7 @@ type DaemonOpts struct {
 	AdvertiseRoutes []string
 	LogLevel        string
 	Privacy         bool
+	Gossip          bool
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -72,6 +74,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		AdvertiseRoutes: opts.AdvertiseRoutes,
 		LogLevel:        logLevel,
 		Privacy:         opts.Privacy,
+		Gossip:          opts.Gossip,
 	}, nil
 }
 
