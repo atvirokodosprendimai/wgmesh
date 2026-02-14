@@ -1,9 +1,8 @@
 # How to Test Gossip
 
-This repo includes an in-mesh gossip implementation in `pkg/discovery/gossip.go`.
-It is not currently started by the `wgmesh join` daemon path, so testing is
-either done with a local test harness or by temporarily wiring gossip into the
-daemon for manual integration testing.
+This repository includes an in-mesh gossip implementation in `pkg/discovery/gossip.go`.
+Gossip is enabled by passing the `--gossip` flag to `wgmesh join`, which starts
+the `MeshGossip` component alongside DHT-based discovery.
 
 ## Option 1: Local Loopback Unit Test (Recommended)
 
@@ -92,26 +91,22 @@ Notes:
 
 ## Option 2: Manual Integration Test (Requires WireGuard)
 
-This verifies gossip inside an actual mesh. Since gossip is not started by
-`wgmesh join`, you need to temporarily wire it into the daemon.
+This verifies gossip inside an actual mesh using the `--gossip` flag.
 
-1. Add a temporary startup in `RunWithDHTDiscovery`:
-   - Create `MeshGossip` using the daemon config, local node, and peer store.
-   - Call `Start()` after WireGuard is set up.
-   - Defer `Stop()` on shutdown.
-2. Build the binary: `go build -o wgmesh`.
-3. On three nodes (A, B, C) run:
+1. Build the binary: `go build -o wgmesh`.
+2. On three nodes (A, B, C) run:
    - `./wgmesh init --secret` on one node and copy the secret.
-   - `./wgmesh join --secret "<SECRET>" --log-level debug` on all nodes.
-4. Validate behavior:
+   - `./wgmesh join --secret "<SECRET>" --gossip --log-level debug` on all nodes.
+3. Validate behavior:
    - On A and B, confirm they connect (via DHT exchange).
    - After B is connected to A, start C. C should learn about B via gossip
      through A (watch for `[Gossip]` log entries and `DiscoveredVia` entries
      tagged with `gossip` or `gossip-transitive`).
 
-Cleanup:
-- Remove the temporary gossip wiring when done to avoid shipping experimental
-  behavior.
+Notes:
+- The `--gossip` flag enables in-mesh peer propagation via UDP gossip messages.
+- Gossip uses the same UDP socket as peer exchange, routing ANNOUNCE messages
+  to the gossip handler.
 
 ## Troubleshooting
 
