@@ -173,6 +173,7 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		Port: int(g.port),
 	}
 
+	// When using the exchange socket, delegate sending (exchange builds its own peer list)
 	if g.exchange != nil {
 		if err := g.exchange.SendAnnounce(targetAddr); err != nil {
 			log.Printf("[Gossip] Failed to send to %s: %v", target.MeshIP, err)
@@ -180,7 +181,7 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		return
 	}
 
-	// Build known peers list
+	// Standalone mode: build known peers list and send directly
 	var knownPeers []crypto.KnownPeer
 	for _, p := range peers {
 		if p.WGPubKey != target.WGPubKey {

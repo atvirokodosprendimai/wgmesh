@@ -4,92 +4,18 @@ This repository includes an in-mesh gossip implementation in `pkg/discovery/goss
 Gossip is enabled by passing the `--gossip` flag to `wgmesh join`, which starts
 the `MeshGossip` component alongside DHT-based discovery.
 
-## Option 1: Local Loopback Unit Test (Recommended)
+## Unit Tests
 
-This test runs two `MeshGossip` instances on loopback and verifies that peer
-information propagates. It does not require WireGuard or DHT.
+Unit tests live in `pkg/discovery/gossip_test.go` and cover announcement
+handling, nil safety, own-key filtering, and exchange-mode construction.
 
-1. Create `pkg/discovery/gossip_test.go` with a loopback test.
-2. Run the test with `go test ./pkg/discovery -run TestMeshGossipLoopback -count=1`.
+Run them with:
 
-Example test skeleton:
-
-```go
-package discovery
-
-import (
-	"net"
-	"testing"
-	"time"
-
-	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
-)
-
-func TestMeshGossipLoopback(t *testing.T) {
-	cfgA, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh://v1/test-secret"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfgB, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh://v1/test-secret"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	storeA := daemon.NewPeerStore()
-	storeB := daemon.NewPeerStore()
-
-	nodeA := &LocalNode{WGPubKey: "A", MeshIP: "127.0.0.1", WGEndpoint: "127.0.0.1:51820"}
-	nodeB := &LocalNode{WGPubKey: "B", MeshIP: "127.0.0.1", WGEndpoint: "127.0.0.1:51820"}
-
-	// Seed each store with the other peer so gossip has a target.
-	storeA.Update(&daemon.PeerInfo{WGPubKey: "B", MeshIP: nodeB.MeshIP}, "seed")
-	storeB.Update(&daemon.PeerInfo{WGPubKey: "A", MeshIP: nodeA.MeshIP}, "seed")
-
-	gossipA, err := NewMeshGossip(cfgA, nodeA, storeA)
-	if err != nil {
-		t.Fatal(err)
-	}
-	gossipB, err := NewMeshGossip(cfgB, nodeB, storeB)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if err := gossipA.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer gossipA.Stop()
-
-	if err := gossipB.Start(); err != nil {
-		t.Fatal(err)
-	}
-	defer gossipB.Stop()
-
-	// Wait for at least one gossip interval.
-	time.Sleep(2 * GossipInterval)
-
-	// Validate that each side learned the other via gossip.
-	peersA := storeA.GetActive()
-	peersB := storeB.GetActive()
-	if len(peersA) == 0 || len(peersB) == 0 {
-		t.Fatalf("expected gossip peers; got A=%d B=%d", len(peersA), len(peersB))
-	}
-
-	// Ensure both listeners are bound (helps debug port conflicts).
-	if gossipA.conn == nil || gossipB.conn == nil {
-		t.Fatal("gossip did not bind UDP sockets")
-	}
-	if _, ok := gossipA.conn.LocalAddr().(*net.UDPAddr); !ok {
-		t.Fatal("unexpected local addr type")
-	}
-}
+```bash
+go test ./pkg/discovery -run TestHandle -v -count=1
 ```
 
-Notes:
-- This uses `LocalNode` from `pkg/discovery/dht.go`, which is also used by gossip.
-- If the test flakes, reduce `GossipInterval` in the test by temporarily
-  overriding it or by polling `PeerStore` with a timeout loop.
-
-## Option 2: Manual Integration Test (Requires WireGuard)
+## Manual Integration Test (Requires WireGuard)
 
 This verifies gossip inside an actual mesh using the `--gossip` flag.
 
@@ -113,5 +39,5 @@ Notes:
 - Ensure all nodes use the same secret (gossip key and port are derived from it).
 - Check UDP access on the derived gossip port:
   - `wgmesh status --secret "<SECRET>"` prints `Gossip Port`.
-- If you only see `dht` discoveries and no `gossip`, confirm the gossip loop
-  is started and that peers have mesh IPs assigned.
+- If you only see `dht` discoveries and no `gossip`, confirm the `--gossip` flag
+  is passed and that peers have mesh IPs assigned.
