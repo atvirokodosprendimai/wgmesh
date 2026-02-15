@@ -17,6 +17,8 @@ jobs:
   build:
     name: Build Binary
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
