@@ -316,7 +316,9 @@ jobs:
             echo "Goose finished with exit code: $GOOSE_EXIT"
 
             # ── Check for non-recoverable errors (fail immediately) ──
-            if grep -qiE "unauthorized|authentication|invalid.?api.?key" /tmp/goose-output.log; then
+            # Use narrow patterns to avoid false positives from code/docs
+            # that Goose reads or writes containing words like "authentication"
+            if grep -qiE "401 unauthorized|authentication failed|invalid.?api.?key|api key is invalid" /tmp/goose-output.log; then
               echo "::error::Goose encountered authentication errors (non-recoverable)"
               tail -30 /tmp/goose-output.log
               exit 1
