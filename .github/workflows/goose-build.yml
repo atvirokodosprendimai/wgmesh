@@ -102,13 +102,40 @@ jobs:
           script: |
             const pr = context.payload.pull_request;
 
-            // Parse issue number from PR title: "spec: Issue #123 - ..."
-            const match = pr.title.match(/Issue #(\d+)/);
-            if (!match) {
-              core.setFailed('Could not extract issue number from PR title: ' + pr.title);
+            // Prefer extracting issue number from the spec filename in PR changes.
+            // This is resilient even if Copilot uses non-standard PR titles.
+            const files = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100,
+            });
+
+            let issueNumber = null;
+            for (const file of files) {
+              const match = file.filename.match(/^specs\/issue-(\d+)-spec\.md$/);
+              if (match) {
+                issueNumber = match[1];
+                break;
+              }
+            }
+
+            // Backward-compatible fallback for older PRs.
+            if (!issueNumber) {
+              const titleMatch = pr.title.match(/Issue #(\d+)/);
+              if (titleMatch) {
+                issueNumber = titleMatch[1];
+              }
+            }
+
+            if (!issueNumber) {
+              core.setFailed(
+                'Could not extract issue number from spec filename or PR title. ' +
+                'Expected changed file like specs/issue-N-spec.md or title containing "Issue #N". ' +
+                'PR title: ' + pr.title
+              );
               return;
             }
-            const issueNumber = match[1];
 
             core.setOutput('issue_number', issueNumber);
             core.setOutput('spec_branch', pr.head.ref);

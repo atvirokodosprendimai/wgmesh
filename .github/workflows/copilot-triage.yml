@@ -24,6 +24,27 @@ jobs:
           script: |
             const issueNumber = context.issue.number;
             const issue = context.payload.issue;
+            const safeTitle = (issue.title || '')
+              .replace(/\r?\n/g, ' ')
+              .replace(/`/g, "'")
+              .replace(/[<>]/g, '')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 180);
+
+            // Assign Copilot coding agent. In this repository, assignment is the
+            // reliable trigger for starting the Copilot coding workflow.
+            try {
+              await github.rest.issues.addAssignees({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                assignees: ['Copilot']
+              });
+              console.log(`Assigned Copilot to issue #${issueNumber}`);
+            } catch (e) {
+              core.warning(`Failed to assign Copilot on issue #${issueNumber}: ${e.message}`);
+            }
 
             // Post a comment that @copilot will pick up as an instruction
             await github.rest.issues.createComment({
@@ -64,8 +85,8 @@ jobs:
                 `<!-- Brief justification -->`,
                 '```',
                 ``,
-                `4. Open a PR titled **exactly**: \`spec: Issue #${issueNumber} - ${issue.title.replace(/"/g, '\\"')}\``,
-                `   - This title format is required: the pipeline extracts the issue number from \`Issue #N\` in the title`,
+                `4. Open a PR titled like: \`spec: Issue #${issueNumber} - ${safeTitle}\``,
+                `   - Include \`Issue #${issueNumber}\` in the title. The pipeline uses this for traceability.`,
                 `5. Target the \`main\` branch`,
                 `6. The PR should contain ONLY the spec file - no code changes`,
               ].join('\n')
