@@ -24,6 +24,13 @@ jobs:
           script: |
             const issueNumber = context.issue.number;
             const issue = context.payload.issue;
+            const safeTitle = (issue.title || '')
+              .replace(/\r?\n/g, ' ')
+              .replace(/`/g, "'")
+              .replace(/[<>]/g, '')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 180);
 
             // Assign Copilot coding agent. In this repository, assignment is the
             // reliable trigger for starting the Copilot coding workflow.
@@ -78,7 +85,7 @@ jobs:
                 `<!-- Brief justification -->`,
                 '```',
                 ``,
-                `4. Open a PR titled like: \`spec: Issue #${issueNumber} - ${issue.title.replace(/"/g, '\\"')}\``,
+                `4. Open a PR titled like: \`spec: Issue #${issueNumber} - ${safeTitle}\``,
                 `   - Include \`Issue #${issueNumber}\` in the title. The pipeline uses this for traceability.`,
                 `5. Target the \`main\` branch`,
                 `6. The PR should contain ONLY the spec file - no code changes`,
