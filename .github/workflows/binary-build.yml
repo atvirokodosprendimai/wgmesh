@@ -75,15 +75,7 @@ jobs:
 
       - name: Prepare binaries for release
         run: |
-          cd binaries
-          for dir in */; do
-            cd "$dir"
-            for file in *; do
-              mv "$file" ../../
-            done
-            cd ..
-          done
-          cd ..
+          find binaries -type f -name 'wgmesh-*' -exec mv {} ./ \;
           ls -lah wgmesh-*
 
       - name: Create GitHub Release
