@@ -25,7 +25,7 @@ jobs:
         id: is-spec
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PUSH_TOKEN }}
           script: |
             // Get PR from pull_request_review_comment or issue_comment on PR-linked issue
             let pr = context.payload.pull_request;
@@ -90,7 +90,7 @@ jobs:
         if: steps.is-spec.outputs.should_process == 'true'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PUSH_TOKEN }}
           script: |
             const issueNumber = '${{ steps.is-spec.outputs.issue_number }}';
             const prNumber = '${{ steps.is-spec.outputs.pr_number }}';

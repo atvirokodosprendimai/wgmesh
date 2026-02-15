@@ -20,7 +20,7 @@ jobs:
       - name: Assign Copilot coding agent to write specification
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PUSH_TOKEN }}
           script: |
             const issueNumber = context.issue.number;
             const issue = context.payload.issue;
