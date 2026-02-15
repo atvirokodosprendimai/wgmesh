@@ -38,17 +38,17 @@ Images are automatically tagged with:
 
 Pull the latest image:
 ```bash
-docker pull ghcr.io/nycterent/wgmesh:latest
+docker pull ghcr.io/atvirokodosprendimai/wgmesh:latest
 ```
 
 Pull a specific version:
 ```bash
-docker pull ghcr.io/nycterent/wgmesh:v1.0.0
+docker pull ghcr.io/atvirokodosprendimai/wgmesh:v1.0.0
 ```
 
 Pull a specific architecture:
 ```bash
-docker pull --platform linux/arm64 ghcr.io/nycterent/wgmesh:latest
+docker pull --platform linux/arm64 ghcr.io/atvirokodosprendimai/wgmesh:latest
 ```
 
 ## Dockerfile
