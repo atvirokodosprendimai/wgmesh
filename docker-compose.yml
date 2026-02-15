@@ -8,15 +8,12 @@ services:
     restart: unless-stopped
     volumes:
       - ./data/node1:/data
-    environment:
-      # Optional: Set log level (debug, info, warn, error)
-      - LOG_LEVEL=info
     command: >
       join
       --secret "${MESH_SECRET}"
       --interface wg0
       --listen-port 51820
-      --log-level info
+      --log-level ${LOG_LEVEL:-info}
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
@@ -32,14 +29,12 @@ services:
   #   restart: unless-stopped
   #   volumes:
   #     - ./data/node2:/data
-  #   environment:
-  #     - LOG_LEVEL=info
   #   command: >
   #     join
   #     --secret "${MESH_SECRET}"
   #     --interface wg1
   #     --listen-port 51821
-  #     --log-level info
+  #     --log-level ${LOG_LEVEL:-info}
   #   cap_add:
   #     - NET_ADMIN
   #     - SYS_MODULE
@@ -52,14 +47,12 @@ services:
   #   restart: unless-stopped
   #   volumes:
   #     - ./data/node3:/data
-  #   environment:
-  #     - LOG_LEVEL=info
   #   command: >
   #     join
   #     --secret "${MESH_SECRET}"
   #     --interface wg2
   #     --listen-port 51822
-  #     --log-level info
+  #     --log-level ${LOG_LEVEL:-info}
   #   cap_add:
   #     - NET_ADMIN
   #     - SYS_MODULE
