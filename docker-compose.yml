@@ -1,0 +1,76 @@
+services:
+  # Decentralized mode: single node joining a mesh with a shared secret
+  wgmesh-node:
+    image: ghcr.io/atvirokodosprendimai/wgmesh:latest
+    container_name: wgmesh-node
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./data/node1:/data
+    command: >
+      join
+      --secret "${MESH_SECRET}"
+      --interface wg0
+      --listen-port 51820
+      --log-level ${LOG_LEVEL:-info}
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+
+  # Example: Multiple nodes in the same mesh (for local testing)
+  # Uncomment and configure additional nodes as needed
+  
+  # wgmesh-node2:
+  #   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
+  #   container_name: wgmesh-node2
+  #   network_mode: host
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./data/node2:/data
+  #   command: >
+  #     join
+  #     --secret "${MESH_SECRET}"
+  #     --interface wg1
+  #     --listen-port 51821
+  #     --log-level ${LOG_LEVEL:-info}
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_MODULE
+
+  # wgmesh-node3:
+  #   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
+  #   container_name: wgmesh-node3
+  #   network_mode: host
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./data/node3:/data
+  #   command: >
+  #     join
+  #     --secret "${MESH_SECRET}"
+  #     --interface wg2
+  #     --listen-port 51822
+  #     --log-level ${LOG_LEVEL:-info}
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_MODULE
+
+  # Advanced options: Node with privacy mode and advertised routes
+  # wgmesh-node-advanced:
+  #   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
+  #   container_name: wgmesh-node-advanced
+  #   network_mode: host
+  #   restart: unless-stopped
+  #   volumes:
+  #     - ./data/node-advanced:/data
+  #   command: >
+  #     join
+  #     --secret "${MESH_SECRET}"
+  #     --interface wg0
+  #     --listen-port 51820
+  #     --log-level debug
+  #     --privacy
+  #     --gossip
+  #     --advertise-routes "192.168.1.0/24,10.0.0.0/16"
+  #   cap_add:
+  #     - NET_ADMIN
+  #     - SYS_MODULE

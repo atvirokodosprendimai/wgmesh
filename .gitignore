@@ -17,6 +17,10 @@ mesh-state.json
 *.json.bak
 *.json
 
+# Docker compose environment and data
+.env
+data/
+
 # Go workspace file
 go.work
 
