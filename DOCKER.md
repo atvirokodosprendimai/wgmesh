@@ -18,15 +18,15 @@ The Docker images are built for the following platforms:
 ### Workflow Configuration
 
 The workflow (`.github/workflows/docker-build.yml`) is triggered by:
-- **Push to the repository's default branch** (typically `main` or `master`): Builds and pushes images tagged with branch name and `latest`
-- **Git tags** matching `v*.*.*`: Builds and pushes images with semantic version tags
+- **Push to the repository's default branch** (typically `main` or `master`): Builds and pushes images tagged with branch name
+- **Git tags** matching `v*.*.*`: Builds and pushes images with semantic version tags and `latest` (for stable releases only)
 - **Pull requests**: Builds images but doesn't push them (for validation)
 - **Manual dispatch**: Can be triggered manually from GitHub Actions UI
 
 ### Image Tags
 
 Images are automatically tagged with:
-- `latest` - Latest build from the default branch
+- `latest` - Latest stable release (semantic version tags without pre-release identifiers like `-beta` or `-rc1`)
 - `<branch-name>` - Branch-specific builds
 - `<version>` - Semantic version (e.g., `v1.2.3`)
 - `<major>.<minor>` - Major and minor version (e.g., `1.2`)
