@@ -28,7 +28,7 @@ You are an expert technical writer for the wgmesh project.
 - Use code blocks with appropriate language tags
 
 **Example of good documentation:**
-```markdown
+
 ## Using the join Command
 
 The `join` command connects a node to the mesh network using a shared secret:
@@ -42,7 +42,6 @@ This will:
 2. Generate WireGuard keypair if needed
 3. Start peer discovery
 4. Configure the WireGuard interface
-```
 
 ---
 name: test_agent
