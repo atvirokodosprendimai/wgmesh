@@ -15,7 +15,7 @@
   description: "Spec PR created, awaiting human review"
 
 - name: copilot-revising
-  color: "F9D0C4"
+  color: "FF9900"
   description: "Copilot is revising spec based on review feedback"
 
 - name: approved-for-build
