@@ -76,11 +76,11 @@ func signRotation(membershipKey []byte, announcement *RotationAnnouncement) ([]b
 
 // RotationState tracks the state of an ongoing secret rotation
 type RotationState struct {
-	OldSecret     string    `json:"old_secret"`
-	NewSecret     string    `json:"new_secret"`
-	GracePeriod   time.Duration `json:"grace_period"`
-	StartedAt     time.Time `json:"started_at"`
-	Completed     bool      `json:"completed"`
+	OldSecret   string        `json:"old_secret"`
+	NewSecret   string        `json:"new_secret"`
+	GracePeriod time.Duration `json:"grace_period"`
+	StartedAt   time.Time     `json:"started_at"`
+	Completed   bool          `json:"completed"`
 }
 
 // IsInGracePeriod returns true if the rotation is still in the grace period
