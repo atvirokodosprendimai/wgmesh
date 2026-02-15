@@ -259,7 +259,7 @@ func findAvailablePort(startPort int) int {
 // getWGInterfacePort gets the listen port of a WireGuard interface (0 if not set)
 func getWGInterfacePort(name string) int {
 	cmd := cmdExecutor.Command("wg", "show", name, "listen-port")
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
 		return 0
 	}

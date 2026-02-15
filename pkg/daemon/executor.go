@@ -1,6 +1,9 @@
 package daemon
 
-import "os/exec"
+import (
+	"io"
+	"os/exec"
+)
 
 // CommandExecutor abstracts command execution for testing
 type CommandExecutor interface {
@@ -14,10 +17,12 @@ type CommandExecutor interface {
 type Command interface {
 	// CombinedOutput runs the command and returns its combined stdout and stderr
 	CombinedOutput() ([]byte, error)
+	// Output runs the command and returns its standard output
+	Output() ([]byte, error)
 	// Run runs the command and waits for it to complete
 	Run() error
 	// SetStdin sets the standard input for the command
-	SetStdin(stdin interface{})
+	SetStdin(stdin io.Reader)
 }
 
 // RealCommandExecutor is the production implementation that uses os/exec
@@ -43,14 +48,17 @@ func (r *RealCommand) CombinedOutput() ([]byte, error) {
 	return r.cmd.CombinedOutput()
 }
 
+// Output runs the command and returns its standard output
+func (r *RealCommand) Output() ([]byte, error) {
+	return r.cmd.Output()
+}
+
 // Run runs the command and waits for it to complete
 func (r *RealCommand) Run() error {
 	return r.cmd.Run()
 }
 
 // SetStdin sets the standard input for the command
-func (r *RealCommand) SetStdin(stdin interface{}) {
-	if reader, ok := stdin.(interface{ Read([]byte) (int, error) }); ok {
-		r.cmd.Stdin = reader
-	}
+func (r *RealCommand) SetStdin(stdin io.Reader) {
+	r.cmd.Stdin = stdin
 }

@@ -3,6 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"io"
 	"runtime"
 	"strings"
 	"testing"
@@ -31,13 +32,21 @@ func (m *MockCommandExecutor) Command(name string, args ...string) Command {
 // MockCommand is a mock implementation of Command for testing
 type MockCommand struct {
 	combinedOutputFunc func() ([]byte, error)
+	outputFunc         func() ([]byte, error)
 	runFunc            func() error
-	stdin              interface{}
+	stdin              io.Reader
 }
 
 func (m *MockCommand) CombinedOutput() ([]byte, error) {
 	if m.combinedOutputFunc != nil {
 		return m.combinedOutputFunc()
+	}
+	return []byte{}, nil
+}
+
+func (m *MockCommand) Output() ([]byte, error) {
+	if m.outputFunc != nil {
+		return m.outputFunc()
 	}
 	return []byte{}, nil
 }
@@ -49,7 +58,7 @@ func (m *MockCommand) Run() error {
 	return nil
 }
 
-func (m *MockCommand) SetStdin(stdin interface{}) {
+func (m *MockCommand) SetStdin(stdin io.Reader) {
 	m.stdin = stdin
 }
 
