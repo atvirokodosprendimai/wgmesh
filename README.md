@@ -26,7 +26,7 @@ A Go-based tool for building and managing WireGuard mesh networks with support f
 ### From Source
 
 ```bash
-git clone https://github.com/nycterent/wgmesh.git
+git clone https://github.com/atvirokodosprendimai/wgmesh.git
 cd wgmesh
 go build -o wgmesh
 ```
@@ -37,16 +37,16 @@ Docker images are automatically built for multiple architectures (amd64, arm64, 
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/nycterent/wgmesh:latest
+docker pull ghcr.io/atvirokodosprendimai/wgmesh:latest
 
 # Or pull a specific version
-docker pull ghcr.io/nycterent/wgmesh:v1.0.0
+docker pull ghcr.io/atvirokodosprendimai/wgmesh:v1.0.0
 
 # Run wgmesh in a container
-docker run --rm ghcr.io/nycterent/wgmesh:latest --help
+docker run --rm ghcr.io/atvirokodosprendimai/wgmesh:latest --help
 
 # Run with state file mounted
-docker run --rm -v $(pwd)/data:/data ghcr.io/nycterent/wgmesh:latest -state /data/mesh-state.json -list
+docker run --rm -v $(pwd)/data:/data ghcr.io/atvirokodosprendimai/wgmesh:latest -state /data/mesh-state.json -list
 ```
 
 **Note**: For full WireGuard functionality, the container needs privileged access and network host mode:
@@ -54,7 +54,7 @@ docker run --rm -v $(pwd)/data:/data ghcr.io/nycterent/wgmesh:latest -state /dat
 ```bash
 docker run --rm --privileged --network host \
   -v $(pwd)/data:/data \
-  ghcr.io/nycterent/wgmesh:latest join \
+  ghcr.io/atvirokodosprendimai/wgmesh:latest join \
   --secret "wgmesh://v1/<your-secret>"
 ```
 
