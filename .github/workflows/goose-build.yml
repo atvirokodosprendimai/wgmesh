@@ -24,10 +24,10 @@ permissions:
   issues: write
 
 env:
-  GOOSE_PROVIDER: google
-  GOOSE_MODEL: gemini-2.5-flash
-  # Goose requires the provider-specific key
-  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+  GOOSE_PROVIDER: anthropic
+  GOOSE_MODEL: GLM-5
+  ANTHROPIC_API_KEY: ${{ secrets.ZAI_API_KEY }}
+  ANTHROPIC_HOST: https://api.z.ai/api/anthropic
 
 jobs:
   implement:
@@ -49,10 +49,10 @@ jobs:
       # ── Validate prerequisites ──────────────────────────
       - name: Validate API key is configured
         env:
-          KEY: ${{ secrets.GOOGLE_API_KEY }}
+          KEY: ${{ secrets.ZAI_API_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::error::GOOGLE_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
+            echo "::error::ZAI_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
             exit 1
           fi
 
@@ -289,8 +289,8 @@ jobs:
       - name: Run Goose
         id: goose
         run: |
-          MAX_ATTEMPTS=5
-          BACKOFF=60  # initial delay in seconds (Gemini free tier: 20 req/min)
+          MAX_ATTEMPTS=3
+          BACKOFF=30  # initial delay in seconds
           SUCCEEDED=false
 
           for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
