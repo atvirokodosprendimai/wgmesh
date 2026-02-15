@@ -58,6 +58,26 @@ docker run --rm --privileged --network host \
   --secret "wgmesh://v1/<your-secret>"
 ```
 
+### Using Docker Compose
+
+For easier deployment and management, use Docker Compose:
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Edit .env and set your MESH_SECRET
+nano .env
+
+# Start the mesh node
+docker-compose up -d
+
+# View logs
+docker-compose logs -f wgmesh-node
+```
+
+See [DOCKER-COMPOSE.md](DOCKER-COMPOSE.md) for detailed documentation and advanced configurations.
+
 ## Quick Start
 
 ### Decentralized Mode (Secret-Based Discovery)
