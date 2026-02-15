@@ -1,0 +1,88 @@
+name: Copilot Spec Revision
+
+# Triggered when a review comment is added to a spec PR.
+# Re-assigns to Copilot to address feedback before approval.
+
+on:
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  revision:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if this is a spec PR
+        id: is-spec
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            
+            // Only handle spec PRs (created by Copilot for triage)
+            const isSpec = pr.title.toLowerCase().includes('spec:');
+            
+            if (!isSpec) {
+              console.log('Not a spec PR, skipping revision trigger');
+              core.setOutput('should_process', 'false');
+              return;
+            }
+            
+            // Extract issue number from PR title: "spec: Issue #123 - ..."
+            const match = pr.title.match(/Issue #(\d+)/);
+            if (!match) {
+              console.log('Could not extract issue number from PR title:', pr.title);
+              core.setOutput('should_process', 'false');
+              return;
+            }
+            
+            const issueNumber = match[1];
+            core.setOutput('should_process', 'true');
+            core.setOutput('issue_number', issueNumber);
+            
+            console.log(`Spec PR for issue #${issueNumber} received review comment`);
+
+      - name: Trigger Copilot revision
+        if: steps.is-spec.outputs.should_process == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNumber = '${{ steps.is-spec.outputs.issue_number }}';
+            const prNumber = context.payload.pull_request.number;
+            const commenter = context.payload.comment.user.login;
+            
+            // Add comment noting revision needed
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(issueNumber),
+              body: [
+                `📝 Review feedback received on spec PR #${prNumber} from @${commenter}.`,
+                ``,
+                `@Copilot Please address the feedback and update the spec accordingly.`
+              ].join('\n')
+            });
+            
+            // Re-assign to Copilot to handle the revision
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(issueNumber),
+              assignees: ['Copilot']
+            });
+            
+            // Update PR label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['copilot-revising']
+            });
+            
+            console.log(`Triggered Copilot revision for issue #${issueNumber} based on PR #${prNumber} review comment`);
