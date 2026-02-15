@@ -103,25 +103,33 @@ jobs:
                 repo: context.repo.repo,
                 issue_number: parseInt(issueNumber),
                 body: [
-                  `📝 Review feedback received on spec PR #${prNumber} from @${commenter}.`,
+                  `Review feedback received on spec PR #${prNumber} from @${commenter}.`,
                   ``,
-                  "@Copilot Please address the feedback and update the spec accordingly."
+                  `Copilot coding agent has been re-assigned to address the feedback.`,
                 ].join('\n')
               });
             } catch (error) {
               core.warning(`Failed to comment on issue #${issueNumber}: ${error.message}`);
             }
-            
-            // Re-assign to Copilot to handle the revision
+
+            // Re-assign Copilot coding agent using the correct REST API.
+            // Must use "copilot-swe-agent[bot]" as the assignee name.
             try {
-              await github.rest.issues.addAssignees({
+              await github.request('POST /repos/{owner}/{repo}/issues/{issue_number}/assignees', {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: parseInt(issueNumber),
-                assignees: ['Copilot']
+                assignees: ['copilot-swe-agent[bot]'],
+                agent_assignment: {
+                  custom_instructions: `Review feedback was left on spec PR #${prNumber}. Please address the feedback and update the spec file accordingly. Do NOT write implementation code.`,
+                },
+                headers: {
+                  'X-GitHub-Api-Version': '2022-11-28',
+                },
               });
+              console.log(`Re-assigned copilot-swe-agent[bot] to issue #${issueNumber}`);
             } catch (error) {
-              core.warning(`Failed to assign Copilot to issue #${issueNumber}: ${error.message}`);
+              core.warning(`Failed to assign Copilot coding agent to issue #${issueNumber}: ${error.message}`);
             }
             
             // Update PR label
