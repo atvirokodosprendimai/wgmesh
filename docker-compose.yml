@@ -3,7 +3,6 @@ services:
   wgmesh-node:
     image: ghcr.io/atvirokodosprendimai/wgmesh:latest
     container_name: wgmesh-node
-    privileged: true
     network_mode: host
     restart: unless-stopped
     volumes:
@@ -24,7 +23,6 @@ services:
   # wgmesh-node2:
   #   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
   #   container_name: wgmesh-node2
-  #   privileged: true
   #   network_mode: host
   #   restart: unless-stopped
   #   volumes:
@@ -42,7 +40,6 @@ services:
   # wgmesh-node3:
   #   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
   #   container_name: wgmesh-node3
-  #   privileged: true
   #   network_mode: host
   #   restart: unless-stopped
   #   volumes:
@@ -61,7 +58,6 @@ services:
   # wgmesh-node-advanced:
   #   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
   #   container_name: wgmesh-node-advanced
-  #   privileged: true
   #   network_mode: host
   #   restart: unless-stopped
   #   volumes:

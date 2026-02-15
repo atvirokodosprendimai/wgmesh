@@ -13,7 +13,7 @@ The `docker-compose.yml` file provides a simple way to deploy wgmesh nodes that 
 ## Prerequisites
 
 - Docker and Docker Compose installed
-- A mesh secret (generated using `wgmesh init`)
+- A mesh secret (generated using `wgmesh init --secret`)
 - Linux host with WireGuard kernel module support
 
 ## Quick Start
@@ -24,10 +24,10 @@ First, generate a mesh secret using the wgmesh CLI or Docker:
 
 ```bash
 # Using local binary
-./wgmesh init
+./wgmesh init --secret
 
 # Or using Docker
-docker run --rm ghcr.io/atvirokodosprendimai/wgmesh:latest init
+docker run --rm ghcr.io/atvirokodosprendimai/wgmesh:latest init --secret
 ```
 
 This will output a secret in the format: `wgmesh://v1/<base64-encoded-secret>`
@@ -59,7 +59,7 @@ docker-compose up -d wgmesh-node
 docker-compose logs -f wgmesh-node
 
 # Check status
-docker-compose exec wgmesh-node wgmesh status
+docker-compose exec wgmesh-node sh -c 'wgmesh status --secret "$MESH_SECRET"'
 ```
 
 ## Configuration Options
@@ -70,7 +70,7 @@ The default configuration in `docker-compose.yml` includes:
 
 - **Image**: `ghcr.io/atvirokodosprendimai/wgmesh:latest`
 - **Network Mode**: `host` (required for WireGuard)
-- **Privileges**: `privileged: true` with `NET_ADMIN` and `SYS_MODULE` capabilities
+- **Capabilities**: `NET_ADMIN` and `SYS_MODULE` (for WireGuard interface management)
 - **Persistent Storage**: `./data/node1:/data` volume mount
 - **Interface**: `wg0` on port `51820`
 
@@ -161,7 +161,7 @@ If running behind NAT, forward UDP port 51820 (or your custom port) to the host.
 
 ```bash
 # Show mesh status
-docker-compose exec wgmesh-node wgmesh status
+docker-compose exec wgmesh-node sh -c 'wgmesh status --secret "$MESH_SECRET"'
 
 # View WireGuard interface
 docker-compose exec wgmesh-node wg show wg0
@@ -192,13 +192,14 @@ rm -rf ./data
 
 - **Never commit** `.env` or mesh secrets to version control
 - Use `.env.example` as a template
-- Rotate secrets periodically using `wgmesh rotate-secret`
+- Rotate secrets periodically using `wgmesh rotate-secret --current CURRENT_SECRET` (optionally with `--new` and `--grace`)
 - Share secrets securely (encrypted channels only)
 
 ### Container Security
 
 - Containers run as `root` by default (required for WireGuard operations)
-- Use `privileged: true` or specific capabilities (`NET_ADMIN`, `SYS_MODULE`)
+- Uses specific capabilities (`NET_ADMIN`, `SYS_MODULE`) following the principle of least privilege
+- Alternatively, you can use `privileged: true` for simpler configuration (less secure)
 - Host network mode is required for WireGuard functionality
 - Persistent data in `./data/` contains private keys - protect accordingly
 
@@ -223,8 +224,8 @@ sudo modprobe wireguard
 
 **Check permissions:**
 ```bash
-# Ensure user can run privileged containers
-docker run --rm --privileged alpine:latest echo "OK"
+# Ensure user can run containers with capabilities
+docker run --rm --cap-add=NET_ADMIN alpine:latest echo "OK"
 ```
 
 ### Nodes Can't Connect
@@ -291,7 +292,6 @@ This data must persist across container restarts for stable mesh operation.
 wgmesh-node:
   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
   container_name: wgmesh-gateway
-  privileged: true
   network_mode: host
   restart: unless-stopped
   volumes:
@@ -313,7 +313,6 @@ wgmesh-node:
 wgmesh-node:
   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
   container_name: wgmesh-private
-  privileged: true
   network_mode: host
   restart: unless-stopped
   volumes:
