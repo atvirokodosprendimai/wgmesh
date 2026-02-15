@@ -16,10 +16,16 @@ import (
 	_ "github.com/atvirokodosprendimai/wgmesh/pkg/discovery"
 )
 
+// version is set at build time via -ldflags "-X main.version=..."
+var version = "dev"
+
 func main() {
 	// Check for subcommands first
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "version":
+			fmt.Println("wgmesh " + version)
+			return
 		case "join":
 			joinCmd()
 			return

@@ -55,7 +55,11 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm }}
         run: |
-          go build -v -ldflags="-s -w" -o ${{ matrix.output }} .
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [ -z "$VERSION" ] || [ "$VERSION" = "$GITHUB_REF_NAME" ]; then
+            VERSION="dev"
+          fi
+          go build -v -ldflags="-s -w -X main.version=${VERSION}" -o ${{ matrix.output }} .
           chmod +x ${{ matrix.output }}
 
       - name: Upload artifact
@@ -101,3 +105,86 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Homebrew formula
+        if: ${{ !contains(github.ref, '-') }}
+        env:
+          PUSH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "Updating Homebrew formula to version ${VERSION}"
+
+          # Compute SHA256 for each platform binary
+          SHA_DARWIN_ARM64=$(sha256sum wgmesh-darwin-arm64 | awk '{print $1}')
+          SHA_DARWIN_AMD64=$(sha256sum wgmesh-darwin-amd64 | awk '{print $1}')
+          SHA_LINUX_ARM64=$(sha256sum wgmesh-linux-arm64 | awk '{print $1}')
+          SHA_LINUX_AMD64=$(sha256sum wgmesh-linux-amd64 | awk '{print $1}')
+
+          echo "SHA256 darwin-arm64: ${SHA_DARWIN_ARM64}"
+          echo "SHA256 darwin-amd64: ${SHA_DARWIN_AMD64}"
+          echo "SHA256 linux-arm64:  ${SHA_LINUX_ARM64}"
+          echo "SHA256 linux-amd64:  ${SHA_LINUX_AMD64}"
+
+          # Clone the homebrew-tap repo
+          git clone "https://x-access-token:${PUSH_TOKEN}@github.com/atvirokodosprendimai/homebrew-tap.git" /tmp/homebrew-tap
+          cd /tmp/homebrew-tap
+
+          # Write updated formula
+          cat > Formula/wgmesh.rb << 'FORMULA'
+          class Wgmesh < Formula
+            desc "WireGuard mesh network builder - decentralized peer discovery and encrypted networking"
+            homepage "https://github.com/atvirokodosprendimai/wgmesh"
+            version "VERSION_PLACEHOLDER"
+            license "MIT"
+
+            on_macos do
+              on_arm do
+                url "https://github.com/atvirokodosprendimai/wgmesh/releases/download/v#{version}/wgmesh-darwin-arm64"
+                sha256 "SHA_DARWIN_ARM64_PLACEHOLDER"
+              end
+
+              on_intel do
+                url "https://github.com/atvirokodosprendimai/wgmesh/releases/download/v#{version}/wgmesh-darwin-amd64"
+                sha256 "SHA_DARWIN_AMD64_PLACEHOLDER"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/atvirokodosprendimai/wgmesh/releases/download/v#{version}/wgmesh-linux-arm64"
+                sha256 "SHA_LINUX_ARM64_PLACEHOLDER"
+              end
+
+              on_intel do
+                url "https://github.com/atvirokodosprendimai/wgmesh/releases/download/v#{version}/wgmesh-linux-amd64"
+                sha256 "SHA_LINUX_AMD64_PLACEHOLDER"
+              end
+            end
+
+            def install
+              binary = Dir["wgmesh-*"].first || "wgmesh"
+              bin.install binary => "wgmesh"
+            end
+
+            test do
+              assert_match "wgmesh", shell_output("#{bin}/wgmesh version 2>&1", 0)
+            end
+          end
+          FORMULA
+
+          # Replace placeholders with actual values
+          sed -i "s/VERSION_PLACEHOLDER/${VERSION}/g" Formula/wgmesh.rb
+          sed -i "s/SHA_DARWIN_ARM64_PLACEHOLDER/${SHA_DARWIN_ARM64}/g" Formula/wgmesh.rb
+          sed -i "s/SHA_DARWIN_AMD64_PLACEHOLDER/${SHA_DARWIN_AMD64}/g" Formula/wgmesh.rb
+          sed -i "s/SHA_LINUX_ARM64_PLACEHOLDER/${SHA_LINUX_ARM64}/g" Formula/wgmesh.rb
+          sed -i "s/SHA_LINUX_AMD64_PLACEHOLDER/${SHA_LINUX_AMD64}/g" Formula/wgmesh.rb
+
+          # Remove leading whitespace from heredoc indentation
+          sed -i 's/^          //' Formula/wgmesh.rb
+
+          # Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/wgmesh.rb
+          git commit -m "Update wgmesh formula to v${VERSION}"
+          git push
