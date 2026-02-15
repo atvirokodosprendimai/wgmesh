@@ -91,12 +91,15 @@ jobs:
             }
 
       # ── Setup ──────────────────────────────────────────
+      # PUSH_TOKEN is a PAT with 'repo' + 'workflow' scopes.
+      # Required because GITHUB_TOKEN cannot push workflow file changes.
+      # Falls back to GITHUB_TOKEN for non-workflow changes.
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.PUSH_TOKEN }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
