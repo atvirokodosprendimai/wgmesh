@@ -58,6 +58,10 @@ When asked to triage an issue and write a specification:
 ## Classification
 <!-- One of: fix, feature, refactor, wont-do, needs-info -->
 
+## Deliverables
+<!-- What needs to be delivered: code, documentation, or both -->
+<!-- Examples: "code", "documentation", "code + documentation" -->
+
 ## Problem Analysis
 <!-- What is wrong or what is being requested -->
 
@@ -65,7 +69,7 @@ When asked to triage an issue and write a specification:
 <!-- Step-by-step approach to solve this -->
 
 ## Affected Files
-<!-- List of files that would need changes -->
+<!-- List of files that would need changes (code files and/or documentation files) -->
 
 ## Test Strategy
 <!-- How to verify the fix/feature works -->
