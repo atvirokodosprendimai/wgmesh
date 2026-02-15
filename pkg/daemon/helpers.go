@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 )
+
+// cmdExecutor is the command executor used by helper functions.
+// It can be replaced with a mock for testing.
+var cmdExecutor CommandExecutor = &RealCommandExecutor{}
 
 // localNodeState is the persisted state for a local node
 type localNodeState struct {
@@ -65,7 +68,7 @@ func interfaceExists(name string) bool {
 		_, err := os.Stat("/sys/class/net/" + name)
 		return err == nil
 	case "darwin":
-		cmd := exec.Command("ifconfig", name)
+		cmd := cmdExecutor.Command("ifconfig", name)
 		return cmd.Run() == nil
 	default:
 		return false
@@ -76,17 +79,17 @@ func interfaceExists(name string) bool {
 func createInterface(name string) error {
 	switch runtime.GOOS {
 	case "linux":
-		cmd := exec.Command("ip", "link", "add", "dev", name, "type", "wireguard")
+		cmd := cmdExecutor.Command("ip", "link", "add", "dev", name, "type", "wireguard")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to create interface: %s: %w", string(output), err)
 		}
 		return nil
 	case "darwin":
-		if _, err := exec.LookPath("wireguard-go"); err != nil {
+		if _, err := cmdExecutor.LookPath("wireguard-go"); err != nil {
 			return fmt.Errorf("wireguard-go not found in PATH (required on macOS): %w", err)
 		}
 
-		cmd := exec.Command("wireguard-go", name)
+		cmd := cmdExecutor.Command("wireguard-go", name)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			out := string(output)
 			if !strings.Contains(out, "already exists") {
@@ -112,8 +115,8 @@ func createInterface(name string) error {
 func configureInterface(name, privateKey string, listenPort int) error {
 	// Configure interface. Pass key via stdin to avoid filesystem permission issues.
 	args := []string{"set", name, "private-key", "/dev/stdin", "listen-port", fmt.Sprintf("%d", listenPort)}
-	cmd := exec.Command("wg", args...)
-	cmd.Stdin = strings.NewReader(privateKey + "\n")
+	cmd := cmdExecutor.Command("wg", args...)
+	cmd.SetStdin(strings.NewReader(privateKey + "\n"))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to configure interface: %s: %w", string(output), err)
 	}
@@ -126,9 +129,9 @@ func setInterfaceAddress(name, address string) error {
 	switch runtime.GOOS {
 	case "linux":
 		// Remove existing addresses first
-		exec.Command("ip", "addr", "flush", "dev", name).Run()
+		cmdExecutor.Command("ip", "addr", "flush", "dev", name).Run()
 
-		cmd := exec.Command("ip", "addr", "add", address, "dev", name)
+		cmd := cmdExecutor.Command("ip", "addr", "add", address, "dev", name)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			// Ignore "file exists" error (address already set)
 			if !strings.Contains(string(output), "File exists") {
@@ -148,7 +151,7 @@ func setInterfaceAddress(name, address string) error {
 		}
 
 		netmask := net.IP(ipNet.Mask).String()
-		cmd := exec.Command("ifconfig", name, "inet", ipv4.String(), ipv4.String(), "netmask", netmask, "alias")
+		cmd := cmdExecutor.Command("ifconfig", name, "inet", ipv4.String(), ipv4.String(), "netmask", netmask, "alias")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			if !strings.Contains(string(output), "File exists") {
 				return fmt.Errorf("failed to set address: %s: %w", string(output), err)
@@ -158,11 +161,11 @@ func setInterfaceAddress(name, address string) error {
 		// macOS utun interfaces are point-to-point and may not add a connected
 		// route for the CIDR. Ensure the mesh subnet routes via this interface.
 		networkCIDR := ipNet.String()
-		routeAdd := exec.Command("route", "-n", "add", "-net", networkCIDR, "-interface", name)
+		routeAdd := cmdExecutor.Command("route", "-n", "add", "-net", networkCIDR, "-interface", name)
 		if output, err := routeAdd.CombinedOutput(); err != nil {
 			out := string(output)
 			if strings.Contains(out, "File exists") {
-				routeChange := exec.Command("route", "-n", "change", "-net", networkCIDR, "-interface", name)
+				routeChange := cmdExecutor.Command("route", "-n", "change", "-net", networkCIDR, "-interface", name)
 				if changeOutput, changeErr := routeChange.CombinedOutput(); changeErr != nil {
 					return fmt.Errorf("failed to update route %s via %s: %s: %w", networkCIDR, name, string(changeOutput), changeErr)
 				}
@@ -181,13 +184,13 @@ func setInterfaceAddress(name, address string) error {
 func setInterfaceUp(name string) error {
 	switch runtime.GOOS {
 	case "linux":
-		cmd := exec.Command("ip", "link", "set", "dev", name, "up")
+		cmd := cmdExecutor.Command("ip", "link", "set", "dev", name, "up")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to bring interface up: %s: %w", string(output), err)
 		}
 		return nil
 	case "darwin":
-		cmd := exec.Command("ifconfig", name, "up")
+		cmd := cmdExecutor.Command("ifconfig", name, "up")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to bring interface up: %s: %w", string(output), err)
 		}
@@ -201,11 +204,11 @@ func setInterfaceUp(name string) error {
 func setInterfaceDown(name string) error {
 	switch runtime.GOOS {
 	case "linux":
-		cmd := exec.Command("ip", "link", "set", "dev", name, "down")
+		cmd := cmdExecutor.Command("ip", "link", "set", "dev", name, "down")
 		cmd.Run() // Ignore errors - interface might not be up
 		return nil
 	case "darwin":
-		cmd := exec.Command("ifconfig", name, "down")
+		cmd := cmdExecutor.Command("ifconfig", name, "down")
 		cmd.Run() // Ignore errors
 		return nil
 	default:
@@ -221,9 +224,9 @@ func resetInterface(name string) error {
 	switch runtime.GOOS {
 	case "linux":
 		// Flush all addresses
-		exec.Command("ip", "addr", "flush", "dev", name).Run()
+		cmdExecutor.Command("ip", "addr", "flush", "dev", name).Run()
 		// Remove all peers
-		exec.Command("wg", "set", name, "peer", "remove").Run()
+		cmdExecutor.Command("wg", "set", name, "peer", "remove").Run()
 		return nil
 	case "darwin":
 		return nil
@@ -255,7 +258,7 @@ func findAvailablePort(startPort int) int {
 
 // getWGInterfacePort gets the listen port of a WireGuard interface (0 if not set)
 func getWGInterfacePort(name string) int {
-	cmd := exec.Command("wg", "show", name, "listen-port")
+	cmd := cmdExecutor.Command("wg", "show", name, "listen-port")
 	output, err := cmd.Output()
 	if err != nil {
 		return 0
