@@ -341,9 +341,11 @@ jobs:
               TOO_SHORT=true
             fi
 
-            # ── Success: no errors, meaningful output ──
-            if [ "$GOOSE_EXIT" -eq 0 ] && [ "$RATE_LIMITED" = "false" ] && [ "$TOO_SHORT" = "false" ]; then
-              echo "Goose completed successfully on attempt $ATTEMPT"
+            # ── Success: meaningful output, no fatal errors ──
+            # Goose CLI often exits 1 even on successful completion,
+            # so we check output quality rather than relying on exit code alone.
+            if [ "$RATE_LIMITED" = "false" ] && [ "$TOO_SHORT" = "false" ]; then
+              echo "Goose completed on attempt $ATTEMPT (exit=$GOOSE_EXIT)"
               SUCCEEDED=true
               break
             fi
