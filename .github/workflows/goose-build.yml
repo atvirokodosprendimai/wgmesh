@@ -1,12 +1,22 @@
 name: Goose Implementation
 
-# Triggered when a spec PR is labeled 'approved-for-build'.
-# Reads the spec file, runs Goose to implement the code, and creates
-# a draft implementation PR for human review.
+# Triggered when:
+# 1. A spec PR is labeled 'approved-for-build' (normal flow)
+# 2. Manually via workflow_dispatch (re-trigger for merged PRs or retries)
 
 on:
   pull_request:
     types: [labeled]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to implement (e.g. 24)'
+        required: true
+        type: string
+      spec_pr_number:
+        description: 'Spec PR number (for tracking, e.g. 28)'
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -21,11 +31,18 @@ env:
 
 jobs:
   implement:
-    if: github.event.label.name == 'approved-for-build'
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.label.name == 'approved-for-build'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
-      group: goose-implement-${{ github.event.pull_request.number }}
+      group: >-
+        goose-implement-${{
+          github.event_name == 'workflow_dispatch'
+          && github.event.inputs.issue_number
+          || github.event.pull_request.number
+        }}
       cancel-in-progress: false
 
     steps:
@@ -39,16 +56,21 @@ jobs:
             exit 1
           fi
 
-      - name: Verify label was applied via approve workflow
+      - name: Verify authorization
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Log the PR branch for audit trail
+            if (context.eventName === 'workflow_dispatch') {
+              // workflow_dispatch already requires write access to trigger
+              console.log(`Manual dispatch by @${context.actor}`);
+              return;
+            }
+
+            // For PR label events, verify the sender has write access
             const pr = context.payload.pull_request;
             console.log(`Spec PR branch: ${pr.head.ref}`);
 
-            // Verify the label event was triggered by a user with write access
             const sender = context.payload.sender;
             if (sender) {
               try {
@@ -100,67 +122,90 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const pr = context.payload.pull_request;
+            let issueNumber, specBranch, specPRNumber;
 
-            // Prefer extracting issue number from the spec filename in PR changes.
-            // This is resilient even if Copilot uses non-standard PR titles.
-            const files = await github.paginate(github.rest.pulls.listFiles, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr.number,
-              per_page: 100,
-            });
+            if (context.eventName === 'workflow_dispatch') {
+              // Manual trigger — inputs provided directly
+              issueNumber = context.payload.inputs.issue_number;
+              specPRNumber = context.payload.inputs.spec_pr_number;
 
-            let issueNumber = null;
-            for (const file of files) {
-              const match = file.filename.match(/^specs\/issue-(\d+)-spec\.md$/);
-              if (match) {
-                issueNumber = match[1];
-                break;
+              // Look up the spec PR to find its branch (may be merged)
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: parseInt(specPRNumber),
+              });
+              specBranch = pr.head.ref;
+              console.log(`Manual dispatch: issue #${issueNumber}, spec PR #${specPRNumber} (${pr.state})`);
+            } else {
+              // PR label trigger — extract from PR context
+              const pr = context.payload.pull_request;
+
+              // Prefer extracting issue number from the spec filename in PR changes.
+              const files = await github.paginate(github.rest.pulls.listFiles, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                per_page: 100,
+              });
+
+              issueNumber = null;
+              for (const file of files) {
+                const match = file.filename.match(/^specs\/issue-(\d+)-spec\.md$/);
+                if (match) {
+                  issueNumber = match[1];
+                  break;
+                }
               }
-            }
 
-            // Backward-compatible fallback for older PRs.
-            if (!issueNumber) {
-              const titleMatch = pr.title.match(/Issue #(\d+)/);
-              if (titleMatch) {
-                issueNumber = titleMatch[1];
+              // Backward-compatible fallback for older PRs.
+              if (!issueNumber) {
+                const titleMatch = pr.title.match(/Issue #(\d+)/);
+                if (titleMatch) {
+                  issueNumber = titleMatch[1];
+                }
               }
-            }
 
-            if (!issueNumber) {
-              core.setFailed(
-                'Could not extract issue number from spec filename or PR title. ' +
-                'Expected changed file like specs/issue-N-spec.md or title containing "Issue #N". ' +
-                'PR title: ' + pr.title
-              );
-              return;
+              if (!issueNumber) {
+                core.setFailed(
+                  'Could not extract issue number from spec filename or PR title. ' +
+                  'Expected changed file like specs/issue-N-spec.md or title containing "Issue #N". ' +
+                  'PR title: ' + pr.title
+                );
+                return;
+              }
+
+              specBranch = pr.head.ref;
+              specPRNumber = String(pr.number);
             }
 
             core.setOutput('issue_number', issueNumber);
-            core.setOutput('spec_branch', pr.head.ref);
-            core.setOutput('spec_pr_number', pr.number);
+            core.setOutput('spec_branch', specBranch);
+            core.setOutput('spec_pr_number', specPRNumber);
             core.setOutput('impl_branch', `goose/issue-${issueNumber}`);
 
             console.log(`Issue: #${issueNumber}`);
-            console.log(`Spec branch: ${pr.head.ref}`);
-            console.log(`Spec PR: #${pr.number}`);
+            console.log(`Spec branch: ${specBranch}`);
+            console.log(`Spec PR: #${specPRNumber}`);
 
-      - name: Fetch spec file from spec branch
+      - name: Fetch spec file
         run: |
-          # Fetch the spec branch to access the spec file
-          git fetch origin ${{ steps.spec.outputs.spec_branch }}
-          git checkout origin/${{ steps.spec.outputs.spec_branch }} -- \
-            "specs/issue-${{ steps.spec.outputs.issue_number }}-spec.md" 2>/dev/null || true
-
           SPEC_FILE="specs/issue-${{ steps.spec.outputs.issue_number }}-spec.md"
+
+          # Check if spec file already exists on main (merged PR case)
+          if [ -f "$SPEC_FILE" ]; then
+            echo "Spec file found on main (already merged)"
+          else
+            # Try fetching from the spec branch
+            echo "Fetching spec from branch: ${{ steps.spec.outputs.spec_branch }}"
+            git fetch origin ${{ steps.spec.outputs.spec_branch }} 2>/dev/null || true
+            git checkout origin/${{ steps.spec.outputs.spec_branch }} -- "$SPEC_FILE" 2>/dev/null || true
+          fi
 
           if [ ! -f "$SPEC_FILE" ]; then
             echo "::error::Spec file not found: $SPEC_FILE"
             echo "Listing specs/ directory:"
             ls -la specs/ 2>/dev/null || echo "specs/ directory does not exist"
-            echo "Listing all changed files on spec branch:"
-            git diff --name-only main...origin/${{ steps.spec.outputs.spec_branch }} || true
             exit 1
           fi
 
