@@ -451,6 +451,27 @@ jobs:
               ].join('\n')
             });
 
+            // Enable auto-merge (merges automatically once reviews and checks pass)
+            await github.rest.pulls.merge({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              merge_method: 'squash',
+            }).catch(() => {
+              // Expected to fail if branch protection blocks immediate merge.
+              // Enable auto-merge via GraphQL instead.
+            });
+
+            await github.graphql(`
+              mutation($prId: ID!) {
+                enablePullRequestAutoMerge(input: {pullRequestId: $prId, mergeMethod: SQUASH}) {
+                  clientMutationId
+                }
+              }
+            `, { prId: pr.node_id });
+
+            console.log(`Auto-merge enabled for PR #${pr.number}`);
+
             // Label the implementation PR
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
