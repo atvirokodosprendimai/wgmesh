@@ -23,6 +23,22 @@ A Go-based tool for building and managing WireGuard mesh networks with support f
 
 ## Installation
 
+### Pre-built Binaries
+
+Download pre-built binaries for your platform from the [releases page](https://github.com/atvirokodosprendimai/wgmesh/releases).
+
+Available architectures:
+- **Linux amd64** (x86-64)
+- **Linux arm64** (ARM 64-bit)
+- **Linux armv7** (ARM 32-bit)
+
+```bash
+# Example for Linux amd64
+wget https://github.com/atvirokodosprendimai/wgmesh/releases/latest/download/wgmesh-linux-amd64
+chmod +x wgmesh-linux-amd64
+sudo mv wgmesh-linux-amd64 /usr/local/bin/wgmesh
+```
+
 ### From Source
 
 ```bash
