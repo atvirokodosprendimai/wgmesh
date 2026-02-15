@@ -14,6 +14,11 @@ permissions:
 
 jobs:
   revision:
+    # Skip bot-triggered events (Copilot code review comments cause action_required)
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      github.actor != 'copilot[bot]' &&
+      github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Check if this is a spec PR and verify permissions
