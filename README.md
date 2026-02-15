@@ -8,7 +8,7 @@ A Go-based tool for building and managing WireGuard mesh networks with support f
 - **NAT Detection**: Automatically detects nodes behind NAT and configures persistent keepalive
 - **SSH-Based Deployment**: Installs and configures WireGuard on remote Ubuntu hosts via SSH
 - **Incremental Updates**: Uses `wg set` commands for online configuration changes without restarting interfaces
-- **Key Management**: Generates and stores WireGuard key pairs locally for all nodes
+- **Key Management**: Generates and stores WireGuard key pairs (centralized mode: in `mesh-state.json`; decentralized mode: in `/var/lib/wgmesh/`)
 - **Routing Table Management**: Automatically configures routes for networks behind mesh nodes on all nodes
 - **Diff-Based Deployment**: Only applies configuration changes, minimizing disruption
 - **Persistent Configuration**: Uses systemd and wg-quick for automatic startup after reboot
@@ -353,10 +353,14 @@ The `mesh-state.json` file stores the complete mesh state:
 
 ## Security Considerations
 
-- **Private keys in state file**: WireGuard private keys are stored in `mesh-state.json`
-  - Without encryption: Use file permissions (`chmod 600`) and secure storage
-  - With `--encrypt`: State file is AES-256-GCM encrypted and base64-encoded
-  - **Recommended**: Always use `--encrypt` flag for production deployments
+- **Private keys in state file**: WireGuard private keys storage varies by mode:
+  - **Centralized mode**: Keys stored in `mesh-state.json` in the current working directory
+    - Without encryption: Use file permissions (`chmod 600`) and secure storage
+    - With `--encrypt`: State file is AES-256-GCM encrypted and base64-encoded
+    - **Recommended**: Always use `--encrypt` flag for production deployments
+  - **Decentralized mode**: Each node stores its own keypair in `/var/lib/wgmesh/{interface}.json` (e.g., `/var/lib/wgmesh/wg0.json`)
+    - File is created with `0600` permissions for security
+    - Keys persist across daemon restarts
 - **Password storage**: Never store encryption passwords in scripts or environment variables
 - The tool uses `InsecureIgnoreHostKey` for SSH - consider implementing proper host key verification for production
 - WireGuard traffic is encrypted end-to-end
