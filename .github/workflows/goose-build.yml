@@ -331,8 +331,10 @@ jobs:
             fi
 
             # ── Check for rate limit errors (retryable) ──
+            # Use specific patterns to avoid false positives from source code
+            # line numbers (e.g. "429: fmt.Println()") or docs containing these words
             RATE_LIMITED=false
-            if grep -qiE "rate.?limit|quota.?exceeded|resource.?exhausted|429|too many requests" /tmp/goose-output.log; then
+            if grep -qiE "rate.?limit.?(exceeded|hit|reached)|quota.?exceeded|resource.?exhausted|HTTP.?429|status.?429|too many requests" /tmp/goose-output.log; then
               RATE_LIMITED=true
             fi
 
