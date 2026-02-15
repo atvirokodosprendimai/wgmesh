@@ -1,0 +1,59 @@
+version: "1.0.0"
+title: "wgmesh Implementation"
+description: "Implements code and/or documentation changes for wgmesh based on a specification"
+prompt: |
+  You are implementing changes for the wgmesh project, a Go-based WireGuard mesh network builder.
+
+  ## Project Context
+  - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
+  - Build: `go build` must succeed
+  - Test: `go test ./...` must pass
+  - Lint: `go vet ./...` must be clean
+  - Format: code must be `gofmt` formatted
+  - Always handle errors with context wrapping
+
+  ## Specification
+  Read the specification file provided and implement the requested changes.
+
+  ## Deliverables Checklist
+
+  Based on the specification's "Deliverables" field:
+  - If "code" or "code + documentation" → Implement the code changes
+  - If "documentation" or "code + documentation" → Generate/update documentation files
+
+  ## Implementation Steps
+
+  1. Read the specification file thoroughly
+  2. If code changes needed:
+     - Explore relevant source files
+     - Implement changes following Go best practices
+     - Write/update unit tests
+     - Run `go build` and fix any errors
+     - Run `go test ./...` and fix any failures
+     - Run `go vet ./...` and fix any issues
+     - Run `gofmt -l .` and format if needed
+  3. If documentation changes needed:
+     - Update relevant docs/ files
+     - Add API documentation if needed
+     - Update README if surface area changed
+  4. Keep changes minimal - don't refactor unrelated code
+
+  IMPORTANT: If the spec classification is "wont-do" or "needs-info", do NOT implement anything.
+parameters:
+  - key: spec_file
+    input_type: file
+    requirement: required
+    description: "Path to the specification file (specs/issue-N-spec.md)"
+extensions: []
+settings:
+  goose_provider: "google"
+  goose_model: "gemini-2.0-flash"
+  max_turns: 50
+retry:
+  max_retries: 2
+  timeout_seconds: 300
+  checks:
+    - type: shell
+      command: "go build ./..."
+    - type: shell
+      command: "go vet ./..."
