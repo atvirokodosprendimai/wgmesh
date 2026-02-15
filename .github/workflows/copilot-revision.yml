@@ -22,7 +22,22 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const pr = context.payload.pull_request || context.payload.issue?.pull_request;
+            // Get PR from pull_request_review_comment or issue_comment on PR-linked issue
+            let pr = context.payload.pull_request;
+            
+            // For issue_comment on a PR-linked issue, fetch PR details
+            if (!pr && context.payload.issue?.pull_request) {
+              const prUrl = context.payload.issue.pull_request.url;
+              const prMatch = prUrl.match(/\/pulls\/(\d+)$/);
+              if (prMatch) {
+                const { data: prData } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: parseInt(prMatch[1])
+                });
+                pr = prData;
+              }
+            }
             
             // Only handle spec PRs (created by Copilot for triage)
             if (!pr || !pr.title.toLowerCase().includes('spec:')) {
@@ -62,8 +77,9 @@ jobs:
             const issueNumber = match[1];
             core.setOutput('should_process', 'true');
             core.setOutput('issue_number', issueNumber);
+            core.setOutput('pr_number', pr.number);
             
-            console.log(`Spec PR for issue #${issueNumber} received review comment`);
+            console.log(`Spec PR #${pr.number} for issue #${issueNumber} received review comment`);
 
       - name: Trigger Copilot revision
         if: steps.is-spec.outputs.should_process == 'true'
@@ -72,7 +88,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const issueNumber = '${{ steps.is-spec.outputs.issue_number }}';
-            const prNumber = context.payload.pull_request?.number || context.payload.issue?.number;
+            const prNumber = '${{ steps.is-spec.outputs.pr_number }}';
             const commenter = context.payload.comment?.user?.login || context.actor;
             
             // Add comment noting revision needed
