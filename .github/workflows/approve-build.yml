@@ -57,8 +57,16 @@ jobs:
               core.setFailed('Could not extract PR number from issue');
               return;
             }
-            const prNumber = parseInt(prMatch[1]);
-            const issueNumber = context.issue.number;
+            const prNumber = parseInt(prMatch[1], 10);
+
+            // Fetch PR to get original issue number from title
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+            const issueMatch = pr.title.match(/Issue #(\d+)/);
+            const issueNumber = issueMatch ? parseInt(issueMatch[1], 10) : null;
 
             // Add the approved-for-build label to the PR (this triggers goose-build.yml)
             await github.rest.issues.addLabels({
@@ -68,32 +76,34 @@ jobs:
               labels: ['approved-for-build']
             });
 
-            // Remove copilot-triaging from the issue
-            try {
-              await github.rest.issues.removeLabel({
+            // Remove copilot-triaging from the original issue
+            if (issueNumber) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: issueNumber,
+                  name: 'copilot-triaging'
+                });
+              } catch (e) {
+                if (e.status !== 404) {
+                  core.warning(`Failed to remove copilot-triaging label: ${e.message}`);
+                }
+              }
+
+              // Post acknowledgment on the original issue
+              await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                name: 'copilot-triaging'
+                body: [
+                  `**Build approved** by @${context.actor}`,
+                  ``,
+                  `Goose will now implement the code based on this specification.`,
+                  `A new draft PR will be created when the implementation is complete.`,
+                ].join('\n')
               });
-            } catch (e) {
-              if (e.status !== 404) {
-                core.warning(`Failed to remove copilot-triaging label: ${e.message}`);
-              }
             }
-
-            // Post acknowledgment on the issue
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: issueNumber,
-              body: [
-                `**Build approved** by @${context.actor}`,
-                ``,
-                `Goose will now implement the code based on this specification.`,
-                `A new draft PR will be created when the implementation is complete.`,
-              ].join('\n')
-            });
 
             console.log(`Approved spec PR #${prNumber} for Goose build`);
 
