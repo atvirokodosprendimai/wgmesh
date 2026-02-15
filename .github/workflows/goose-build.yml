@@ -15,7 +15,7 @@ permissions:
 
 env:
   GOOSE_PROVIDER: google
-  GOOSE_MODEL: gemini-2.0-flash
+  GOOSE_MODEL: gemini-2.5-flash
   # Goose requires the provider-specific key
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
