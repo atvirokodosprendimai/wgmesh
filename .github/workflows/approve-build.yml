@@ -30,16 +30,20 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username: context.actor
-            });
-            if (!['admin', 'write'].includes(perm.permission)) {
-              core.setFailed(`User @${context.actor} does not have write access (has: ${perm.permission})`);
-              return;
+            try {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              });
+              if (!['admin', 'write'].includes(perm.permission)) {
+                core.setFailed(`User @${context.actor} does not have write access (has: ${perm.permission})`);
+                return;
+              }
+              console.log(`Approved by @${context.actor} with ${perm.permission} access`);
+            } catch (error) {
+              core.setFailed(`Failed to verify permissions for @${context.actor}: ${error.message || error}`);
             }
-            console.log(`Approved by @${context.actor} with ${perm.permission} access`);
 
       - name: Label PR as approved and acknowledge
         uses: actions/github-script@v7
@@ -65,7 +69,9 @@ jobs:
                 name: 'copilot-triaging'
               });
             } catch (e) {
-              // Label may not exist on the PR
+              if (e.status !== 404) {
+                core.warning(`Failed to remove copilot-triaging label: ${e.message}`);
+              }
             }
 
             // Post acknowledgment
@@ -97,14 +103,18 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username: context.actor
-            });
-            if (!['admin', 'write'].includes(perm.permission)) {
-              core.setFailed(`User @${context.actor} does not have write access`);
-              return;
+            try {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              });
+              if (!['admin', 'write'].includes(perm.permission)) {
+                core.setFailed(`User @${context.actor} does not have write access`);
+                return;
+              }
+            } catch (error) {
+              core.setFailed(`Failed to verify permissions for @${context.actor}: ${error.message || error}`);
             }
 
       - name: Close spec PR and label original issue
@@ -159,7 +169,11 @@ jobs:
                     issue_number: issueNumber,
                     name: label
                   });
-                } catch (e) { /* ignore */ }
+                } catch (e) {
+                  if (e.status !== 404) {
+                    core.warning(`Failed to remove label "${label}" from issue #${issueNumber}: ${e.message}`);
+                  }
+                }
               }
 
               await github.rest.issues.createComment({
@@ -186,14 +200,18 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              username: context.actor
-            });
-            if (!['admin', 'write'].includes(perm.permission)) {
-              core.setFailed(`User @${context.actor} does not have write access`);
-              return;
+            try {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              });
+              if (!['admin', 'write'].includes(perm.permission)) {
+                core.setFailed(`User @${context.actor} does not have write access`);
+                return;
+              }
+            } catch (error) {
+              core.setFailed(`Failed to verify permissions for @${context.actor}: ${error.message || error}`);
             }
 
       - name: Request more info on original issue
@@ -229,15 +247,28 @@ jobs:
                     issue_number: issueNumber,
                     name: label
                   });
-                } catch (e) { /* ignore */ }
+                } catch (e) {
+                  if (e.status !== 404) {
+                    core.warning(`Failed to remove label "${label}" from issue #${issueNumber}: ${e.message}`);
+                  }
+                }
               }
+
+              // Fetch the original issue to get the reporter's login
+              const { data: linkedIssue } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              const issueAuthor = linkedIssue?.user?.login;
+              const mention = issueAuthor ? `@${issueAuthor}` : 'The original issue reporter';
 
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
                 body: [
-                  `@${context.payload.issue?.user?.login || 'author'} We need more information to proceed with this issue.`,
+                  `${mention} We need more information to proceed with this issue.`,
                   ``,
                   `Please provide additional details so we can better understand and address your request.`,
                   `Once updated, add the \`needs-triage\` label to restart the review process.`,

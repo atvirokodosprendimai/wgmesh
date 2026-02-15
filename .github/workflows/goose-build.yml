@@ -26,6 +26,46 @@ jobs:
     timeout-minutes: 30
 
     steps:
+      # ── Validate prerequisites ──────────────────────────
+      - name: Validate API key is configured
+        run: |
+          if [ -z "${{ secrets.GOOGLE_API_KEY }}" ]; then
+            echo "::error::GOOGLE_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
+            exit 1
+          fi
+
+      - name: Verify label was applied via approve workflow
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Check that the PR branch follows the expected copilot/ naming convention
+            const pr = context.payload.pull_request;
+            if (!pr.head.ref.startsWith('copilot/')) {
+              core.warning(`PR branch "${pr.head.ref}" does not start with "copilot/". ` +
+                `This may indicate the label was applied manually rather than through the approve workflow.`);
+            }
+
+            // Verify the label event was triggered by a user with write access
+            const sender = context.payload.sender;
+            if (sender) {
+              try {
+                const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: sender.login
+                });
+                if (!['admin', 'write'].includes(perm.permission)) {
+                  core.setFailed(`Label applied by @${sender.login} who lacks write access (has: ${perm.permission})`);
+                  return;
+                }
+                console.log(`Label applied by @${sender.login} (${perm.permission} access)`);
+              } catch (error) {
+                core.setFailed(`Failed to verify permissions for @${sender.login}: ${error.message}`);
+                return;
+              }
+            }
+
       # ── Setup ──────────────────────────────────────────
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -41,7 +81,13 @@ jobs:
 
       - name: Install Goose CLI
         run: |
-          curl -fsSL https://github.com/block/goose/releases/latest/download/download_cli.sh | CONFIGURE=false bash
+          # Pin to a specific version for reproducibility.
+          # Update GOOSE_VERSION when a new release is verified.
+          GOOSE_VERSION="latest"
+          curl -fsSL "https://github.com/block/goose/releases/${GOOSE_VERSION}/download/download_cli.sh" \
+            -o /tmp/goose-install.sh
+          CONFIGURE=false bash /tmp/goose-install.sh
+          rm /tmp/goose-install.sh
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           # Verify installation
           $HOME/.local/bin/goose --version
@@ -102,7 +148,10 @@ jobs:
           BRANCH="${{ steps.spec.outputs.impl_branch }}"
 
           # Delete remote branch if it exists (retry scenario)
-          git push origin --delete "$BRANCH" 2>/dev/null || true
+          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            echo "Remote branch '$BRANCH' exists, deleting for retry..."
+            git push origin --delete "$BRANCH"
+          fi
 
           git checkout -b "$BRANCH"
           echo "Created branch: $BRANCH"
@@ -164,6 +213,8 @@ jobs:
         id: goose
         run: |
           echo "Starting Goose implementation..."
+          # max-turns limits LLM round-trips to control API costs.
+          # 50 is generous for most tasks; reduce if using paid-tier models.
           goose run \
             --no-session \
             --with-builtin "developer" \
@@ -188,8 +239,8 @@ jobs:
           else
             echo "has_changes=true" >> $GITHUB_OUTPUT
 
-            git config user.name "goose-bot[bot]"
-            git config user.email "goose-bot[bot]@users.noreply.github.com"
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
             git commit -m "impl: Issue #${{ steps.spec.outputs.issue_number }} - Goose implementation
 

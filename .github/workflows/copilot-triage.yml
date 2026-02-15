@@ -64,7 +64,8 @@ jobs:
                 `<!-- Brief justification -->`,
                 '```',
                 ``,
-                `4. Open a PR titled: \`spec: Issue #${issueNumber} - ${issue.title.replace(/"/g, '\\"')}\``,
+                `4. Open a PR titled **exactly**: \`spec: Issue #${issueNumber} - ${issue.title.replace(/"/g, '\\"')}\``,
+                `   - This title format is required: the pipeline extracts the issue number from \`Issue #N\` in the title`,
                 `5. Target the \`main\` branch`,
                 `6. The PR should contain ONLY the spec file - no code changes`,
               ].join('\n')
