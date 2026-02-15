@@ -32,6 +32,12 @@ jobs:
             goarch: arm
             goarm: 7
             output: wgmesh-linux-armv7
+          - goos: darwin
+            goarch: amd64
+            output: wgmesh-darwin-amd64
+          - goos: darwin
+            goarch: arm64
+            output: wgmesh-darwin-arm64
 
     steps:
       - name: Checkout code
@@ -88,6 +94,8 @@ jobs:
             wgmesh-linux-amd64
             wgmesh-linux-arm64
             wgmesh-linux-armv7
+            wgmesh-darwin-amd64
+            wgmesh-darwin-arm64
           draft: false
           prerelease: ${{ contains(github.ref, '-') }}
           generate_release_notes: true
