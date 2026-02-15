@@ -10,5 +10,5 @@
 | #336 | 9:06 PM | 🔵 | Comprehensive Code Analysis with Critical Issues Identified | ~820 |
 | #334 | 9:05 PM | 🔵 | In-Mesh Gossip Protocol for Peer Advertisement | ~733 |
 | #328 | 9:03 PM | 🔵 | Encrypted Peer Exchange Protocol with Transitive Discovery | ~748 |
-| #327 | " | 🔵 | DHT-Based Peer Discovery with BitTorrent Mainline DHT | ~714 |
+| #327 |  | 🔵 | DHT-Based Peer Discovery with BitTorrent Mainline DHT | ~714 |
 </claude-mem-context>
