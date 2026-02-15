@@ -13,7 +13,7 @@ prompt: |
   - Always handle errors with context wrapping
 
   ## Specification
-  Read the specification file provided and implement the requested changes.
+  Read the specification file provided (spec_file parameter - Goose will read this automatically).
 
   ## Deliverables Checklist
 
@@ -48,6 +48,7 @@ extensions: []
 settings:
   goose_provider: "google"
   goose_model: "gemini-2.5-flash"
+  # 50 is generous for most tasks; reduce if using paid-tier models
   max_turns: 50
 retry:
   max_retries: 2
@@ -55,5 +56,7 @@ retry:
   checks:
     - type: shell
       command: "go build ./..."
+    - type: shell
+      command: "go test ./..."
     - type: shell
       command: "go vet ./..."
