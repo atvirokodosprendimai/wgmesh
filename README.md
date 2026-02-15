@@ -8,7 +8,7 @@ A Go-based tool for building and managing WireGuard mesh networks with support f
 - **NAT Detection**: Automatically detects nodes behind NAT and configures persistent keepalive
 - **SSH-Based Deployment**: Installs and configures WireGuard on remote Ubuntu hosts via SSH
 - **Incremental Updates**: Uses `wg set` commands for online configuration changes without restarting interfaces
-- **Key Management**: Generates and stores WireGuard key pairs locally for all nodes
+- **Key Management**: Generates and stores WireGuard key pairs (centralized mode: in the mesh state file specified via the `-state` flag, default `mesh-state.json`; decentralized mode: in `/var/lib/wgmesh/`)
 - **Routing Table Management**: Automatically configures routes for networks behind mesh nodes on all nodes
 - **Diff-Based Deployment**: Only applies configuration changes, minimizing disruption
 - **Persistent Configuration**: Uses systemd and wg-quick for automatic startup after reboot
@@ -353,7 +353,7 @@ The `mesh-state.json` file stores the complete mesh state:
 
 ## Security Considerations
 
-- **Private keys in state file**: WireGuard private keys are stored in `mesh-state.json`
+- **Private keys in state file**: WireGuard private keys are stored in the mesh state file (specified via `-state`, default `mesh-state.json`)
   - Without encryption: Use file permissions (`chmod 600`) and secure storage
   - With `--encrypt`: State file is AES-256-GCM encrypted and base64-encoded
   - **Recommended**: Always use `--encrypt` flag for production deployments
