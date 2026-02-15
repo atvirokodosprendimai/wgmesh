@@ -1,0 +1,133 @@
+name: Spec Command
+
+# Triggered when a user comments /spec on an issue.
+# Explicitly requests a specification document (not implementation).
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  spec:
+    # Only trigger on /spec command
+    if: startsWith(github.event.comment.body, '/spec')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify commenter has write access
+        id: verify
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              });
+              if (!['admin', 'write'].includes(perm.permission)) {
+                core.setFailed(`User @${context.actor} does not have write access (has: ${perm.permission})`);
+                return;
+              }
+              console.log(`Verified @${context.actor} has ${perm.permission} access`);
+            } catch (error) {
+              core.setFailed(`Failed to verify permissions for @${context.actor}: ${error.message || error}`);
+            }
+
+      - name: Extract issue number and request spec
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Extract issue number from comment (supports "#123" or "issue #123")
+            const comment = context.payload.comment.body;
+            const issueMatch = comment.match(/(?:issue\s+#?|#)(\d+)/i);
+            
+            if (!issueMatch) {
+              core.setFailed('Could not extract issue number from comment. Use /spec #123');
+              return;
+            }
+            
+            const issueNumber = parseInt(issueMatch[1]);
+            core.setOutput('issue_number', issueNumber);
+            
+            // Get issue details for title
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+            
+            // Clean title for instruction
+            const safeTitle = (issue.title || '')
+              .replace(/\r?\n/g, ' ')
+              .replace(/`/g, "'")
+              .replace(/[<>]/g, '')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .slice(0, 180);
+            
+            // Assign Copilot to the issue
+            await github.rest.issues.addAssignees({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              assignees: ['Copilot']
+            });
+            
+            // Post spec-only instruction comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                `@copilot Please create a **specification document only**. Do NOT write any implementation code.`,
+                ``,
+                `### Instructions`,
+                ``,
+                `1. Read the issue title and description carefully`,
+                `2. Explore the codebase to understand the relevant components`,
+                `3. Create a file \`specs/issue-${issueNumber}-spec.md\` using this template:`,
+                ``,
+                '```markdown',
+                `# Specification: Issue #${issueNumber}`,
+                ``,
+                `## Classification`,
+                `<!-- One of: fix, feature, refactor, wont-do, needs-info -->`,
+                ``,
+                `## Problem Analysis`,
+                `<!-- Detailed analysis of what is wrong or what is being requested -->`,
+                ``,
+                `## Proposed Approach`,
+                `<!-- Step-by-step approach to solve this -->`,
+                ``,
+                `## Affected Files`,
+                `<!-- List every file that would need changes -->`,
+                ``,
+                `## Test Strategy`,
+                `<!-- How to verify the fix/feature works -->`,
+                ``,
+                `## Estimated Complexity`,
+                `<!-- One of: low, medium, high -->`,
+                '```',
+                ``,
+                `4. Open a PR titled like: \`spec: Issue #${issueNumber} - ${safeTitle}\``,
+                `   - Include \`Issue #${issueNumber}\` in the title. The pipeline uses this for traceability.`,
+                `5. Target the \`main\` branch`,
+                `6. The PR should contain ONLY the spec file - no code changes`,
+              ].join('\n')
+            });
+            
+            // Add needs-triage label
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['needs-triage']
+            });
+            
+            console.log(`Triggered spec creation for issue #${issueNumber}`);
