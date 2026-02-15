@@ -289,8 +289,9 @@ jobs:
       - name: Run Goose
         id: goose
         run: |
-          MAX_ATTEMPTS=4
-          BACKOFF=30  # initial delay in seconds
+          MAX_ATTEMPTS=5
+          BACKOFF=60  # initial delay in seconds (Gemini free tier: 20 req/min)
+          SUCCEEDED=false
 
           for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
             echo "=== Goose attempt $ATTEMPT/$MAX_ATTEMPTS ==="
@@ -343,27 +344,36 @@ jobs:
             # ── Success: no errors, meaningful output ──
             if [ "$GOOSE_EXIT" -eq 0 ] && [ "$RATE_LIMITED" = "false" ] && [ "$TOO_SHORT" = "false" ]; then
               echo "Goose completed successfully on attempt $ATTEMPT"
+              SUCCEEDED=true
               break
             fi
 
-            # ── Retry logic ──
-            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
-              if [ "$RATE_LIMITED" = "true" ]; then
-                echo "::warning::Rate limited on attempt $ATTEMPT. Retrying in ${BACKOFF}s..."
-              elif [ "$TOO_SHORT" = "true" ]; then
-                echo "::warning::Suspiciously short output ($LINES lines) on attempt $ATTEMPT. Retrying in ${BACKOFF}s..."
-              else
-                echo "::warning::Goose failed (exit=$GOOSE_EXIT) on attempt $ATTEMPT. Retrying in ${BACKOFF}s..."
-              fi
-              sleep "$BACKOFF"
-              BACKOFF=$((BACKOFF * 2))
+            # ── Parse retry delay from Goose output if available ──
+            SUGGESTED_DELAY=$(grep -oP 'retry in \K[0-9]+' /tmp/goose-output.log 2>/dev/null | tail -1)
+            if [ -n "$SUGGESTED_DELAY" ] && [ "$SUGGESTED_DELAY" -gt "$BACKOFF" ] 2>/dev/null; then
+              WAIT=$((SUGGESTED_DELAY + 5))  # add 5s buffer
             else
-              echo "::error::Goose failed after $MAX_ATTEMPTS attempts"
-              echo "--- Last 50 lines of Goose output ---"
-              tail -50 /tmp/goose-output.log
-              exit 1
+              WAIT=$BACKOFF
             fi
+
+            # ── Log and sleep ──
+            if [ "$RATE_LIMITED" = "true" ]; then
+              echo "::warning::Rate limited on attempt $ATTEMPT. Waiting ${WAIT}s before retry..."
+            elif [ "$TOO_SHORT" = "true" ]; then
+              echo "::warning::Suspiciously short output ($LINES lines) on attempt $ATTEMPT. Waiting ${WAIT}s..."
+            else
+              echo "::warning::Goose failed (exit=$GOOSE_EXIT) on attempt $ATTEMPT. Waiting ${WAIT}s..."
+            fi
+            sleep "$WAIT"
+            BACKOFF=$((BACKOFF * 2))
           done
+
+          if [ "$SUCCEEDED" != "true" ]; then
+            echo "::error::Goose failed after $MAX_ATTEMPTS attempts"
+            echo "--- Last 50 lines of Goose output ---"
+            tail -50 /tmp/goose-output.log
+            exit 1
+          fi
 
       # ── Commit and push ────────────────────────────────
       - name: Check for changes and commit
