@@ -28,8 +28,10 @@ jobs:
     steps:
       # ── Validate prerequisites ──────────────────────────
       - name: Validate API key is configured
+        env:
+          KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
-          if [ -z "${{ secrets.GOOGLE_API_KEY }}" ]; then
+          if [ -z "$KEY" ]; then
             echo "::error::GOOGLE_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
             exit 1
           fi
@@ -39,12 +41,9 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            // Check that the PR branch follows the expected copilot/ naming convention
+            // Log the PR branch for audit trail
             const pr = context.payload.pull_request;
-            if (!pr.head.ref.startsWith('copilot/')) {
-              core.warning(`PR branch "${pr.head.ref}" does not start with "copilot/". ` +
-                `This may indicate the label was applied manually rather than through the approve workflow.`);
-            }
+            console.log(`Spec PR branch: ${pr.head.ref}`);
 
             // Verify the label event was triggered by a user with write access
             const sender = context.payload.sender;
@@ -81,10 +80,9 @@ jobs:
 
       - name: Install Goose CLI
         run: |
-          # Pin to a specific version for reproducibility.
-          # Update GOOSE_VERSION when a new release is verified.
-          GOOSE_VERSION="latest"
-          curl -fsSL "https://github.com/block/goose/releases/${GOOSE_VERSION}/download/download_cli.sh" \
+          # Using latest release. To pin, replace URL with:
+          #   releases/download/vX.Y.Z/download_cli.sh
+          curl -fsSL "https://github.com/block/goose/releases/latest/download/download_cli.sh" \
             -o /tmp/goose-install.sh
           CONFIGURE=false bash /tmp/goose-install.sh
           rm /tmp/goose-install.sh
@@ -148,7 +146,7 @@ jobs:
           BRANCH="${{ steps.spec.outputs.impl_branch }}"
 
           # Delete remote branch if it exists (retry scenario)
-          if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+          if git ls-remote --heads origin "$BRANCH" | grep -q "refs/heads/${BRANCH}$"; then
             echo "Remote branch '$BRANCH' exists, deleting for retry..."
             git push origin --delete "$BRANCH"
           fi

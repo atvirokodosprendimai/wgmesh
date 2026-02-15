@@ -27,12 +27,9 @@ jobs:
           script: |
             const fs = require('fs');
 
-            // Read labels config
             // Simple YAML parser for our flat array format (name/color/description per item).
             // Expects .github/labels.yml to use single-line values only.
             const content = fs.readFileSync('.github/labels.yml', 'utf8');
-
-            // Simple YAML array parser for our format
             const labels = [];
             let current = null;
             for (const line of content.split('\n')) {
