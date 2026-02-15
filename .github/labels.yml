@@ -14,6 +14,10 @@
   color: "0E8A16"
   description: "Spec PR created, awaiting human review"
 
+- name: copilot-revising
+  color: "F9D0C4"
+  description: "Copilot is revising spec based on review feedback"
+
 - name: approved-for-build
   color: "1D76DB"
   description: "Human approved spec, Goose will implement"
