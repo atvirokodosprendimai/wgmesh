@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 // localNodeState is the persisted state for a local node
@@ -81,9 +82,27 @@ func createInterface(name string) error {
 		}
 		return nil
 	case "darwin":
-		// On macOS, wireguard-go creates the interface when started
-		// We'll use a userspace implementation
-		return nil
+		if _, err := exec.LookPath("wireguard-go"); err != nil {
+			return fmt.Errorf("wireguard-go not found in PATH (required on macOS): %w", err)
+		}
+
+		cmd := exec.Command("wireguard-go", name)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			out := string(output)
+			if !strings.Contains(out, "already exists") {
+				return fmt.Errorf("failed to create interface via wireguard-go: %s: %w", out, err)
+			}
+		}
+
+		// Give macOS a moment to materialize the utun interface.
+		for i := 0; i < 20; i++ {
+			if interfaceExists(name) {
+				return nil
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+
+		return fmt.Errorf("wireguard interface %s was not created on macOS", name)
 	default:
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
@@ -118,17 +137,40 @@ func setInterfaceAddress(name, address string) error {
 		}
 		return nil
 	case "darwin":
-		// Extract IP and netmask
-		parts := strings.Split(address, "/")
-		if len(parts) != 2 {
-			return fmt.Errorf("invalid address format: %s", address)
+		ip, ipNet, err := net.ParseCIDR(address)
+		if err != nil {
+			return fmt.Errorf("invalid address format: %s: %w", address, err)
 		}
-		ip := parts[0]
 
-		cmd := exec.Command("ifconfig", name, "inet", ip, ip, "alias")
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to set address: %s: %w", string(output), err)
+		ipv4 := ip.To4()
+		if ipv4 == nil {
+			return fmt.Errorf("only IPv4 addresses are supported on macOS: %s", address)
 		}
+
+		netmask := net.IP(ipNet.Mask).String()
+		cmd := exec.Command("ifconfig", name, "inet", ipv4.String(), ipv4.String(), "netmask", netmask, "alias")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			if !strings.Contains(string(output), "File exists") {
+				return fmt.Errorf("failed to set address: %s: %w", string(output), err)
+			}
+		}
+
+		// macOS utun interfaces are point-to-point and may not add a connected
+		// route for the CIDR. Ensure the mesh subnet routes via this interface.
+		networkCIDR := ipNet.String()
+		routeAdd := exec.Command("route", "-n", "add", "-net", networkCIDR, "-interface", name)
+		if output, err := routeAdd.CombinedOutput(); err != nil {
+			out := string(output)
+			if strings.Contains(out, "File exists") {
+				routeChange := exec.Command("route", "-n", "change", "-net", networkCIDR, "-interface", name)
+				if changeOutput, changeErr := routeChange.CombinedOutput(); changeErr != nil {
+					return fmt.Errorf("failed to update route %s via %s: %s: %w", networkCIDR, name, string(changeOutput), changeErr)
+				}
+			} else {
+				return fmt.Errorf("failed to add route %s via %s: %s: %w", networkCIDR, name, out, err)
+			}
+		}
+
 		return nil
 	default:
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
