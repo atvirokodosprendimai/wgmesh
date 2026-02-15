@@ -413,14 +413,14 @@ jobs:
             const specPR = '${{ steps.spec.outputs.spec_pr_number }}';
             const implBranch = '${{ steps.spec.outputs.impl_branch }}';
 
-            // Create draft PR
+            // Create PR (ready for review)
             const { data: pr } = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `impl: Issue #${issueNum} - Goose implementation`,
               head: implBranch,
               base: 'main',
-              draft: true,
+              draft: false,
               body: [
                 `## Goose Implementation`,
                 ``,
