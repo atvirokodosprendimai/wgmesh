@@ -4,7 +4,7 @@
 feature
 
 ## Deliverables
-code + documentation
+code + tests + documentation
 
 ## Problem Analysis
 
@@ -98,13 +98,21 @@ A simple loop check is cleaner and doesn't affect existing behavior.
    - Approximately 6-8 new lines of code
    - No changes to existing subcommand or flag handling
 
+### Test Files
+
+2. **`main_test.go`** (NEW FILE):
+   - Create integration tests for all three version forms
+   - Test version flag priority behavior
+   - Verify output format and exit codes
+   - Approximately 80-100 lines of test code
+
 ### Documentation Changes
 
-2. **`main.go`** (printUsage function, around line 148):
+3. **`main.go`** (printUsage function, around line 148):
    - Add `--version` and `-v` to the help text
    - Include in the "FLAGS" or "OPTIONS" section
 
-3. **`README.md`** (if there's a CLI reference section):
+4. **`README.md`** (if there's a CLI reference section):
    - Document that both `wgmesh version` and `wgmesh --version` work
    - Optional: Add to usage examples
 
@@ -134,28 +142,109 @@ A simple loop check is cleaner and doesn't affect existing behavior.
 
 ### Automated Testing
 
-Since there are no existing tests for `main.go` CLI behavior (no `main_test.go` file found in the repository), automated tests are **optional** but recommended for future robustness:
+**Required**: Issue #43 acceptance criteria explicitly requires tests covering all three forms. Since there are no existing tests for `main.go` CLI behavior, we will create `main_test.go` with integration tests.
 
-1. **If adding tests** (create `main_test.go`):
-   ```go
-   func TestVersionFlag(t *testing.T) {
-       // Test --version flag
-       // Test -v flag
-       // Test version subcommand
-       // Test version priority over other flags
-   }
-   ```
+#### Test Implementation Approach
 
-2. **Integration test approach**:
-   - Build the binary
-   - Execute with different flag combinations
-   - Verify output matches expected format
-   - Verify exit code is 0
+Create `main_test.go` with integration tests that build and execute the binary:
 
-3. **Test coverage targets**:
-   - All three forms work (`version`, `--version`, `-v`)
-   - Version flag takes priority
-   - Output format is consistent: "wgmesh <version>"
+```go
+package main
+
+import (
+    "os"
+    "os/exec"
+    "strings"
+    "testing"
+)
+
+func TestVersionFlag(t *testing.T) {
+    // Build the binary for testing
+    buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+    if err := buildCmd.Run(); err != nil {
+        t.Fatalf("Failed to build test binary: %v", err)
+    }
+    defer os.Remove("/tmp/wgmesh-test")
+
+    tests := []struct {
+        name string
+        args []string
+    }{
+        {"version subcommand", []string{"version"}},
+        {"--version flag", []string{"--version"}},
+        {"-v flag", []string{"-v"}},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            cmd := exec.Command("/tmp/wgmesh-test", tt.args...)
+            output, err := cmd.CombinedOutput()
+            if err != nil {
+                t.Fatalf("Command failed: %v, output: %s", err, output)
+            }
+            
+            result := strings.TrimSpace(string(output))
+            if !strings.HasPrefix(result, "wgmesh ") {
+                t.Errorf("Expected output to start with 'wgmesh ', got: %s", result)
+            }
+        })
+    }
+}
+
+func TestVersionFlagPriority(t *testing.T) {
+    // Build the binary for testing
+    buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+    if err := buildCmd.Run(); err != nil {
+        t.Fatalf("Failed to build test binary: %v", err)
+    }
+    defer os.Remove("/tmp/wgmesh-test")
+
+    tests := []struct {
+        name string
+        args []string
+    }{
+        {"version with other flags", []string{"--version", "--help"}},
+        {"version with subcommand", []string{"-v", "join"}},
+        {"version with init flag", []string{"--version", "-init"}},
+    }
+
+    for _, tt := range tests {
+        t.Run(tt.name, func(t *testing.T) {
+            cmd := exec.Command("/tmp/wgmesh-test", tt.args...)
+            output, err := cmd.CombinedOutput()
+            if err != nil {
+                t.Fatalf("Command failed: %v, output: %s", err, output)
+            }
+            
+            result := strings.TrimSpace(string(output))
+            if !strings.HasPrefix(result, "wgmesh ") {
+                t.Errorf("Expected version output, got: %s", result)
+            }
+            // Ensure it doesn't show help or try to run other commands
+            if strings.Contains(result, "SUBCOMMANDS") || strings.Contains(result, "FLAGS") {
+                t.Errorf("Version flag should not show help, got: %s", result)
+            }
+        })
+    }
+}
+```
+
+#### Test Coverage Requirements
+
+1. **All three forms work** (`version`, `--version`, `-v`):
+   - Each prints `wgmesh <version>`
+   - Each exits with code 0
+   - Output format is identical across all forms
+
+2. **Version flag priority**:
+   - `--version` with other flags → prints version only
+   - `-v` with subcommands → prints version only
+   - Version flags override all other arguments
+
+3. **Exit behavior**:
+   - All forms exit immediately after printing
+   - No other operations are performed
+   - No error messages or warnings
 
 ### Regression Testing
 
@@ -167,22 +256,23 @@ Verify that existing functionality is **not** affected:
 
 ## Estimated Complexity
 
-**low** (30-45 minutes)
+**low-medium** (1-1.5 hours)
 
 ### Rationale
 
 - **Simple code change**: 6-8 lines added to main.go
+- **Integration tests required**: 80-100 lines of test code in new main_test.go
 - **No architectural changes**: Just an early check before existing logic
 - **No external dependencies**: Uses only standard library
 - **Clear implementation**: Straightforward loop over os.Args
 - **Low risk**: Doesn't modify existing code paths
-- **Easy to test**: Manual testing is quick and comprehensive
-- **Easy to verify**: Build and run a few commands to confirm
+- **Testing overhead**: Integration tests require building binary and validating output
 
 ### Time Breakdown
 
 - Code implementation: 10 minutes
+- Test implementation: 30-40 minutes
 - Manual testing: 10 minutes
 - Documentation updates: 10 minutes
 - Verification and cleanup: 10 minutes
-- Total: ~40 minutes
+- Total: ~70-80 minutes
