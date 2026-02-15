@@ -50,9 +50,17 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const prNumber = context.issue.number;
+            // Get PR number from the issue's pull_request link
+            const issueUrl = context.payload.issue.pull_request.url;
+            const prMatch = issueUrl.match(/\/pulls\/(\d+)$/);
+            if (!prMatch) {
+              core.setFailed('Could not extract PR number from issue');
+              return;
+            }
+            const prNumber = parseInt(prMatch[1]);
+            const issueNumber = context.issue.number;
 
-            // Add the approved-for-build label (this triggers goose-build.yml)
+            // Add the approved-for-build label to the PR (this triggers goose-build.yml)
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -60,12 +68,12 @@ jobs:
               labels: ['approved-for-build']
             });
 
-            // Remove copilot-triaging if present
+            // Remove copilot-triaging from the issue
             try {
               await github.rest.issues.removeLabel({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                issue_number: prNumber,
+                issue_number: issueNumber,
                 name: 'copilot-triaging'
               });
             } catch (e) {
@@ -74,11 +82,11 @@ jobs:
               }
             }
 
-            // Post acknowledgment
+            // Post acknowledgment on the issue
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: prNumber,
+              issue_number: issueNumber,
               body: [
                 `**Build approved** by @${context.actor}`,
                 ``,
