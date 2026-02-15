@@ -1,0 +1,426 @@
+# AI-Powered Issue-to-Code Pipeline
+# Render: d2 --theme 200 --layout elk docs/pipeline-flow.d2 docs/pipeline-flow.svg
+
+direction: down
+
+# ─── Global Styles ─────────────────────────────
+
+style.fill: "#FAFBFC"
+
+classes: {
+  workflow: {
+    shape: step
+    style.fill: "#FFF3E0"
+    style.stroke: "#E65100"
+    style.border-radius: 6
+    style.font-size: 13
+    style.italic: true
+  }
+  label-tag: {
+    shape: hexagon
+    style.font-size: 11
+    style.bold: true
+  }
+  decision: {
+    shape: diamond
+    style.fill: "#FFF9C4"
+    style.stroke: "#F57F17"
+  }
+  artifact: {
+    shape: page
+    style.fill: "#E8EAF6"
+    style.stroke: "#283593"
+  }
+  command: {
+    shape: rectangle
+    style.bold: true
+    style.border-radius: 20
+  }
+}
+
+# ─── Title ─────────────────────────────────────
+
+title: |md
+  # AI-Powered Issue-to-Code Pipeline
+  Copilot writes specs, humans approve, Goose builds code
+| {
+  near: top-center
+  shape: text
+  style.font-size: 14
+}
+
+# ─── Phase 1: Issue Creation ───────────────────
+
+phase1: Phase 1 - Issue Creation {
+  style.fill: "#E3F2FD"
+  style.stroke: "#1565C0"
+  style.border-radius: 12
+  style.font-size: 16
+  style.bold: true
+
+  user: User {
+    shape: person
+    style.fill: "#BBDEFB"
+    style.stroke: "#1565C0"
+  }
+
+  templates: Issue Templates {
+    shape: document
+    style.fill: "#E8EAF6"
+    style.stroke: "#3949AB"
+
+    bug: bug_report.yml
+    feature: feature_request.yml
+  }
+
+  issue: GitHub Issue {
+    shape: rectangle
+    style.fill: "#FFFFFF"
+    style.stroke: "#1565C0"
+    style.shadow: true
+    style.border-radius: 8
+  }
+
+  label_triage: needs-triage {
+    class: label-tag
+    style.fill: "#FBCA04"
+    style.stroke: "#7D6200"
+    style.font-color: "#3E3100"
+  }
+
+  user -> templates: fills out form
+  templates -> issue: creates
+  issue -> label_triage: auto-labeled
+}
+
+# ─── Phase 2: Copilot Triage ──────────────────
+
+phase2: Phase 2 - Copilot Triage {
+  style.fill: "#E8F5E9"
+  style.stroke: "#2E7D32"
+  style.border-radius: 12
+  style.font-size: 16
+  style.bold: true
+
+  workflow: copilot-triage.yml {
+    class: workflow
+  }
+
+  copilot: GitHub Copilot {
+    shape: rectangle
+    style.fill: "#C8E6C9"
+    style.stroke: "#2E7D32"
+    style.shadow: true
+    style.3d: true
+    style.font-size: 15
+    style.bold: true
+    style.border-radius: 10
+  }
+
+  actions: Copilot Actions {
+    style.fill: transparent
+    style.stroke-dash: 3
+    style.border-radius: 8
+
+    analyze: Analyze issue\n& codebase
+    write_spec: Write specification\ndocument
+    create_pr: Create spec PR\non copilot/ branch
+  }
+
+  spec_file: "specs/issue-N-spec.md" {
+    class: artifact
+  }
+
+  spec_pr: Spec PR {
+    shape: rectangle
+    style.fill: "#FFFFFF"
+    style.stroke: "#2E7D32"
+    style.shadow: true
+    style.border-radius: 8
+    style.double-border: true
+  }
+
+  label_triaging: copilot-triaging {
+    class: label-tag
+    style.fill: "#C2E0C6"
+    style.stroke: "#2E7D32"
+    style.font-color: "#1B5E20"
+  }
+
+  workflow -> copilot: triggers
+  copilot -> actions.analyze
+  actions.analyze -> actions.write_spec
+  actions.write_spec -> spec_file: generates
+  actions.write_spec -> actions.create_pr
+  actions.create_pr -> spec_pr: opens
+  spec_file -> spec_pr: included in
+  label_triaging
+}
+
+# ─── Phase 3: Human Review ────────────────────
+
+phase3: Phase 3 - Human Review & Approval {
+  style.fill: "#FFF3E0"
+  style.stroke: "#E65100"
+  style.border-radius: 12
+  style.font-size: 16
+  style.bold: true
+
+  reviewer: Human Reviewer {
+    shape: person
+    style.fill: "#FFE0B2"
+    style.stroke: "#E65100"
+  }
+
+  spec_review: Review Spec PR {
+    shape: rectangle
+    style.fill: "#FFFFFF"
+    style.stroke: "#E65100"
+    style.border-radius: 8
+  }
+
+  decision: Decision {
+    class: decision
+  }
+
+  approve_cmd: "/approve" {
+    class: command
+    style.fill: "#C8E6C9"
+    style.stroke: "#2E7D32"
+  }
+
+  reject_cmd: "/wont-do" {
+    class: command
+    style.fill: "#FFCDD2"
+    style.stroke: "#C62828"
+  }
+
+  info_cmd: "/needs-info" {
+    class: command
+    style.fill: "#E1BEE7"
+    style.stroke: "#6A1B9A"
+  }
+
+  workflow: approve-build.yml {
+    class: workflow
+  }
+
+  label_approved: approved-for-build {
+    class: label-tag
+    style.fill: "#1D76DB"
+    style.stroke: "#0D47A1"
+    style.font-color: "#FFFFFF"
+  }
+
+  closed: Spec PR Closed {
+    shape: rectangle
+    style.fill: "#FFCDD2"
+    style.stroke: "#C62828"
+    style.border-radius: 8
+    style.stroke-dash: 3
+  }
+
+  ask_reporter: "Ask reporter\nfor details" {
+    shape: rectangle
+    style.fill: "#E1BEE7"
+    style.stroke: "#6A1B9A"
+    style.border-radius: 8
+    style.stroke-dash: 3
+  }
+
+  reviewer -> spec_review: reads spec
+  spec_review -> decision
+  decision -> approve_cmd: looks good {
+    style.stroke: "#2E7D32"
+    style.stroke-width: 2
+  }
+  decision -> reject_cmd: won't fix {
+    style.stroke: "#C62828"
+  }
+  decision -> info_cmd: unclear {
+    style.stroke: "#6A1B9A"
+  }
+
+  approve_cmd -> workflow: comment triggers
+  workflow -> label_approved: adds label
+
+  reject_cmd -> closed
+  info_cmd -> ask_reporter
+}
+
+# ─── Phase 4: Goose Build ─────────────────────
+
+phase4: Phase 4 - Goose Implementation {
+  style.fill: "#FCE4EC"
+  style.stroke: "#AD1457"
+  style.border-radius: 12
+  style.font-size: 16
+  style.bold: true
+
+  workflow: goose-build.yml {
+    class: workflow
+  }
+
+  runner: GitHub Actions Runner {
+    style.fill: "#F3E5F5"
+    style.stroke: "#6A1B9A"
+    style.border-radius: 8
+
+    setup: "Install Go 1.23\n+ Goose CLI" {
+      shape: step
+      style.fill: "#EDE7F6"
+    }
+    read_spec: "Read spec from\nCopilot's PR" {
+      shape: step
+      style.fill: "#EDE7F6"
+    }
+    run_goose: "goose run\n--with-builtin developer" {
+      shape: rectangle
+      style.fill: "#FCE4EC"
+      style.stroke: "#AD1457"
+      style.bold: true
+      style.3d: true
+      style.border-radius: 4
+    }
+    build_test: "go build && go test\ngo vet && gofmt" {
+      shape: step
+      style.fill: "#EDE7F6"
+    }
+    commit: "Commit & push to\ngoose/issue-N branch" {
+      shape: step
+      style.fill: "#EDE7F6"
+    }
+  }
+
+  gemini: "Google Gemini\n(free tier)" {
+    shape: hexagon
+    style.fill: "#E8F5E9"
+    style.stroke: "#2E7D32"
+    style.shadow: true
+    style.font-size: 14
+    style.bold: true
+    style.3d: true
+  }
+
+  impl_pr: "Implementation PR\n(draft)" {
+    shape: rectangle
+    style.fill: "#FFFFFF"
+    style.stroke: "#AD1457"
+    style.shadow: true
+    style.border-radius: 8
+    style.double-border: true
+  }
+
+  label_impl: goose-implementation {
+    class: label-tag
+    style.fill: "#D93F0B"
+    style.stroke: "#8B2500"
+    style.font-color: "#FFFFFF"
+  }
+
+  label_review: needs-review {
+    class: label-tag
+    style.fill: "#E99695"
+    style.stroke: "#8B0000"
+    style.font-color: "#3E0000"
+  }
+
+  workflow -> runner.setup
+  runner.setup -> runner.read_spec
+  runner.read_spec -> runner.run_goose
+  runner.run_goose -> gemini: LLM calls {
+    style.stroke: "#2E7D32"
+    style.stroke-width: 2
+    style.animated: true
+  }
+  gemini -> runner.run_goose: code changes {
+    style.stroke: "#2E7D32"
+    style.stroke-width: 2
+    style.animated: true
+  }
+  runner.run_goose -> runner.build_test
+  runner.build_test -> runner.commit
+  runner.commit -> impl_pr: creates
+  impl_pr -> label_impl
+  impl_pr -> label_review
+}
+
+# ─── Phase 5: Final Review ────────────────────
+
+phase5: Phase 5 - Code Review & Merge {
+  style.fill: "#EDE7F6"
+  style.stroke: "#4527A0"
+  style.border-radius: 12
+  style.font-size: 16
+  style.bold: true
+
+  reviewer: Human Reviewer {
+    shape: person
+    style.fill: "#D1C4E9"
+    style.stroke: "#4527A0"
+  }
+
+  review_code: "Review implementation\ncode changes" {
+    style.fill: "#FFFFFF"
+    style.stroke: "#4527A0"
+    style.border-radius: 8
+  }
+
+  merge: Merge to main {
+    shape: rectangle
+    style.fill: "#C8E6C9"
+    style.stroke: "#2E7D32"
+    style.border-radius: 20
+    style.bold: true
+    style.3d: true
+  }
+
+  issue_closed: Issue Closed {
+    shape: circle
+    style.fill: "#C8E6C9"
+    style.stroke: "#2E7D32"
+    style.bold: true
+  }
+
+  reviewer -> review_code: reads PR
+  review_code -> merge: approved
+  merge -> issue_closed: resolves
+}
+
+# ─── Phase Connections (the backbone) ──────────
+
+phase1.label_triage -> phase2.workflow: "triggers on label" {
+  style.stroke: "#1565C0"
+  style.stroke-width: 3
+  style.animated: true
+}
+
+phase2.spec_pr -> phase3.reviewer: "PR ready for review" {
+  style.stroke: "#2E7D32"
+  style.stroke-width: 3
+}
+
+phase3.label_approved -> phase4.workflow: "triggers on label" {
+  style.stroke: "#1D76DB"
+  style.stroke-width: 3
+  style.animated: true
+}
+
+phase4.impl_pr -> phase5.reviewer: "requests review" {
+  style.stroke: "#AD1457"
+  style.stroke-width: 3
+}
+
+# ─── Feedback Loops (dashed) ──────────────────
+
+phase3.ask_reporter -> phase1.issue: "reporter updates issue\nthen re-adds needs-triage" {
+  style.stroke: "#6A1B9A"
+  style.stroke-dash: 5
+  style.opacity: 0.7
+}
+
+phase5.review_code -> phase4.runner.run_goose: "request changes via\nPR comment" {
+  style.stroke: "#4527A0"
+  style.stroke-dash: 5
+  style.opacity: 0.7
+}

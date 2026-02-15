@@ -1,0 +1,45 @@
+This is wgmesh - a Go 1.23 WireGuard mesh network builder and manager.
+
+## Architecture
+
+Two operational modes:
+1. Centralized: Operator manages nodes via SSH (pkg/mesh, pkg/ssh)
+2. Decentralized: Nodes self-discover using shared secret (pkg/daemon, pkg/discovery)
+
+Decentralized discovery layers:
+- Layer 0: GitHub Issues registry (pkg/discovery/registry.go)
+- Layer 1: LAN multicast (pkg/discovery/lan.go)
+- Layer 2: BitTorrent DHT (pkg/discovery/dht.go)
+- Layer 3: In-mesh gossip (pkg/discovery/gossip.go)
+
+Crypto stack: HKDF key derivation, AES-256-GCM envelopes, HMAC membership tokens (pkg/crypto/)
+Privacy: Dandelion++ relay for announcement privacy (pkg/privacy/)
+
+## Build Commands
+
+- Build: make build (or go build)
+- Test: make test (or go test ./...)
+- Lint: make lint (or go vet ./...)
+- Format: gofmt -w .
+
+## Code Style
+
+- Standard Go formatting (gofmt)
+- Always handle errors with context: fmt.Errorf("context: %w", err)
+- Concurrency: use sync primitives, test with -race flag
+- Table-driven tests preferred
+- Minimize external dependencies, prefer stdlib
+- Module path: github.com/atvirokodosprendimai/wgmesh
+
+## Key Dependencies
+
+- github.com/anacrolix/dht/v2 (BitTorrent Mainline DHT)
+- golang.org/x/crypto (HKDF, SSH)
+- golang.org/x/term (terminal password input)
+
+## Important Files
+
+- main.go: CLI entry point (both modes)
+- pkg/daemon/daemon.go: Main reconciliation loop
+- pkg/crypto/derive.go: DeriveKeys() from shared secret
+- pkg/discovery/exchange.go: Encrypted UDP peer exchange
