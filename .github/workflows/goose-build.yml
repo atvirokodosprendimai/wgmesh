@@ -24,6 +24,9 @@ jobs:
     if: github.event.label.name == 'approved-for-build'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    concurrency:
+      group: goose-implement-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
 
     steps:
       # ── Validate prerequisites ──────────────────────────

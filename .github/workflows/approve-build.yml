@@ -21,7 +21,7 @@ jobs:
   approve:
     if: >
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/approve')
+      startsWith(github.event.comment.body, '/approve')
     runs-on: ubuntu-latest
     steps:
       - name: Verify approver has write access
@@ -95,7 +95,7 @@ jobs:
   reject:
     if: >
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/wont-do')
+      startsWith(github.event.comment.body, '/wont-do')
     runs-on: ubuntu-latest
     steps:
       - name: Verify rejector has write access
@@ -192,7 +192,7 @@ jobs:
   needs-info:
     if: >
       github.event.issue.pull_request &&
-      contains(github.event.comment.body, '/needs-info')
+      startsWith(github.event.comment.body, '/needs-info')
     runs-on: ubuntu-latest
     steps:
       - name: Verify user has write access
