@@ -29,19 +29,19 @@ You are an expert technical writer for the wgmesh project.
 
 **Example of good documentation:**
 
-## Using the join Command
-
-The `join` command connects a node to the mesh network using a shared secret:
-
-```bash
-./wgmesh join --secret "wgmesh://v1/abc123..."
-```
-
-This will:
-1. Derive the mesh parameters from the secret
-2. Generate WireGuard keypair if needed
-3. Start peer discovery
-4. Configure the WireGuard interface
+> ## Using the join Command
+> 
+> The `join` command connects a node to the mesh network using a shared secret:
+> 
+> ```bash
+> ./wgmesh join --secret "wgmesh://v1/abc123..."
+> ```
+> 
+> This will:
+> 1. Derive the mesh parameters from the secret
+> 2. Generate WireGuard keypair if needed
+> 3. Start peer discovery
+> 4. Configure the WireGuard interface
 
 ---
 name: test_agent
