@@ -4,7 +4,7 @@
 feature
 
 ## Deliverables
-code + documentation
+code + tests + documentation
 
 ## Problem Analysis
 
@@ -47,8 +47,9 @@ for _, arg := range os.Args[1:] {
 ## Affected Files
 
 1. **main.go** (line ~22): Add version flag check loop (6-8 lines)
-2. **main.go** (printUsage, line ~148): Document `--version` and `-v` in help text
-3. **README.md** (optional): Update CLI usage examples if present
+2. **main.go** (printUsage, line ~148): Update help text to include `version` subcommand (currently not listed) and document `--version`/`-v` as aliases
+3. **main_test.go** (new file): Create automated tests for all three version forms
+4. **README.md** (optional): Update CLI usage examples if present
 
 ## Test Strategy
 
@@ -73,7 +74,16 @@ go build -ldflags "-X main.version=1.2.3"
 - Centralized mode flags (-state, -add, -list) still work  
 - Help text displays correctly
 
-**Automated testing:** Optional (no existing `main_test.go` in repo). If added, should verify all three forms work and version flag takes priority.
+**Automated testing:** 
+
+Create `main_test.go` with unit tests covering:
+- `--version` flag prints correct output and exits
+- `-v` flag prints correct output and exits  
+- `version` subcommand continues to work
+- Version flags take priority over other arguments (e.g., `--version --help`)
+- Output format matches `wgmesh <version>`
+
+This aligns with the issue acceptance criteria requiring tests for all three forms and ensures the repository maintains test coverage consistent with other packages.
 
 ## Estimated Complexity
 
