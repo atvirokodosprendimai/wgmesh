@@ -1,0 +1,85 @@
+name: Sync Labels
+
+# Creates/updates the pipeline labels defined in .github/labels.yml.
+# Run manually once to bootstrap, or on push to labels.yml to keep in sync.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/labels.yml'
+
+permissions:
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync labels from config
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+
+            // Simple YAML parser for our flat array format (name/color/description per item).
+            // Expects .github/labels.yml to use single-line values only.
+            const content = fs.readFileSync('.github/labels.yml', 'utf8');
+            const labels = [];
+            let current = null;
+            for (const line of content.split('\n')) {
+              const trimmed = line.trim();
+              if (trimmed.startsWith('- name:')) {
+                if (current) labels.push(current);
+                current = { name: trimmed.replace('- name:', '').trim().replace(/^"|"$/g, '') };
+              } else if (trimmed.startsWith('color:') && current) {
+                current.color = trimmed.replace('color:', '').trim().replace(/^"|"$/g, '');
+              } else if (trimmed.startsWith('description:') && current) {
+                current.description = trimmed.replace('description:', '').trim().replace(/^"|"$/g, '');
+              }
+            }
+            if (current) labels.push(current);
+
+            console.log(`Found ${labels.length} labels to sync`);
+
+            // Get existing labels
+            const { data: existing } = await github.rest.issues.listLabelsForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              per_page: 100
+            });
+            const existingNames = new Set(existing.map(l => l.name));
+
+            // Create or update labels
+            for (const label of labels) {
+              try {
+                if (existingNames.has(label.name)) {
+                  await github.rest.issues.updateLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: label.name,
+                    color: label.color,
+                    description: label.description || ''
+                  });
+                  console.log(`Updated: ${label.name}`);
+                } else {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name: label.name,
+                    color: label.color,
+                    description: label.description || ''
+                  });
+                  console.log(`Created: ${label.name}`);
+                }
+              } catch (e) {
+                console.error(`Failed to sync label "${label.name}": ${e.message}`);
+              }
+            }
+
+            console.log('Label sync complete');

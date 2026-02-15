@@ -1,0 +1,94 @@
+name: Copilot Issue Triage
+
+# Triggered when an issue is labeled with 'needs-triage'.
+# Assigns the issue to GitHub Copilot coding agent with instructions
+# to analyze the issue and produce a specification document (no code).
+
+on:
+  issues:
+    types: [labeled]
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  triage:
+    if: github.event.label.name == 'needs-triage'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instruct Copilot to write specification
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNumber = context.issue.number;
+            const issue = context.payload.issue;
+
+            // Post a comment that @copilot will pick up as an instruction
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                `@copilot Please analyze this issue and create a **specification document only**. Do NOT write implementation code.`,
+                ``,
+                `### Instructions`,
+                ``,
+                `1. Read the issue title and description carefully`,
+                `2. Explore the codebase to understand the relevant components`,
+                `3. Create a file \`specs/issue-${issueNumber}-spec.md\` using this template:`,
+                ``,
+                '```markdown',
+                `# Specification: Issue #${issueNumber}`,
+                ``,
+                `## Classification`,
+                `<!-- One of: fix, feature, refactor, wont-do, needs-info -->`,
+                ``,
+                `## Problem Analysis`,
+                `<!-- Detailed analysis of what is wrong or what is being requested -->`,
+                ``,
+                `## Proposed Approach`,
+                `<!-- Step-by-step approach to solve this -->`,
+                `<!-- Be specific about which functions/files to modify -->`,
+                ``,
+                `## Affected Files`,
+                `<!-- List every file that would need changes -->`,
+                ``,
+                `## Test Strategy`,
+                `<!-- How to verify the fix/feature works -->`,
+                `<!-- Include specific test cases if applicable -->`,
+                ``,
+                `## Estimated Complexity`,
+                `<!-- One of: low, medium, high -->`,
+                `<!-- Brief justification -->`,
+                '```',
+                ``,
+                `4. Open a PR titled **exactly**: \`spec: Issue #${issueNumber} - ${issue.title.replace(/"/g, '\\"')}\``,
+                `   - This title format is required: the pipeline extracts the issue number from \`Issue #N\` in the title`,
+                `5. Target the \`main\` branch`,
+                `6. The PR should contain ONLY the spec file - no code changes`,
+              ].join('\n')
+            });
+
+            // Swap labels: remove needs-triage, add copilot-triaging
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                name: 'needs-triage'
+              });
+            } catch (e) {
+              // Label may already have been removed
+              console.log('Could not remove needs-triage label:', e.message);
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              labels: ['copilot-triaging']
+            });
+
+            console.log(`Triggered Copilot triage for issue #${issueNumber}`);

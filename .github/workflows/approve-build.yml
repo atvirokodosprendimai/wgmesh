@@ -1,0 +1,287 @@
+name: Approve or Reject Build
+
+# Handles human approval commands on spec PRs:
+#   /approve  - Approves the spec and triggers Goose implementation
+#   /wont-do  - Rejects the spec and closes the PR
+#   /needs-info - Requests more information from the issue reporter
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  # ──────────────────────────────────────────────────────
+  # /approve - Trigger Goose build
+  # ──────────────────────────────────────────────────────
+  approve:
+    if: >
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/approve')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify approver has write access
+        id: verify
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              });
+              if (!['admin', 'write'].includes(perm.permission)) {
+                core.setFailed(`User @${context.actor} does not have write access (has: ${perm.permission})`);
+                return;
+              }
+              console.log(`Approved by @${context.actor} with ${perm.permission} access`);
+            } catch (error) {
+              core.setFailed(`Failed to verify permissions for @${context.actor}: ${error.message || error}`);
+            }
+
+      - name: Label PR as approved and acknowledge
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.issue.number;
+
+            // Add the approved-for-build label (this triggers goose-build.yml)
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['approved-for-build']
+            });
+
+            // Remove copilot-triaging if present
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                name: 'copilot-triaging'
+              });
+            } catch (e) {
+              if (e.status !== 404) {
+                core.warning(`Failed to remove copilot-triaging label: ${e.message}`);
+              }
+            }
+
+            // Post acknowledgment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: [
+                `**Build approved** by @${context.actor}`,
+                ``,
+                `Goose will now implement the code based on this specification.`,
+                `A new draft PR will be created when the implementation is complete.`,
+              ].join('\n')
+            });
+
+            console.log(`Approved spec PR #${prNumber} for Goose build`);
+
+  # ──────────────────────────────────────────────────────
+  # /wont-do - Reject the spec
+  # ──────────────────────────────────────────────────────
+  reject:
+    if: >
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/wont-do')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify rejector has write access
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              });
+              if (!['admin', 'write'].includes(perm.permission)) {
+                core.setFailed(`User @${context.actor} does not have write access`);
+                return;
+              }
+            } catch (error) {
+              core.setFailed(`Failed to verify permissions for @${context.actor}: ${error.message || error}`);
+            }
+
+      - name: Close spec PR and label original issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.issue.number;
+
+            // Get the PR to find the linked issue
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            // Extract issue number from PR title: "spec: Issue #123 - ..."
+            const match = pr.title.match(/Issue #(\d+)/);
+            const issueNumber = match ? parseInt(match[1]) : null;
+
+            // Close the spec PR
+            await github.rest.pulls.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+              state: 'closed'
+            });
+
+            // Add rejection comment to PR
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `**Rejected** by @${context.actor}. This will not be implemented.`
+            });
+
+            // Label the original issue if found
+            if (issueNumber) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['wont-do']
+              });
+
+              // Remove triaging labels
+              for (const label of ['copilot-triaging', 'needs-triage']) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    name: label
+                  });
+                } catch (e) {
+                  if (e.status !== 404) {
+                    core.warning(`Failed to remove label "${label}" from issue #${issueNumber}: ${e.message}`);
+                  }
+                }
+              }
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `This issue has been reviewed and marked as **won't do** by @${context.actor}. Spec PR #${prNumber} has been closed.`
+              });
+            }
+
+            console.log(`Rejected spec PR #${prNumber}`);
+
+  # ──────────────────────────────────────────────────────
+  # /needs-info - Request more information
+  # ──────────────────────────────────────────────────────
+  needs-info:
+    if: >
+      github.event.issue.pull_request &&
+      startsWith(github.event.comment.body, '/needs-info')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify user has write access
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            try {
+              const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                username: context.actor
+              });
+              if (!['admin', 'write'].includes(perm.permission)) {
+                core.setFailed(`User @${context.actor} does not have write access`);
+                return;
+              }
+            } catch (error) {
+              core.setFailed(`Failed to verify permissions for @${context.actor}: ${error.message || error}`);
+            }
+
+      - name: Request more info on original issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const prNumber = context.issue.number;
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber
+            });
+
+            const match = pr.title.match(/Issue #(\d+)/);
+            const issueNumber = match ? parseInt(match[1]) : null;
+
+            if (issueNumber) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['needs-info']
+              });
+
+              // Remove triaging labels
+              for (const label of ['copilot-triaging', 'needs-triage']) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    name: label
+                  });
+                } catch (e) {
+                  if (e.status !== 404) {
+                    core.warning(`Failed to remove label "${label}" from issue #${issueNumber}: ${e.message}`);
+                  }
+                }
+              }
+
+              // Fetch the original issue to get the reporter's login
+              const { data: linkedIssue } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber
+              });
+              const issueAuthor = linkedIssue?.user?.login;
+              const mention = issueAuthor ? `@${issueAuthor}` : 'The original issue reporter';
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: [
+                  `${mention} We need more information to proceed with this issue.`,
+                  ``,
+                  `Please provide additional details so we can better understand and address your request.`,
+                  `Once updated, add the \`needs-triage\` label to restart the review process.`,
+                ].join('\n')
+              });
+            }
+
+            // Comment on spec PR
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: `Paused - more information requested from the issue reporter. See issue #${issueNumber || '?'}.`
+            });
+
+            console.log(`Requested more info for spec PR #${prNumber}`);

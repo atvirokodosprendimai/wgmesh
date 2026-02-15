@@ -1,0 +1,74 @@
+name: Bug Report
+description: Report a bug in wgmesh
+title: "[Bug] "
+labels: ["type: bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. This issue will be automatically triaged by Copilot.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear description of what the bug is.
+      placeholder: What happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What did you expect to happen?
+      placeholder: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Run `wgmesh join --secret "..."`
+        2. Wait for peer discovery
+        3. See error
+    validations:
+      required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Operating Mode
+      description: Which mode of wgmesh are you using?
+      options:
+        - Centralized (SSH deploy)
+        - Decentralized (daemon/join)
+        - Both
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Go version, wgmesh version, WireGuard version
+      placeholder: |
+        - OS: Ubuntu 22.04
+        - Go: 1.23
+        - wgmesh: v0.1.0
+        - WireGuard: latest
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Logs
+      description: Any error output or logs (will be auto-formatted as code)
+      render: shell
+    validations:
+      required: false

@@ -1,0 +1,363 @@
+name: Goose Implementation
+
+# Triggered when a spec PR is labeled 'approved-for-build'.
+# Reads the spec file, runs Goose to implement the code, and creates
+# a draft implementation PR for human review.
+
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+env:
+  GOOSE_PROVIDER: google
+  GOOSE_MODEL: gemini-2.0-flash
+  # Goose requires the provider-specific key
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+jobs:
+  implement:
+    if: github.event.label.name == 'approved-for-build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: goose-implement-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+
+    steps:
+      # ── Validate prerequisites ──────────────────────────
+      - name: Validate API key is configured
+        env:
+          KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::GOOGLE_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
+            exit 1
+          fi
+
+      - name: Verify label was applied via approve workflow
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            // Log the PR branch for audit trail
+            const pr = context.payload.pull_request;
+            console.log(`Spec PR branch: ${pr.head.ref}`);
+
+            // Verify the label event was triggered by a user with write access
+            const sender = context.payload.sender;
+            if (sender) {
+              try {
+                const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: sender.login
+                });
+                if (!['admin', 'write'].includes(perm.permission)) {
+                  core.setFailed(`Label applied by @${sender.login} who lacks write access (has: ${perm.permission})`);
+                  return;
+                }
+                console.log(`Label applied by @${sender.login} (${perm.permission} access)`);
+              } catch (error) {
+                core.setFailed(`Failed to verify permissions for @${sender.login}: ${error.message}`);
+                return;
+              }
+            }
+
+      # ── Setup ──────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: Install Goose CLI
+        run: |
+          # Using latest release. To pin, replace URL with:
+          #   releases/download/vX.Y.Z/download_cli.sh
+          curl -fsSL "https://github.com/block/goose/releases/latest/download/download_cli.sh" \
+            -o /tmp/goose-install.sh
+          CONFIGURE=false bash /tmp/goose-install.sh
+          rm /tmp/goose-install.sh
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          # Verify installation
+          $HOME/.local/bin/goose --version
+
+      # ── Extract spec details ───────────────────────────
+      - name: Extract issue number and spec metadata
+        id: spec
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+
+            // Parse issue number from PR title: "spec: Issue #123 - ..."
+            const match = pr.title.match(/Issue #(\d+)/);
+            if (!match) {
+              core.setFailed('Could not extract issue number from PR title: ' + pr.title);
+              return;
+            }
+            const issueNumber = match[1];
+
+            core.setOutput('issue_number', issueNumber);
+            core.setOutput('spec_branch', pr.head.ref);
+            core.setOutput('spec_pr_number', pr.number);
+            core.setOutput('impl_branch', `goose/issue-${issueNumber}`);
+
+            console.log(`Issue: #${issueNumber}`);
+            console.log(`Spec branch: ${pr.head.ref}`);
+            console.log(`Spec PR: #${pr.number}`);
+
+      - name: Fetch spec file from spec branch
+        run: |
+          # Fetch the spec branch to access the spec file
+          git fetch origin ${{ steps.spec.outputs.spec_branch }}
+          git checkout origin/${{ steps.spec.outputs.spec_branch }} -- \
+            "specs/issue-${{ steps.spec.outputs.issue_number }}-spec.md" 2>/dev/null || true
+
+          SPEC_FILE="specs/issue-${{ steps.spec.outputs.issue_number }}-spec.md"
+
+          if [ ! -f "$SPEC_FILE" ]; then
+            echo "::error::Spec file not found: $SPEC_FILE"
+            echo "Listing specs/ directory:"
+            ls -la specs/ 2>/dev/null || echo "specs/ directory does not exist"
+            echo "Listing all changed files on spec branch:"
+            git diff --name-only main...origin/${{ steps.spec.outputs.spec_branch }} || true
+            exit 1
+          fi
+
+          echo "Found spec file: $SPEC_FILE"
+          echo "--- Spec Content ---"
+          cat "$SPEC_FILE"
+          echo "--- End Spec ---"
+
+      # ── Prepare implementation branch ──────────────────
+      - name: Create implementation branch
+        run: |
+          git checkout main
+          BRANCH="${{ steps.spec.outputs.impl_branch }}"
+
+          # Delete remote branch if it exists (retry scenario)
+          if git ls-remote --heads origin "$BRANCH" | grep -q "refs/heads/${BRANCH}$"; then
+            echo "Remote branch '$BRANCH' exists, deleting for retry..."
+            git push origin --delete "$BRANCH"
+          fi
+
+          git checkout -b "$BRANCH"
+          echo "Created branch: $BRANCH"
+
+      # ── Run Goose ──────────────────────────────────────
+      - name: Build Goose instructions
+        run: |
+          ISSUE_NUM="${{ steps.spec.outputs.issue_number }}"
+          SPEC_FILE="specs/issue-${ISSUE_NUM}-spec.md"
+
+          cat > /tmp/goose-task.md << 'TASK_HEADER'
+          # Implementation Task for wgmesh
+
+          You are implementing code changes for the wgmesh project.
+          wgmesh is a Go 1.23 WireGuard mesh network builder.
+
+          ## Project Rules
+
+          - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
+          - Build: `go build` (must succeed)
+          - Test: `go test ./...` (must pass)
+          - Lint: `go vet ./...` (must be clean)
+          - Format: code must be `gofmt` formatted
+          - Always handle errors with context wrapping
+          - Use standard library where possible
+          - Do NOT modify files outside the scope of the specification below
+
+          ## Specification
+
+          TASK_HEADER
+
+          # Append the actual spec content
+          cat "$SPEC_FILE" >> /tmp/goose-task.md
+
+          cat >> /tmp/goose-task.md << 'TASK_FOOTER'
+
+          ## Implementation Checklist
+
+          Follow these steps in order:
+
+          1. Read the specification above thoroughly
+          2. Explore the relevant source files mentioned in "Affected Files"
+          3. Implement the changes described in "Proposed Approach"
+          4. Write or update unit tests for your changes
+          5. Run `go build` and fix any compilation errors
+          6. Run `go test ./...` and fix any test failures
+          7. Run `go vet ./...` and fix any issues
+          8. Run `gofmt -l .` to verify formatting (fix with `gofmt -w .` if needed)
+          9. Keep changes minimal and focused - do not refactor unrelated code
+
+          IMPORTANT: If the spec classification is "wont-do" or "needs-info",
+          do NOT implement anything. Just create a brief note explaining why.
+          TASK_FOOTER
+
+          echo "Goose instructions written to /tmp/goose-task.md"
+          wc -l /tmp/goose-task.md
+
+      - name: Run Goose
+        id: goose
+        run: |
+          echo "Starting Goose implementation..."
+          # max-turns limits LLM round-trips to control API costs.
+          # 50 is generous for most tasks; reduce if using paid-tier models.
+          goose run \
+            --no-session \
+            --with-builtin "developer" \
+            -i /tmp/goose-task.md \
+            --max-turns 50 \
+            2>&1 | tee /tmp/goose-output.log
+
+          echo "Goose finished with exit code: $?"
+
+      # ── Commit and push ────────────────────────────────
+      - name: Check for changes and commit
+        id: commit
+        run: |
+          # Stage all changes except the spec file (it belongs to the spec PR)
+          git add -A
+          # Unstage the spec file if it was added
+          git reset HEAD -- "specs/issue-${{ steps.spec.outputs.issue_number }}-spec.md" 2>/dev/null || true
+
+          if git diff --cached --quiet; then
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "::warning::Goose did not produce any code changes"
+          else
+            echo "has_changes=true" >> $GITHUB_OUTPUT
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+            git commit -m "impl: Issue #${{ steps.spec.outputs.issue_number }} - Goose implementation
+
+            Automated implementation based on specification from PR #${{ steps.spec.outputs.spec_pr_number }}.
+            Generated by Goose (block/goose) with ${{ env.GOOSE_MODEL }}."
+
+            git push origin ${{ steps.spec.outputs.impl_branch }}
+            echo "Pushed implementation to ${{ steps.spec.outputs.impl_branch }}"
+          fi
+
+      # ── Create implementation PR ───────────────────────
+      - name: Create implementation PR
+        if: steps.commit.outputs.has_changes == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNum = '${{ steps.spec.outputs.issue_number }}';
+            const specPR = '${{ steps.spec.outputs.spec_pr_number }}';
+            const implBranch = '${{ steps.spec.outputs.impl_branch }}';
+
+            // Create draft PR
+            const { data: pr } = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `impl: Issue #${issueNum} - Goose implementation`,
+              head: implBranch,
+              base: 'main',
+              draft: true,
+              body: [
+                `## Goose Implementation`,
+                ``,
+                `Automated implementation for **Issue #${issueNum}**`,
+                `Based on specification from **PR #${specPR}**`,
+                ``,
+                `### Pipeline`,
+                ``,
+                `| Step | Status |`,
+                `|------|--------|`,
+                `| Issue created | #${issueNum} |`,
+                `| Copilot spec | PR #${specPR} |`,
+                `| Human approval | Approved |`,
+                `| Goose implementation | This PR |`,
+                `| Human code review | **Pending** |`,
+                ``,
+                `### Review Checklist`,
+                ``,
+                `- [ ] Code changes match the specification`,
+                `- [ ] Tests pass and cover the changes`,
+                `- [ ] No unintended side effects`,
+                `- [ ] Code style follows project conventions`,
+                `- [ ] Security considerations addressed`,
+                ``,
+                `---`,
+                `*This PR was automatically generated by [Goose](https://github.com/block/goose).*`,
+                `*Please review carefully before merging.*`,
+              ].join('\n')
+            });
+
+            // Label the implementation PR
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              labels: ['goose-implementation', 'needs-review']
+            });
+
+            // Comment on the original issue
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(issueNum),
+              body: [
+                `Goose has created an implementation: **PR #${pr.number}**`,
+                ``,
+                `| Step | Link |`,
+                `|------|------|`,
+                `| Spec | PR #${specPR} |`,
+                `| Implementation | PR #${pr.number} |`,
+                ``,
+                `Please review the implementation PR.`,
+              ].join('\n')
+            });
+
+            // Also comment on the spec PR
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(specPR),
+              body: `Implementation PR created: #${pr.number}`
+            });
+
+            console.log(`Created implementation PR #${pr.number}`);
+
+      # ── Handle no-changes case ─────────────────────────
+      - name: Report no changes
+        if: steps.commit.outputs.has_changes == 'false'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const specPR = '${{ steps.spec.outputs.spec_pr_number }}';
+            const issueNum = '${{ steps.spec.outputs.issue_number }}';
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: parseInt(specPR),
+              body: [
+                `**Goose did not produce any code changes.**`,
+                ``,
+                `This may mean:`,
+                `- The spec was classified as "wont-do" or "needs-info"`,
+                `- Goose could not determine what changes to make`,
+                `- The implementation ran into errors`,
+                ``,
+                `Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.`,
+              ].join('\n')
+            });
