@@ -289,53 +289,81 @@ jobs:
       - name: Run Goose
         id: goose
         run: |
-          echo "Starting Goose implementation..."
+          MAX_ATTEMPTS=4
+          BACKOFF=30  # initial delay in seconds
 
-          # max-turns limits LLM round-trips to control API costs.
-          # 50 is generous for most tasks; reduce if using paid-tier models.
-          set +e
-          goose run \
-            --no-session \
-            --with-builtin "developer" \
-            -i /tmp/goose-task.md \
-            --max-turns 50 \
-            2>&1 | tee /tmp/goose-output.log
-          GOOSE_EXIT=$?
-          set -e
+          for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
+            echo "=== Goose attempt $ATTEMPT/$MAX_ATTEMPTS ==="
 
-          echo "Goose finished with exit code: $GOOSE_EXIT"
+            # Reset working tree to clean state for retries
+            if [ "$ATTEMPT" -gt 1 ]; then
+              echo "Restoring clean state for retry..."
+              git checkout -- . 2>/dev/null || true
+              git clean -fd 2>/dev/null || true
+            fi
 
-          # Detect silent failures: Goose often exits 0 even on errors
-          ERRORS_FOUND=false
+            set +e
+            goose run \
+              --no-session \
+              --with-builtin "developer" \
+              -i /tmp/goose-task.md \
+              --max-turns 50 \
+              2>&1 | tee /tmp/goose-output.log
+            GOOSE_EXIT=$?
+            set -e
 
-          if grep -qiE "rate.?limit|quota.?exceeded|resource.?exhausted|429|too many requests" /tmp/goose-output.log; then
-            echo "::error::Goose hit API rate limits or quota exhaustion"
-            ERRORS_FOUND=true
-          fi
+            echo "Goose finished with exit code: $GOOSE_EXIT"
 
-          if grep -qiE "unauthorized|authentication|invalid.?api.?key|403|401" /tmp/goose-output.log; then
-            echo "::error::Goose encountered authentication/authorization errors"
-            ERRORS_FOUND=true
-          fi
+            # ── Check for non-recoverable errors (fail immediately) ──
+            if grep -qiE "unauthorized|authentication|invalid.?api.?key" /tmp/goose-output.log; then
+              echo "::error::Goose encountered authentication errors (non-recoverable)"
+              tail -30 /tmp/goose-output.log
+              exit 1
+            fi
 
-          if grep -qi "unexpected argument" /tmp/goose-output.log; then
-            echo "::error::Goose CLI argument error detected"
-            ERRORS_FOUND=true
-          fi
+            if grep -qi "unexpected argument" /tmp/goose-output.log; then
+              echo "::error::Goose CLI argument error (non-recoverable)"
+              tail -30 /tmp/goose-output.log
+              exit 1
+            fi
 
-          # Check if output is suspiciously short (Goose didn't actually run)
-          LINES=$(wc -l < /tmp/goose-output.log)
-          if [ "$LINES" -lt 5 ]; then
-            echo "::error::Goose output is suspiciously short ($LINES lines) — likely did not execute"
-            ERRORS_FOUND=true
-          fi
+            # ── Check for rate limit errors (retryable) ──
+            RATE_LIMITED=false
+            if grep -qiE "rate.?limit|quota.?exceeded|resource.?exhausted|429|too many requests" /tmp/goose-output.log; then
+              RATE_LIMITED=true
+            fi
 
-          if [ "$GOOSE_EXIT" -ne 0 ] || [ "$ERRORS_FOUND" = "true" ]; then
-            echo "::error::Goose failed (exit=$GOOSE_EXIT, errors_detected=$ERRORS_FOUND)"
-            echo "--- Last 50 lines of Goose output ---"
-            tail -50 /tmp/goose-output.log
-            exit 1
-          fi
+            # ── Check if output is suspiciously short ──
+            LINES=$(wc -l < /tmp/goose-output.log)
+            TOO_SHORT=false
+            if [ "$LINES" -lt 5 ]; then
+              TOO_SHORT=true
+            fi
+
+            # ── Success: no errors, meaningful output ──
+            if [ "$GOOSE_EXIT" -eq 0 ] && [ "$RATE_LIMITED" = "false" ] && [ "$TOO_SHORT" = "false" ]; then
+              echo "Goose completed successfully on attempt $ATTEMPT"
+              break
+            fi
+
+            # ── Retry logic ──
+            if [ "$ATTEMPT" -lt "$MAX_ATTEMPTS" ]; then
+              if [ "$RATE_LIMITED" = "true" ]; then
+                echo "::warning::Rate limited on attempt $ATTEMPT. Retrying in ${BACKOFF}s..."
+              elif [ "$TOO_SHORT" = "true" ]; then
+                echo "::warning::Suspiciously short output ($LINES lines) on attempt $ATTEMPT. Retrying in ${BACKOFF}s..."
+              else
+                echo "::warning::Goose failed (exit=$GOOSE_EXIT) on attempt $ATTEMPT. Retrying in ${BACKOFF}s..."
+              fi
+              sleep "$BACKOFF"
+              BACKOFF=$((BACKOFF * 2))
+            else
+              echo "::error::Goose failed after $MAX_ATTEMPTS attempts"
+              echo "--- Last 50 lines of Goose output ---"
+              tail -50 /tmp/goose-output.log
+              exit 1
+            fi
+          done
 
       # ── Commit and push ────────────────────────────────
       - name: Check for changes and commit
