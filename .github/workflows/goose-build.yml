@@ -15,7 +15,7 @@ permissions:
 
 env:
   GOOSE_PROVIDER: google
-  GOOSE_MODEL: gemini-2.0-flash
+  GOOSE_MODEL: gemini-2.5-flash
   # Goose requires the provider-specific key
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
@@ -185,69 +185,16 @@ jobs:
           echo "Created branch: $BRANCH"
 
       # ── Run Goose ──────────────────────────────────────
-      - name: Build Goose instructions
-        run: |
-          ISSUE_NUM="${{ steps.spec.outputs.issue_number }}"
-          SPEC_FILE="specs/issue-${ISSUE_NUM}-spec.md"
-
-          cat > /tmp/goose-task.md << 'TASK_HEADER'
-          # Implementation Task for wgmesh
-
-          You are implementing code changes for the wgmesh project.
-          wgmesh is a Go 1.23 WireGuard mesh network builder.
-
-          ## Project Rules
-
-          - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
-          - Build: `go build` (must succeed)
-          - Test: `go test ./...` (must pass)
-          - Lint: `go vet ./...` (must be clean)
-          - Format: code must be `gofmt` formatted
-          - Always handle errors with context wrapping
-          - Use standard library where possible
-          - Do NOT modify files outside the scope of the specification below
-
-          ## Specification
-
-          TASK_HEADER
-
-          # Append the actual spec content
-          cat "$SPEC_FILE" >> /tmp/goose-task.md
-
-          cat >> /tmp/goose-task.md << 'TASK_FOOTER'
-
-          ## Implementation Checklist
-
-          Follow these steps in order:
-
-          1. Read the specification above thoroughly
-          2. Explore the relevant source files mentioned in "Affected Files"
-          3. Implement the changes described in "Proposed Approach"
-          4. Write or update unit tests for your changes
-          5. Run `go build` and fix any compilation errors
-          6. Run `go test ./...` and fix any test failures
-          7. Run `go vet ./...` and fix any issues
-          8. Run `gofmt -l .` to verify formatting (fix with `gofmt -w .` if needed)
-          9. Keep changes minimal and focused - do not refactor unrelated code
-
-          IMPORTANT: If the spec classification is "wont-do" or "needs-info",
-          do NOT implement anything. Just create a brief note explaining why.
-          TASK_FOOTER
-
-          echo "Goose instructions written to /tmp/goose-task.md"
-          wc -l /tmp/goose-task.md
-
       - name: Run Goose
         id: goose
         run: |
           echo "Starting Goose implementation..."
-          # max-turns limits LLM round-trips to control API costs.
-          # 50 is generous for most tasks; reduce if using paid-tier models.
+          
+          # Use the implementation recipe with the spec file as parameter
           goose run \
             --no-session \
-            --with-builtin "developer" \
-            -i /tmp/goose-task.md \
-            --max-turns 50 \
+            --recipe .github/goose-recipes/wgmesh-implementation.yaml \
+            --param spec_file="specs/issue-${{ steps.spec.outputs.issue_number }}-spec.md" \
             2>&1 | tee /tmp/goose-output.log
 
           echo "Goose finished with exit code: $?"
