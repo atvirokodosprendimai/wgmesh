@@ -40,10 +40,12 @@ pkg/
 ```bash
 make build      # or: go build
 make test       # or: go test ./...
-make lint       # or: golangci-lint run
+make lint       # or: golangci-lint run (requires golangci-lint to be installed)
 make fmt        # or: go fmt ./...
 make deps       # or: go mod download && go mod tidy
 ```
+
+**Note**: If `golangci-lint` is not installed, you can install it from https://golangci-lint.run/usage/install/
 
 **Always run tests with race detector when making concurrency changes:**
 ```bash
