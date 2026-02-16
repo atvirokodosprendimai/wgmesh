@@ -63,7 +63,7 @@ func main() {
 
 	// Original CLI mode
 	var (
-		stateFile  = flag.String("state", "mesh-state.json", "Path to mesh state file")
+		stateFile  = flag.String("state", "/var/lib/wgmesh/mesh-state.json", "Path to mesh state file")
 		addNode    = flag.String("add", "", "Add node (format: hostname:ip:ssh_host[:ssh_port])")
 		removeNode = flag.String("remove", "", "Remove node by hostname")
 		list       = flag.Bool("list", false, "List all nodes")
@@ -161,7 +161,7 @@ func printUsage() {
 
 FLAGS:
   --version, -v               Show version information
-  -state <file>    Path to mesh state file (default: mesh-state.json)
+  -state <file>    Path to mesh state file (default: /var/lib/wgmesh/mesh-state.json)
   -add <spec>      Add node (format: hostname:ip:ssh_host[:ssh_port])
   -remove <name>   Remove node by hostname
   -list            List all nodes

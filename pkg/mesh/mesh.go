@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
@@ -71,6 +72,12 @@ func (m *Mesh) Save(stateFile string) error {
 			return fmt.Errorf("failed to encrypt state: %w", err)
 		}
 		data = []byte(encrypted)
+	}
+
+	// Ensure directory exists
+	dir := filepath.Dir(stateFile)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
 	if err := os.WriteFile(stateFile, data, 0600); err != nil {
