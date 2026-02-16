@@ -7,7 +7,7 @@ name: Sync Board Status
 on:
   issues:
     types: [opened, labeled, closed, reopened]
-  pull_request:
+  pull_request_target:
     types: [opened, labeled, closed, reopened]
 
 env:
