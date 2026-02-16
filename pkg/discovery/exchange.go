@@ -290,14 +290,6 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	punchTicker := time.NewTicker(PunchInterval)
 	defer punchTicker.Stop()
 
-	select {
-	case peerInfo := <-replyCh:
-		return peerInfo, nil
-	case <-timeout.C:
-		return nil, fmt.Errorf("exchange timeout")
-	default:
-	}
-
 	for {
 		select {
 		case peerInfo := <-replyCh:
