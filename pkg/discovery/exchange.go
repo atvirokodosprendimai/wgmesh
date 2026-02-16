@@ -35,7 +35,7 @@ type PeerExchange struct {
 	pendingMu      sync.Mutex
 	pendingReplies map[string]chan *daemon.PeerInfo
 
-	announceHandler func(*crypto.PeerAnnouncement)
+	announceHandler func(*crypto.PeerAnnouncement, *net.UDPAddr)
 }
 
 // NewPeerExchange creates a new peer exchange handler
@@ -162,7 +162,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		handler := pe.announceHandler
 		pe.mu.RUnlock()
 		if handler != nil {
-			handler(announcement)
+			handler(announcement, remoteAddr)
 		}
 	default:
 		log.Printf("[Exchange] Unknown message type: %s", envelope.MessageType)
@@ -340,7 +340,11 @@ func normalizeKnownPeerEndpoint(endpoint string) string {
 	if endpoint == "" {
 		return ""
 	}
-	if _, _, err := net.SplitHostPort(endpoint); err != nil {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
 		return ""
 	}
 	return endpoint
@@ -384,7 +388,7 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 }
 
 // SetAnnounceHandler sets a handler for gossip announcements.
-func (pe *PeerExchange) SetAnnounceHandler(handler func(*crypto.PeerAnnouncement)) {
+func (pe *PeerExchange) SetAnnounceHandler(handler func(*crypto.PeerAnnouncement, *net.UDPAddr)) {
 	pe.mu.Lock()
 	defer pe.mu.Unlock()
 	pe.announceHandler = handler

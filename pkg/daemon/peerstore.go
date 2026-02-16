@@ -8,6 +8,7 @@ import (
 const (
 	PeerDeadTimeout   = 5 * time.Minute  // Consider peer dead after no updates
 	PeerRemoveTimeout = 10 * time.Minute // Remove peer from WG config after grace period
+	LANMethod         = "lan"
 )
 
 // PeerInfo represents a discovered mesh peer
@@ -50,7 +51,7 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	}
 
 	// Update existing peer - newer info wins
-	if info.Endpoint != "" {
+	if info.Endpoint != "" && shouldUpdateEndpoint(existing, discoveryMethod) {
 		existing.Endpoint = info.Endpoint
 	}
 	if len(info.RoutableNetworks) > 0 {
@@ -73,6 +74,25 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	if !found {
 		existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
 	}
+}
+
+func shouldUpdateEndpoint(existing *PeerInfo, discoveryMethod string) bool {
+	if existing.Endpoint == "" {
+		return true
+	}
+	if discoveryMethod == LANMethod {
+		return true
+	}
+	return !containsMethod(existing.DiscoveredVia, LANMethod)
+}
+
+func containsMethod(methods []string, target string) bool {
+	for _, method := range methods {
+		if method == target {
+			return true
+		}
+	}
+	return false
 }
 
 // Get returns a peer by public key

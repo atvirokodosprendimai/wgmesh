@@ -41,6 +41,7 @@ type DHTDiscovery struct {
 	peerStore *daemon.PeerStore
 	exchange  *PeerExchange
 	gossip    *MeshGossip
+	lan       *LANDiscovery
 	server    *dht.Server
 	dhtPort   int
 
@@ -100,12 +101,23 @@ func (d *DHTDiscovery) Start() error {
 			return fmt.Errorf("failed to create gossip: %w", err)
 		}
 		d.gossip = gossip
-		d.exchange.SetAnnounceHandler(d.gossip.HandleAnnounce)
+		d.exchange.SetAnnounceHandler(d.gossip.HandleAnnounceFrom)
 	}
 
 	// Start the peer exchange server (listens for incoming connections)
 	if err := d.exchange.Start(); err != nil {
 		return fmt.Errorf("failed to start peer exchange: %w", err)
+	}
+
+	lan, err := NewLANDiscovery(d.config, d.localNode, d.peerStore)
+	if err != nil {
+		log.Printf("[LAN] Failed to initialize LAN discovery: %v", err)
+	} else {
+		d.lan = lan
+		if err := d.lan.Start(); err != nil {
+			log.Printf("[LAN] Failed to start LAN discovery: %v", err)
+			d.lan = nil
+		}
 	}
 
 	// Start gossip loop after exchange is listening
@@ -149,6 +161,10 @@ func (d *DHTDiscovery) Stop() error {
 	if d.server != nil {
 		d.persistNodes()
 		d.server.Close()
+	}
+
+	if d.lan != nil {
+		d.lan.Stop()
 	}
 
 	if d.gossip != nil {

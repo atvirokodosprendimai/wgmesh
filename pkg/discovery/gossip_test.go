@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"net"
 	"testing"
 	"time"
 
@@ -136,6 +137,65 @@ func TestHandleAnnouncementSkipsOwnKeyInTransitivePeers(t *testing.T) {
 	}
 	if _, ok := store.Get("my-key"); ok {
 		t.Error("own key should not be added to peer store from transitive peers")
+	}
+}
+
+func TestHandleAnnounceFromResolvesWildcardEndpoint(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+
+	localNode := &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	gossip, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	announcement := &crypto.PeerAnnouncement{
+		Protocol:   crypto.ProtocolVersion,
+		WGPubKey:   "remote-key",
+		MeshIP:     "10.0.0.2",
+		WGEndpoint: "0.0.0.0:51820",
+		Timestamp:  time.Now().Unix(),
+	}
+
+	remoteAddr := &net.UDPAddr{IP: net.ParseIP("192.168.1.44"), Port: 50000}
+	gossip.HandleAnnounceFrom(announcement, remoteAddr)
+
+	peer, ok := store.Get("remote-key")
+	if !ok {
+		t.Fatal("expected remote-key in peer store")
+	}
+	if peer.Endpoint != "192.168.1.44:51820" {
+		t.Fatalf("expected resolved endpoint 192.168.1.44:51820, got %s", peer.Endpoint)
+	}
+}
+
+func TestHandleAnnouncementDropsWildcardEndpointWithoutSender(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+
+	localNode := &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	gossip, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	announcement := &crypto.PeerAnnouncement{
+		Protocol:   crypto.ProtocolVersion,
+		WGPubKey:   "remote-key",
+		MeshIP:     "10.0.0.2",
+		WGEndpoint: "0.0.0.0:51820",
+		Timestamp:  time.Now().Unix(),
+	}
+
+	gossip.HandleAnnounce(announcement)
+
+	peer, ok := store.Get("remote-key")
+	if !ok {
+		t.Fatal("expected remote-key in peer store")
+	}
+	if peer.Endpoint != "" {
+		t.Fatalf("expected empty endpoint for wildcard without sender, got %s", peer.Endpoint)
 	}
 }
 

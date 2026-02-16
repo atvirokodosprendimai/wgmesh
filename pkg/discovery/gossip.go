@@ -224,7 +224,7 @@ func (g *MeshGossip) listenLoop() {
 		}
 
 		g.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		n, _, err := g.conn.ReadFromUDP(buf)
+		n, remoteAddr, err := g.conn.ReadFromUDP(buf)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
@@ -243,16 +243,24 @@ func (g *MeshGossip) listenLoop() {
 			continue
 		}
 
-		g.handleAnnouncement(announcement)
+		// In standalone gossip mode, remoteAddr is the mesh IP + gossip port,
+		// not the WireGuard underlay endpoint, so treat this as having no sender.
+		_ = remoteAddr
+		g.handleAnnouncement(announcement, nil)
 	}
 }
 
 // HandleAnnounce processes an incoming gossip announcement.
 func (g *MeshGossip) HandleAnnounce(announcement *crypto.PeerAnnouncement) {
-	g.handleAnnouncement(announcement)
+	g.handleAnnouncement(announcement, nil)
 }
 
-func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement) {
+// HandleAnnounceFrom processes an incoming gossip announcement and source address.
+func (g *MeshGossip) HandleAnnounceFrom(announcement *crypto.PeerAnnouncement, sender *net.UDPAddr) {
+	g.handleAnnouncement(announcement, sender)
+}
+
+func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, sender *net.UDPAddr) {
 	if announcement == nil {
 		return
 	}
@@ -260,11 +268,16 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement) {
 		return
 	}
 
+	endpoint := resolvePeerEndpoint(announcement.WGEndpoint, sender)
+	if sender == nil {
+		endpoint = normalizeKnownPeerEndpoint(announcement.WGEndpoint)
+	}
+
 	// Update the sender's info
 	peer := &daemon.PeerInfo{
 		WGPubKey:         announcement.WGPubKey,
 		MeshIP:           announcement.MeshIP,
-		Endpoint:         announcement.WGEndpoint,
+		Endpoint:         endpoint,
 		RoutableNetworks: announcement.RoutableNetworks,
 	}
 	g.peerStore.Update(peer, GossipMethod)
