@@ -812,14 +812,17 @@ func handlePeersList(client *rpc.Client) {
 			continue
 		}
 
-		pubkey := peer["pubkey"].(string)
+		pubkey, ok := peer["pubkey"].(string)
+		if !ok {
+			continue
+		}
 		if len(pubkey) > 40 {
 			pubkey = pubkey[:37] + "..."
 		}
 
-		meshIP := peer["mesh_ip"].(string)
-		endpoint := peer["endpoint"].(string)
-		lastSeen := peer["last_seen"].(string)
+		meshIP, _ := peer["mesh_ip"].(string)
+		endpoint, _ := peer["endpoint"].(string)
+		lastSeen, _ := peer["last_seen"].(string)
 
 		// Parse last seen time
 		lastSeenTime, err := time.Parse(time.RFC3339, lastSeen)
@@ -853,22 +856,27 @@ func handlePeersCount(client *rpc.Client) {
 		os.Exit(1)
 	}
 
-	// Parse result
+	// Parse result with type checking
 	resultMap, ok := result.(map[string]interface{})
 	if !ok {
 		fmt.Fprintln(os.Stderr, "Invalid response format")
 		os.Exit(1)
 	}
 
-	active := int(resultMap["active"].(float64))
-	total := int(resultMap["total"].(float64))
-	dead := int(resultMap["dead"].(float64))
+	active, ok1 := resultMap["active"].(float64)
+	total, ok2 := resultMap["total"].(float64)
+	dead, ok3 := resultMap["dead"].(float64)
+	
+	if !ok1 || !ok2 || !ok3 {
+		fmt.Fprintln(os.Stderr, "Invalid peer count data")
+		os.Exit(1)
+	}
 
 	fmt.Printf("Peer Statistics\n")
 	fmt.Printf("===============\n")
-	fmt.Printf("Active peers: %d\n", active)
-	fmt.Printf("Total peers:  %d\n", total)
-	fmt.Printf("Dead peers:   %d\n", dead)
+	fmt.Printf("Active peers: %d\n", int(active))
+	fmt.Printf("Total peers:  %d\n", int(total))
+	fmt.Printf("Dead peers:   %d\n", int(dead))
 }
 
 func handlePeersGet(client *rpc.Client, pubkey string) {
@@ -889,31 +897,44 @@ func handlePeersGet(client *rpc.Client, pubkey string) {
 		os.Exit(1)
 	}
 
+	pubkeyStr, _ := peer["pubkey"].(string)
+	meshIP, _ := peer["mesh_ip"].(string)
+	endpoint, _ := peer["endpoint"].(string)
+	lastSeen, _ := peer["last_seen"].(string)
+
 	fmt.Printf("Peer Information\n")
 	fmt.Printf("================\n")
-	fmt.Printf("Public Key:     %s\n", peer["pubkey"].(string))
-	fmt.Printf("Mesh IP:        %s\n", peer["mesh_ip"].(string))
-	fmt.Printf("Endpoint:       %s\n", peer["endpoint"].(string))
-	fmt.Printf("Last Seen:      %s\n", peer["last_seen"].(string))
+	fmt.Printf("Public Key:     %s\n", pubkeyStr)
+	fmt.Printf("Mesh IP:        %s\n", meshIP)
+	fmt.Printf("Endpoint:       %s\n", endpoint)
+	fmt.Printf("Last Seen:      %s\n", lastSeen)
 
-	if discoveredVia, ok := peer["discovered_via"].([]interface{}); ok && len(discoveredVia) > 0 {
-		discoveredViaStr := make([]string, 0, len(discoveredVia))
-		for _, v := range discoveredVia {
-			if s, ok := v.(string); ok {
-				discoveredViaStr = append(discoveredViaStr, s)
+	if v, ok := peer["discovered_via"]; ok {
+		if discoveredVia, ok := v.([]interface{}); ok && len(discoveredVia) > 0 {
+			discoveredViaStr := make([]string, 0, len(discoveredVia))
+			for _, item := range discoveredVia {
+				if s, ok := item.(string); ok {
+					discoveredViaStr = append(discoveredViaStr, s)
+				}
 			}
-		}
-		if len(discoveredViaStr) > 0 {
-			fmt.Printf("Discovered Via: %s\n", strings.Join(discoveredViaStr, ", "))
+			if len(discoveredViaStr) > 0 {
+				fmt.Printf("Discovered Via: %s\n", strings.Join(discoveredViaStr, ", "))
+			}
 		}
 	}
 
-	if routes, ok := peer["routable_networks"].([]interface{}); ok && len(routes) > 0 {
-		routeStrs := make([]string, len(routes))
-		for i, r := range routes {
-			routeStrs[i] = r.(string)
+	if routesVal, ok := peer["routable_networks"]; ok {
+		if routes, ok := routesVal.([]interface{}); ok && len(routes) > 0 {
+			routeStrs := make([]string, 0, len(routes))
+			for _, r := range routes {
+				if routeStr, ok := r.(string); ok {
+					routeStrs = append(routeStrs, routeStr)
+				}
+			}
+			if len(routeStrs) > 0 {
+				fmt.Printf("Routes:         %s\n", strings.Join(routeStrs, ", "))
+			}
 		}
-		fmt.Printf("Routes:         %s\n", strings.Join(routeStrs, ", "))
 	}
 }
 

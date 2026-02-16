@@ -60,13 +60,18 @@ func TestClientServerIntegration(t *testing.T) {
 	}
 	defer server.Stop()
 
-	// Give server time to start
-	time.Sleep(100 * time.Millisecond)
-
-	// Create client
-	client, err := NewClient(socketPath)
-	if err != nil {
-		t.Fatalf("failed to create client: %v", err)
+	// Create client (retry logic with timeout to handle server startup)
+	var client *Client
+	maxRetries := 10
+	for i := 0; i < maxRetries; i++ {
+		client, err = NewClient(socketPath)
+		if err == nil {
+			break
+		}
+		if i == maxRetries-1 {
+			t.Fatalf("failed to create client after %d retries: %v", maxRetries, err)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 	defer client.Close()
 

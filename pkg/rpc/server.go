@@ -56,11 +56,23 @@ type Server struct {
 
 // NewServer creates a new RPC server
 func NewServer(config ServerConfig) (*Server, error) {
-	// Remove existing socket if it exists
-	if _, err := os.Stat(config.SocketPath); err == nil {
-		if err := os.Remove(config.SocketPath); err != nil {
-			return nil, fmt.Errorf("failed to remove existing socket: %w", err)
+	// Validate required fields
+	if config.SocketPath == "" {
+		return nil, fmt.Errorf("socket path is required")
+	}
+	if config.GetPeers == nil || config.GetPeer == nil || config.GetPeerCounts == nil || config.GetStatus == nil {
+		return nil, fmt.Errorf("all callback functions are required")
+	}
+
+	// Remove existing socket if it exists (handles race condition by ignoring ENOENT)
+	if err := os.Remove(config.SocketPath); err != nil && !os.IsNotExist(err) {
+		// If removal fails for reasons other than "file doesn't exist", verify it's a socket
+		if info, statErr := os.Stat(config.SocketPath); statErr == nil {
+			if info.Mode()&os.ModeSocket == 0 {
+				return nil, fmt.Errorf("path exists but is not a socket: %s", config.SocketPath)
+			}
 		}
+		return nil, fmt.Errorf("failed to remove existing socket: %w", err)
 	}
 
 	// Ensure directory exists

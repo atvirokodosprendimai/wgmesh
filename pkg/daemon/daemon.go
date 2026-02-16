@@ -529,6 +529,10 @@ func (d *Daemon) GetRPCPeerCounts() (active, total, dead int) {
 
 // GetRPCStatus returns daemon status for RPC
 func (d *Daemon) GetRPCStatus() *RPCStatusData {
+	if d.localNode == nil {
+		// Return nil if local node is not initialized yet
+		return nil
+	}
 	return &RPCStatusData{
 		MeshIP:    d.localNode.MeshIP,
 		PubKey:    d.localNode.WGPubKey,
