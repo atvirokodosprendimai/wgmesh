@@ -76,15 +76,15 @@ func (d *Daemon) SetDHTDiscovery(dht DiscoveryLayer) {
 
 // Run starts the daemon and blocks until stopped
 func (d *Daemon) Run() error {
-	log.Printf("Starting wgmesh daemon...")
+	log.Printf("[Daemon] Starting wgmesh daemon...")
 
 	// Load or create local node
 	if err := d.initLocalNode(); err != nil {
 		return fmt.Errorf("failed to initialize local node: %w", err)
 	}
 
-	log.Printf("Local node: %s", d.localNode.WGPubKey[:16]+"...")
-	log.Printf("Mesh IP: %s", d.localNode.MeshIP)
+	log.Printf("[Daemon] Local node: %s", d.localNode.WGPubKey[:16]+"...")
+	log.Printf("[Daemon] Mesh IP: %s", d.localNode.MeshIP)
 
 	// Setup WireGuard interface
 	if err := d.setupWireGuard(); err != nil {
@@ -155,7 +155,7 @@ func (d *Daemon) initLocalNode() error {
 
 	// Save to state file
 	if err := saveLocalNode(stateFile, d.localNode); err != nil {
-		log.Printf("Warning: failed to save local node state: %v", err)
+		log.Printf("[Daemon] Warning: failed to save local node state: %v", err)
 	}
 
 	return nil
@@ -163,7 +163,7 @@ func (d *Daemon) initLocalNode() error {
 
 // setupWireGuard creates and configures the WireGuard interface
 func (d *Daemon) setupWireGuard() error {
-	log.Printf("Setting up WireGuard interface %s...", d.config.InterfaceName)
+	log.Printf("[Daemon] Setting up WireGuard interface %s...", d.config.InterfaceName)
 
 	// Check if interface exists
 	if interfaceExists(d.config.InterfaceName) {
@@ -171,9 +171,9 @@ func (d *Daemon) setupWireGuard() error {
 		existingPort := getWGInterfacePort(d.config.InterfaceName)
 		if existingPort == d.config.WGListenPort {
 			// Same interface with same port - just reset it
-			log.Printf("Interface %s exists with same port, resetting...", d.config.InterfaceName)
+			log.Printf("[Daemon] Interface %s exists with same port, resetting...", d.config.InterfaceName)
 		} else {
-			log.Printf("Interface %s exists, resetting...", d.config.InterfaceName)
+			log.Printf("[Daemon] Interface %s exists, resetting...", d.config.InterfaceName)
 		}
 		if err := resetInterface(d.config.InterfaceName); err != nil {
 			return fmt.Errorf("failed to reset interface: %w", err)
@@ -193,7 +193,7 @@ func (d *Daemon) setupWireGuard() error {
 		if availablePort == 0 {
 			return fmt.Errorf("port %d is in use and no available ports found (try --listen-port with a different port)", listenPort)
 		}
-		log.Printf("Port %d is in use, using port %d instead", listenPort, availablePort)
+		log.Printf("[Daemon] Port %d is in use, using port %d instead", listenPort, availablePort)
 		listenPort = availablePort
 		d.config.WGListenPort = availablePort
 	}
@@ -213,7 +213,7 @@ func (d *Daemon) setupWireGuard() error {
 		return fmt.Errorf("failed to bring interface up: %w", err)
 	}
 
-	log.Printf("WireGuard interface %s ready on port %d", d.config.InterfaceName, listenPort)
+	log.Printf("[Daemon] WireGuard interface %s ready on port %d", d.config.InterfaceName, listenPort)
 	return nil
 }
 
@@ -243,12 +243,12 @@ func (d *Daemon) reconcile() {
 
 		// Add/update peer in WireGuard
 		if err := d.configurePeer(peer); err != nil {
-			log.Printf("Failed to configure peer %s: %v", peer.WGPubKey[:8]+"...", err)
+			log.Printf("[Daemon] Failed to configure peer %s: %v", peer.WGPubKey[:8]+"...", err)
 		}
 	}
 
 	if err := d.syncPeerRoutes(peers); err != nil {
-		log.Printf("Failed to sync peer routes: %v", err)
+		log.Printf("[Daemon] Failed to sync peer routes: %v", err)
 	}
 
 	// Check for mesh IP collisions
@@ -258,7 +258,7 @@ func (d *Daemon) reconcile() {
 	removed := d.peerStore.CleanupStale()
 	for _, pubKey := range removed {
 		if err := d.removePeer(pubKey); err != nil {
-			log.Printf("Failed to remove stale peer %s: %v", pubKey[:8]+"...", err)
+			log.Printf("[Daemon] Failed to remove stale peer %s: %v", pubKey[:8]+"...", err)
 		}
 	}
 }
@@ -328,16 +328,16 @@ func (d *Daemon) GetConfig() *Config {
 // RunWithDHTDiscovery runs the daemon with DHT discovery enabled
 // This is the main entry point for the join command
 func (d *Daemon) RunWithDHTDiscovery() error {
-	log.Printf("Starting wgmesh daemon with DHT discovery...")
+	log.Printf("[Daemon] Starting wgmesh daemon with DHT discovery...")
 
 	// Load or create local node first
 	if err := d.initLocalNode(); err != nil {
 		return fmt.Errorf("failed to initialize local node: %w", err)
 	}
 
-	log.Printf("Local node: %s", d.localNode.WGPubKey[:16]+"...")
-	log.Printf("Mesh IP: %s", d.localNode.MeshIP)
-	log.Printf("Network ID: %x (both nodes must show the same ID to find each other)", d.config.Keys.NetworkID[:8])
+	log.Printf("[Daemon] Local node: %s", d.localNode.WGPubKey[:16]+"...")
+	log.Printf("[Daemon] Mesh IP: %s", d.localNode.MeshIP)
+	log.Printf("[Daemon] Network ID: %x (both nodes must show the same ID to find each other)", d.config.Keys.NetworkID[:8])
 
 	// Setup WireGuard interface
 	if err := d.setupWireGuard(); err != nil {
@@ -375,7 +375,7 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		}
 		defer d.dhtDiscovery.Stop()
 	} else {
-		log.Printf("Warning: DHT discovery factory not set, running without DHT")
+		log.Printf("[Daemon] Warning: DHT discovery factory not set, running without DHT")
 	}
 
 	// Start epoch manager for privacy features
@@ -383,7 +383,7 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		d.epochManager = NewEpochManager(d.config.Keys.EpochSeed)
 		d.epochManager.Start(d.getPrivacyPeers)
 		defer d.epochManager.Stop()
-		log.Printf("Privacy mode enabled (Dandelion++ relay)")
+		log.Printf("[Daemon] Privacy mode enabled (Dandelion++ relay)")
 	}
 
 	// Setup signal handling
@@ -396,14 +396,14 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Start status printer
 	go d.statusLoop()
 
-	log.Printf("Daemon running. Press Ctrl+C to stop.")
+	log.Printf("[Daemon] Daemon running. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
 	select {
 	case sig := <-sigCh:
-		log.Printf("Received signal %v, shutting down...", sig)
+		log.Printf("[Daemon] Received signal %v, shutting down...", sig)
 	case <-d.ctx.Done():
-		log.Printf("Context cancelled, shutting down...")
+		log.Printf("[Daemon] Context cancelled, shutting down...")
 	}
 
 	d.cancel()
