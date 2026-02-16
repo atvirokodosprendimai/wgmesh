@@ -330,14 +330,6 @@ jobs:
               exit 1
             fi
 
-            # ── Check for rate limit errors (retryable) ──
-            # Use specific patterns to avoid false positives from source code
-            # line numbers (e.g. "429: fmt.Println()") or docs containing these words
-            RATE_LIMITED=false
-            if grep -qiE "rate.?limit.?(exceeded|hit|reached)|quota.?exceeded|resource.?exhausted|HTTP.?429|status.?429|too many requests" /tmp/goose-output.log; then
-              RATE_LIMITED=true
-            fi
-
             # ── Check if output is suspiciously short ──
             LINES=$(wc -l < /tmp/goose-output.log)
             TOO_SHORT=false
@@ -345,11 +337,38 @@ jobs:
               TOO_SHORT=true
             fi
 
-            # ── Success: meaningful output, no fatal errors ──
+            # ── Success: meaningful output with completion signals ──
             # Goose CLI often exits 1 even on successful completion,
             # so we check output quality rather than relying on exit code alone.
-            if [ "$RATE_LIMITED" = "false" ] && [ "$TOO_SHORT" = "false" ]; then
-              echo "Goose completed on attempt $ATTEMPT (exit=$GOOSE_EXIT)"
+            # Goose may log rate-limit messages from the LLM provider mid-run
+            # (which it handles internally with its own retries) and still
+            # complete successfully. Check for positive success signals first
+            # to avoid treating a successful run as a rate-limit failure.
+            HAS_SUCCESS_SIGNALS=false
+            if grep -qE "(go build|go test|gofmt|go vet).*(succeeded|passed|pass|clean|no issues)" /tmp/goose-output.log || \
+               grep -qE "All (validation|acceptance|checks)" /tmp/goose-output.log || \
+               grep -qE "Implementation (complete|done|finished)" /tmp/goose-output.log; then
+              HAS_SUCCESS_SIGNALS=true
+            fi
+
+            if [ "$TOO_SHORT" = "false" ] && [ "$HAS_SUCCESS_SIGNALS" = "true" ]; then
+              echo "Goose completed on attempt $ATTEMPT (exit=$GOOSE_EXIT, success signals detected)"
+              SUCCEEDED=true
+              break
+            fi
+
+            # ── Check for rate limit errors (retryable) ──
+            # Only treated as failure when no success signals were found above.
+            # Use specific patterns to avoid false positives from source code
+            # line numbers (e.g. "429: fmt.Println()") or docs containing these words
+            RATE_LIMITED=false
+            if grep -qiE "rate.?limit.?(exceeded|hit|reached)|quota.?exceeded|resource.?exhausted|HTTP.?429|status.?429|too many requests" /tmp/goose-output.log; then
+              RATE_LIMITED=true
+            fi
+
+            # ── If no success signals and no rate limit, still accept long output ──
+            if [ "$TOO_SHORT" = "false" ] && [ "$RATE_LIMITED" = "false" ]; then
+              echo "Goose completed on attempt $ATTEMPT (exit=$GOOSE_EXIT, no errors detected)"
               SUCCEEDED=true
               break
             fi
