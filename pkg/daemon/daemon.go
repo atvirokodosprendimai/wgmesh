@@ -202,11 +202,11 @@ func (d *Daemon) Run() error {
 	return nil
 }
 
-// Shutdown cancels the daemon context and waits for all background
-// goroutines to finish. Safe to call from any goroutine.
+// Shutdown cancels the daemon context, signalling background goroutines
+// to stop. Callers that need to wait for full shutdown completion should
+// wait for Run() or RunWithDHTDiscovery() to return.
 func (d *Daemon) Shutdown() {
 	d.cancel()
-	d.wg.Wait()
 }
 
 // initLocalNode loads or creates the local WireGuard node
@@ -1307,14 +1307,6 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Start peer cache saver
 	d.cacheStopCh = make(chan struct{})
 	go StartCacheSaver(d.config.InterfaceName, d.peerStore, d.cacheStopCh)
-	defer func() {
-		select {
-		case <-d.cacheStopCh:
-			// Already closed
-		default:
-			close(d.cacheStopCh)
-		}
-	}()
 
 	// Now create DHT discovery with the initialized local node
 	// Import is handled via interface to avoid circular dependency
@@ -1380,6 +1372,16 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	}
 
 	d.cancel()
+
+	// Stop cache saver first so its final save completes before we return.
+	// Must happen before wg.Wait() since cache saver is not tracked by wg.
+	select {
+	case <-d.cacheStopCh:
+		// Already closed
+	default:
+		close(d.cacheStopCh)
+	}
+
 	log.Printf("Waiting for background tasks to complete...")
 	d.wg.Wait()
 	return nil

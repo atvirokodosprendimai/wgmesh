@@ -4,15 +4,27 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
+
+func testConfig(t *testing.T) *Config {
+	t.Helper()
+	keys, err := crypto.DeriveKeys("test-secret-for-daemon-tests")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	return &Config{
+		InterfaceName: "wg-test",
+		WGListenPort:  51820,
+		Keys:          keys,
+	}
+}
 
 func TestDaemonWaitsForGoroutinesOnShutdown(t *testing.T) {
 	// Verify that cancelling the daemon context causes Wait() to block
 	// until background goroutines (reconcileLoop, statusLoop) exit.
-	config := &Config{
-		InterfaceName: "wg-test",
-		WGListenPort:  51820,
-	}
+	config := testConfig(t)
 	d, err := NewDaemon(config)
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
@@ -67,11 +79,9 @@ func TestDaemonWaitsForGoroutinesOnShutdown(t *testing.T) {
 }
 
 func TestDaemonShutdownMethod(t *testing.T) {
-	// Test that Shutdown() cancels context and waits for goroutines
-	config := &Config{
-		InterfaceName: "wg-test",
-		WGListenPort:  51820,
-	}
+	// Test that Shutdown() cancels context, causing goroutines to exit.
+	// Callers wait for Run() to return; here we simulate with wg.Wait().
+	config := testConfig(t)
 	d, err := NewDaemon(config)
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
@@ -86,24 +96,28 @@ func TestDaemonShutdownMethod(t *testing.T) {
 
 	time.Sleep(50 * time.Millisecond)
 
-	done := make(chan struct{})
-	go func() {
-		d.Shutdown()
-		close(done)
-	}()
-
-	select {
-	case <-done:
-		// Good
-	case <-time.After(5 * time.Second):
-		t.Fatal("Shutdown() did not return in time")
-	}
+	// Shutdown only cancels context — does not block
+	d.Shutdown()
 
 	// Verify context was cancelled
 	select {
 	case <-d.ctx.Done():
 		// Good
 	default:
-		t.Error("context was not cancelled after Shutdown()")
+		t.Fatal("context was not cancelled after Shutdown()")
+	}
+
+	// Simulate Run()'s wait — goroutines should exit promptly
+	done := make(chan struct{})
+	go func() {
+		d.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good — goroutines exited
+	case <-time.After(5 * time.Second):
+		t.Fatal("goroutines did not exit after Shutdown()")
 	}
 }
