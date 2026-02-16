@@ -801,14 +801,15 @@ func (d *DHTDiscovery) recordRendezvousAttempt(pubKey string, success bool) {
 }
 
 func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
-	if peer.WGPubKey == "" || peer.Endpoint == "" {
+	if peer.WGPubKey == "" {
 		return
 	}
 
-	// Skip unreachable IPv6 endpoints (no route)
-	if strings.HasPrefix(peer.Endpoint, "[") && !d.hasIPv6Route() {
-		log.Printf("[NAT] Skipping IPv6 endpoint for %s (no IPv6 route)", shortKey(peer.WGPubKey))
-		return
+	// Skip IPv6 endpoints only for direct punch (rendezvous doesn't need direct route)
+	hasDirectRoute := peer.Endpoint != ""
+	if hasDirectRoute && strings.HasPrefix(peer.Endpoint, "[") && !d.hasIPv6Route() {
+		log.Printf("[NAT] Skipping direct IPv6 endpoint for %s (no IPv6 route), trying rendezvous", shortKey(peer.WGPubKey))
+		hasDirectRoute = false
 	}
 
 	introducers := d.selectRendezvousIntroducers(peer.WGPubKey, d.peerStore.GetActive(), RendezvousMaxIntroducers)
@@ -838,7 +839,11 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 		return
 	}
 
-	// No introducer — try synchronized punch
+	// No introducer — try synchronized punch (only if we have a direct route)
+	if !hasDirectRoute {
+		return
+	}
+
 	targetControlEndpoint := d.controlEndpointForPeer(peer)
 	if targetControlEndpoint == "" {
 		return
