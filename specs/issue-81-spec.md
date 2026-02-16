@@ -256,7 +256,7 @@ This phased approach allows partial delivery if time-constrained.
 #### Manual Testing
 1. **Create test mesh**:
    ```bash
-   ./wgmesh -init -network 10.99.0.0/16
+   ./wgmesh -init
    ./wgmesh -add node1:10.99.0.1:192.168.1.10
    ./wgmesh -add node2:10.99.0.2:192.168.1.11
    ./wgmesh -add node3:10.99.0.3:192.168.1.12
