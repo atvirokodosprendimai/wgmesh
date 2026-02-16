@@ -21,6 +21,8 @@ type Command interface {
 	Output() ([]byte, error)
 	// Run runs the command and waits for it to complete
 	Run() error
+	// Start starts the command without waiting for it to complete
+	Start() error
 	// SetStdin sets the standard input for the command
 	SetStdin(stdin io.Reader)
 }
@@ -56,6 +58,11 @@ func (r *RealCommand) Output() ([]byte, error) {
 // Run runs the command and waits for it to complete
 func (r *RealCommand) Run() error {
 	return r.cmd.Run()
+}
+
+// Start starts the command without waiting for it to complete
+func (r *RealCommand) Start() error {
+	return r.cmd.Start()
 }
 
 // SetStdin sets the standard input for the command

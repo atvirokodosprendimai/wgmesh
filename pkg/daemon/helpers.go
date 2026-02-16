@@ -90,10 +90,13 @@ func createInterface(name string) error {
 		}
 
 		cmd := cmdExecutor.Command("wireguard-go", name)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			out := string(output)
-			if !strings.Contains(out, "already exists") {
-				return fmt.Errorf("failed to create interface via wireguard-go: %s: %w", out, err)
+		// Start wireguard-go asynchronously since it's a long-running daemon
+		if err := cmd.Start(); err != nil {
+			// Check if it's "already exists" error by trying to read the error message
+			if strings.Contains(err.Error(), "already exists") {
+				// Interface already exists, continue
+			} else {
+				return fmt.Errorf("failed to start wireguard-go: %w", err)
 			}
 		}
 
