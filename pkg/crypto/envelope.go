@@ -17,6 +17,7 @@ const (
 	MessageTypeHello    = "HELLO"
 	MessageTypeReply    = "REPLY"
 	MessageTypeAnnounce = "ANNOUNCE"
+	MaxHostnameLength   = 253 // RFC 1035 maximum hostname length
 )
 
 // PeerAnnouncement is the encrypted message format for peer discovery
