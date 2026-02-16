@@ -525,11 +525,11 @@ func (d *DHTDiscovery) transitiveConnectLoop() {
 
 func (d *DHTDiscovery) tryTransitivePeers() {
 	peers := d.peerStore.GetActive()
-	
+
 	// Use a semaphore to limit concurrent exchanges
 	sem := make(chan struct{}, DHTMaxConcurrentExchanges)
 	var wg sync.WaitGroup
-	
+
 	for _, peer := range peers {
 		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
 			continue
@@ -545,15 +545,15 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 		wg.Add(1)
 		go func(endpoint string) {
 			defer wg.Done()
-			
+
 			// Acquire semaphore
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			
+
 			d.exchangeWithAddress(endpoint, DHTMethod+"-transitive")
 		}(peer.Endpoint)
 	}
-	
+
 	wg.Wait()
 }
 
