@@ -512,8 +512,10 @@ wgmeshbuilder/
 │   └── ssh/
 │       ├── client.go           # SSH connection management
 │       └── wireguard.go        # Remote WireGuard operations
-└── /var/lib/wgmesh/
-    └── mesh-state.json         # Mesh state (created on init)
+
+State files (system-level):
+/var/lib/wgmesh/
+└── mesh-state.json             # Mesh state (created on init)
 ```
 
 ## Contributing
