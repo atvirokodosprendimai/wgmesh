@@ -100,6 +100,9 @@ func (m *Mesh) AddNode(nodeSpec string) error {
 		}
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.Nodes[hostname]; exists {
 		return fmt.Errorf("node %s already exists", hostname)
 	}
@@ -129,6 +132,9 @@ func (m *Mesh) AddNode(nodeSpec string) error {
 }
 
 func (m *Mesh) RemoveNode(hostname string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if _, exists := m.Nodes[hostname]; !exists {
 		return fmt.Errorf("node %s not found", hostname)
 	}
@@ -139,6 +145,9 @@ func (m *Mesh) RemoveNode(hostname string) error {
 }
 
 func (m *Mesh) List() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	fmt.Printf("Mesh Network: %s\n", m.Network)
 	fmt.Printf("Interface: %s\n", m.InterfaceName)
 	fmt.Printf("Listen Port: %d\n\n", m.ListenPort)
@@ -170,6 +179,9 @@ func (m *Mesh) List() {
 
 // ListSimple prints a simple list of hostnames and mesh IPs
 func (m *Mesh) ListSimple() {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	for _, node := range m.Nodes {
 		// Use actual hostname if available, otherwise use the configured hostname
 		displayName := node.Hostname

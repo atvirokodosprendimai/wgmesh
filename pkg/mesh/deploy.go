@@ -17,6 +17,9 @@ func (m *Mesh) Deploy() error {
 		return fmt.Errorf("failed to detect endpoints: %w", err)
 	}
 
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	for hostname, node := range m.Nodes {
 		fmt.Printf("Deploying to %s...\n", hostname)
 
@@ -70,6 +73,9 @@ func (m *Mesh) Deploy() error {
 }
 
 func (m *Mesh) detectEndpoints() error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	for hostname, node := range m.Nodes {
 		if node.IsLocal {
 			// For local node, get hostname directly
@@ -120,6 +126,9 @@ func (m *Mesh) detectEndpoints() error {
 }
 
 func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	routes := make([]ssh.RouteEntry, 0)
 
 	for peerHostname, peer := range m.Nodes {
@@ -139,6 +148,9 @@ func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
 }
 
 func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	routes := make([]ssh.RouteEntry, 0)
 
 	// Add this node's own networks (direct routes, no gateway)
@@ -190,6 +202,9 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 }
 
 func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	config := &WireGuardConfig{
 		Interface: WGInterface{
 			PrivateKey: node.PrivateKey,

@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"net"
+	"sync"
 )
 
 type Node struct {
@@ -34,4 +35,5 @@ type Mesh struct {
 	ListenPort    int              `json:"listen_port"`
 	Nodes         map[string]*Node `json:"nodes"`
 	LocalHostname string           `json:"local_hostname"`
+	mu            sync.RWMutex     `json:"-"`
 }
