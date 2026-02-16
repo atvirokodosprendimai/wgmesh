@@ -737,6 +737,9 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			}(introducer.ControlEndpoint, peer)
 			return
 		}
+		// Introducers exist but all throttled — wait for next tick
+		log.Printf("[NAT] Rendezvous throttled for %s (introducer busy)", shortKey(peer.WGPubKey))
+		return
 	}
 
 	// No introducer — try synchronized punch
@@ -968,6 +971,7 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		pubKey          string
 		endpoint        string
 		controlEndpoint string
+		isExplicit      bool
 	}
 
 	candidates := make([]introducerCandidate, 0, len(peers))
@@ -978,11 +982,7 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		if p.WGPubKey == "" || p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == remoteKey {
 			continue
 		}
-		if !p.Introducer {
-			continue
-		}
 		if !hasAnyDHTReachability(p.DiscoveredVia) {
-			// Only use peers with at least one DHT-based reachability signal.
 			continue
 		}
 		if p.Endpoint == "" || !isLikelyPublicEndpoint(p.Endpoint) {
@@ -994,10 +994,18 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 			continue
 		}
 
+		isExplicit := p.Introducer
+		isAuto := !isExplicit && d.isAutoIntroducerCandidate(p)
+
+		if !isExplicit && !isAuto {
+			continue
+		}
+
 		candidates = append(candidates, introducerCandidate{
 			pubKey:          p.WGPubKey,
 			endpoint:        p.Endpoint,
 			controlEndpoint: controlEndpoint,
+			isExplicit:      isExplicit,
 		})
 	}
 
@@ -1006,6 +1014,9 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].isExplicit != candidates[j].isExplicit {
+			return candidates[i].isExplicit
+		}
 		if candidates[i].pubKey == candidates[j].pubKey {
 			return candidates[i].endpoint < candidates[j].endpoint
 		}
