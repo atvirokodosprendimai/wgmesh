@@ -1,0 +1,135 @@
+name: Board → Labels Sync
+
+# Polls the project board every 5 minutes and applies labels
+# based on column position. This enables board-driven workflows:
+# move an issue to "Spec in Progress" → Copilot starts writing a spec.
+#
+# Direction: Board column → Label (the reverse of board-sync.yml)
+# Guard: only adds labels that are missing — never creates loops.
+
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+env:
+  PROJECT_ID: "PVT_kwDODz4fRs4BPUe4"
+  STATUS_FIELD_ID: "PVTSSF_lADODz4fRs4BPUe4zg9wy0k"
+  COL_TRIAGE: "143459d8"
+  COL_SPEC_IN_PROGRESS: "df36dcdd"
+  COL_REVIEW_SPEC: "e02be665"
+  COL_BUILDING: "90ac9853"
+  COL_REVIEW_CODE: "6f5cea95"
+  COL_DONE: "2db825da"
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync board columns to labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const projectId = process.env.PROJECT_ID;
+            const fieldId = process.env.STATUS_FIELD_ID;
+
+            // Column → what labels should trigger the pipeline.
+            // "require" = the label that must exist for the pipeline to fire.
+            // "block"   = if any of these labels exist, skip (already in progress).
+            const columnRules = [
+              {
+                colId:   process.env.COL_SPEC_IN_PROGRESS,
+                colName: 'Spec in Progress',
+                require: 'needs-triage',
+                block:   ['needs-triage', 'copilot-triaging'],
+                type:    'issue',
+              },
+            ];
+
+            // Fetch all project items (paginated)
+            let items = [];
+            let cursor = null;
+            for (let page = 0; page < 10; page++) {
+              const query = `
+                query($projectId: ID!, $cursor: String) {
+                  node(id: $projectId) {
+                    ... on ProjectV2 {
+                      items(first: 100, after: $cursor) {
+                        pageInfo { hasNextPage endCursor }
+                        nodes {
+                          id
+                          fieldValueByName(name: "Status") {
+                            ... on ProjectV2ItemFieldSingleSelectValue {
+                              optionId
+                            }
+                          }
+                          content {
+                            ... on Issue {
+                              number
+                              state
+                              labels(first: 20) {
+                                nodes { name }
+                              }
+                            }
+                            ... on PullRequest {
+                              number
+                              state
+                              labels(first: 20) {
+                                nodes { name }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+              const result = await github.graphql(query, { projectId, cursor });
+              const connection = result.node.items;
+              items = items.concat(connection.nodes);
+              if (!connection.pageInfo.hasNextPage) break;
+              cursor = connection.pageInfo.endCursor;
+            }
+
+            console.log(`Fetched ${items.length} board items`);
+
+            let applied = 0;
+
+            for (const item of items) {
+              const content = item.content;
+              if (!content || !content.number) continue;
+              if (content.state !== 'OPEN') continue;
+
+              const currentCol = item.fieldValueByName?.optionId;
+              if (!currentCol) continue;
+
+              const itemLabels = (content.labels?.nodes || []).map(l => l.name);
+
+              for (const rule of columnRules) {
+                if (currentCol !== rule.colId) continue;
+
+                // Skip if any blocking label already exists
+                const blocked = rule.block.some(l => itemLabels.includes(l));
+                if (blocked) {
+                  continue;
+                }
+
+                // Add the required label
+                console.log(`#${content.number}: in "${rule.colName}" but missing "${rule.require}" — adding label`);
+                await github.rest.issues.addLabels({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: content.number,
+                  labels: [rule.require],
+                });
+                applied++;
+              }
+            }
+
+            console.log(`Applied ${applied} label(s)`);
