@@ -72,6 +72,9 @@ type Daemon struct {
 	// Cache stop channel
 	cacheStopCh chan struct{}
 
+	// wg tracks background goroutines for graceful shutdown
+	wg sync.WaitGroup
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -161,10 +164,18 @@ func (d *Daemon) Run() error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start reconciliation loop
-	go d.reconcileLoop()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.reconcileLoop()
+	}()
 
 	// Start status printer
-	go d.statusLoop()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.statusLoop()
+	}()
 
 	// Periodically remove long-stale peers from memory/cache
 	go d.staleCleanupLoop()
@@ -186,7 +197,16 @@ func (d *Daemon) Run() error {
 	}
 
 	d.cancel()
+	log.Printf("Waiting for background tasks to complete...")
+	d.wg.Wait()
 	return nil
+}
+
+// Shutdown cancels the daemon context and waits for all background
+// goroutines to finish. Safe to call from any goroutine.
+func (d *Daemon) Shutdown() {
+	d.cancel()
+	d.wg.Wait()
 }
 
 // initLocalNode loads or creates the local WireGuard node
@@ -1327,10 +1347,18 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start reconciliation loop
-	go d.reconcileLoop()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.reconcileLoop()
+	}()
 
 	// Start status printer
-	go d.statusLoop()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.statusLoop()
+	}()
 
 	// Periodically remove long-stale peers from memory/cache
 	go d.staleCleanupLoop()
@@ -1352,6 +1380,8 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	}
 
 	d.cancel()
+	log.Printf("Waiting for background tasks to complete...")
+	d.wg.Wait()
 	return nil
 }
 
