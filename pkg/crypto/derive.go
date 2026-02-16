@@ -14,6 +14,37 @@ const (
 	MinSecretLength = 16
 )
 
+// HKDF info/salt strings provide domain separation for key derivation.
+// These ensure that different keys derived from the same secret are
+// cryptographically independent. Changing these values will break
+// compatibility with existing meshes.
+const (
+	// HKDF info strings for domain separation
+	hkdfInfoGossipKey   = "wgmesh-gossip-v1"
+	hkdfInfoSubnet      = "wgmesh-subnet-v1"
+	hkdfInfoMulticastID = "wgmesh-mcast-v1"
+	hkdfInfoPSK         = "wgmesh-wg-psk-v1"
+	hkdfInfoGossipPort  = "wgmesh-gossip-port-v1"
+	hkdfInfoMembership  = "wgmesh-membership-v1"
+	hkdfInfoEpoch       = "wgmesh-epoch-v1"
+
+	// Other derivation-related strings
+	rendezvousSuffix = "rv"
+)
+
+// Key and ID sizes (in bytes)
+const (
+	networkIDSize     = 20 // DHT infohash requirement (BEP 5)
+	gossipKeySize     = 32 // AES-256 key size
+	meshSubnetSize    = 2  // /16 subnet prefix
+	multicastIDSize   = 4  // IPv4 multicast group suffix
+	pskSize           = 32 // WireGuard preshared key size
+	gossipPortSize    = 2  // uint16 for port derivation
+	rendezvousIDSize  = 8  // DHT rendezvous point identifier
+	membershipKeySize = 32 // HMAC-SHA256 key size
+	epochSeedSize     = 32 // Relay rotation seed
+)
+
 // DerivedKeys holds all keys and parameters derived from a shared secret
 type DerivedKeys struct {
 	NetworkID     [20]byte // DHT infohash (20 bytes for BEP 5)
@@ -40,43 +71,43 @@ func DeriveKeys(secret string) (*DerivedKeys, error) {
 	copy(keys.NetworkID[:], hash[:20])
 
 	// gossip_key = HKDF(secret, salt="wgmesh-gossip-v1", 32 bytes)
-	if err := deriveHKDF(secret, "wgmesh-gossip-v1", keys.GossipKey[:]); err != nil {
+	if err := deriveHKDF(secret, hkdfInfoGossipKey, keys.GossipKey[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive gossip key: %w", err)
 	}
 
 	// mesh_subnet = HKDF(secret, salt="wgmesh-subnet-v1", 2 bytes)
-	if err := deriveHKDF(secret, "wgmesh-subnet-v1", keys.MeshSubnet[:]); err != nil {
+	if err := deriveHKDF(secret, hkdfInfoSubnet, keys.MeshSubnet[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive mesh subnet: %w", err)
 	}
 
 	// multicast_id = HKDF(secret, salt="wgmesh-mcast-v1", 4 bytes)
-	if err := deriveHKDF(secret, "wgmesh-mcast-v1", keys.MulticastID[:]); err != nil {
+	if err := deriveHKDF(secret, hkdfInfoMulticastID, keys.MulticastID[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive multicast ID: %w", err)
 	}
 
 	// psk = HKDF(secret, salt="wgmesh-wg-psk-v1", 32 bytes)
-	if err := deriveHKDF(secret, "wgmesh-wg-psk-v1", keys.PSK[:]); err != nil {
+	if err := deriveHKDF(secret, hkdfInfoPSK, keys.PSK[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive PSK: %w", err)
 	}
 
 	// gossip_port = 51821 + (uint16(HKDF(secret, "gossip-port")) % 1000)
 	var portBytes [2]byte
-	if err := deriveHKDF(secret, "wgmesh-gossip-port-v1", portBytes[:]); err != nil {
+	if err := deriveHKDF(secret, hkdfInfoGossipPort, portBytes[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive gossip port: %w", err)
 	}
 	keys.GossipPort = 51821 + (binary.BigEndian.Uint16(portBytes[:]) % 1000)
 
 	// rendezvous_id = SHA256(secret || "rv")[0:8]
-	rvHash := sha256.Sum256([]byte(secret + "rv"))
+	rvHash := sha256.Sum256([]byte(secret + rendezvousSuffix))
 	copy(keys.RendezvousID[:], rvHash[:8])
 
 	// membership_key = HKDF(secret, salt="wgmesh-membership-v1", 32 bytes)
-	if err := deriveHKDF(secret, "wgmesh-membership-v1", keys.MembershipKey[:]); err != nil {
+	if err := deriveHKDF(secret, hkdfInfoMembership, keys.MembershipKey[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive membership key: %w", err)
 	}
 
 	// epoch_seed = HKDF(secret, salt="wgmesh-epoch-v1", 32 bytes)
-	if err := deriveHKDF(secret, "wgmesh-epoch-v1", keys.EpochSeed[:]); err != nil {
+	if err := deriveHKDF(secret, hkdfInfoEpoch, keys.EpochSeed[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive epoch seed: %w", err)
 	}
 
