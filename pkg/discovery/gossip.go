@@ -243,7 +243,10 @@ func (g *MeshGossip) listenLoop() {
 			continue
 		}
 
-		g.handleAnnouncement(announcement, remoteAddr)
+		// In standalone gossip mode, remoteAddr is the mesh IP + gossip port,
+		// not the WireGuard underlay endpoint, so treat this as having no sender.
+		_ = remoteAddr
+		g.handleAnnouncement(announcement, nil)
 	}
 }
 
