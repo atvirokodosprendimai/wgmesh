@@ -93,7 +93,7 @@ func TestListSimple(t *testing.T) {
 			os.Stdout = old
 
 			var buf bytes.Buffer
-			io.Copy(&buf, r)
+			_, _ = io.Copy(&buf, r)
 			output := strings.TrimSpace(buf.String())
 
 			if len(tt.expected) == 0 {
@@ -171,7 +171,7 @@ func TestListSimple_OutputFormat(t *testing.T) {
 	os.Stdout = old
 
 	var buf bytes.Buffer
-	io.Copy(&buf, r)
+	_, _ = io.Copy(&buf, r)
 	output := strings.TrimSpace(buf.String())
 
 	// Verify format: hostname<space>ip
@@ -213,8 +213,13 @@ func ExampleMesh_ListSimple() {
 
 func TestMesh_SaveLoad_WithActualHostname(t *testing.T) {
 	// Test that ActualHostname and FQDN fields are properly saved and loaded
-	tmpFile := "/tmp/test-mesh-state.json"
-	defer os.Remove(tmpFile)
+	tmpFile, err := os.CreateTemp("", "test-mesh-state-*.json")
+	if err != nil {
+		t.Fatalf("Failed to create temp file: %v", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
 
 	original := &Mesh{
 		InterfaceName: "wg0",
@@ -236,13 +241,13 @@ func TestMesh_SaveLoad_WithActualHostname(t *testing.T) {
 	}
 
 	// Save
-	err := original.Save(tmpFile)
+	err = original.Save(tmpPath)
 	if err != nil {
 		t.Fatalf("Failed to save mesh: %v", err)
 	}
 
 	// Load
-	loaded, err := Load(tmpFile)
+	loaded, err := Load(tmpPath)
 	if err != nil {
 		t.Fatalf("Failed to load mesh: %v", err)
 	}

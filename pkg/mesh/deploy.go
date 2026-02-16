@@ -85,6 +85,7 @@ func (m *Mesh) detectEndpoints() error {
 		if err != nil {
 			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
 		}
+		defer client.Close()
 
 		// Collect hostname and FQDN
 		if actualHostname, err := ssh.GetHostname(client); err == nil {
@@ -93,15 +94,12 @@ func (m *Mesh) detectEndpoints() error {
 			fmt.Printf("Warning: failed to get hostname for %s: %v\n", hostname, err)
 		}
 
+		// FQDN may not be configured on all systems, silently ignore errors to avoid cluttering output
 		if fqdn, err := ssh.GetFQDN(client); err == nil {
 			node.FQDN = fqdn
-		} else {
-			// FQDN may not always be available, so just log a debug message
-			// Don't show warning to avoid cluttering output
 		}
 
 		publicIP, err := ssh.DetectPublicIP(client)
-		client.Close()
 
 		if err != nil {
 			fmt.Printf("Warning: failed to detect public IP for %s: %v\n", hostname, err)
