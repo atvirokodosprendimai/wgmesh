@@ -18,7 +18,7 @@
 #   vagrant destroy -f          # Tear down
 
 Vagrant.configure("2") do |config|
-  config.vm.box = "generic/ubuntu2204"
+  config.vm.box = "ubuntu/focal64"
   config.vm.provider "virtualbox" do |vb|
     vb.memory = 512
     vb.cpus = 1
