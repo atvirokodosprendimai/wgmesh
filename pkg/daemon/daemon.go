@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -24,6 +26,7 @@ const (
 // Daemon manages the mesh node lifecycle
 type Daemon struct {
 	config    *Config
+	configMu  sync.RWMutex // Protects config access
 	localNode *LocalNode
 	peerStore *PeerStore
 
@@ -113,15 +116,25 @@ func (d *Daemon) Run() error {
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
-	select {
-	case sig := <-sigCh:
-		log.Printf("Received signal %v, shutting down...", sig)
-	case <-d.ctx.Done():
-		log.Printf("Context cancelled, shutting down...")
+	for {
+		select {
+		case sig := <-sigCh:
+			if sig == syscall.SIGHUP {
+				log.Printf("Received SIGHUP, reloading configuration...")
+				if err := d.ReloadConfig(); err != nil {
+					log.Printf("Failed to reload config: %v", err)
+				}
+				continue
+			}
+			log.Printf("Received signal %v, shutting down...", sig)
+			d.cancel()
+			return nil
+		case <-d.ctx.Done():
+			log.Printf("Context cancelled, shutting down...")
+			d.cancel()
+			return nil
+		}
 	}
-
-	d.cancel()
-	return nil
 }
 
 // initLocalNode loads or creates the local WireGuard node
@@ -322,7 +335,128 @@ func (d *Daemon) GetPeerStore() *PeerStore {
 
 // GetConfig returns the daemon config
 func (d *Daemon) GetConfig() *Config {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
 	return d.config
+}
+
+// ReloadConfig re-reads configuration from disk and applies safe runtime changes
+func (d *Daemon) ReloadConfig() error {
+	// Get current config for comparison
+	d.configMu.RLock()
+	oldCfg := &Config{
+		AdvertiseRoutes: make([]string, len(d.config.AdvertiseRoutes)),
+		LogLevel:        d.config.LogLevel,
+	}
+	copy(oldCfg.AdvertiseRoutes, d.config.AdvertiseRoutes)
+	d.configMu.RUnlock()
+
+	// Load config file
+	configPath := GetConfigPath(d.config.InterfaceName)
+	configMap, err := LoadConfigFile(configPath)
+	if err != nil {
+		return fmt.Errorf("failed to load config file: %w", err)
+	}
+
+	// If file doesn't exist, just log and continue
+	if _, exists := configMap["ADVERTISE_ROUTES"]; !exists && len(configMap) == 0 {
+		log.Printf("Config file %s not found, keeping current configuration", configPath)
+		return nil
+	}
+
+	// Parse and validate config values
+	var newAdvertiseRoutes []string
+	var newLogLevel string
+	var changed []string
+
+	if routes, ok := configMap["ADVERTISE_ROUTES"]; ok {
+		parsedRoutes, err := ParseAdvertiseRoutes(routes)
+		if err != nil {
+			return fmt.Errorf("failed to parse advertise-routes: %w", err)
+		}
+		newAdvertiseRoutes = parsedRoutes
+		if !slicesEqual(oldCfg.AdvertiseRoutes, newAdvertiseRoutes) {
+			changed = append(changed, "advertise-routes")
+		}
+	}
+
+	if logLevel, ok := configMap["LOG_LEVEL"]; ok {
+		newLogLevel = logLevel
+		if oldCfg.LogLevel != newLogLevel {
+			changed = append(changed, "log-level")
+		}
+	}
+
+	// Check for non-reloadable options and warn
+	if _, exists := configMap["SECRET"]; exists {
+		log.Printf("WARN: 'secret' changed in config file but requires full daemon restart to take effect")
+	}
+	if _, exists := configMap["INTERFACE"]; exists {
+		log.Printf("WARN: 'interface' changed in config file but requires full daemon restart to take effect")
+	}
+	if _, exists := configMap["LISTEN_PORT"]; exists {
+		log.Printf("WARN: 'listen-port' changed in config file but requires full daemon restart to take effect")
+	}
+	if _, exists := configMap["PRIVACY"]; exists {
+		log.Printf("WARN: 'privacy' changed in config file but requires full daemon restart to take effect")
+	}
+	if _, exists := configMap["GOSSIP"]; exists {
+		log.Printf("WARN: 'gossip' changed in config file but requires full daemon restart to take effect")
+	}
+
+	// If no changes, just return
+	if len(changed) == 0 {
+		log.Printf("Config reloaded: no changes detected")
+		return nil
+	}
+
+	// Apply changes with mutex protection
+	d.configMu.Lock()
+	defer d.configMu.Unlock()
+
+	if newAdvertiseRoutes != nil {
+		d.config.AdvertiseRoutes = newAdvertiseRoutes
+		// Update local node's routable networks
+		if d.localNode != nil {
+			d.localNode.RoutableNetworks = newAdvertiseRoutes
+		}
+	}
+
+	if newLogLevel != "" {
+		d.config.LogLevel = newLogLevel
+	}
+
+	log.Printf("Config reloaded: %s changed", strings.Join(changed, ", "))
+
+	// Trigger immediate reconciliation to announce updated routes
+	if slicesContains(changed, "advertise-routes") {
+		go d.reconcile()
+	}
+
+	return nil
+}
+
+// slicesEqual compares two string slices for equality
+func slicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// slicesContains checks if a string slice contains a value
+func slicesContains(slice []string, value string) bool {
+	for _, v := range slice {
+		if v == value {
+			return true
+		}
+	}
+	return false
 }
 
 // RunWithDHTDiscovery runs the daemon with DHT discovery enabled
@@ -388,7 +522,7 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	// Start reconciliation loop
 	go d.reconcileLoop()
@@ -399,15 +533,25 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
-	select {
-	case sig := <-sigCh:
-		log.Printf("Received signal %v, shutting down...", sig)
-	case <-d.ctx.Done():
-		log.Printf("Context cancelled, shutting down...")
+	for {
+		select {
+		case sig := <-sigCh:
+			if sig == syscall.SIGHUP {
+				log.Printf("Received SIGHUP, reloading configuration...")
+				if err := d.ReloadConfig(); err != nil {
+					log.Printf("Failed to reload config: %v", err)
+				}
+				continue
+			}
+			log.Printf("Received signal %v, shutting down...", sig)
+			d.cancel()
+			return nil
+		case <-d.ctx.Done():
+			log.Printf("Context cancelled, shutting down...")
+			d.cancel()
+			return nil
+		}
 	}
-
-	d.cancel()
-	return nil
 }
 
 // DHTDiscoveryFactory is a function type for creating DHT discovery instances
