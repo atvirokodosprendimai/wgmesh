@@ -417,7 +417,7 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 	}
 
 	_, err = pe.conn.WriteToUDP(data, remoteAddr)
-	return err
+	return fmt.Errorf("failed to send reply: %w", err)
 }
 
 // ExchangeWithPeer initiates a peer exchange with a remote address
@@ -1057,7 +1057,7 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 	}
 
 	_, err = pe.conn.WriteToUDP(data, remoteAddr)
-	return err
+	return fmt.Errorf("failed to send announce: %w", err)
 }
 
 // SendGoodbye sends a shutdown notification to a specific peer exchange endpoint.
