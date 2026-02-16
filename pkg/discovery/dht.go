@@ -18,6 +18,7 @@ import (
 	"github.com/anacrolix/dht/v2/krpc"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
 const (
@@ -979,11 +980,10 @@ func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo) bool {
 	if !hasControl {
 		return false
 	}
-	for _, method := range p.DiscoveredVia {
-		if method == "cache" {
-			continue
-		}
-		if strings.HasPrefix(method, "dht") || strings.HasPrefix(method, "gossip") || method == "lan" {
+
+	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	if ts, ok := handshakes[p.WGPubKey]; ok && ts > 0 {
+		if time.Since(time.Unix(ts, 0)) < 2*time.Minute {
 			return true
 		}
 	}
