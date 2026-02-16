@@ -310,6 +310,12 @@ func (s *Server) handlePeersCount(params map[string]interface{}) (*PeersCountRes
 // handleDaemonStatus implements daemon.status
 func (s *Server) handleDaemonStatus(params map[string]interface{}) (*DaemonStatusResult, *Error) {
 	status := s.getStatusFn()
+	if status == nil {
+		return nil, &Error{
+			Code:    ErrCodeInternalError,
+			Message: "daemon status unavailable",
+		}
+	}
 
 	return &DaemonStatusResult{
 		MeshIP:    status.MeshIP,
