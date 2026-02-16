@@ -61,6 +61,9 @@ docker pull ghcr.io/atvirokodosprendimai/wgmesh:v1.0.0
 # Run wgmesh in a container
 docker run --rm ghcr.io/atvirokodosprendimai/wgmesh:latest --help
 
+# Show version information
+docker run --rm ghcr.io/atvirokodosprendimai/wgmesh:latest --version
+
 # Run with state file mounted
 docker run --rm -v $(pwd)/data:/data ghcr.io/atvirokodosprendimai/wgmesh:latest -state /data/mesh-state.json -list
 ```
@@ -93,6 +96,23 @@ docker-compose logs -f wgmesh-node
 ```
 
 See [DOCKER-COMPOSE.md](DOCKER-COMPOSE.md) for detailed documentation and advanced configurations.
+
+## Version Information
+
+To display the current version of wgmesh:
+
+```bash
+wgmesh version          # Using the version subcommand
+wgmesh --version        # Using the long version flag
+wgmesh -v              # Using the short version flag
+```
+
+Both the `version` subcommand and the `--version`/`-v` flags display version information. The version flags take priority over all other flags and subcommands, so you can use them even with other arguments:
+
+```bash
+wgmesh --version --help    # Shows version, ignores --help
+wgmesh -v join             # Shows version, ignores subcommand
+```
 
 ## Quick Start
 

@@ -16,7 +16,7 @@ type Node struct {
 	PublicEndpoint string `json:"public_endpoint,omitempty"`
 	ListenPort     int    `json:"listen_port"`
 
-	BehindNAT bool   `json:"behind_nat"`
+	BehindNAT bool `json:"behind_nat"`
 
 	RoutableNetworks []string `json:"routable_networks,omitempty"`
 

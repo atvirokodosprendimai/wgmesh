@@ -59,7 +59,7 @@ type DandelionRouter struct {
 	mu sync.RWMutex
 
 	// Callbacks
-	onFluff func(announce DandelionAnnounce) // Called when fluff phase begins
+	onFluff func(announce DandelionAnnounce)                 // Called when fluff phase begins
 	onStem  func(announce DandelionAnnounce, relay PeerInfo) // Called to relay via stem
 }
 
