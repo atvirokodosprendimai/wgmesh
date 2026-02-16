@@ -36,6 +36,10 @@ type PeerAnnouncement struct {
 	// responder (peer-as-STUN reflector). Only populated in REPLY messages.
 	// Recipients use this to learn their own NAT-mapped address.
 	ObservedEndpoint string `json:"observed_endpoint,omitempty"`
+
+	// NATType is the sender's detected NAT behavior: "cone", "symmetric",
+	// or "unknown". Peers use this to decide whether relay is needed.
+	NATType string `json:"nat_type,omitempty"`
 }
 
 // KnownPeer represents a peer that this node knows about (for transitive discovery)
@@ -44,6 +48,7 @@ type KnownPeer struct {
 	MeshIP     string `json:"mesh_ip"`
 	WGEndpoint string `json:"wg_endpoint"`
 	Introducer bool   `json:"introducer,omitempty"`
+	NATType    string `json:"nat_type,omitempty"`
 }
 
 // Envelope wraps encrypted messages with nonce for transmission

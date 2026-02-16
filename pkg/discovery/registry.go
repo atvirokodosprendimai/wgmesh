@@ -180,6 +180,7 @@ func (r *RendezvousRegistry) decryptPeerList(body string) []*daemon.PeerInfo {
 			MeshIP:           announcement.MeshIP,
 			Endpoint:         announcement.WGEndpoint,
 			RoutableNetworks: announcement.RoutableNetworks,
+			NATType:          announcement.NATType,
 		})
 	}
 
@@ -189,6 +190,7 @@ func (r *RendezvousRegistry) decryptPeerList(body string) []*daemon.PeerInfo {
 			WGPubKey: kp.WGPubKey,
 			MeshIP:   kp.MeshIP,
 			Endpoint: kp.WGEndpoint,
+			NATType:  kp.NATType,
 		})
 	}
 

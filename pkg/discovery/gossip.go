@@ -190,6 +190,7 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 				MeshIP:     p.MeshIP,
 				WGEndpoint: p.Endpoint,
 				Introducer: p.Introducer,
+				NATType:    p.NATType,
 			})
 		}
 	}
@@ -202,6 +203,7 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		g.localNode.RoutableNetworks,
 		knownPeers,
 	)
+	announcement.NATType = string(g.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, g.gossipKey)
 	if err != nil {
@@ -282,6 +284,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		Endpoint:         endpoint,
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
+		NATType:          announcement.NATType,
 	}
 	g.peerStore.Update(peer, GossipMethod)
 
@@ -295,6 +298,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 			MeshIP:     kp.MeshIP,
 			Endpoint:   kp.WGEndpoint,
 			Introducer: kp.Introducer,
+			NATType:    kp.NATType,
 		}
 		g.peerStore.Update(transitivePeer, GossipMethod+"-transitive")
 	}

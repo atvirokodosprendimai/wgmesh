@@ -283,12 +283,15 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) map[string]*desiredP
 		}
 	}
 
+	// Query WG handshake times to detect unreachable peers
+	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+
 	for _, p := range peers {
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" || p.MeshIP == "" {
 			continue
 		}
 
-		if d.shouldRelayPeer(p, relayCandidates) {
+		if d.shouldRelayPeer(p, relayCandidates, handshakes) {
 			relay := d.selectRelayForPeer(p, relayCandidates)
 			if relay != nil {
 				d.addAllowedIP(desired, relay, p.MeshIP+"/32")
@@ -314,17 +317,44 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) map[string]*desiredP
 	return desired
 }
 
-func (d *Daemon) shouldRelayPeer(peer *PeerInfo, relayCandidates []*PeerInfo) bool {
+// shouldRelayPeer decides whether traffic to a peer should be routed via
+// an introducer relay. Relay is used when:
+//   - Both this node and the peer have symmetric NAT (hole-punch unreliable), OR
+//   - The peer has been unreachable (no WG handshake for >2 minutes)
+//
+// Never relays: from introducers, to introducers, without relay candidates.
+func (d *Daemon) shouldRelayPeer(peer *PeerInfo, relayCandidates []*PeerInfo, handshakes map[string]int64) bool {
 	if d.config.Introducer {
-		return false
+		return false // Introducers are always direct
 	}
 	if peer.Introducer {
-		return false
+		return false // Don't relay to an introducer
 	}
 	if len(relayCandidates) == 0 {
-		return false
+		return false // No relay available
 	}
-	return true
+
+	// Check WG handshake first — if we've had a recent handshake, direct
+	// connectivity is confirmed regardless of NAT type.
+	if handshakes != nil {
+		if ts, ok := handshakes[peer.WGPubKey]; ok && ts > 0 {
+			lastHandshake := time.Unix(ts, 0)
+			if time.Since(lastHandshake) < 2*time.Minute {
+				return false // Direct path is working
+			}
+			// Handshake stale >2 min — peer may be unreachable directly
+			return true
+		}
+	}
+
+	// Both sides symmetric → hole-punch is unreliable, relay
+	if d.localNode.NATType == "symmetric" && peer.NATType == "symmetric" {
+		return true
+	}
+
+	// No handshake data yet (peer just discovered) — try direct first.
+	// The next reconcile cycle will check again.
+	return false
 }
 
 func (d *Daemon) selectRelayForPeer(peer *PeerInfo, relayCandidates []*PeerInfo) *PeerInfo {

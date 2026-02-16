@@ -147,3 +147,31 @@ func GetPeers(iface string) ([]WGPeer, error) {
 
 	return peers, nil
 }
+
+// GetLatestHandshakes returns the most recent handshake time for each WG peer.
+// Returns a map of public key → Unix timestamp (0 means no handshake yet).
+func GetLatestHandshakes(iface string) (map[string]int64, error) {
+	cmd := exec.Command("wg", "show", iface, "latest-handshakes")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("wg show latest-handshakes failed: %w", err)
+	}
+
+	result := make(map[string]int64)
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: <pubkey>\t<unix_timestamp>
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		var ts int64
+		fmt.Sscanf(parts[1], "%d", &ts)
+		result[parts[0]] = ts
+	}
+
+	return result, nil
+}

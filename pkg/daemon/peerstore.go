@@ -23,6 +23,7 @@ type PeerInfo struct {
 	LastSeen         time.Time
 	DiscoveredVia    []string       // ["lan", "dht", "gossip"]
 	Latency          *time.Duration // measured via WG handshake
+	NATType          string         // "cone", "symmetric", or "unknown"
 	endpointMethod   string
 }
 
@@ -70,6 +71,9 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	}
 	if info.Introducer {
 		existing.Introducer = true
+	}
+	if info.NATType != "" {
+		existing.NATType = info.NATType
 	}
 
 	existing.LastSeen = time.Now()

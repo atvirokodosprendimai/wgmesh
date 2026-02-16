@@ -253,6 +253,7 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 		Endpoint:         resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr),
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
+		NATType:          announcement.NATType,
 	}
 
 	pe.peerStore.Update(peerInfo, DHTMethod)
@@ -279,6 +280,7 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 		Endpoint:         resolvePeerEndpoint(reply.WGEndpoint, remoteAddr),
 		Introducer:       reply.Introducer,
 		RoutableNetworks: reply.RoutableNetworks,
+		NATType:          reply.NATType,
 	}
 
 	pe.updateTransitivePeers(reply.KnownPeers)
@@ -350,6 +352,7 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 
 	// Reflect the sender's observed address back to them
 	announcement.ObservedEndpoint = remoteAddr.String()
+	announcement.NATType = string(pe.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeReply, announcement, pe.config.Keys.GossipKey)
 	if err != nil {
@@ -383,6 +386,7 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
+	announcement.NATType = string(pe.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
 	if err != nil {
@@ -754,6 +758,7 @@ func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
 			MeshIP:     kp.MeshIP,
 			Endpoint:   normalizeKnownPeerEndpoint(kp.WGEndpoint),
 			Introducer: kp.Introducer,
+			NATType:    kp.NATType,
 		}
 		pe.peerStore.Update(transitivePeer, DHTMethod+"-transitive")
 	}
@@ -837,6 +842,7 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 			MeshIP:     p.MeshIP,
 			WGEndpoint: p.Endpoint,
 			Introducer: p.Introducer,
+			NATType:    p.NATType,
 		})
 	}
 
@@ -855,6 +861,7 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
+	announcement.NATType = string(pe.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)
 	if err != nil {

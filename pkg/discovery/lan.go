@@ -136,6 +136,7 @@ func (l *LANDiscovery) announce() {
 		l.localNode.RoutableNetworks,
 		nil, // No known peers in LAN announce (keep small)
 	)
+	announcement.NATType = string(l.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, l.gossipKey)
 	if err != nil {
@@ -203,6 +204,7 @@ func (l *LANDiscovery) listenLoop() {
 			Endpoint:         endpoint,
 			Introducer:       announcement.Introducer,
 			RoutableNetworks: announcement.RoutableNetworks,
+			NATType:          announcement.NATType,
 		}
 
 		log.Printf("[LAN] Discovered peer %s (%s) at %s", safeTruncate(peer.WGPubKey, 8), peer.MeshIP, peer.Endpoint)
