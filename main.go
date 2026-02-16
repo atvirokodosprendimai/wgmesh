@@ -891,12 +891,17 @@ func handlePeersGet(client *rpc.Client, pubkey string) {
 	fmt.Printf("Endpoint:       %s\n", peer["endpoint"].(string))
 	fmt.Printf("Last Seen:      %s\n", peer["last_seen"].(string))
 
-	discoveredVia := peer["discovered_via"].([]interface{})
-	discoveredViaStr := make([]string, len(discoveredVia))
-	for i, v := range discoveredVia {
-		discoveredViaStr[i] = v.(string)
+	if discoveredVia, ok := peer["discovered_via"].([]interface{}); ok && len(discoveredVia) > 0 {
+		discoveredViaStr := make([]string, 0, len(discoveredVia))
+		for _, v := range discoveredVia {
+			if s, ok := v.(string); ok {
+				discoveredViaStr = append(discoveredViaStr, s)
+			}
+		}
+		if len(discoveredViaStr) > 0 {
+			fmt.Printf("Discovered Via: %s\n", strings.Join(discoveredViaStr, ", "))
+		}
 	}
-	fmt.Printf("Discovered Via: %s\n", strings.Join(discoveredViaStr, ", "))
 
 	if routes, ok := peer["routable_networks"].([]interface{}); ok && len(routes) > 0 {
 		routeStrs := make([]string, len(routes))
