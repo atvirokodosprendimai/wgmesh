@@ -34,7 +34,11 @@ type MockCommand struct {
 	combinedOutputFunc func() ([]byte, error)
 	outputFunc         func() ([]byte, error)
 	runFunc            func() error
+	startFunc          func() error
+	waitFunc           func() error
 	stdin              io.Reader
+	stdout             io.Writer
+	stderr             io.Writer
 }
 
 func (m *MockCommand) CombinedOutput() ([]byte, error) {
@@ -58,8 +62,30 @@ func (m *MockCommand) Run() error {
 	return nil
 }
 
+func (m *MockCommand) Start() error {
+	if m.startFunc != nil {
+		return m.startFunc()
+	}
+	return nil
+}
+
+func (m *MockCommand) Wait() error {
+	if m.waitFunc != nil {
+		return m.waitFunc()
+	}
+	return nil
+}
+
 func (m *MockCommand) SetStdin(stdin io.Reader) {
 	m.stdin = stdin
+}
+
+func (m *MockCommand) SetStdout(stdout io.Writer) {
+	m.stdout = stdout
+}
+
+func (m *MockCommand) SetStderr(stderr io.Writer) {
+	m.stderr = stderr
 }
 
 // Helper to save and restore cmdExecutor
@@ -190,20 +216,18 @@ func TestCreateInterface_Darwin(t *testing.T) {
 		name              string
 		interfaceName     string
 		lookPathErr       error
-		wireguardGoOutput []byte
 		wireguardGoErr    error
 		ifconfigResult    error
 		expectError       bool
 		errorContains     string
 	}{
 		{
-			name:              "success - interface created",
-			interfaceName:     "utun0",
-			lookPathErr:       nil,
-			wireguardGoOutput: []byte(""),
-			wireguardGoErr:    nil,
-			ifconfigResult:    nil, // interface exists immediately
-			expectError:       false,
+			name:           "success - interface created",
+			interfaceName:  "utun0",
+			lookPathErr:    nil,
+			wireguardGoErr: nil,
+			ifconfigResult: nil, // interface exists immediately
+			expectError:    false,
 		},
 		{
 			name:          "error - wireguard-go not found",
@@ -213,32 +237,21 @@ func TestCreateInterface_Darwin(t *testing.T) {
 			errorContains: "wireguard-go not found in PATH",
 		},
 		{
-			name:              "error - wireguard-go fails",
-			interfaceName:     "utun0",
-			lookPathErr:       nil,
-			wireguardGoOutput: []byte("permission denied"),
-			wireguardGoErr:    errors.New("exit status 1"),
-			expectError:       true,
-			errorContains:     "failed to create interface via wireguard-go",
+			name:           "error - wireguard-go fails",
+			interfaceName:  "utun0",
+			lookPathErr:    nil,
+			wireguardGoErr: errors.New("permission denied"),
+			expectError:    true,
+			errorContains:  "failed to start wireguard-go",
 		},
 		{
-			name:              "success - interface already exists",
-			interfaceName:     "utun0",
-			lookPathErr:       nil,
-			wireguardGoOutput: []byte("interface already exists"),
-			wireguardGoErr:    errors.New("exit status 1"),
-			ifconfigResult:    nil, // interface exists
-			expectError:       false,
-		},
-		{
-			name:              "error - interface not created after polling",
-			interfaceName:     "utun0",
-			lookPathErr:       nil,
-			wireguardGoOutput: []byte(""),
-			wireguardGoErr:    nil,
-			ifconfigResult:    errors.New("interface does not exist"), // interface never appears
-			expectError:       true,
-			errorContains:     "was not created on macOS",
+			name:           "error - interface not created after polling",
+			interfaceName:  "utun0",
+			lookPathErr:    nil,
+			wireguardGoErr: nil,
+			ifconfigResult: errors.New("interface does not exist"), // interface never appears
+			expectError:    true,
+			errorContains:  "was not created on macOS",
 		},
 	}
 
@@ -254,8 +267,8 @@ func TestCreateInterface_Darwin(t *testing.T) {
 				commandFunc: func(name string, args ...string) Command {
 					if name == "wireguard-go" && len(args) == 1 && args[0] == tt.interfaceName {
 						return &MockCommand{
-							combinedOutputFunc: func() ([]byte, error) {
-								return tt.wireguardGoOutput, tt.wireguardGoErr
+							startFunc: func() error {
+								return tt.wireguardGoErr
 							},
 						}
 					}
@@ -267,8 +280,8 @@ func TestCreateInterface_Darwin(t *testing.T) {
 						}
 					}
 					return &MockCommand{
-						combinedOutputFunc: func() ([]byte, error) {
-							return []byte{}, errors.New("unexpected command")
+						startFunc: func() error {
+							return errors.New("unexpected command")
 						},
 					}
 				},

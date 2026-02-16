@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -90,12 +91,33 @@ func createInterface(name string) error {
 		}
 
 		cmd := cmdExecutor.Command("wireguard-go", name)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			out := string(output)
-			if !strings.Contains(out, "already exists") {
-				return fmt.Errorf("failed to create interface via wireguard-go: %s: %w", out, err)
-			}
+		
+		// Capture output for debugging/error messages
+		var outBuf, errBuf strings.Builder
+		cmd.SetStdout(&outBuf)
+		cmd.SetStderr(&errBuf)
+		
+		// Start wireguard-go asynchronously since it's a long-running daemon
+		if err := cmd.Start(); err != nil {
+			return fmt.Errorf("failed to start wireguard-go: %w", err)
 		}
+		
+		// Wait for the process in a goroutine to prevent zombie processes
+		// Copy the interface name to avoid capturing the loop variable
+		ifaceName := name
+		go func() {
+			if err := cmd.Wait(); err != nil {
+				// Log any errors but don't fail - wireguard-go runs as daemon
+				// Read output after Wait() to avoid race conditions
+				log.Printf("wireguard-go process for %s exited: %v", ifaceName, err)
+				if stderr := errBuf.String(); stderr != "" {
+					log.Printf("wireguard-go stderr: %s", stderr)
+				}
+				if stdout := outBuf.String(); stdout != "" {
+					log.Printf("wireguard-go stdout: %s", stdout)
+				}
+			}
+		}()
 
 		// Give macOS a moment to materialize the utun interface.
 		for i := 0; i < 20; i++ {
