@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -104,6 +105,12 @@ func (d *DHTDiscovery) Start() error {
 	d.running = true
 	d.mu.Unlock()
 
+	// Discover external endpoint via STUN before announcing to peers.
+	// Uses an ephemeral port (WG owns the listen port) — the external IP
+	// is the same regardless of source port on most NATs. We combine the
+	// STUN-discovered IP with the WG listen port.
+	d.discoverExternalEndpoint()
+
 	// Create in-mesh gossip and wire announce handler BEFORE starting exchange
 	// to avoid a race between the exchange listener goroutine and handler setup.
 	if d.config.Gossip {
@@ -157,6 +164,7 @@ func (d *DHTDiscovery) Start() error {
 	go d.queryLoop()
 	go d.persistLoop()
 	go d.transitiveConnectLoop()
+	go d.stunRefreshLoop()
 
 	log.Printf("[DHT] Discovery started, listening on port %d", d.exchange.Port())
 	return nil
@@ -193,6 +201,47 @@ func (d *DHTDiscovery) Stop() error {
 
 	log.Printf("[DHT] Discovery stopped")
 	return nil
+}
+
+// discoverExternalEndpoint queries STUN servers to find this node's
+// server-reflexive address and updates localNode.WGEndpoint.
+// Falls back to the existing 0.0.0.0:port if STUN fails.
+func (d *DHTDiscovery) discoverExternalEndpoint() {
+	// Use ephemeral port — WG owns the listen port. External IP is the
+	// same for all source ports on cone NATs. For symmetric NATs the IP
+	// still helps even though the port will differ.
+	ip, _, err := DiscoverExternalEndpoint(0)
+	if err != nil {
+		log.Printf("[STUN] Failed to discover external endpoint: %v (keeping %s)", err, d.localNode.WGEndpoint)
+		return
+	}
+
+	endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+	log.Printf("[STUN] External endpoint discovered: %s", endpoint)
+	d.localNode.WGEndpoint = endpoint
+}
+
+// stunRefreshLoop periodically re-queries STUN servers to track NAT mapping changes.
+func (d *DHTDiscovery) stunRefreshLoop() {
+	ticker := time.NewTicker(60 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			ip, _, err := DiscoverExternalEndpoint(0)
+			if err != nil {
+				log.Printf("[STUN] Refresh failed: %v", err)
+				continue
+			}
+			newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+			if newEndpoint != d.localNode.WGEndpoint {
+				log.Printf("[STUN] External endpoint changed: %s -> %s", d.localNode.WGEndpoint, newEndpoint)
+				d.localNode.WGEndpoint = newEndpoint
+			}
+		case <-d.ctx.Done():
+			return
+		}
+	}
 }
 
 // initDHTServer initializes the BitTorrent DHT server
