@@ -167,3 +167,27 @@ func (m *Mesh) List() {
 		fmt.Println()
 	}
 }
+
+// ListSimple prints nodes in simple format (hostname ip)
+func (m *Mesh) ListSimple() {
+	// Collect hostnames for sorting
+	hostnames := make([]string, 0, len(m.Nodes))
+	for hostname := range m.Nodes {
+		hostnames = append(hostnames, hostname)
+	}
+
+	// Sort hostnames alphabetically
+	for i := 0; i < len(hostnames); i++ {
+		for j := i + 1; j < len(hostnames); j++ {
+			if hostnames[i] > hostnames[j] {
+				hostnames[i], hostnames[j] = hostnames[j], hostnames[i]
+			}
+		}
+	}
+
+	// Print each node in simple format
+	for _, hostname := range hostnames {
+		node := m.Nodes[hostname]
+		fmt.Printf("%s %s\n", hostname, node.MeshIP)
+	}
+}

@@ -67,6 +67,7 @@ func main() {
 		addNode    = flag.String("add", "", "Add node (format: hostname:ip:ssh_host[:ssh_port])")
 		removeNode = flag.String("remove", "", "Remove node by hostname")
 		list       = flag.Bool("list", false, "List all nodes")
+		listSimple = flag.Bool("list-simple", false, "List all nodes in simple format (hostname ip)")
 		deploy     = flag.Bool("deploy", false, "Deploy configuration to all nodes")
 		init       = flag.Bool("init", false, "Initialize new mesh")
 		encrypt    = flag.Bool("encrypt", false, "Encrypt state file with password (asks for password)")
@@ -138,6 +139,9 @@ func main() {
 
 	case *list:
 		m.List()
+
+	case *listSimple:
+		m.ListSimple()
 
 	case *deploy:
 		if err := m.Deploy(); err != nil {
