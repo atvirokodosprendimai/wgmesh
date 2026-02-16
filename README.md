@@ -409,17 +409,37 @@ The `/var/lib/wgmesh/mesh-state.json` file stores the complete mesh state:
 
 ## Security Considerations
 
-- **Private keys in state file**: WireGuard private keys storage varies by mode:
-  - **Centralized mode**: Keys stored in `/var/lib/wgmesh/mesh-state.json`
-    - Without encryption: Use file permissions (`chmod 600`) and secure storage
-    - With `--encrypt`: State file is AES-256-GCM encrypted and base64-encoded
-    - **Recommended**: Always use `--encrypt` flag for production deployments
-  - **Decentralized mode**: Each node stores its own keypair in `/var/lib/wgmesh/{interface}.json` (e.g., `/var/lib/wgmesh/wg0.json`)
-    - File is created with `0600` permissions for security
-    - Keys persist across daemon restarts
+### DoS Protection
+
+The mesh includes built-in protection against denial-of-service attacks through rate limiting:
+
+- **Per-IP Rate Limiting**: Each source IP is limited to 10 messages per second with a burst capacity of 20 messages
+- **Goroutine Pool**: The exchange listener limits concurrent message handlers to 100, preventing unbounded goroutine spawning
+- **IP Cache Management**: Rate limiter tracks up to 1000 unique IPs with automatic cleanup of inactive entries
+- **Silent Dropping**: Rate-limited packets are dropped silently to prevent log flooding attacks
+
+These protections ensure that:
+- Legitimate mesh traffic is not affected
+- Attackers cannot exhaust CPU/memory resources
+- The node remains responsive during attack scenarios
+- No protocol changes are required (purely local defensive measure)
+
+### Private Keys and State Files
+
+WireGuard private keys storage varies by mode:
+- **Centralized mode**: Keys stored in `/var/lib/wgmesh/mesh-state.json`
+  - Without encryption: Use file permissions (`chmod 600`) and secure storage
+  - With `--encrypt`: State file is AES-256-GCM encrypted and base64-encoded
+  - **Recommended**: Always use `--encrypt` flag for production deployments
+- **Decentralized mode**: Each node stores its own keypair in `/var/lib/wgmesh/{interface}.json` (e.g., `/var/lib/wgmesh/wg0.json`)
+  - File is created with `0600` permissions for security
+  - Keys persist across daemon restarts
+
+### Other Security Considerations
+
 - **Password storage**: Never store encryption passwords in scripts or environment variables
 - The tool uses `InsecureIgnoreHostKey` for SSH - consider implementing proper host key verification for production
-- WireGuard traffic is encrypted end-to-end
+- WireGuard traffic is encrypted end-to-end using WireGuard's protocol
 - Root SSH access is required on target hosts - ensure SSH keys are properly secured
 
 ## Troubleshooting

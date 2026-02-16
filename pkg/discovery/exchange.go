@@ -11,6 +11,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
 const (
@@ -36,16 +37,37 @@ type PeerExchange struct {
 	pendingReplies map[string]chan *daemon.PeerInfo
 
 	announceHandler func(*crypto.PeerAnnouncement, *net.UDPAddr)
+
+	// Rate limiting
+	rateLimiter *ratelimit.RateLimiter
+	handlerPool chan struct{} // Semaphore for concurrent handlers
 }
 
 // NewPeerExchange creates a new peer exchange handler
 func NewPeerExchange(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) *PeerExchange {
+	// Create rate limiter with config from daemon config
+	rateLimitConfig := ratelimit.Config{
+		MaxMessagesPerIP: config.RateLimit.MaxMessagesPerIP,
+		BurstSize:        config.RateLimit.BurstSize,
+		MaxIPs:           config.RateLimit.IPCacheSize,
+		CleanupInterval:  5 * time.Minute, // Default cleanup interval
+	}
+	rateLimiter := ratelimit.NewRateLimiter(rateLimitConfig)
+
+	// Create handler pool
+	handlerPoolSize := config.RateLimit.MaxConcurrentHandlers
+	if handlerPoolSize <= 0 {
+		handlerPoolSize = 100 // Default
+	}
+
 	return &PeerExchange{
 		config:         config,
 		localNode:      localNode,
 		peerStore:      peerStore,
 		stopCh:         make(chan struct{}),
 		pendingReplies: make(map[string]chan *daemon.PeerInfo),
+		rateLimiter:    rateLimiter,
+		handlerPool:    make(chan struct{}, handlerPoolSize),
 	}
 }
 
@@ -75,6 +97,9 @@ func (pe *PeerExchange) Start() error {
 	// Start listener
 	go pe.listenLoop()
 
+	// Rate limiter cleanup runs automatically in background
+	// No need to start it separately as it's started in NewRateLimiter
+
 	log.Printf("[Exchange] Listening on UDP port %d", port)
 	return nil
 }
@@ -93,6 +118,11 @@ func (pe *PeerExchange) Stop() {
 
 	if pe.conn != nil {
 		pe.conn.Close()
+	}
+
+	// Stop rate limiter cleanup
+	if pe.rateLimiter != nil {
+		pe.rateLimiter.Stop()
 	}
 }
 
@@ -133,10 +163,27 @@ func (pe *PeerExchange) listenLoop() {
 			continue
 		}
 
-		// Handle message in goroutine
-		data := make([]byte, n)
-		copy(data, buf[:n])
-		go pe.handleMessage(data, remoteAddr)
+		// Check rate limit before processing
+		if !pe.rateLimiter.Allow(remoteAddr.IP.String()) {
+			// Rate limit exceeded - drop packet silently to avoid log flooding
+			// Only log at debug level if needed for troubleshooting
+			continue
+		}
+
+		// Try to acquire handler pool slot
+		select {
+		case pe.handlerPool <- struct{}{}:
+			// Got token, spawn goroutine to handle message
+			data := make([]byte, n)
+			copy(data, buf[:n])
+			go func() {
+				defer func() { <-pe.handlerPool }()
+				pe.handleMessage(data, remoteAddr)
+			}()
+		default:
+			// Pool full, drop packet and log warning
+			log.Printf("[Exchange] Handler pool full, dropping packet from %s", remoteAddr.String())
+		}
 	}
 }
 

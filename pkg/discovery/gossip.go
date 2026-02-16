@@ -11,6 +11,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
 const (
@@ -33,30 +34,53 @@ type MeshGossip struct {
 	mu      sync.RWMutex
 	running bool
 	stopCh  chan struct{}
+
+	// Rate limiting
+	rateLimiter *ratelimit.RateLimiter
 }
 
 // NewMeshGossip creates a new in-mesh gossip instance
 func NewMeshGossip(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) (*MeshGossip, error) {
+	// Create rate limiter with config from daemon config
+	rateLimitConfig := ratelimit.Config{
+		MaxMessagesPerIP: config.RateLimit.MaxMessagesPerIP,
+		BurstSize:        config.RateLimit.BurstSize,
+		MaxIPs:           config.RateLimit.IPCacheSize,
+		CleanupInterval:  5 * time.Minute,
+	}
+	rateLimiter := ratelimit.NewRateLimiter(rateLimitConfig)
+
 	return &MeshGossip{
-		config:    config,
-		localNode: localNode,
-		peerStore: peerStore,
-		gossipKey: config.Keys.GossipKey,
-		port:      config.Keys.GossipPort,
-		stopCh:    make(chan struct{}),
+		config:      config,
+		localNode:   localNode,
+		peerStore:   peerStore,
+		gossipKey:   config.Keys.GossipKey,
+		port:        config.Keys.GossipPort,
+		stopCh:      make(chan struct{}),
+		rateLimiter: rateLimiter,
 	}, nil
 }
 
 // NewMeshGossipWithExchange creates a new in-mesh gossip instance that reuses the peer exchange socket.
 func NewMeshGossipWithExchange(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore, exchange *PeerExchange) (*MeshGossip, error) {
+	// Create rate limiter with config from daemon config
+	rateLimitConfig := ratelimit.Config{
+		MaxMessagesPerIP: config.RateLimit.MaxMessagesPerIP,
+		BurstSize:        config.RateLimit.BurstSize,
+		MaxIPs:           config.RateLimit.IPCacheSize,
+		CleanupInterval:  5 * time.Minute,
+	}
+	rateLimiter := ratelimit.NewRateLimiter(rateLimitConfig)
+
 	return &MeshGossip{
-		config:    config,
-		localNode: localNode,
-		peerStore: peerStore,
-		gossipKey: config.Keys.GossipKey,
-		port:      config.Keys.GossipPort,
-		exchange:  exchange,
-		stopCh:    make(chan struct{}),
+		config:      config,
+		localNode:   localNode,
+		peerStore:   peerStore,
+		gossipKey:   config.Keys.GossipKey,
+		port:        config.Keys.GossipPort,
+		exchange:    exchange,
+		stopCh:      make(chan struct{}),
+		rateLimiter: rateLimiter,
 	}, nil
 }
 
@@ -119,6 +143,11 @@ func (g *MeshGossip) Stop() error {
 
 	if g.conn != nil {
 		g.conn.Close()
+	}
+
+	// Stop rate limiter cleanup
+	if g.rateLimiter != nil {
+		g.rateLimiter.Stop()
 	}
 
 	log.Printf("[Gossip] In-mesh gossip stopped")
@@ -235,6 +264,12 @@ func (g *MeshGossip) listenLoop() {
 			if running {
 				log.Printf("[Gossip] Read error: %v", err)
 			}
+			continue
+		}
+
+		// Check rate limit before processing
+		if !g.rateLimiter.Allow(remoteAddr.IP.String()) {
+			// Rate limit exceeded - drop packet silently to avoid log flooding
 			continue
 		}
 

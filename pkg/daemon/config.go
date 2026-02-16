@@ -16,6 +16,15 @@ const (
 	DefaultInterface = "wg0"
 )
 
+// RateLimitConfig holds rate limiting configuration
+type RateLimitConfig struct {
+	MaxMessagesPerIP        int
+	BurstSize               int
+	IPCacheSize             int
+	MaxConcurrentHandlers   int
+	MaxGlobalMessagesPerSec int
+}
+
 // Config holds all derived configuration for the mesh daemon
 type Config struct {
 	Secret          string
@@ -26,6 +35,7 @@ type Config struct {
 	LogLevel        string
 	Privacy         bool
 	Gossip          bool
+	RateLimit       RateLimitConfig
 }
 
 // DaemonOpts holds options for the daemon
@@ -75,6 +85,13 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		LogLevel:        logLevel,
 		Privacy:         opts.Privacy,
 		Gossip:          opts.Gossip,
+		RateLimit: RateLimitConfig{
+			MaxMessagesPerIP:        10,
+			BurstSize:               20,
+			IPCacheSize:             1000,
+			MaxConcurrentHandlers:   100,
+			MaxGlobalMessagesPerSec: 1000,
+		},
 	}, nil
 }
 
