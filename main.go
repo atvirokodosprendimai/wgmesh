@@ -58,6 +58,9 @@ func main() {
 		case "rotate-secret":
 			rotateSecretCmd()
 			return
+		case "mesh":
+			meshCmd()
+			return
 		}
 	}
 
@@ -169,6 +172,9 @@ FLAGS:
   -init            Initialize new mesh state file
   -encrypt         Encrypt state file with password
 
+SUBCOMMANDS (centralized mode):
+  mesh list [--state <file>] [--encrypt]  List hostnames and mesh IPs
+
 SUBCOMMANDS (decentralized mode):
   init --secret                 Generate a new mesh secret
   join --secret <SECRET>        Join a mesh network
@@ -192,7 +198,8 @@ EXAMPLES:
   # Centralized mode (SSH-based deployment):
   wgmesh -init -encrypt                         # Initialize encrypted state
   wgmesh -add node1:10.99.0.1:192.168.1.10     # Add a node
-  wgmesh -deploy                               # Deploy to all nodes`)
+  wgmesh -deploy                               # Deploy to all nodes
+  wgmesh mesh list                             # List hostnames and mesh IPs`)
 }
 
 // initCmd handles the "init --secret" subcommand
@@ -582,4 +589,48 @@ func rotateSecretCmd() {
 	fmt.Println()
 	fmt.Println("Share the new secret with all nodes:")
 	fmt.Printf("  wgmesh join --secret \"%s\"\n", newURI)
+}
+
+// meshCmd handles the "mesh" subcommand for centralized mesh management
+func meshCmd() {
+	// Check for action subcommand first
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Error: action required")
+		fmt.Fprintln(os.Stderr, "Usage: wgmesh mesh <action> [options]")
+		fmt.Fprintln(os.Stderr, "Actions: list")
+		os.Exit(1)
+	}
+
+	action := os.Args[2]
+
+	fs := flag.NewFlagSet("mesh "+action, flag.ExitOnError)
+	stateFile := fs.String("state", "mesh-state.json", "Path to mesh state file")
+	encrypt := fs.Bool("encrypt", false, "Encrypt state file with password")
+	fs.Parse(os.Args[3:])
+
+	// Handle encryption flag if set
+	if *encrypt {
+		password, err := crypto.ReadPassword("Enter encryption password: ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to read password: %v\n", err)
+			os.Exit(1)
+		}
+		mesh.SetEncryptionPassword(password)
+	}
+
+	// Load mesh state
+	m, err := mesh.Load(*stateFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load mesh state: %v\n", err)
+		os.Exit(1)
+	}
+
+	switch action {
+	case "list":
+		m.ListSimple()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown action: %s\n", action)
+		fmt.Fprintln(os.Stderr, "Available actions: list")
+		os.Exit(1)
+	}
 }
