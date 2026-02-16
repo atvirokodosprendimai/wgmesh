@@ -973,6 +973,12 @@ func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo) bool {
 	if time.Since(p.LastSeen) > 2*time.Minute {
 		return false
 	}
+	d.mu.RLock()
+	_, hasControl := d.controlPeers[p.WGPubKey]
+	d.mu.RUnlock()
+	if !hasControl {
+		return false
+	}
 	for _, method := range p.DiscoveredVia {
 		if method == "cache" {
 			continue
