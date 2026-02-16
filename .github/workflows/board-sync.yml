@@ -6,9 +6,9 @@ name: Sync Board Status
 
 on:
   issues:
-    types: [labeled, closed, reopened]
+    types: [opened, labeled, closed, reopened]
   pull_request:
-    types: [labeled, closed, reopened]
+    types: [opened, labeled, closed, reopened]
 
 env:
   PROJECT_ID: "PVT_kwDODz4fRs4BPUe4"
@@ -66,9 +66,11 @@ jobs:
               }
             }
 
-            // Reopened items with no matching label go back to Triage
-            if (!targetCol && context.payload.action === 'reopened') {
-              targetCol = process.env.COL_TRIAGE;
+            // Newly opened/reopened items with no matching label:
+            //   issues → Triage, PRs → Review Code
+            if (!targetCol && (context.payload.action === 'opened' || context.payload.action === 'reopened')) {
+              const isPR = !!context.payload.pull_request;
+              targetCol = isPR ? process.env.COL_REVIEW_CODE : process.env.COL_TRIAGE;
             }
 
             if (!targetCol) {
