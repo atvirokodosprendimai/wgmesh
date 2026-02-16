@@ -14,12 +14,12 @@ env:
   PROJECT_ID: "PVT_kwDODz4fRs4BPUe4"
   STATUS_FIELD_ID: "PVTSSF_lADODz4fRs4BPUe4zg9wy0k"
   # Status option IDs (from project field config)
-  COL_TRIAGE: "ed07969f"
-  COL_SPEC_WRITING: "d75e0f81"
-  COL_SPEC_REVIEW: "2db1217e"
-  COL_IMPLEMENTATION: "2c2ac261"
-  COL_CODE_REVIEW: "f78e6df2"
-  COL_DONE: "9fec38aa"
+  COL_TRIAGE: "143459d8"
+  COL_SPEC_IN_PROGRESS: "df36dcdd"
+  COL_REVIEW_SPEC: "e02be665"
+  COL_BUILDING: "90ac9853"
+  COL_REVIEW_CODE: "6f5cea95"
+  COL_DONE: "2db825da"
 
 permissions:
   issues: read
@@ -39,10 +39,10 @@ jobs:
 
             // Label → column mapping (first match wins, order = priority)
             const labelToColumn = [
-              { labels: ['needs-review'],                       col: process.env.COL_CODE_REVIEW },
-              { labels: ['approved-for-build', 'goose-implementation'], col: process.env.COL_IMPLEMENTATION },
-              { labels: ['spec-ready'],                         col: process.env.COL_SPEC_REVIEW },
-              { labels: ['copilot-triaging', 'copilot-revising'], col: process.env.COL_SPEC_WRITING },
+              { labels: ['needs-review'],                       col: process.env.COL_REVIEW_CODE },
+              { labels: ['approved-for-build', 'goose-implementation'], col: process.env.COL_BUILDING },
+              { labels: ['spec-ready'],                         col: process.env.COL_REVIEW_SPEC },
+              { labels: ['copilot-triaging', 'copilot-revising'], col: process.env.COL_SPEC_IN_PROGRESS },
               { labels: ['needs-triage'],                       col: process.env.COL_TRIAGE },
             ];
 
@@ -140,10 +140,10 @@ jobs:
 
             const colNames = {
               [process.env.COL_TRIAGE]: 'Triage',
-              [process.env.COL_SPEC_WRITING]: 'Spec Writing',
-              [process.env.COL_SPEC_REVIEW]: 'Spec Review',
-              [process.env.COL_IMPLEMENTATION]: 'Implementation',
-              [process.env.COL_CODE_REVIEW]: 'Code Review',
+              [process.env.COL_SPEC_IN_PROGRESS]: 'Spec in Progress',
+              [process.env.COL_REVIEW_SPEC]: 'Review Spec',
+              [process.env.COL_BUILDING]: 'Building',
+              [process.env.COL_REVIEW_CODE]: 'Review Code',
               [process.env.COL_DONE]: 'Done',
             };
             console.log(`Moved "${item.title}" → ${colNames[targetCol]}`);
