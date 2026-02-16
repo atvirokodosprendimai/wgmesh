@@ -1116,17 +1116,14 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 			continue
 		}
 		if !hasAnyDHTReachability(p.DiscoveredVia) {
-			log.Printf("[NAT] DEBUG: %s skipped - no DHT reachability (via=%v)", shortKey(p.WGPubKey), p.DiscoveredVia)
 			continue
 		}
 		if p.Endpoint == "" || !isLikelyPublicEndpoint(p.Endpoint) {
-			log.Printf("[NAT] DEBUG: %s skipped - endpoint not public (%s)", shortKey(p.WGPubKey), p.Endpoint)
 			continue
 		}
 
 		controlEndpoint := d.controlEndpointForPeer(p)
 		if controlEndpoint == "" || !isLikelyPublicEndpoint(controlEndpoint) {
-			log.Printf("[NAT] DEBUG: %s skipped - control endpoint not public (%s)", shortKey(p.WGPubKey), controlEndpoint)
 			continue
 		}
 
@@ -1134,21 +1131,15 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		isAuto := !isExplicit && d.isAutoIntroducerCandidate(p)
 
 		if !isExplicit && !isAuto {
-			log.Printf("[NAT] DEBUG: %s skipped - not explicit introducer and not auto-eligible (explicit=%v auto=%v)", shortKey(p.WGPubKey), isExplicit, isAuto)
 			continue
 		}
 
-		log.Printf("[NAT] DEBUG: %s selected as introducer (explicit=%v auto=%v control=%s)", shortKey(p.WGPubKey), isExplicit, isAuto, controlEndpoint)
 		candidates = append(candidates, introducerCandidate{
 			pubKey:          p.WGPubKey,
 			endpoint:        p.Endpoint,
 			controlEndpoint: controlEndpoint,
 			isExplicit:      isExplicit,
 		})
-	}
-
-	if len(candidates) == 0 {
-		log.Printf("[NAT] DEBUG: no introducer candidates for %s", shortKey(remoteKey))
 	}
 
 	if len(candidates) == 0 || maxCount <= 0 {

@@ -1,0 +1,100 @@
+# -*- mode: ruby -*-
+# vi: set ft=ruby :
+#
+# wgmesh Test Lab - 4 VMs simulating real-world NAT topology
+#
+# Topology:
+#   introducer - public IP (10.0.1.10), acts as rendezvous server
+#   node-a     - behind NAT (10.0.2.10), can reach introducer
+#   node-b     - behind NAT (10.0.3.10), can reach introducer  
+#   node-c     - behind NAT (10.0.4.10), symmetric NAT simulation
+#
+# All nodes share a mesh network (10.248.0.0/16) via WireGuard
+#
+# Usage:
+#   vagrant up                  # Start all VMs
+#   vagrant ssh introducer      # SSH to introducer
+#   ./test-mesh.sh              # Run connectivity tests
+#   vagrant destroy -f          # Tear down
+
+Vagrant.configure("2") do |config|
+  config.vm.box = "generic/ubuntu2204"
+  config.vm.provider "virtualbox" do |vb|
+    vb.memory = 512
+    vb.cpus = 1
+  end
+
+  # Shared provisioner - install WireGuard and copy binary
+  config.vm.provision "shell", inline: <<-SHELL
+    apt-get update
+    apt-get install -y wireguard-tools iperf3 jq curl
+    
+    # Create directories
+    mkdir -p /opt/wgmesh /var/lib/wgmesh
+    
+    # Copy wgmesh binary if available
+    if [ -f /vagrant/wgmesh ]; then
+      cp /vagrant/wgmesh /opt/wgmesh/wgmesh
+      chmod +x /opt/wgmesh/wgmesh
+    fi
+  SHELL
+
+  # Introducer - public IP, acts as rendezvous coordinator
+  config.vm.define "introducer" do |node|
+    node.vm.hostname = "introducer"
+    node.vm.network "private_network", ip: "10.0.1.10"
+    
+    # Add route to all NAT networks so introducer can respond
+    node.vm.provision "shell", inline: <<-SHELL
+      ip route add 10.0.2.0/24 via 10.0.1.1 2>/dev/null || true
+      ip route add 10.0.3.0/24 via 10.0.1.1 2>/dev/null || true
+      ip route add 10.0.4.0/24 via 10.0.1.1 2>/dev/null || true
+    SHELL
+    
+    node.vm.provision "shell", run: "always", inline: <<-SHELL
+      echo "Introducer ready at 10.0.1.10"
+      echo "Mesh IP: 10.248.0.1"
+    SHELL
+  end
+
+  # Node A - behind simple NAT (cone)
+  config.vm.define "node-a" do |node|
+    node.vm.hostname = "node-a"
+    node.vm.network "private_network", ip: "10.0.2.10"
+    
+    # Can reach introducer via host-only network
+    node.vm.provision "shell", run: "always", inline: <<-SHELL
+      ip route add 10.0.1.0/24 via 10.0.2.1 2>/dev/null || true
+      echo "Node A ready at 10.0.2.10 (NAT)"
+      echo "Mesh IP: 10.248.0.10"
+    SHELL
+  end
+
+  # Node B - behind different NAT (cone)
+  config.vm.define "node-b" do |node|
+    node.vm.hostname = "node-b"
+    node.vm.network "private_network", ip: "10.0.3.10"
+    
+    node.vm.provision "shell", run: "always", inline: <<-SHELL
+      ip route add 10.0.1.0/24 via 10.0.3.1 2>/dev/null || true
+      echo "Node B ready at 10.0.3.10 (NAT)"
+      echo "Mesh IP: 10.248.0.20"
+    SHELL
+  end
+
+  # Node C - behind isolated NAT (simulates symmetric)
+  config.vm.define "node-c" do |node|
+    node.vm.hostname = "node-c"
+    node.vm.network "private_network", ip: "10.0.4.10"
+    
+    node.vm.provision "shell", run: "always", inline: <<-SHELL
+      ip route add 10.0.1.0/24 via 10.0.4.1 2>/dev/null || true
+      # Block direct traffic to other NAT networks (simulate symmetric NAT)
+      iptables -A OUTPUT -d 10.0.2.0/24 -j DROP 2>/dev/null || true
+      iptables -A OUTPUT -d 10.0.3.0/24 -j DROP 2>/dev/null || true
+      echo "Node C ready at 10.0.4.10 (symmetric NAT simulation)"
+      echo "Mesh IP: 10.248.0.30"
+      echo "Direct traffic to other NATs blocked - must use introducer"
+    SHELL
+  end
+end
