@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
@@ -15,6 +16,9 @@ func (m *Mesh) Deploy() error {
 	if err := m.detectEndpoints(); err != nil {
 		return fmt.Errorf("failed to detect endpoints: %w", err)
 	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for hostname, node := range m.Nodes {
 		fmt.Printf("Deploying to %s...\n", hostname)
@@ -69,14 +73,35 @@ func (m *Mesh) Deploy() error {
 }
 
 func (m *Mesh) detectEndpoints() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	for hostname, node := range m.Nodes {
 		if node.IsLocal {
+			// For local node, get hostname directly
+			if node.ActualHostname == "" {
+				if h, err := os.Hostname(); err == nil {
+					node.ActualHostname = h
+				}
+			}
 			continue
 		}
 
 		client, err := ssh.NewClient(node.SSHHost, node.SSHPort)
 		if err != nil {
 			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
+		}
+
+		// Collect hostname and FQDN
+		if actualHostname, err := ssh.GetHostname(client); err == nil {
+			node.ActualHostname = actualHostname
+		} else {
+			fmt.Printf("Warning: failed to get hostname for %s: %v\n", hostname, err)
+		}
+
+		// FQDN may not be configured on all systems, silently ignore errors to avoid cluttering output
+		if fqdn, err := ssh.GetFQDN(client); err == nil {
+			node.FQDN = fqdn
 		}
 
 		publicIP, err := ssh.DetectPublicIP(client)
@@ -101,6 +126,9 @@ func (m *Mesh) detectEndpoints() error {
 }
 
 func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	routes := make([]ssh.RouteEntry, 0)
 
 	for peerHostname, peer := range m.Nodes {
@@ -120,6 +148,9 @@ func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
 }
 
 func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	routes := make([]ssh.RouteEntry, 0)
 
 	// Add this node's own networks (direct routes, no gateway)
@@ -171,6 +202,9 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 }
 
 func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	config := &WireGuardConfig{
 		Interface: WGInterface{
 			PrivateKey: node.PrivateKey,

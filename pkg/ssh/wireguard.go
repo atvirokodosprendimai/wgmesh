@@ -42,6 +42,34 @@ func DetectPublicIP(client *Client) (string, error) {
 	return ip, nil
 }
 
+func GetHostname(client *Client) (string, error) {
+	output, err := client.Run("hostname")
+	if err != nil {
+		return "", fmt.Errorf("failed to get hostname: %w", err)
+	}
+
+	hostname := strings.TrimSpace(output)
+	if hostname == "" {
+		return "", fmt.Errorf("hostname is empty")
+	}
+
+	return hostname, nil
+}
+
+func GetFQDN(client *Client) (string, error) {
+	output, err := client.Run("hostname -f")
+	if err != nil {
+		return "", fmt.Errorf("failed to get FQDN: %w", err)
+	}
+
+	fqdn := strings.TrimSpace(output)
+	if fqdn == "" {
+		return "", fmt.Errorf("FQDN is empty")
+	}
+
+	return fqdn, nil
+}
+
 func UpdateRoutingTable(client *Client, iface string, networks []string) error {
 	fmt.Printf("  Updating routing table...\n")
 
