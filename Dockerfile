@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 # Multi-stage build for wgmesh
 FROM golang:1.23-alpine AS builder
 
@@ -11,24 +12,24 @@ WORKDIR /build
 COPY go.mod go.sum ./
 
 # Download dependencies
-RUN go mod download
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 # Copy source code
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags="-w -s" -o wgmesh .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-w -s" -o wgmesh .
 
 # Final stage
 FROM alpine:3.19
 
 # Install runtime dependencies
-RUN apk update && apk add --no-cache \
+RUN apk add --no-cache \
     wireguard-tools \
     iptables \
     iproute2 \
-    ca-certificates && \
-    rm -rf /var/cache/apk/*
+    ca-certificates
 
 # Copy binary from builder
 COPY --from=builder /build/wgmesh /usr/local/bin/wgmesh
@@ -38,9 +39,6 @@ RUN mkdir -p /data
 
 # Set working directory
 WORKDIR /data
-
-# Make binary executable
-RUN chmod +x /usr/local/bin/wgmesh
 
 # Expose WireGuard port
 EXPOSE 51820/udp
