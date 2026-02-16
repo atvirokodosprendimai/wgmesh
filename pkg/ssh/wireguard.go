@@ -71,9 +71,15 @@ func GetFQDN(client *Client) (string, error) {
 }
 
 func UpdateRoutingTable(client *Client, iface string, networks []string) error {
+	if err := ValidateIface(iface); err != nil {
+		return fmt.Errorf("UpdateRoutingTable: %w", err)
+	}
 	fmt.Printf("  Updating routing table...\n")
 
 	for _, network := range networks {
+		if err := ValidateCIDR(network); err != nil {
+			return fmt.Errorf("unsafe network %q: %w", network, err)
+		}
 		cmd := fmt.Sprintf("ip route add %s dev %s || ip route replace %s dev %s",
 			network, iface, network, iface)
 		if err := client.RunQuiet(cmd); err != nil {
@@ -91,9 +97,18 @@ func UpdateRoutingTable(client *Client, iface string, networks []string) error {
 }
 
 func UpdateRoutingTableWithGateways(client *Client, iface string, routes []RouteEntry) error {
+	if err := ValidateIface(iface); err != nil {
+		return fmt.Errorf("UpdateRoutingTableWithGateways: %w", err)
+	}
 	fmt.Printf("  Updating routing table with gateways...\n")
 
 	for _, route := range routes {
+		if err := ValidateCIDR(route.Network); err != nil {
+			return fmt.Errorf("unsafe network %q: %w", route.Network, err)
+		}
+		if err := ValidateEndpoint(route.Gateway); err != nil {
+			return fmt.Errorf("unsafe gateway %q: %w", route.Gateway, err)
+		}
 		cmd := fmt.Sprintf("ip route add %s via %s dev %s || ip route replace %s via %s dev %s",
 			route.Network, route.Gateway, iface, route.Network, route.Gateway, iface)
 		if err := client.RunQuiet(cmd); err != nil {

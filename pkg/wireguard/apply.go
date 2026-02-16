@@ -28,6 +28,10 @@ type WGPeer struct {
 }
 
 func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig) error {
+	if err := ssh.ValidateIface(iface); err != nil {
+		return fmt.Errorf("ApplyFullConfiguration: %w", err)
+	}
+
 	fmt.Println("  Creating fresh WireGuard configuration...")
 
 	if _, err := client.Run(fmt.Sprintf("ip link del %s 2>/dev/null || true", iface)); err != nil {
@@ -37,7 +41,9 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 		return fmt.Errorf("failed to create interface: %w", err)
 	}
 
-	tmpKeyFile := fmt.Sprintf("/tmp/wg-key-%s", iface)
+	// Write private key to a secure temporary path (not world-readable /tmp)
+	tmpKeyFile := fmt.Sprintf("/run/wgmesh/wg-key-%s", iface)
+	client.RunQuiet("mkdir -p /run/wgmesh && chmod 700 /run/wgmesh")
 	if err := client.WriteFile(tmpKeyFile, []byte(config.Interface.PrivateKey), 0600); err != nil {
 		return fmt.Errorf("failed to write private key: %w", err)
 	}
@@ -49,6 +55,9 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 		return fmt.Errorf("failed to set interface config: %w", err)
 	}
 
+	if err := ssh.ValidateCIDR(config.Interface.Address); err != nil {
+		return fmt.Errorf("unsafe interface address: %w", err)
+	}
 	if _, err := client.Run(fmt.Sprintf("ip addr add %s dev %s", config.Interface.Address, iface)); err != nil {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}
@@ -58,13 +67,25 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 	}
 
 	for _, peer := range config.Peers {
+		if err := ssh.ValidateBase64Key(peer.PublicKey); err != nil {
+			return fmt.Errorf("unsafe peer public key: %w", err)
+		}
+
 		peerCmd := fmt.Sprintf("wg set %s peer %s", iface, peer.PublicKey)
 
 		if peer.Endpoint != "" {
+			if err := ssh.ValidateEndpoint(peer.Endpoint); err != nil {
+				return fmt.Errorf("unsafe peer endpoint %q: %w", peer.Endpoint, err)
+			}
 			peerCmd += fmt.Sprintf(" endpoint %s", peer.Endpoint)
 		}
 
 		if len(peer.AllowedIPs) > 0 {
+			for _, ip := range peer.AllowedIPs {
+				if err := ssh.ValidateCIDR(ip); err != nil {
+					return fmt.Errorf("unsafe allowed IP %q: %w", ip, err)
+				}
+			}
 			peerCmd += fmt.Sprintf(" allowed-ips %s", strings.Join(peer.AllowedIPs, ","))
 		}
 

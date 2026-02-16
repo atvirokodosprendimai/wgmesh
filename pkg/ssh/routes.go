@@ -11,6 +11,9 @@ type RouteEntry struct {
 }
 
 func GetCurrentRoutes(client *Client, iface string) ([]RouteEntry, error) {
+	if err := ValidateIface(iface); err != nil {
+		return nil, fmt.Errorf("GetCurrentRoutes: %w", err)
+	}
 	output, err := client.Run(fmt.Sprintf("ip route show dev %s", iface))
 	if err != nil {
 		return nil, err
@@ -131,6 +134,10 @@ func normalizeNetwork(network string) string {
 }
 
 func ApplyRouteDiff(client *Client, iface string, toAdd, toRemove []RouteEntry) error {
+	if err := ValidateIface(iface); err != nil {
+		return fmt.Errorf("ApplyRouteDiff: %w", err)
+	}
+
 	totalChanges := len(toAdd) + len(toRemove)
 	if totalChanges == 0 {
 		fmt.Printf("  No route changes needed (all routes already correct)\n")
@@ -141,8 +148,17 @@ func ApplyRouteDiff(client *Client, iface string, toAdd, toRemove []RouteEntry) 
 
 	if len(toRemove) > 0 {
 		for _, route := range toRemove {
+			if err := ValidateCIDR(route.Network); err != nil {
+				fmt.Printf("    Warning: skipping unsafe network %q\n", route.Network)
+				continue
+			}
+
 			var cmd string
 			if route.Gateway != "" {
+				if err := ValidateEndpoint(route.Gateway); err != nil {
+					fmt.Printf("    Warning: skipping unsafe gateway %q\n", route.Gateway)
+					continue
+				}
 				cmd = fmt.Sprintf("ip route del %s via %s dev %s 2>/dev/null || true",
 					route.Network, route.Gateway, iface)
 			} else {
@@ -164,8 +180,15 @@ func ApplyRouteDiff(client *Client, iface string, toAdd, toRemove []RouteEntry) 
 
 	if len(toAdd) > 0 {
 		for _, route := range toAdd {
+			if err := ValidateCIDR(route.Network); err != nil {
+				return fmt.Errorf("unsafe network in route add: %w", err)
+			}
+
 			var cmd string
 			if route.Gateway != "" {
+				if err := ValidateEndpoint(route.Gateway); err != nil {
+					return fmt.Errorf("unsafe gateway in route add: %w", err)
+				}
 				cmd = fmt.Sprintf("ip route add %s via %s dev %s || ip route replace %s via %s dev %s",
 					route.Network, route.Gateway, iface, route.Network, route.Gateway, iface)
 			} else {

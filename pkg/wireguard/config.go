@@ -33,6 +33,9 @@ type ConfigDiff struct {
 }
 
 func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
+	if err := ssh.ValidateIface(iface); err != nil {
+		return nil, fmt.Errorf("GetCurrentConfig: %w", err)
+	}
 	output, err := client.Run(fmt.Sprintf("wg show %s dump 2>/dev/null || true", iface))
 	if err != nil {
 		return nil, err
@@ -145,11 +148,18 @@ func peersEqual(a, b Peer) bool {
 }
 
 func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
+	if err := ssh.ValidateIface(iface); err != nil {
+		return fmt.Errorf("ApplyDiff: %w", err)
+	}
+
 	if diff.InterfaceChanged {
 		return fmt.Errorf("interface changes require full reconfig")
 	}
 
 	for _, pubKey := range diff.RemovedPeers {
+		if err := ssh.ValidateBase64Key(pubKey); err != nil {
+			return fmt.Errorf("unsafe peer key in remove: %w", err)
+		}
 		cmd := fmt.Sprintf("wg set %s peer %s remove", iface, pubKey)
 		if _, err := client.Run(cmd); err != nil {
 			return fmt.Errorf("failed to remove peer: %w", err)
@@ -175,13 +185,25 @@ func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
 }
 
 func addOrUpdatePeer(client *ssh.Client, iface string, pubKey string, peer Peer) error {
+	if err := ssh.ValidateBase64Key(pubKey); err != nil {
+		return fmt.Errorf("unsafe peer public key: %w", err)
+	}
+
 	cmd := fmt.Sprintf("wg set %s peer %s", iface, pubKey)
 
 	if peer.Endpoint != "" && peer.Endpoint != "(none)" {
+		if err := ssh.ValidateEndpoint(peer.Endpoint); err != nil {
+			return fmt.Errorf("unsafe peer endpoint %q: %w", peer.Endpoint, err)
+		}
 		cmd += fmt.Sprintf(" endpoint %s", peer.Endpoint)
 	}
 
 	if len(peer.AllowedIPs) > 0 {
+		for _, ip := range peer.AllowedIPs {
+			if err := ssh.ValidateCIDR(ip); err != nil {
+				return fmt.Errorf("unsafe allowed IP %q: %w", ip, err)
+			}
+		}
 		cmd += fmt.Sprintf(" allowed-ips %s", strings.Join(peer.AllowedIPs, ","))
 	}
 
