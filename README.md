@@ -72,7 +72,7 @@ docker run --rm -v $(pwd)/data:/data ghcr.io/atvirokodosprendimai/wgmesh:latest 
 
 ```bash
 docker run --rm --privileged --network host \
-  -v $(pwd)/data:/data \
+  -v $(pwd)/wgmesh-state:/var/lib/wgmesh \
   ghcr.io/atvirokodosprendimai/wgmesh:latest join \
   --secret "wgmesh://v1/<your-secret>"
 ```

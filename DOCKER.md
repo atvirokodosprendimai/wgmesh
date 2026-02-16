@@ -115,7 +115,7 @@ Run in privileged mode with host network (for WireGuard functionality):
 docker run --rm \
   --privileged \
   --network host \
-  -v $(pwd)/data:/data \
+  -v $(pwd)/wgmesh-state:/var/lib/wgmesh \
   wgmesh:local join --secret "wgmesh://v1/<secret>"
 ```
 

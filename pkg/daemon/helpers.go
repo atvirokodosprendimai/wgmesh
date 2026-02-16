@@ -91,17 +91,17 @@ func createInterface(name string) error {
 		}
 
 		cmd := cmdExecutor.Command("wireguard-go", name)
-		
+
 		// Capture output for debugging/error messages
 		var outBuf, errBuf strings.Builder
 		cmd.SetStdout(&outBuf)
 		cmd.SetStderr(&errBuf)
-		
+
 		// Start wireguard-go asynchronously since it's a long-running daemon
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("failed to start wireguard-go: %w", err)
 		}
-		
+
 		// Wait for the process in a goroutine to prevent zombie processes
 		// Copy the interface name to avoid capturing the loop variable
 		ifaceName := name
