@@ -213,13 +213,13 @@ func TestCreateInterface_Darwin(t *testing.T) {
 	}
 
 	tests := []struct {
-		name              string
-		interfaceName     string
-		lookPathErr       error
-		wireguardGoErr    error
-		ifconfigResult    error
-		expectError       bool
-		errorContains     string
+		name           string
+		interfaceName  string
+		lookPathErr    error
+		wireguardGoErr error
+		ifconfigResult error
+		expectError    bool
+		errorContains  string
 	}{
 		{
 			name:           "success - interface created",

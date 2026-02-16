@@ -6,7 +6,7 @@ services:
     network_mode: host
     restart: unless-stopped
     volumes:
-      - ./data/node1:/data
+      - ./data/node1:/var/lib/wgmesh
     command: >
       join
       --secret "${MESH_SECRET}"
@@ -26,7 +26,7 @@ services:
   #   network_mode: host
   #   restart: unless-stopped
   #   volumes:
-  #     - ./data/node2:/data
+  #     - ./data/node2:/var/lib/wgmesh
   #   command: >
   #     join
   #     --secret "${MESH_SECRET}"
@@ -43,7 +43,7 @@ services:
   #   network_mode: host
   #   restart: unless-stopped
   #   volumes:
-  #     - ./data/node3:/data
+  #     - ./data/node3:/var/lib/wgmesh
   #   command: >
   #     join
   #     --secret "${MESH_SECRET}"
@@ -61,7 +61,7 @@ services:
   #   network_mode: host
   #   restart: unless-stopped
   #   volumes:
-  #     - ./data/node-advanced:/data
+  #     - ./data/node-advanced:/var/lib/wgmesh
   #   command: >
   #     join
   #     --secret "${MESH_SECRET}"

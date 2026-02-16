@@ -265,6 +265,60 @@ docker-compose up -d wgmesh-node
 
 ## Architecture Notes
 
+### State Directory: /var/lib/wgmesh
+
+wgmesh stores persistent state in `/var/lib/wgmesh/` inside the container. To preserve this state across container restarts and upgrades, this directory is mounted as a volume from the host system.
+
+The `/var/lib/wgmesh/` directory contains:
+
+| File | Purpose |
+|------|---------|
+| `{interface}.json` | WireGuard keypair (public + private keys) - **CRITICAL for node identity** |
+| `{interface}-peers.json` | Cached peer data with 24-hour expiration |
+| `{interface}-dht.nodes` | DHT bootstrap nodes cache |
+
+### Why Persistence Matters
+
+Without volume persistence, deploying a new container image would:
+
+1. **Generate new WireGuard keys** - Node gets a new identity and mesh IP
+2. **Lose peer connections** - Other nodes still have the old public key
+3. **Lose DHT state** - Bootstrap nodes must be rediscovered from scratch
+4. **Disrupt the mesh** - Connections break until all nodes rediscover the new identity
+
+The volume mount ensures your node maintains its identity across:
+- Container restarts (`docker-compose restart`)
+- Container re-creations (`docker-compose up -d --force-recreate`)
+- Image upgrades (`docker-compose pull && docker-compose up -d`)
+- Host reboots
+
+### Example State Files
+
+After starting a node with interface `wg0`, your host data directory will contain:
+
+```bash
+./data/node1/
+├── wg0.json           # WireGuard keypair (node identity)
+├── wg0-peers.json     # Discovered peers cache
+└── wg0-dht.nodes      # DHT bootstrap nodes
+```
+
+**⚠️ WARNING**: Never delete `{interface}.json` unless you want the node to generate a new identity. This file contains the private key and cannot be recovered.
+
+### Centralized vs Decentralized Modes
+
+**Decentralized mode** (default in docker-compose.yml):
+- Uses hardcoded state directory: `/var/lib/wgmesh/`
+- Volume mount required for persistence
+- Self-discovery using shared secret
+
+**Centralized mode** (operator-managed):
+- Uses `--state` flag to specify state file location
+- Can use any path (e.g., `/data/state.json`)
+- Operator manages peer configuration directly
+
+The docker-compose configuration uses decentralized mode, requiring the `/var/lib/wgmesh` volume mount.
+
 ### Host Network Mode
 
 Docker Compose uses `network_mode: host` because:
@@ -272,17 +326,6 @@ Docker Compose uses `network_mode: host` because:
 - WireGuard creates kernel interfaces that must be accessible on the host
 - NAT traversal and peer discovery require direct network access
 - Bridge networking doesn't support the required functionality
-
-### Persistent State
-
-The `./data/` directory stores:
-
-- WireGuard private key
-- Peer database
-- Discovery state
-- Gossip protocol data
-
-This data must persist across container restarts for stable mesh operation.
 
 ## Examples
 
@@ -295,7 +338,7 @@ wgmesh-node:
   network_mode: host
   restart: unless-stopped
   volumes:
-    - ./data/gateway:/data
+    - ./data/gateway:/var/lib/wgmesh
   command: >
     join
     --secret "${MESH_SECRET}"
@@ -316,7 +359,7 @@ wgmesh-node:
   network_mode: host
   restart: unless-stopped
   volumes:
-    - ./data/private:/data
+    - ./data/private:/var/lib/wgmesh
   command: >
     join
     --secret "${MESH_SECRET}"
