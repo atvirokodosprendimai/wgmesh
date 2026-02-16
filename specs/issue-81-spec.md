@@ -59,32 +59,51 @@ The feature request specifically mentions:
 
 ## Proposed Approach
 
-The solution must support **both** centralized mode (mesh-state.json) and decentralized mode (DHT). However, DHT mode currently lacks hostname information, so we need to extend the protocol.
+The solution must support **both** centralized mode (mesh-state.json) and decentralized mode (DHT) with a **unified interface**. However, DHT mode currently lacks hostname information, so we need to extend the protocol.
 
 ### Overall Strategy
 
-1. **Centralized mode:** Add simple list output from existing mesh state
-2. **Decentralized mode:** Extend peer announcement protocol to include hostname, then add list capability
-3. **Unified CLI:** Provide consistent `-list-simple` flag for both modes
+1. **Unified CLI:** Create a single `list-peers` subcommand that works for both modes
+2. **Centralized mode:** Add simple list output from existing mesh state  
+3. **Decentralized mode:** Extend peer announcement protocol to include hostname, then add list capability
+4. **Interface consistency:** Both modes produce identical output format (hostname + IP per line)
 
-### Part 1: Centralized Mode Implementation
+### Key Design Principle: Unified Interface
 
-Add a new flag `-list-simple` for compact hostname + IP output:
+Both centralized and decentralized modes should implement the same interface:
 ```bash
-./wgmesh -list-simple
-# Output:
-node1 10.39.0.1
-node2 10.39.55.15
-node3 10.39.100.20
+# Centralized mode (reads from mesh-state.json)
+./wgmesh list-peers [--state mesh-state.json]
+
+# Decentralized mode (queries running daemon via secret)
+./wgmesh list-peers --secret <SECRET>
+
+# Output format (identical for both modes):
+node1 10.99.0.1
+node2 10.99.0.2
+node3 10.99.0.3
 ```
 
-**Implementation:**
-1. Add `-list-simple` flag in `main.go`
-2. Create `Mesh.ListSimple()` method in `pkg/mesh/mesh.go`
-3. Iterate over `m.Nodes` map, print hostname + MeshIP
-4. Sort hostnames alphabetically for consistent output
+Mode detection is automatic based on flags provided (`--secret` vs `--state`).
 
-### Part 2: Decentralized Mode Implementation
+### Part 1: Unified CLI Structure
+
+Add new `list-peers` subcommand with mode detection:
+1. Add `case "list-peers":` in main.go subcommand switch
+2. Create `listPeersCmd()` function
+3. Parse flags: `--secret` (decentralized) vs `--state` (centralized)
+4. Route to appropriate implementation based on detected mode
+5. Error if both flags provided (mutually exclusive)
+
+### Part 2: Centralized Mode Implementation
+
+Implement backend for centralized mode:
+1. Create `Mesh.ListSimple()` method in `pkg/mesh/mesh.go`
+2. Iterate over `m.Nodes` map, print hostname + MeshIP
+3. Sort hostnames alphabetically for consistent output
+4. Wire to `listPeersCmd()` when `--state` flag used
+
+### Part 3: Decentralized Mode Implementation
 
 **Challenge:** DHT mode doesn't collect hostnames. Need to extend the protocol.
 
@@ -128,37 +147,12 @@ node3 10.39.100.20
    - `pkg/discovery/dht.go` - DHT announcement handler
    - When processing announcements, store hostname in PeerStore
 
-5. **Extend status command** to list peers:
-   ```bash
-   ./wgmesh status --secret <SECRET> --list-simple
-   # Output:
-   node1 10.99.1.5
-   node2 10.99.2.10
-   # (or if hostname not available)
-   abc123de... 10.99.1.5
-   ```
-
-6. **Add `ListSimple()` method to Daemon**:
+5. **Wire daemon to unified command**:
+   - Add `Daemon.ListSimple()` method to output peers in simple format
    - Get active peers from PeerStore
    - Print hostname (or pubkey prefix if no hostname) + MeshIP
-   - Sort by MeshIP for consistent output
-
-### Part 3: CLI Integration
-
-**Centralized mode:**
-```bash
-./wgmesh -list-simple              # reads mesh-state.json
-```
-
-**Decentralized mode:**
-```bash
-./wgmesh status --secret <SECRET> --list-simple   # queries running daemon
-```
-
-Or add a new subcommand:
-```bash
-./wgmesh peers --secret <SECRET>   # list active peers in simple format
-```
+   - Sort by hostname for consistent output
+   - Wire to `listPeersCmd()` when `--secret` flag used
 
 ### Backward Compatibility
 
@@ -169,87 +163,114 @@ Or add a new subcommand:
 
 ### Implementation Phases
 
-**Phase 1 - Centralized mode (simpler, can implement first):**
-- Add `-list-simple` flag
-- Add `Mesh.ListSimple()` method
-- Update documentation
+**Phase 1 - Unified CLI structure (foundation):**
+- Add `list-peers` subcommand in main.go
+- Implement mode detection (--secret vs --state)
+- Create common output interface
 
-**Phase 2 - Decentralized mode (requires protocol extension):**
+**Phase 2 - Centralized mode implementation:**
+- Add `Mesh.ListSimple()` method
+- Wire up to `list-peers` subcommand
+- Optionally add `-list-simple` flag for backward compatibility
+
+**Phase 3 - Decentralized mode implementation:**
 - Extend PeerAnnouncement with Hostname field
 - Update daemon to collect and share hostname
 - Update all discovery layers to handle hostname
-- Add list capability to status/peers command
+- Wire up daemon PeerStore query to `list-peers` subcommand
 - Update documentation
 
-This phased approach allows partial delivery if time-constrained.
+This phased approach allows partial delivery while maintaining interface consistency from the start.
 
 ## Affected Files
 
-### Phase 1: Centralized Mode (Lower Complexity)
+### Phase 1: Unified CLI Structure (Foundation)
 
 1. **`main.go`**:
-   - Line ~67: Add new flag definition for `-list-simple`
-   - Line ~139: Add case handling for the new flag
+   - Line ~33: Add `case "list-peers":` in subcommand switch
+   - Add new `listPeersCmd()` function with mode detection logic
+   - Detect mode based on flags: `--secret` (decentralized) vs `--state` (centralized)
+   - Call appropriate implementation based on mode
+
+### Phase 2: Centralized Mode Implementation
 
 2. **`pkg/mesh/mesh.go`**:
    - After line 169: Add new `ListSimple()` method (~15 lines)
    - Method should iterate over nodes and print hostname + MeshIP
+   - Sort output alphabetically by hostname
 
-3. **`README.md`**:
-   - Section on centralized mode (around line 180): Add examples for `-list-simple`
+3. **`main.go`** (continued):
+   - In `listPeersCmd()`: Wire up centralized mode to call `Mesh.ListSimple()`
+   - Optionally add `-list-simple` flag for backward compatibility (line ~69)
+
+4. **`README.md`**:
+   - Document unified `list-peers` command with examples for both modes
    - Add use case showing how to find a specific node's IP
 
-### Phase 2: Decentralized Mode (Higher Complexity)
+### Phase 3: Decentralized Mode Implementation
 
-4. **`pkg/crypto/envelope.go`**:
+5. **`pkg/crypto/envelope.go`**:
    - Line ~23-31: Add `Hostname string` field to `PeerAnnouncement` struct
    - Update JSON serialization (Go handles this automatically)
 
-5. **`pkg/daemon/peerstore.go`**:
+6. **`pkg/daemon/peerstore.go`**:
    - Line ~14-22: Add `Hostname string` field to `PeerInfo` struct
    - Update `AddOrUpdate()` method to accept hostname parameter
 
-6. **`pkg/daemon/daemon.go`**:
+7. **`pkg/daemon/daemon.go`**:
    - Line ~44-50: Add `Hostname string` field to `LocalNode` struct
    - In `NewDaemon()`: Call `os.Hostname()` to get local hostname
    - Update announcement creation to include hostname
    - Add new `ListSimple()` method to output peers in simple format
 
-7. **`pkg/discovery/gossip.go`**:
+8. **`pkg/discovery/gossip.go`**:
    - Update announcement handling to extract hostname from PeerAnnouncement
    - Pass hostname to PeerStore when adding peers
 
-8. **`pkg/discovery/lan.go`**:
+9. **`pkg/discovery/lan.go`**:
    - Update LAN discovery announcement handling to extract hostname
    - Pass hostname to PeerStore when adding peers
 
-9. **`pkg/discovery/dht.go`**:
-   - Update DHT announcement handling to extract hostname
-   - Pass hostname to PeerStore when adding peers
+10. **`pkg/discovery/dht.go`**:
+    - Update DHT announcement handling to extract hostname
+    - Pass hostname to PeerStore when adding peers
 
-10. **`main.go`** (for decentralized mode):
-    - Lines ~373-413: Extend `statusCmd()` to support `--list-simple` flag
-    - Or add new `peersCmd()` subcommand for listing peers
-    - Connect to running daemon via PeerStore or add RPC mechanism
+11. **`main.go`** (for decentralized mode integration):
+    - In `listPeersCmd()`: Wire up decentralized mode to call `Daemon.ListSimple()`
+    - May need to add mechanism to query running daemon (via state file or IPC)
 
-11. **`README.md`**:
-    - Add examples for listing peers in decentralized mode
+12. **`README.md`**:
+    - Add examples for unified `list-peers` command in both modes
+    - Document that hostname sharing is automatic via DHT
     - Document that hostname sharing is automatic via DHT
 
 ## Test Strategy
 
-### Phase 1: Centralized Mode Testing
+### Phase 1: Unified CLI Structure Testing
 
 #### Unit Testing
-1. **Test `ListSimple()` method**:
+1. **Test mode detection logic**:
+   - Test with `--secret` flag → should detect decentralized mode
+   - Test with `--state` flag → should detect centralized mode
+   - Test with both flags → should error (mutually exclusive)
+   - Test with no flags → should default to centralized mode (mesh-state.json)
+
+2. **Test command routing**:
+   - Verify `list-peers` subcommand is registered
+   - Verify correct function is called based on mode
+
+### Phase 2: Centralized Mode Testing
+
+#### Unit Testing
+1. **Test `Mesh.ListSimple()` method**:
    - Create test mesh with multiple nodes
    - Call `ListSimple()` and capture stdout
    - Verify output format: `hostname IP\n` for each node
-   - Verify sorting (if implemented)
+   - Verify sorting alphabetically by hostname
 
 2. **Integration test**:
    - Create mesh state file with known nodes
-   - Run `./wgmesh -list-simple`
+   - Run `./wgmesh list-peers` or `./wgmesh list-peers --state mesh-state.json`
    - Parse output and verify all nodes present
    - Verify IP addresses match expected values
 
@@ -262,33 +283,38 @@ This phased approach allows partial delivery if time-constrained.
    ./wgmesh -add node3:10.99.0.3:192.168.1.12
    ```
 
-2. **Verify new command**:
+2. **Verify unified command**:
    ```bash
-   ./wgmesh -list-simple
+   ./wgmesh list-peers
    # Expected output:
    # node1 10.99.0.1
    # node2 10.99.0.2
    # node3 10.99.0.3
    ```
 
-3. **Compare with existing command**:
+3. **Test with explicit state file**:
+   ```bash
+   ./wgmesh list-peers --state /path/to/mesh-state.json
+   ```
+
+4. **Compare with existing command**:
    ```bash
    ./wgmesh -list  # Should show detailed output unchanged
    ```
 
-4. **Test with encryption**:
+5. **Test with encryption**:
    ```bash
-   ./wgmesh --encrypt -list-simple
+   ./wgmesh --encrypt list-peers
    # Should prompt for password and work correctly
    ```
 
-5. **Test scripting use case**:
+6. **Test scripting use case**:
    ```bash
    # Find specific node's IP
-   ./wgmesh -list-simple | grep node2
+   ./wgmesh list-peers | grep node2
    
    # Extract just IPs
-   ./wgmesh -list-simple | awk '{print $2}'
+   ./wgmesh list-peers | awk '{print $2}'
    ```
 
 #### Edge Cases
@@ -301,8 +327,9 @@ This phased approach allows partial delivery if time-constrained.
 - Verify existing `-list` flag still works unchanged
 - Verify all other flags continue to work
 - Test with encrypted state files
+- If `-list-simple` flag added, verify it works as alias to `list-peers`
 
-### Phase 2: Decentralized Mode Testing
+### Phase 3: Decentralized Mode Testing
 
 #### Unit Testing
 1. **Test PeerAnnouncement with hostname**:
@@ -350,9 +377,9 @@ This phased approach allows partial delivery if time-constrained.
    - Verify new node handles missing hostname gracefully
 
 #### Manual Testing
-1. **List peers in decentralized mode**:
+1. **List peers in decentralized mode using unified command**:
    ```bash
-   ./wgmesh status --secret test123 --list-simple
+   ./wgmesh list-peers --secret test123
    # Expected output:
    # host1 10.99.1.5
    # host2 10.99.2.10
@@ -363,7 +390,18 @@ This phased approach allows partial delivery if time-constrained.
    ```bash
    ./wgmesh install-service --secret test123
    systemctl start wgmesh
-   ./wgmesh status --secret test123 --list-simple
+   ./wgmesh list-peers --secret test123
+   ```
+
+3. **Verify unified interface consistency**:
+   ```bash
+   # Centralized mode
+   ./wgmesh list-peers --state mesh-state.json
+   
+   # Decentralized mode
+   ./wgmesh list-peers --secret test123
+   
+   # Both should produce identical output format
    ```
 
 3. **Test discovery mechanisms**:
@@ -387,23 +425,36 @@ This phased approach allows partial delivery if time-constrained.
 - Check memory usage with many peers
 
 ### Cross-Mode Testing
-- Verify centralized and decentralized modes work independently
-- Test documentation examples for both modes
-- Ensure CLI help text is clear about mode differences
+- Verify centralized and decentralized modes work with unified interface
+- Test that output format is identical for both modes
+- Verify mode detection works correctly
+- Ensure CLI help text is clear about mode selection (--state vs --secret)
 
 ## Estimated Complexity
 
-### Overall: **medium** (4-6 hours for both phases)
+### Overall: **medium** (5-7 hours for all three phases)
 
-### Phase 1: Centralized Mode - **low** (1-2 hours)
+### Phase 1: Unified CLI Structure - **low** (1 hour)
 
 **Justification:**
-- Very small code change: one new flag, one new method (~20 lines total)
+- Add new subcommand to switch statement
+- Implement mode detection logic (~30 lines)
+- Route to appropriate implementation based on flags
+- Simple flag parsing and validation
+
+**Breakdown:**
+- Implementation: 30 minutes
+- Testing (mode detection): 20 minutes
+- Review: 10 minutes
+
+### Phase 2: Centralized Mode Implementation - **low** (1-2 hours)
+
+**Justification:**
+- Very small code change: one new method (~20 lines)
 - Simple functionality: iterate map and print formatted output
 - No complex logic or error handling needed
-- Existing infrastructure (flag parsing, mesh loading) already in place
+- Existing infrastructure (mesh loading) already in place
 - Straightforward testing
-- Minimal documentation updates
 
 **Breakdown:**
 - Implementation: 30 minutes
@@ -411,7 +462,7 @@ This phased approach allows partial delivery if time-constrained.
 - Documentation: 15 minutes
 - Review and refinement: 15 minutes
 
-### Phase 2: Decentralized Mode - **medium** (3-4 hours)
+### Phase 3: Decentralized Mode Implementation - **medium** (3-4 hours)
 
 **Justification:**
 - Protocol extension required (add Hostname field to PeerAnnouncement)
@@ -426,7 +477,7 @@ This phased approach allows partial delivery if time-constrained.
 - Daemon changes (collect hostname, update LocalNode): 30 minutes
 - PeerStore updates: 20 minutes
 - Discovery layer updates (3 files): 60 minutes
-- CLI integration (status command extension): 30 minutes
+- CLI integration (wire to list-peers command): 30 minutes
 - Unit tests: 45 minutes
 - Integration tests: 45 minutes
 - Documentation: 20 minutes
@@ -435,25 +486,28 @@ This phased approach allows partial delivery if time-constrained.
 ### Implementation Recommendation
 
 **Suggested approach:**
-1. Implement Phase 1 first (centralized mode) - delivers immediate value
-2. Review and merge Phase 1
-3. Implement Phase 2 (decentralized mode) - adds DHT support
-4. Review and merge Phase 2
+1. Implement Phase 1 first (unified CLI structure) - establishes consistent interface
+2. Implement Phase 2 (centralized mode) - delivers immediate value
+3. Review and merge Phases 1+2 together
+4. Implement Phase 3 (decentralized mode) - adds DHT support
+5. Review and merge Phase 3
 
-This allows incremental delivery and reduces risk. Users of centralized mode get the feature sooner, while decentralized mode users wait for the more complex protocol extension.
+This allows incremental delivery with interface consistency from the start. Users of centralized mode get the feature sooner, while decentralized mode users wait for the more complex protocol extension. The unified interface ensures no breaking changes later.
 
 ### Risk Factors
 
-**Low risk (Phase 1):**
+**Low risk (Phases 1 & 2):**
 - No protocol changes
-- No backward compatibility concerns
+- No backward compatibility concerns with existing modes
 - Isolated changes to centralized mode only
+- Unified interface design validated early
 
-**Medium risk (Phase 2):**
+**Medium risk (Phase 3):**
 - Protocol change requires careful handling for backward compatibility
 - Need to ensure old and new versions can coexist in same mesh
 - Multiple discovery layers must be updated consistently
 - More testing scenarios (distributed, multi-node)
+- Interface already established, reducing integration risk
 
 ### Alternative: DHT-Only Without Hostname Collection
 
@@ -462,4 +516,4 @@ If collecting hostnames in DHT proves too complex, an alternative is to:
 - Document that centralized mode shows hostnames, DHT shows pubkeys
 - Users can maintain their own hostname mapping if needed
 
-This reduces Phase 2 from medium to low complexity (1-2 hours) but provides less user value.
+This reduces Phase 3 from medium to low complexity (1-2 hours) but provides less user value and breaks interface consistency between modes.
