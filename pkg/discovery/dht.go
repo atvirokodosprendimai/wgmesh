@@ -21,6 +21,7 @@ const (
 	DHTAnnounceInterval    = 15 * time.Minute
 	DHTQueryInterval       = 30 * time.Second
 	DHTQueryIntervalStable = 60 * time.Second
+	DHTTransitiveInterval  = 12 * time.Second
 	DHTBootstrapTimeout    = 30 * time.Second
 	DHTPersistInterval     = 2 * time.Minute
 	DHTMethod              = "dht"
@@ -141,6 +142,7 @@ func (d *DHTDiscovery) Start() error {
 	go d.announceLoop()
 	go d.queryLoop()
 	go d.persistLoop()
+	go d.transitiveConnectLoop()
 
 	log.Printf("[DHT] Discovery started, listening on port %d", d.exchange.Port())
 	return nil
@@ -496,23 +498,52 @@ func (d *DHTDiscovery) contactPeer(addr krpc.NodeAddr) {
 		return
 	}
 
-	// Deduplication: don't contact same peer within 60 seconds
-	d.mu.Lock()
-	if lastContact, ok := d.contactedPeers[addrStr]; ok {
-		if time.Since(lastContact) < 60*time.Second {
-			d.mu.Unlock()
-			return
-		}
+	if !d.markContacted(addrStr, 60*time.Second) {
+		return
 	}
-	d.contactedPeers[addrStr] = time.Now()
-	d.mu.Unlock()
 
 	log.Printf("[DHT] Contacting potential peer at %s", addrStr)
 
 	// Attempt peer exchange
+	d.exchangeWithAddress(addrStr, DHTMethod)
+}
+
+func (d *DHTDiscovery) transitiveConnectLoop() {
+	ticker := time.NewTicker(DHTTransitiveInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.tryTransitivePeers()
+		}
+	}
+}
+
+func (d *DHTDiscovery) tryTransitivePeers() {
+	peers := d.peerStore.GetActive()
+	for _, peer := range peers {
+		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
+			continue
+		}
+		if peer.Endpoint == "" {
+			continue
+		}
+
+		if !d.markContacted(peer.Endpoint, 20*time.Second) {
+			continue
+		}
+
+		go d.exchangeWithAddress(peer.Endpoint, DHTMethod+"-transitive")
+	}
+}
+
+func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod string) {
 	peerInfo, err := d.exchange.ExchangeWithPeer(addrStr)
 	if err != nil {
-		// Only log if it's not a timeout (timeouts are expected for non-wgmesh peers)
+		// Timeouts are expected for some addresses during NAT traversal.
 		if !strings.Contains(err.Error(), "timeout") {
 			log.Printf("[DHT] Peer exchange failed with %s: %v", addrStr, err)
 		}
@@ -524,12 +555,21 @@ func (d *DHTDiscovery) contactPeer(addr krpc.NodeAddr) {
 	}
 
 	log.Printf("[DHT] SUCCESS! Found wgmesh peer %s (%s) at %s", peerInfo.WGPubKey[:8]+"...", peerInfo.MeshIP, peerInfo.Endpoint)
+	d.peerStore.Update(peerInfo, discoveryMethod)
+}
 
-	// Add to peer store
-	d.peerStore.Update(peerInfo, DHTMethod)
+func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 
-	// Process transitive peers (known_peers from the exchange)
-	// This is handled inside ExchangeWithPeer
+	if lastContact, ok := d.contactedPeers[addr]; ok {
+		if time.Since(lastContact) < minInterval {
+			return false
+		}
+	}
+
+	d.contactedPeers[addr] = time.Now()
+	return true
 }
 
 // SetOnPeerDiscovered sets a callback for when peers are discovered

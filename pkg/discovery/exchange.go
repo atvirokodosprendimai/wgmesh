@@ -17,6 +17,7 @@ const (
 	ExchangeTimeout = 10 * time.Second
 	MaxExchangeSize = 65536 // 64KB max message size
 	ExchangePort    = 51821 // Default exchange port (can be derived from secret)
+	PunchInterval   = 300 * time.Millisecond
 )
 
 // PeerExchange handles the encrypted peer exchange protocol
@@ -269,17 +270,45 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 
 	log.Printf("[Exchange] Sending HELLO to %s (our exchange port: %d)", remoteAddr.String(), pe.port)
 
-	// Send HELLO
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send hello: %w", err)
+	sendHello := func() error {
+		_, sendErr := pe.conn.WriteToUDP(data, remoteAddr)
+		if sendErr != nil {
+			return fmt.Errorf("failed to send hello: %w", sendErr)
+		}
+		return nil
 	}
+
+	// Send initial HELLO immediately.
+	if err := sendHello(); err != nil {
+		return nil, err
+	}
+
+	// During the exchange window, keep sending HELLO packets.
+	// This improves NAT hole punching success when both peers are behind NAT.
+	timeout := time.NewTimer(ExchangeTimeout)
+	defer timeout.Stop()
+	punchTicker := time.NewTicker(PunchInterval)
+	defer punchTicker.Stop()
 
 	select {
 	case peerInfo := <-replyCh:
 		return peerInfo, nil
-	case <-time.After(ExchangeTimeout):
+	case <-timeout.C:
 		return nil, fmt.Errorf("exchange timeout")
+	default:
+	}
+
+	for {
+		select {
+		case peerInfo := <-replyCh:
+			return peerInfo, nil
+		case <-punchTicker.C:
+			if err := sendHello(); err != nil {
+				log.Printf("[Exchange] HELLO resend to %s failed: %v", remoteAddr.String(), err)
+			}
+		case <-timeout.C:
+			return nil, fmt.Errorf("exchange timeout")
+		}
 	}
 }
 
