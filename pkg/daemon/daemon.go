@@ -36,8 +36,18 @@ type Daemon struct {
 	// Cache stop channel
 	cacheStopCh chan struct{}
 
+	// RPC server
+	rpcServer RPCServer
+	startTime time.Time
+
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// RPCServer interface for the RPC server
+type RPCServer interface {
+	Start() error
+	Stop() error
 }
 
 // LocalNode represents our local WireGuard node
@@ -62,6 +72,7 @@ func NewDaemon(config *Config) (*Daemon, error) {
 	d := &Daemon{
 		config:    config,
 		peerStore: NewPeerStore(),
+		startTime: time.Now(),
 		ctx:       ctx,
 		cancel:    cancel,
 	}
@@ -386,6 +397,15 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		log.Printf("Privacy mode enabled (Dandelion++ relay)")
 	}
 
+	// Start RPC server if one is set
+	if d.rpcServer != nil {
+		if err := d.rpcServer.Start(); err != nil {
+			log.Printf("Warning: failed to start RPC server: %v", err)
+		} else {
+			defer d.rpcServer.Stop()
+		}
+	}
+
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -448,3 +468,92 @@ func (d *Daemon) getPrivacyPeers() []privacy.PeerInfo {
 	}
 	return result
 }
+
+// SetRPCServer sets the RPC server for the daemon
+func (d *Daemon) SetRPCServer(server RPCServer) {
+	d.rpcServer = server
+}
+
+// GetUptime returns the daemon uptime
+func (d *Daemon) GetUptime() time.Duration {
+	return time.Since(d.startTime)
+}
+
+// GetInterfaceName returns the WireGuard interface name
+func (d *Daemon) GetInterfaceName() string {
+	return d.config.InterfaceName
+}
+
+// GetRPCPeers returns active peers for RPC (converts daemon PeerInfo to RPC PeerData)
+func (d *Daemon) GetRPCPeers() []*RPCPeerData {
+	peers := d.peerStore.GetActive()
+	result := make([]*RPCPeerData, 0, len(peers))
+	for _, p := range peers {
+		result = append(result, &RPCPeerData{
+			WGPubKey:         p.WGPubKey,
+			MeshIP:           p.MeshIP,
+			Endpoint:         p.Endpoint,
+			LastSeen:         p.LastSeen,
+			DiscoveredVia:    p.DiscoveredVia,
+			RoutableNetworks: p.RoutableNetworks,
+		})
+	}
+	return result
+}
+
+// GetRPCPeer returns a single peer for RPC
+func (d *Daemon) GetRPCPeer(pubKey string) (*RPCPeerData, bool) {
+	peer, exists := d.peerStore.Get(pubKey)
+	if !exists {
+		return nil, false
+	}
+	return &RPCPeerData{
+		WGPubKey:         peer.WGPubKey,
+		MeshIP:           peer.MeshIP,
+		Endpoint:         peer.Endpoint,
+		LastSeen:         peer.LastSeen,
+		DiscoveredVia:    peer.DiscoveredVia,
+		RoutableNetworks: peer.RoutableNetworks,
+	}, true
+}
+
+// GetRPCPeerCounts returns peer counts for RPC
+func (d *Daemon) GetRPCPeerCounts() (active, total, dead int) {
+	allPeers := d.peerStore.GetAll()
+	activePeers := d.peerStore.GetActive()
+	total = len(allPeers)
+	active = len(activePeers)
+	dead = total - active
+	return
+}
+
+// GetRPCStatus returns daemon status for RPC
+func (d *Daemon) GetRPCStatus() *RPCStatusData {
+	return &RPCStatusData{
+		MeshIP:    d.localNode.MeshIP,
+		PubKey:    d.localNode.WGPubKey,
+		Uptime:    d.GetUptime(),
+		Interface: d.config.InterfaceName,
+	}
+}
+
+// RPCPeerData represents peer info for RPC (matches rpc.PeerData)
+type RPCPeerData struct {
+	WGPubKey         string
+	MeshIP           string
+	Endpoint         string
+	LastSeen         time.Time
+	DiscoveredVia    []string
+	RoutableNetworks []string
+}
+
+// RPCStatusData represents daemon status for RPC (matches rpc.StatusData)
+type RPCStatusData struct {
+	MeshIP    string
+	PubKey    string
+	Uptime    time.Duration
+	Interface string
+}
+
+
+

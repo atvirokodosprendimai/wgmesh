@@ -11,6 +11,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
 
 	// Import discovery to register the DHT factory via init()
 	_ "github.com/atvirokodosprendimai/wgmesh/pkg/discovery"
@@ -60,6 +61,9 @@ func main() {
 			return
 		case "mesh":
 			meshCmd()
+			return
+		case "peers":
+			peersCmd()
 			return
 		}
 	}
@@ -239,6 +243,7 @@ func joinCmd() {
 	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
+	socketPath := fs.String("socket-path", "", "RPC socket path (auto-detected if empty)")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -276,6 +281,22 @@ func joinCmd() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create daemon: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Setup RPC server
+	rpcSocketPath := *socketPath
+	if rpcSocketPath == "" {
+		// Import here to avoid circular dependency
+		rpcSocketPath = getRPCSocketPath()
+	}
+	
+	// Create RPC server with callback functions
+	rpcServer, err := createRPCServer(d, rpcSocketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to create RPC server: %v\n", err)
+	} else {
+		d.SetRPCServer(rpcServer)
+		fmt.Printf("RPC socket: %s\n", rpcSocketPath)
 	}
 
 	fmt.Println("Initializing mesh node with DHT discovery...")
@@ -634,3 +655,289 @@ func meshCmd() {
 		os.Exit(1)
 	}
 }
+
+// getRPCSocketPath determines the RPC socket path
+// Import rpc package dynamically to avoid circular dependency
+func getRPCSocketPath() string {
+	// Check environment variable first
+	if path := os.Getenv("WGMESH_SOCKET"); path != "" {
+		return path
+	}
+
+	// Try /var/run (requires root)
+	if isWritable("/var/run") {
+		return "/var/run/wgmesh.sock"
+	}
+
+	// Fallback to XDG_RUNTIME_DIR for non-root
+	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
+		return runtimeDir + "/wgmesh.sock"
+	}
+
+	// Last resort: /tmp
+	return "/tmp/wgmesh.sock"
+}
+
+func isWritable(path string) bool {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	if !info.IsDir() {
+		return false
+	}
+	testFile := path + "/.wgmesh-test"
+	f, err := os.Create(testFile)
+	if err != nil {
+		return false
+	}
+	f.Close()
+	os.Remove(testFile)
+	return true
+}
+
+// createRPCServer creates an RPC server for the daemon
+func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, error) {
+	// Create server config with callback functions that bridge daemon types to RPC types
+	config := rpc.ServerConfig{
+		SocketPath: socketPath,
+		Version:    version,
+		GetPeers: func() []*rpc.PeerData {
+			rpcPeers := d.GetRPCPeers()
+			result := make([]*rpc.PeerData, len(rpcPeers))
+			for i, p := range rpcPeers {
+				result[i] = &rpc.PeerData{
+					WGPubKey:         p.WGPubKey,
+					MeshIP:           p.MeshIP,
+					Endpoint:         p.Endpoint,
+					LastSeen:         p.LastSeen,
+					DiscoveredVia:    p.DiscoveredVia,
+					RoutableNetworks: p.RoutableNetworks,
+				}
+			}
+			return result
+		},
+		GetPeer: func(pubKey string) (*rpc.PeerData, bool) {
+			peer, exists := d.GetRPCPeer(pubKey)
+			if !exists {
+				return nil, false
+			}
+			return &rpc.PeerData{
+				WGPubKey:         peer.WGPubKey,
+				MeshIP:           peer.MeshIP,
+				Endpoint:         peer.Endpoint,
+				LastSeen:         peer.LastSeen,
+				DiscoveredVia:    peer.DiscoveredVia,
+				RoutableNetworks: peer.RoutableNetworks,
+			}, true
+		},
+		GetPeerCounts: d.GetRPCPeerCounts,
+		GetStatus: func() *rpc.StatusData {
+			status := d.GetRPCStatus()
+			return &rpc.StatusData{
+				MeshIP:    status.MeshIP,
+				PubKey:    status.PubKey,
+				Uptime:    status.Uptime,
+				Interface: status.Interface,
+			}
+		},
+	}
+
+	return rpc.NewServer(config)
+}
+
+// peersCmd handles the "peers" subcommand for querying the daemon via RPC
+func peersCmd() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: wgmesh peers <list|count|get>")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Commands:")
+		fmt.Fprintln(os.Stderr, "  list            List all active peers")
+		fmt.Fprintln(os.Stderr, "  count           Show peer counts")
+		fmt.Fprintln(os.Stderr, "  get <pubkey>    Get specific peer by public key")
+		os.Exit(1)
+	}
+
+	action := os.Args[2]
+
+	// Determine socket path
+	socketPath := os.Getenv("WGMESH_SOCKET")
+	if socketPath == "" {
+		socketPath = getRPCSocketPath()
+	}
+
+	// Connect to RPC server
+	client, err := rpc.NewClient(socketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to connect to daemon: %v\n", err)
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Is wgmesh daemon running?")
+		fmt.Fprintln(os.Stderr, "  Start with: wgmesh join --secret <SECRET>")
+		fmt.Fprintf(os.Stderr, "  Socket path: %s\n", socketPath)
+		os.Exit(1)
+	}
+	defer client.Close()
+
+	switch action {
+	case "list":
+		handlePeersList(client)
+	case "count":
+		handlePeersCount(client)
+	case "get":
+		if len(os.Args) < 4 {
+			fmt.Fprintln(os.Stderr, "Usage: wgmesh peers get <pubkey>")
+			os.Exit(1)
+		}
+		pubkey := os.Args[3]
+		handlePeersGet(client, pubkey)
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown action: %s\n", action)
+		fmt.Fprintln(os.Stderr, "Available actions: list, count, get")
+		os.Exit(1)
+	}
+}
+
+func handlePeersList(client *rpc.Client) {
+	result, err := client.Call("peers.list", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "RPC error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Parse result
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Invalid response format")
+		os.Exit(1)
+	}
+
+	peersData, ok := resultMap["peers"].([]interface{})
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Invalid peers data")
+		os.Exit(1)
+	}
+
+	if len(peersData) == 0 {
+		fmt.Println("No active peers")
+		return
+	}
+
+	// Print header
+	fmt.Printf("%-40s %-15s %-25s %-10s %s\n",
+		"PUBLIC KEY", "MESH IP", "ENDPOINT", "LAST SEEN", "DISCOVERED VIA")
+	fmt.Println(strings.Repeat("-", 120))
+
+	// Print peers
+	for _, peerData := range peersData {
+		peer, ok := peerData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		pubkey := peer["pubkey"].(string)
+		if len(pubkey) > 40 {
+			pubkey = pubkey[:37] + "..."
+		}
+
+		meshIP := peer["mesh_ip"].(string)
+		endpoint := peer["endpoint"].(string)
+		lastSeen := peer["last_seen"].(string)
+
+		// Parse last seen time
+		lastSeenTime, err := time.Parse(time.RFC3339, lastSeen)
+		var lastSeenStr string
+		if err == nil {
+			lastSeenStr = formatDuration(time.Since(lastSeenTime))
+		} else {
+			lastSeenStr = "unknown"
+		}
+
+		discoveredVia := peer["discovered_via"].([]interface{})
+		discoveredViaStr := make([]string, len(discoveredVia))
+		for i, v := range discoveredVia {
+			discoveredViaStr[i] = v.(string)
+		}
+
+		fmt.Printf("%-40s %-15s %-25s %-10s %s\n",
+			pubkey, meshIP, endpoint, lastSeenStr, strings.Join(discoveredViaStr, ","))
+	}
+}
+
+func handlePeersCount(client *rpc.Client) {
+	result, err := client.Call("peers.count", nil)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "RPC error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Parse result
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Invalid response format")
+		os.Exit(1)
+	}
+
+	active := int(resultMap["active"].(float64))
+	total := int(resultMap["total"].(float64))
+	dead := int(resultMap["dead"].(float64))
+
+	fmt.Printf("Peer Statistics\n")
+	fmt.Printf("===============\n")
+	fmt.Printf("Active peers: %d\n", active)
+	fmt.Printf("Total peers:  %d\n", total)
+	fmt.Printf("Dead peers:   %d\n", dead)
+}
+
+func handlePeersGet(client *rpc.Client, pubkey string) {
+	params := map[string]interface{}{
+		"pubkey": pubkey,
+	}
+
+	result, err := client.Call("peers.get", params)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "RPC error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Parse result
+	peer, ok := result.(map[string]interface{})
+	if !ok {
+		fmt.Fprintln(os.Stderr, "Invalid response format")
+		os.Exit(1)
+	}
+
+	fmt.Printf("Peer Information\n")
+	fmt.Printf("================\n")
+	fmt.Printf("Public Key:     %s\n", peer["pubkey"].(string))
+	fmt.Printf("Mesh IP:        %s\n", peer["mesh_ip"].(string))
+	fmt.Printf("Endpoint:       %s\n", peer["endpoint"].(string))
+	fmt.Printf("Last Seen:      %s\n", peer["last_seen"].(string))
+
+	discoveredVia := peer["discovered_via"].([]interface{})
+	discoveredViaStr := make([]string, len(discoveredVia))
+	for i, v := range discoveredVia {
+		discoveredViaStr[i] = v.(string)
+	}
+	fmt.Printf("Discovered Via: %s\n", strings.Join(discoveredViaStr, ", "))
+
+	if routes, ok := peer["routable_networks"].([]interface{}); ok && len(routes) > 0 {
+		routeStrs := make([]string, len(routes))
+		for i, r := range routes {
+			routeStrs[i] = r.(string)
+		}
+		fmt.Printf("Routes:         %s\n", strings.Join(routeStrs, ", "))
+	}
+}
+
+func formatDuration(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	} else if d < time.Hour {
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	} else if d < 24*time.Hour {
+		return fmt.Sprintf("%dh", int(d.Hours()))
+	} else {
+		return fmt.Sprintf("%dd", int(d.Hours()/24))
+	}
+}
+
