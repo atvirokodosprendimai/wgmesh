@@ -31,6 +31,11 @@ type PeerAnnouncement struct {
 	RoutableNetworks []string    `json:"routable_networks,omitempty"`
 	Timestamp        int64       `json:"timestamp"`
 	KnownPeers       []KnownPeer `json:"known_peers,omitempty"`
+
+	// ObservedEndpoint is the sender's public IP:port as seen by the
+	// responder (peer-as-STUN reflector). Only populated in REPLY messages.
+	// Recipients use this to learn their own NAT-mapped address.
+	ObservedEndpoint string `json:"observed_endpoint,omitempty"`
 }
 
 // KnownPeer represents a peer that this node knows about (for transitive discovery)

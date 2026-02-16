@@ -266,7 +266,13 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 }
 
 // handleReply routes a REPLY back to an in-flight exchange request.
+// If the reply contains ObservedEndpoint (peer-as-STUN reflector), we use
+// the reflected public IP to update our own localNode.WGEndpoint.
 func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *net.UDPAddr) {
+	// Peer-as-STUN reflector: the responder tells us what our public
+	// IP:port looks like. Use the reflected IP combined with our WG port.
+	pe.applyObservedEndpoint(reply.ObservedEndpoint)
+
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         reply.WGPubKey,
 		MeshIP:           reply.MeshIP,
@@ -289,7 +295,46 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 	pe.peerStore.Update(peerInfo, DHTMethod)
 }
 
-// sendReply sends a REPLY message to a peer
+// applyObservedEndpoint updates localNode.WGEndpoint if a peer reflected
+// a usable public IP back to us. Only updates the IP component — the WG
+// port comes from our own config, not from the observed NAT port.
+func (pe *PeerExchange) applyObservedEndpoint(observed string) {
+	if observed == "" {
+		return
+	}
+
+	host, _, err := net.SplitHostPort(observed)
+	if err != nil {
+		return
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return
+	}
+
+	// Ignore private/loopback — both peers are on the same LAN,
+	// so the observed address isn't useful for NAT traversal.
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return
+	}
+
+	// Extract our WG listen port from the current endpoint
+	_, wgPort, err := net.SplitHostPort(pe.localNode.WGEndpoint)
+	if err != nil {
+		return
+	}
+
+	newEndpoint := net.JoinHostPort(ip.String(), wgPort)
+	if newEndpoint != pe.localNode.WGEndpoint {
+		log.Printf("[Exchange] Peer reflected our address: %s (was %s)", newEndpoint, pe.localNode.WGEndpoint)
+		pe.localNode.WGEndpoint = newEndpoint
+	}
+}
+
+// sendReply sends a REPLY message to a peer.
+// The reply includes ObservedEndpoint — the HELLO sender's public IP:port
+// as seen by us, enabling peer-as-STUN-reflector (zero infrastructure).
 func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 	// Build list of known peers for transitive discovery
 	knownPeers := pe.getKnownPeers()
@@ -302,6 +347,9 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
+
+	// Reflect the sender's observed address back to them
+	announcement.ObservedEndpoint = remoteAddr.String()
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeReply, announcement, pe.config.Keys.GossipKey)
 	if err != nil {
