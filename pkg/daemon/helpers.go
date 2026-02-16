@@ -92,14 +92,7 @@ func createInterface(name string) error {
 		cmd := cmdExecutor.Command("wireguard-go", name)
 		// Start wireguard-go asynchronously since it's a long-running daemon
 		if err := cmd.Start(); err != nil {
-			// If Start() fails, it could be because the interface already exists
-			// or another wireguard-go process is already running for it.
-			// Check if the interface exists before failing.
-			if !interfaceExists(name) {
-				return fmt.Errorf("failed to start wireguard-go: %w", err)
-			}
-			// Interface exists, continue with configuration
-			return nil
+			return fmt.Errorf("failed to start wireguard-go: %w", err)
 		}
 
 		// Give macOS a moment to materialize the utun interface.

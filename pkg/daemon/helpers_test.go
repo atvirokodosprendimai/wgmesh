@@ -227,14 +227,6 @@ func TestCreateInterface_Darwin(t *testing.T) {
 			errorContains:  "failed to start wireguard-go",
 		},
 		{
-			name:           "success - interface already exists",
-			interfaceName:  "utun0",
-			lookPathErr:    nil,
-			wireguardGoErr: errors.New("already exists"),
-			ifconfigResult: nil, // interface exists
-			expectError:    false,
-		},
-		{
 			name:           "error - interface not created after polling",
 			interfaceName:  "utun0",
 			lookPathErr:    nil,
