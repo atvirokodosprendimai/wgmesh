@@ -310,7 +310,8 @@ func (d *DHTDiscovery) persistLoop() {
 }
 
 func (d *DHTDiscovery) nodesFilePath() string {
-	return filepath.Join("/var/lib/wgmesh", fmt.Sprintf("%s-dht.nodes", d.config.InterfaceName))
+	networkTag := fmt.Sprintf("%x", d.config.Keys.NetworkID[:8])
+	return filepath.Join("/var/lib/wgmesh", fmt.Sprintf("%s-%s-dht.nodes", d.config.InterfaceName, networkTag))
 }
 
 func (d *DHTDiscovery) loadPersistedNodes() {
@@ -547,6 +548,10 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 	// The semaphore prevents resource exhaustion by limiting concurrent exchanges
 	for _, peer := range peers {
 		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
+			continue
+		}
+		if hasDiscoveryMethod(peer.DiscoveredVia, "dht-rendezvous") && time.Since(peer.LastSeen) < 2*time.Minute {
+			// Avoid churn for pairs that recently established via rendezvous.
 			continue
 		}
 		if peer.Endpoint == "" {

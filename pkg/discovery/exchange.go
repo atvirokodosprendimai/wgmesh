@@ -21,6 +21,7 @@ const (
 	RendezvousSessionTTL    = 20 * time.Second
 	RendezvousStartLeadTime = 1200 * time.Millisecond
 	RendezvousPunchCooldown = 15 * time.Second
+	RendezvousStartCooldown = 30 * time.Second
 )
 
 type rendezvousOffer struct {
@@ -71,6 +72,7 @@ type PeerExchange struct {
 	rendezvousMu       sync.Mutex
 	rendezvousSessions map[string]*rendezvousState
 	activePunches      map[string]time.Time
+	rendezvousStarts   map[string]time.Time
 }
 
 // NewPeerExchange creates a new peer exchange handler
@@ -83,6 +85,7 @@ func NewPeerExchange(config *daemon.Config, localNode *LocalNode, peerStore *dae
 		pendingReplies:     make(map[string]chan *daemon.PeerInfo),
 		rendezvousSessions: make(map[string]*rendezvousState),
 		activePunches:      make(map[string]time.Time),
+		rendezvousStarts:   make(map[string]time.Time),
 	}
 }
 
@@ -557,6 +560,12 @@ func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr
 		log.Printf("[NAT] Introducer %s waiting pair %s: got %s, waiting for %s", shortKey(pe.localNode.WGPubKey), shortKey(pairID), shortKey(offer.FromPubKey), shortKey(offer.TargetPubKey))
 		return
 	}
+
+	if lastStart, ok := pe.rendezvousStarts[pairID]; ok && time.Since(lastStart) < RendezvousStartCooldown {
+		log.Printf("[NAT] Introducer %s throttling START for pair %s (last start %v ago)", shortKey(pe.localNode.WGPubKey), shortKey(pairID), time.Since(lastStart).Round(time.Millisecond))
+		return
+	}
+	pe.rendezvousStarts[pairID] = time.Now()
 
 	startAt := time.Now().Add(RendezvousStartLeadTime)
 	go pe.sendRendezvousStart(pairID, a.FromPubKey, st.endpoints[a.FromPubKey], b.FromPubKey, b.Candidates, startAt)
