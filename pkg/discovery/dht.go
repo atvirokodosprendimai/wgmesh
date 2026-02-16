@@ -805,6 +805,12 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 		return
 	}
 
+	// Skip unreachable IPv6 endpoints (no route)
+	if strings.HasPrefix(peer.Endpoint, "[") && !d.hasIPv6Route() {
+		log.Printf("[NAT] Skipping IPv6 endpoint for %s (no IPv6 route)", shortKey(peer.WGPubKey))
+		return
+	}
+
 	introducers := d.selectRendezvousIntroducers(peer.WGPubKey, d.peerStore.GetActive(), RendezvousMaxIntroducers)
 
 	if len(introducers) > 0 {
@@ -813,7 +819,8 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 				continue
 			}
 
-			if !d.markContacted(introducer.ControlEndpoint, 20*time.Second) {
+			// Only 2s throttle for rendezvous requests (not 20s)
+			if !d.markContacted(introducer.ControlEndpoint, 2*time.Second) {
 				continue
 			}
 
@@ -1081,6 +1088,15 @@ func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo) bool {
 		}
 	}
 	return false
+}
+
+func (d *DHTDiscovery) hasIPv6Route() bool {
+	conn, err := net.Dial("udp6", "[2001:4860:4860::8888]:53")
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
 }
 
 func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*daemon.PeerInfo, maxCount int) []rendezvousIntroducer {
