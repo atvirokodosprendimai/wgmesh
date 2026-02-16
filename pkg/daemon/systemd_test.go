@@ -153,3 +153,37 @@ func TestGenerateSystemdUnitWithoutGossip(t *testing.T) {
 		t.Error("Unit should not contain --gossip flag when Gossip is false")
 	}
 }
+
+func TestGenerateSystemdUnitWithNoLANDiscovery(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:              "test-secret-that-is-long-enough",
+		BinaryPath:          "/usr/local/bin/wgmesh",
+		DisableLANDiscovery: true,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--no-lan-discovery") {
+		t.Error("Unit should contain --no-lan-discovery flag when DisableLANDiscovery is true")
+	}
+}
+
+func TestGenerateSystemdUnitWithLANDiscoveryDefault(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:              "test-secret-that-is-long-enough",
+		BinaryPath:          "/usr/local/bin/wgmesh",
+		DisableLANDiscovery: false,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if strings.Contains(unit, "--no-lan-discovery") {
+		t.Error("Unit should not contain --no-lan-discovery when DisableLANDiscovery is false")
+	}
+}

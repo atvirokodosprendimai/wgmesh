@@ -34,13 +34,14 @@ WantedBy=multi-user.target
 
 // SystemdServiceConfig holds configuration for generating the systemd service
 type SystemdServiceConfig struct {
-	Secret          string
-	InterfaceName   string
-	ListenPort      int
-	AdvertiseRoutes []string
-	Privacy         bool
-	Gossip          bool
-	BinaryPath      string
+	Secret              string
+	InterfaceName       string
+	ListenPort          int
+	AdvertiseRoutes     []string
+	Privacy             bool
+	Gossip              bool
+	DisableLANDiscovery bool
+	BinaryPath          string
 }
 
 // GenerateSystemdUnit generates a systemd unit file for wgmesh
@@ -74,6 +75,9 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	}
 	if cfg.Gossip {
 		args = append(args, "--gossip")
+	}
+	if cfg.DisableLANDiscovery {
+		args = append(args, "--no-lan-discovery")
 	}
 
 	data := struct {

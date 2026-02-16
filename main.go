@@ -177,10 +177,12 @@ SUBCOMMANDS (centralized mode):
 
 SUBCOMMANDS (decentralized mode):
   init --secret                 Generate a new mesh secret
-  join --secret <SECRET>        Join a mesh network
+	join --secret <SECRET>        Join a mesh network
+	     [--no-lan-discovery]     Disable LAN multicast discovery
   status --secret <SECRET>      Show mesh status
   qr --secret <SECRET>          Display secret as QR code (text)
-  install-service --secret ...  Install systemd service
+	install-service --secret ...  Install systemd service
+	     [--no-lan-discovery]     Disable LAN multicast discovery in service
   uninstall-service             Remove systemd service
   rotate-secret                 Rotate mesh secret
 
@@ -239,6 +241,7 @@ func joinCmd() {
 	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
+	noLANDiscovery := fs.Bool("no-lan-discovery", false, "Disable LAN multicast discovery")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -258,13 +261,14 @@ func joinCmd() {
 
 	// Create daemon config
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{
-		Secret:          *secret,
-		InterfaceName:   *iface,
-		WGListenPort:    *listenPort,
-		AdvertiseRoutes: routes,
-		LogLevel:        *logLevel,
-		Privacy:         *privacyMode,
-		Gossip:          *gossipMode,
+		Secret:              *secret,
+		InterfaceName:       *iface,
+		WGListenPort:        *listenPort,
+		AdvertiseRoutes:     routes,
+		LogLevel:            *logLevel,
+		Privacy:             *privacyMode,
+		Gossip:              *gossipMode,
+		DisableLANDiscovery: *noLANDiscovery,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create config: %v\n", err)
@@ -284,6 +288,9 @@ func joinCmd() {
 	}
 	if *gossipMode {
 		fmt.Println("In-mesh gossip enabled")
+	}
+	if *noLANDiscovery {
+		fmt.Println("LAN discovery disabled")
 	}
 
 	if err := d.RunWithDHTDiscovery(); err != nil {
@@ -492,6 +499,7 @@ func installServiceCmd() {
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
+	noLANDiscovery := fs.Bool("no-lan-discovery", false, "Disable LAN multicast discovery")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -509,12 +517,13 @@ func installServiceCmd() {
 	}
 
 	cfg := daemon.SystemdServiceConfig{
-		Secret:          *secret,
-		InterfaceName:   *iface,
-		ListenPort:      *listenPort,
-		AdvertiseRoutes: routes,
-		Privacy:         *privacyMode,
-		Gossip:          *gossipMode,
+		Secret:              *secret,
+		InterfaceName:       *iface,
+		ListenPort:          *listenPort,
+		AdvertiseRoutes:     routes,
+		Privacy:             *privacyMode,
+		Gossip:              *gossipMode,
+		DisableLANDiscovery: *noLANDiscovery,
 	}
 
 	fmt.Println("Installing wgmesh systemd service...")

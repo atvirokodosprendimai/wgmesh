@@ -111,15 +111,19 @@ func (d *DHTDiscovery) Start() error {
 		return fmt.Errorf("failed to start peer exchange: %w", err)
 	}
 
-	lan, err := NewLANDiscovery(d.config, d.localNode, d.peerStore)
-	if err != nil {
-		log.Printf("[LAN] Failed to initialize LAN discovery: %v", err)
-	} else {
-		d.lan = lan
-		if err := d.lan.Start(); err != nil {
-			log.Printf("[LAN] Failed to start LAN discovery: %v", err)
-			d.lan = nil
+	if d.config.LANDiscovery {
+		lan, err := NewLANDiscovery(d.config, d.localNode, d.peerStore)
+		if err != nil {
+			log.Printf("[LAN] Failed to initialize LAN discovery: %v", err)
+		} else {
+			d.lan = lan
+			if err := d.lan.Start(); err != nil {
+				log.Printf("[LAN] Failed to start LAN discovery: %v", err)
+				d.lan = nil
+			}
 		}
+	} else {
+		log.Printf("[LAN] LAN discovery disabled by configuration")
 	}
 
 	// Start gossip loop after exchange is listening
