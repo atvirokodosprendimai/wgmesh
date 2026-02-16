@@ -167,3 +167,15 @@ func (m *Mesh) List() {
 		fmt.Println()
 	}
 }
+
+// ListSimple prints a simple list of hostnames and mesh IPs
+func (m *Mesh) ListSimple() {
+	for _, node := range m.Nodes {
+		// Use actual hostname if available, otherwise use the configured hostname
+		displayName := node.Hostname
+		if node.ActualHostname != "" {
+			displayName = node.ActualHostname
+		}
+		fmt.Printf("%s %s\n", displayName, node.MeshIP)
+	}
+}

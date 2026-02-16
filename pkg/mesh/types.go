@@ -21,6 +21,11 @@ type Node struct {
 	RoutableNetworks []string `json:"routable_networks,omitempty"`
 
 	IsLocal bool `json:"is_local"`
+
+	// Actual hostname from the remote server
+	ActualHostname string `json:"actual_hostname,omitempty"`
+	// FQDN from the remote server
+	FQDN string `json:"fqdn,omitempty"`
 }
 
 type Mesh struct {

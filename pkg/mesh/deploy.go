@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
@@ -71,12 +72,32 @@ func (m *Mesh) Deploy() error {
 func (m *Mesh) detectEndpoints() error {
 	for hostname, node := range m.Nodes {
 		if node.IsLocal {
+			// For local node, get hostname directly
+			if node.ActualHostname == "" {
+				if h, err := os.Hostname(); err == nil {
+					node.ActualHostname = h
+				}
+			}
 			continue
 		}
 
 		client, err := ssh.NewClient(node.SSHHost, node.SSHPort)
 		if err != nil {
 			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
+		}
+
+		// Collect hostname and FQDN
+		if actualHostname, err := ssh.GetHostname(client); err == nil {
+			node.ActualHostname = actualHostname
+		} else {
+			fmt.Printf("Warning: failed to get hostname for %s: %v\n", hostname, err)
+		}
+
+		if fqdn, err := ssh.GetFQDN(client); err == nil {
+			node.FQDN = fqdn
+		} else {
+			// FQDN may not always be available, so just log a debug message
+			// Don't show warning to avoid cluttering output
 		}
 
 		publicIP, err := ssh.DetectPublicIP(client)
