@@ -966,6 +966,24 @@ type rendezvousIntroducer struct {
 	ControlEndpoint string
 }
 
+func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo) bool {
+	if p == nil {
+		return false
+	}
+	if time.Since(p.LastSeen) > 2*time.Minute {
+		return false
+	}
+	for _, method := range p.DiscoveredVia {
+		if method == "cache" {
+			continue
+		}
+		if strings.HasPrefix(method, "dht") || strings.HasPrefix(method, "gossip") || method == "lan" {
+			return true
+		}
+	}
+	return false
+}
+
 func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*daemon.PeerInfo, maxCount int) []rendezvousIntroducer {
 	type introducerCandidate struct {
 		pubKey          string
