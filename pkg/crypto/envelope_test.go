@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -91,6 +92,10 @@ func TestPeerAnnouncementValidate(t *testing.T) {
 			wantErr:     true,
 			errContains: "MeshIP",
 		},
+		{
+			name:   "valid IPv6 MeshIP",
+			modify: func(pa *PeerAnnouncement) { pa.MeshIP = "2001:db8::1" },
+		},
 		// WGEndpoint validation
 		{
 			name:   "empty WGEndpoint is allowed",
@@ -120,6 +125,16 @@ func TestPeerAnnouncementValidate(t *testing.T) {
 				pa.WGEndpoint = "[::1]:51820"
 			},
 		},
+		{
+			name:   "valid max port 65535",
+			modify: func(pa *PeerAnnouncement) { pa.WGEndpoint = "1.2.3.4:65535" },
+		},
+		{
+			name:        "invalid port 65536",
+			modify:      func(pa *PeerAnnouncement) { pa.WGEndpoint = "1.2.3.4:65536" },
+			wantErr:     true,
+			errContains: "WGEndpoint",
+		},
 		// RoutableNetworks validation
 		{
 			name: "invalid CIDR in routable networks",
@@ -136,6 +151,26 @@ func TestPeerAnnouncementValidate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "RoutableNetworks",
+		},
+		{
+			name: "too many routable networks",
+			modify: func(pa *PeerAnnouncement) {
+				pa.RoutableNetworks = make([]string, MaxRoutableNetworks+1)
+				for i := range pa.RoutableNetworks {
+					pa.RoutableNetworks[i] = fmt.Sprintf("10.%d.%d.0/24", i/256, i%256)
+				}
+			},
+			wantErr:     true,
+			errContains: "RoutableNetworks",
+		},
+		{
+			name: "routable networks at max count",
+			modify: func(pa *PeerAnnouncement) {
+				pa.RoutableNetworks = make([]string, MaxRoutableNetworks)
+				for i := range pa.RoutableNetworks {
+					pa.RoutableNetworks[i] = fmt.Sprintf("10.%d.%d.0/24", i/256, i%256)
+				}
+			},
 		},
 		// Hostname validation (issue #102)
 		{
@@ -186,6 +221,27 @@ func TestPeerAnnouncementValidate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: "KnownPeers[0]",
+		},
+		{
+			name: "known peer with invalid hostname",
+			modify: func(pa *PeerAnnouncement) {
+				pa.KnownPeers = []KnownPeer{
+					{WGPubKey: validKey, MeshIP: "10.0.0.2", Hostname: "bad\x00host"},
+				}
+			},
+			wantErr:     true,
+			errContains: "KnownPeers[0]",
+		},
+		{
+			name: "too many known peers",
+			modify: func(pa *PeerAnnouncement) {
+				pa.KnownPeers = make([]KnownPeer, MaxKnownPeers+1)
+				for i := range pa.KnownPeers {
+					pa.KnownPeers[i] = KnownPeer{WGPubKey: validKey, MeshIP: "10.0.0.2"}
+				}
+			},
+			wantErr:     true,
+			errContains: "KnownPeers",
 		},
 	}
 
@@ -238,6 +294,22 @@ func TestKnownPeerValidate(t *testing.T) {
 			peer:        KnownPeer{WGPubKey: validKey, MeshIP: "not-ip"},
 			wantErr:     true,
 			errContains: "MeshIP",
+		},
+		{
+			name: "valid hostname",
+			peer: KnownPeer{WGPubKey: validKey, MeshIP: "10.0.0.2", Hostname: "node-1.example.com"},
+		},
+		{
+			name:        "hostname too long",
+			peer:        KnownPeer{WGPubKey: validKey, MeshIP: "10.0.0.2", Hostname: strings.Repeat("x", 254)},
+			wantErr:     true,
+			errContains: "Hostname",
+		},
+		{
+			name:        "hostname with control characters",
+			peer:        KnownPeer{WGPubKey: validKey, MeshIP: "10.0.0.2", Hostname: "bad\x00host"},
+			wantErr:     true,
+			errContains: "Hostname",
 		},
 	}
 
