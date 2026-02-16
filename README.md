@@ -8,7 +8,7 @@ A Go-based tool for building and managing WireGuard mesh networks with support f
 - **NAT Detection**: Automatically detects nodes behind NAT and configures persistent keepalive
 - **SSH-Based Deployment**: Installs and configures WireGuard on remote Ubuntu hosts via SSH
 - **Incremental Updates**: Uses `wg set` commands for online configuration changes without restarting interfaces
-- **Key Management**: Generates and stores WireGuard key pairs (centralized mode: in the mesh state file specified via the `-state` flag, default `mesh-state.json`; decentralized mode: in `/var/lib/wgmesh/`)
+- **Key Management**: Generates and stores WireGuard key pairs (centralized mode: in the mesh state file specified via the `-state` flag, default `/var/lib/wgmesh/mesh-state.json`; decentralized mode: in `/var/lib/wgmesh/`)
 - **Routing Table Management**: Automatically configures routes for networks behind mesh nodes on all nodes
 - **Diff-Based Deployment**: Only applies configuration changes, minimizing disruption
 - **Persistent Configuration**: Uses systemd and wg-quick for automatic startup after reboot
@@ -157,7 +157,7 @@ You can also test direct encrypted peer exchange between two nodes:
 ./wgmesh -init
 ```
 
-This creates a `mesh-state.json` file with default settings:
+This creates a `/var/lib/wgmesh/mesh-state.json` file with default settings:
 - Interface name: `wg0`
 - Mesh network: `10.99.0.0/16`
 - Listen port: `51820`
@@ -270,16 +270,16 @@ U2FsdGVkX1+Qq1RZNlBXMTJHVzR4TVRrMllXNWpaVzkxZEdWd0FsSnZibk5hY0dWaGRHbHZi...
 **Store in vault:**
 ```bash
 # HashiCorp Vault
-vault kv put secret/wgmesh state=@mesh-state.json
+vault kv put secret/wgmesh state=@/var/lib/wgmesh/mesh-state.json
 
 # Retrieve and use
-vault kv get -field=state secret/wgmesh > mesh-state.json
+vault kv get -field=state secret/wgmesh > /var/lib/wgmesh/mesh-state.json
 ./wgmesh --encrypt --list
 ```
 
 ### Adding Routes for Networks Behind Nodes
 
-Edit the `mesh-state.json` file and add routable networks to a node:
+Edit the `/var/lib/wgmesh/mesh-state.json` file and add routable networks to a node:
 
 ```json
 {
@@ -381,7 +381,7 @@ Ensure your SSH keys are added to the `authorized_keys` file on target hosts.
 
 ## Configuration File
 
-The `mesh-state.json` file stores the complete mesh state:
+The `/var/lib/wgmesh/mesh-state.json` file stores the complete mesh state:
 
 ```json
 {
@@ -410,7 +410,7 @@ The `mesh-state.json` file stores the complete mesh state:
 ## Security Considerations
 
 - **Private keys in state file**: WireGuard private keys storage varies by mode:
-  - **Centralized mode**: Keys stored in `mesh-state.json` in the current working directory
+  - **Centralized mode**: Keys stored in `/var/lib/wgmesh/mesh-state.json`
     - Without encryption: Use file permissions (`chmod 600`) and secure storage
     - With `--encrypt`: State file is AES-256-GCM encrypted and base64-encoded
     - **Recommended**: Always use `--encrypt` flag for production deployments
@@ -512,7 +512,8 @@ wgmeshbuilder/
 │   └── ssh/
 │       ├── client.go           # SSH connection management
 │       └── wireguard.go        # Remote WireGuard operations
-└── mesh-state.json             # Mesh state (created on init)
+└── /var/lib/wgmesh/
+    └── mesh-state.json         # Mesh state (created on init)
 ```
 
 ## Contributing
