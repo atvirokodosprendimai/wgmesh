@@ -1,15 +1,15 @@
 package rpc
 
 import (
-	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestClientServerIntegration(t *testing.T) {
-	// Create a temporary socket path
-	socketPath := "/tmp/wgmesh-test-" + time.Now().Format("20060102150405") + ".sock"
-	defer os.Remove(socketPath)
+	// Create a temporary socket path in a unique per-test directory
+	tmpDir := t.TempDir()
+	socketPath := filepath.Join(tmpDir, "wgmesh-test.sock")
 
 	// Mock peer data
 	mockPeer := &PeerData{
