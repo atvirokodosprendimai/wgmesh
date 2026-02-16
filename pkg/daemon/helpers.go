@@ -3,6 +3,7 @@ package daemon
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -90,10 +91,27 @@ func createInterface(name string) error {
 		}
 
 		cmd := cmdExecutor.Command("wireguard-go", name)
+		
+		// Capture output for debugging/error messages
+		var outBuf, errBuf strings.Builder
+		cmd.SetStdout(&outBuf)
+		cmd.SetStderr(&errBuf)
+		
 		// Start wireguard-go asynchronously since it's a long-running daemon
 		if err := cmd.Start(); err != nil {
 			return fmt.Errorf("failed to start wireguard-go: %w", err)
 		}
+		
+		// Wait for the process in a goroutine to prevent zombie processes
+		go func() {
+			if err := cmd.Wait(); err != nil {
+				// Log any errors but don't fail - wireguard-go runs as daemon
+				log.Printf("wireguard-go process for %s exited: %v", name, err)
+				if errBuf.Len() > 0 {
+					log.Printf("wireguard-go stderr: %s", errBuf.String())
+				}
+			}
+		}()
 
 		// Give macOS a moment to materialize the utun interface.
 		for i := 0; i < 20; i++ {

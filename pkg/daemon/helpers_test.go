@@ -35,7 +35,10 @@ type MockCommand struct {
 	outputFunc         func() ([]byte, error)
 	runFunc            func() error
 	startFunc          func() error
+	waitFunc           func() error
 	stdin              io.Reader
+	stdout             io.Writer
+	stderr             io.Writer
 }
 
 func (m *MockCommand) CombinedOutput() ([]byte, error) {
@@ -66,8 +69,23 @@ func (m *MockCommand) Start() error {
 	return nil
 }
 
+func (m *MockCommand) Wait() error {
+	if m.waitFunc != nil {
+		return m.waitFunc()
+	}
+	return nil
+}
+
 func (m *MockCommand) SetStdin(stdin io.Reader) {
 	m.stdin = stdin
+}
+
+func (m *MockCommand) SetStdout(stdout io.Writer) {
+	m.stdout = stdout
+}
+
+func (m *MockCommand) SetStderr(stderr io.Writer) {
+	m.stderr = stderr
 }
 
 // Helper to save and restore cmdExecutor

@@ -23,8 +23,14 @@ type Command interface {
 	Run() error
 	// Start starts the command without waiting for it to complete
 	Start() error
+	// Wait waits for the command to complete
+	Wait() error
 	// SetStdin sets the standard input for the command
 	SetStdin(stdin io.Reader)
+	// SetStdout sets the standard output for the command
+	SetStdout(stdout io.Writer)
+	// SetStderr sets the standard error for the command
+	SetStderr(stderr io.Writer)
 }
 
 // RealCommandExecutor is the production implementation that uses os/exec
@@ -65,7 +71,22 @@ func (r *RealCommand) Start() error {
 	return r.cmd.Start()
 }
 
+// Wait waits for the command to complete
+func (r *RealCommand) Wait() error {
+	return r.cmd.Wait()
+}
+
 // SetStdin sets the standard input for the command
 func (r *RealCommand) SetStdin(stdin io.Reader) {
 	r.cmd.Stdin = stdin
+}
+
+// SetStdout sets the standard output for the command
+func (r *RealCommand) SetStdout(stdout io.Writer) {
+	r.cmd.Stdout = stdout
+}
+
+// SetStderr sets the standard error for the command
+func (r *RealCommand) SetStderr(stderr io.Writer) {
+	r.cmd.Stderr = stderr
 }
