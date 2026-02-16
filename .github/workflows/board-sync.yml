@@ -78,7 +78,7 @@ jobs:
 
             // Find or add the item on the project board
             const { node } = await github.graphql(`
-              query($nodeId: ID!, $projectId: ID!) {
+              query($nodeId: ID!) {
                 node(id: $nodeId) {
                   ... on Issue {
                     projectItems(first: 10) {
@@ -98,7 +98,7 @@ jobs:
                   }
                 }
               }
-            `, { nodeId, projectId });
+            `, { nodeId });
 
             let projectItemId = null;
             const items = node?.projectItems?.nodes || [];
