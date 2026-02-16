@@ -11,7 +11,20 @@ const (
 	PeerRemoveTimeout = 10 * time.Minute // Remove peer from WG config after grace period
 	LANMethod         = "lan"
 	RendezvousMethod  = "dht-rendezvous"
+	PeerEventBufSize  = 16
 )
+
+type PeerEventKind int
+
+const (
+	PeerEventNew     PeerEventKind = iota
+	PeerEventUpdated PeerEventKind = iota
+)
+
+type PeerEvent struct {
+	PubKey string
+	Kind   PeerEventKind
+}
 
 // PeerInfo represents a discovered mesh peer
 type PeerInfo struct {
@@ -29,14 +42,49 @@ type PeerInfo struct {
 
 // PeerStore is a thread-safe store for discovered peers
 type PeerStore struct {
-	mu    sync.RWMutex
-	peers map[string]*PeerInfo // keyed by WG pubkey
+	mu          sync.RWMutex
+	peers       map[string]*PeerInfo // keyed by WG pubkey
+	subscribers []chan PeerEvent
 }
 
 // NewPeerStore creates a new peer store
 func NewPeerStore() *PeerStore {
 	return &PeerStore{
 		peers: make(map[string]*PeerInfo),
+	}
+}
+
+func (ps *PeerStore) Subscribe() <-chan PeerEvent {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	ch := make(chan PeerEvent, PeerEventBufSize)
+	ps.subscribers = append(ps.subscribers, ch)
+	return ch
+}
+
+func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	for i, sub := range ps.subscribers {
+		// Compare the receive-only channel with the bidirectional channel
+		// by checking if they point to the same underlying channel value
+		if sub == ch {
+			ps.subscribers = append(ps.subscribers[:i], ps.subscribers[i+1:]...)
+			close(sub)
+			return
+		}
+	}
+}
+
+func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
+	ev := PeerEvent{PubKey: pubKey, Kind: kind}
+	for _, ch := range ps.subscribers {
+		select {
+		case ch <- ev:
+		default:
+		}
 	}
 }
 
@@ -55,6 +103,7 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 			info.endpointMethod = discoveryMethod
 		}
 		ps.peers[info.WGPubKey] = info
+		ps.notify(info.WGPubKey, PeerEventNew)
 		return
 	}
 
@@ -89,6 +138,8 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	if !found {
 		existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
 	}
+
+	ps.notify(info.WGPubKey, PeerEventUpdated)
 }
 
 func shouldUpdateEndpoint(existing *PeerInfo, discoveryMethod string) bool {

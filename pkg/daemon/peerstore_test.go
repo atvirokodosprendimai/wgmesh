@@ -185,3 +185,124 @@ func TestPeerStoreIsDead(t *testing.T) {
 		t.Error("Non-existent peer should be dead")
 	}
 }
+
+func TestPeerStoreSubscribe(t *testing.T) {
+	ps := NewPeerStore()
+	ch := ps.Subscribe()
+
+	// New peer should emit event
+	ps.Update(&PeerInfo{WGPubKey: "key1", MeshIP: "10.0.0.1", Endpoint: "1.2.3.4:51820"}, "dht")
+
+	select {
+	case ev := <-ch:
+		if ev.PubKey != "key1" {
+			t.Errorf("Expected pubkey key1, got %s", ev.PubKey)
+		}
+		if ev.Kind != PeerEventNew {
+			t.Errorf("Expected PeerEventNew, got %d", ev.Kind)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for new peer event")
+	}
+}
+
+func TestPeerStoreSubscribeUpdate(t *testing.T) {
+	ps := NewPeerStore()
+
+	// Add peer before subscribing
+	ps.Update(&PeerInfo{WGPubKey: "key1", MeshIP: "10.0.0.1", Endpoint: "1.2.3.4:51820"}, "dht")
+
+	ch := ps.Subscribe()
+
+	// Update peer — should emit update event
+	ps.Update(&PeerInfo{WGPubKey: "key1", Endpoint: "5.6.7.8:51820"}, "lan")
+
+	select {
+	case ev := <-ch:
+		if ev.PubKey != "key1" {
+			t.Errorf("Expected pubkey key1, got %s", ev.PubKey)
+		}
+		if ev.Kind != PeerEventUpdated {
+			t.Errorf("Expected PeerEventUpdated, got %d", ev.Kind)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Timed out waiting for update event")
+	}
+}
+
+func TestPeerStoreSubscribeNonBlocking(t *testing.T) {
+	ps := NewPeerStore()
+	ch := ps.Subscribe()
+
+	// Fill the channel buffer
+	for i := 0; i < PeerEventBufSize+5; i++ {
+		ps.Update(&PeerInfo{
+			WGPubKey: "key1",
+			MeshIP:   "10.0.0.1",
+			Endpoint: "1.2.3.4:51820",
+		}, "dht")
+	}
+
+	// Should not deadlock — Update() must be non-blocking even when
+	// subscriber is slow. Drain what we can.
+	drained := 0
+	for {
+		select {
+		case <-ch:
+			drained++
+		default:
+			goto done
+		}
+	}
+done:
+	if drained == 0 {
+		t.Error("Expected at least one event to be buffered")
+	}
+	if drained > PeerEventBufSize {
+		t.Errorf("Drained %d events, expected at most %d (buffer size)", drained, PeerEventBufSize)
+	}
+}
+
+func TestPeerStoreUnsubscribe(t *testing.T) {
+	ps := NewPeerStore()
+	ch := ps.Subscribe()
+
+	ps.Unsubscribe(ch)
+
+	// After unsubscribe, updates should not panic or block
+	ps.Update(&PeerInfo{WGPubKey: "key1", MeshIP: "10.0.0.1"}, "dht")
+
+	select {
+	case _, ok := <-ch:
+		if ok {
+			t.Error("Expected channel to be closed after unsubscribe")
+		}
+	case <-time.After(50 * time.Millisecond):
+		// Channel closed, no more events — also acceptable
+	}
+}
+
+func TestPeerStoreMultipleSubscribers(t *testing.T) {
+	ps := NewPeerStore()
+	ch1 := ps.Subscribe()
+	ch2 := ps.Subscribe()
+
+	ps.Update(&PeerInfo{WGPubKey: "key1", MeshIP: "10.0.0.1"}, "dht")
+
+	for _, tt := range []struct {
+		name string
+		ch   <-chan PeerEvent
+	}{
+		{"subscriber1", ch1},
+		{"subscriber2", ch2},
+	} {
+		select {
+		case ev := <-tt.ch:
+			if ev.PubKey != "key1" {
+				t.Errorf("%s: expected pubkey key1, got %s", tt.name, ev.PubKey)
+			}
+		case <-time.After(100 * time.Millisecond):
+			t.Errorf("%s: timed out waiting for event", tt.name)
+		}
+	}
+}

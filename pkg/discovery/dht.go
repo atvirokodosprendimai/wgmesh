@@ -24,7 +24,7 @@ const (
 	DHTAnnounceInterval       = 15 * time.Minute
 	DHTQueryInterval          = 30 * time.Second
 	DHTQueryIntervalStable    = 60 * time.Second
-	DHTTransitiveInterval     = 1 * time.Second
+	DHTTransitiveInterval     = 1 * time.Second // Legacy: used only for initial backfill
 	DHTBootstrapTimeout       = 30 * time.Second
 	DHTPersistInterval        = 2 * time.Minute
 	DHTMethod                 = "dht"
@@ -33,6 +33,9 @@ const (
 	RendezvousPhase           = 3 * time.Second
 	RendezvousPunchDelay      = 500 * time.Millisecond
 	RendezvousMaxIntroducers  = 3
+	RendezvousMinBackoff      = 5 * time.Second
+	RendezvousMaxBackoff      = 60 * time.Second
+	RendezvousStaleCheck      = 30 * time.Second // How often to check for stale handshakes
 )
 
 // Well-known BitTorrent DHT bootstrap nodes
@@ -54,12 +57,13 @@ type DHTDiscovery struct {
 	server    *dht.Server
 	dhtPort   int
 
-	mu             sync.RWMutex
-	running        bool
-	ctx            context.Context
-	cancel         context.CancelFunc
-	contactedPeers map[string]time.Time // Dedup: don't spam same IP
-	controlPeers   map[string]string    // peer pubkey -> exchange/control endpoint
+	mu                sync.RWMutex
+	running           bool
+	ctx               context.Context
+	cancel            context.CancelFunc
+	contactedPeers    map[string]time.Time // Dedup: don't spam same IP
+	controlPeers      map[string]string    // peer pubkey -> exchange/control endpoint
+	rendezvousBackoff map[string]time.Time // peer pubkey -> next allowed rendezvous attempt
 
 	// Callbacks
 	onPeerDiscovered func(addr net.Addr)
@@ -81,13 +85,14 @@ func NewDHTDiscovery(config *daemon.Config, localNode *LocalNode, peerStore *dae
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &DHTDiscovery{
-		config:         config,
-		localNode:      localNode,
-		peerStore:      peerStore,
-		ctx:            ctx,
-		cancel:         cancel,
-		contactedPeers: make(map[string]time.Time),
-		controlPeers:   make(map[string]string),
+		config:            config,
+		localNode:         localNode,
+		peerStore:         peerStore,
+		ctx:               ctx,
+		cancel:            cancel,
+		contactedPeers:    make(map[string]time.Time),
+		controlPeers:      make(map[string]string),
+		rendezvousBackoff: make(map[string]time.Time),
 	}
 
 	// Create peer exchange handler
@@ -587,16 +592,201 @@ func (d *DHTDiscovery) contactPeer(addr krpc.NodeAddr) {
 }
 
 func (d *DHTDiscovery) transitiveConnectLoop() {
-	ticker := time.NewTicker(DHTTransitiveInterval)
-	defer ticker.Stop()
+	// Subscribe to peer store events for immediate reaction
+	peerEventCh := d.peerStore.Subscribe()
+	defer d.peerStore.Unsubscribe(peerEventCh)
+
+	// Stale handshake check ticker (replaces 1s poll with 30s check)
+	staleTicker := time.NewTicker(RendezvousStaleCheck)
+	defer staleTicker.Stop()
+
+	// Initial backfill: process existing peers once at startup
+	d.tryTransitivePeersWithBackoff(nil)
 
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
-		case <-ticker.C:
-			d.tryTransitivePeers()
+		case ev, ok := <-peerEventCh:
+			if !ok {
+				return
+			}
+			// New or updated peer — check if rendezvous needed
+			d.handlePeerEvent(ev)
+		case <-staleTicker.C:
+			// Periodic check for peers with stale handshakes
+			d.checkStaleHandshakes()
 		}
+	}
+}
+
+func (d *DHTDiscovery) handlePeerEvent(ev daemon.PeerEvent) {
+	if ev.PubKey == "" || ev.PubKey == d.localNode.WGPubKey {
+		return
+	}
+
+	peer, ok := d.peerStore.Get(ev.PubKey)
+	if !ok {
+		return
+	}
+
+	// Skip if recently established via rendezvous
+	if hasDiscoveryMethod(peer.DiscoveredVia, "dht-rendezvous") && time.Since(peer.LastSeen) < 2*time.Minute {
+		return
+	}
+
+	// Check backoff
+	if !d.canAttemptRendezvous(ev.PubKey) {
+		return
+	}
+
+	// Trigger rendezvous for this specific peer
+	d.tryRendezvousForPeer(peer)
+}
+
+func (d *DHTDiscovery) checkStaleHandshakes() {
+	peers := d.peerStore.GetActive()
+	for _, peer := range peers {
+		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
+			continue
+		}
+		if peer.Endpoint == "" {
+			continue
+		}
+		if !d.canAttemptRendezvous(peer.WGPubKey) {
+			continue
+		}
+		// Only trigger if in rendezvous window
+		if !d.shouldAttemptRendezvous(peer.WGPubKey, time.Now()) {
+			continue
+		}
+
+		d.tryRendezvousForPeer(peer)
+	}
+}
+
+func (d *DHTDiscovery) canAttemptRendezvous(pubKey string) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	nextAttempt, ok := d.rendezvousBackoff[pubKey]
+	if !ok {
+		return true
+	}
+	return time.Now().After(nextAttempt)
+}
+
+func (d *DHTDiscovery) recordRendezvousAttempt(pubKey string, success bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if success {
+		// Reset backoff on success
+		delete(d.rendezvousBackoff, pubKey)
+		return
+	}
+
+	// Exponential backoff: double the interval, capped at max
+	existing, ok := d.rendezvousBackoff[pubKey]
+	var nextBackoff time.Duration
+	if !ok {
+		nextBackoff = RendezvousMinBackoff
+	} else {
+		// Calculate how long since last attempt
+		sinceLast := time.Since(existing.Add(-RendezvousMinBackoff))
+		nextBackoff = sinceLast * 2
+		if nextBackoff < RendezvousMinBackoff {
+			nextBackoff = RendezvousMinBackoff
+		}
+		if nextBackoff > RendezvousMaxBackoff {
+			nextBackoff = RendezvousMaxBackoff
+		}
+	}
+
+	d.rendezvousBackoff[pubKey] = time.Now().Add(nextBackoff)
+}
+
+func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
+	if peer.WGPubKey == "" || peer.Endpoint == "" {
+		return
+	}
+
+	introducers := d.selectRendezvousIntroducers(peer.WGPubKey, d.peerStore.GetActive(), RendezvousMaxIntroducers)
+
+	if len(introducers) > 0 {
+		for _, introducer := range introducers {
+			if introducer.ControlEndpoint == "" {
+				continue
+			}
+
+			if !d.markContacted(introducer.ControlEndpoint, 20*time.Second) {
+				continue
+			}
+
+			log.Printf("[NAT] Event-driven rendezvous: %s <-> %s via %s", shortKey(d.localNode.WGPubKey), shortKey(peer.WGPubKey), shortKey(introducer.WGPubKey))
+
+			go func(endpoint string, target *daemon.PeerInfo) {
+				err := d.exchange.RequestRendezvous(endpoint, target.WGPubKey, nil)
+				if err != nil {
+					log.Printf("[NAT] Rendezvous failed via %s for %s: %v", endpoint, shortKey(target.WGPubKey), err)
+					d.recordRendezvousAttempt(target.WGPubKey, false)
+					return
+				}
+				log.Printf("[NAT] Rendezvous request sent for pair %s <-> %s via %s", shortKey(d.localNode.WGPubKey), shortKey(target.WGPubKey), endpoint)
+				d.recordRendezvousAttempt(target.WGPubKey, true)
+			}(introducer.ControlEndpoint, peer)
+			return
+		}
+	}
+
+	// No introducer — try synchronized punch
+	targetControlEndpoint := d.controlEndpointForPeer(peer)
+	if targetControlEndpoint == "" {
+		return
+	}
+
+	if !d.markContacted(targetControlEndpoint, 20*time.Second) {
+		return
+	}
+
+	log.Printf("[NAT] Event-driven punch: %s via %s (no introducer)", shortKey(peer.WGPubKey), targetControlEndpoint)
+
+	go func(endpoint string, target *daemon.PeerInfo) {
+		peerInfo, err := d.exchange.ExchangeWithPeer(endpoint)
+		if err != nil {
+			if !strings.Contains(err.Error(), "timeout") {
+				log.Printf("[NAT] Punch failed for %s: %v", shortKey(target.WGPubKey), err)
+			}
+			d.recordRendezvousAttempt(target.WGPubKey, false)
+			return
+		}
+		if peerInfo != nil {
+			log.Printf("[NAT] Punch succeeded: %s (%s)", peerInfo.WGPubKey[:8]+"...", peerInfo.Endpoint)
+			d.setControlEndpoint(peerInfo.WGPubKey, endpoint)
+			d.peerStore.Update(peerInfo, DHTMethod+"-transitive")
+			d.recordRendezvousAttempt(target.WGPubKey, true)
+		}
+	}(targetControlEndpoint, peer)
+}
+
+// tryTransitivePeersWithBackoff is the legacy path for initial backfill
+func (d *DHTDiscovery) tryTransitivePeersWithBackoff(peers []*daemon.PeerInfo) {
+	if peers == nil {
+		peers = d.peerStore.GetActive()
+	}
+
+	for _, peer := range peers {
+		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
+			continue
+		}
+		if peer.Endpoint == "" {
+			continue
+		}
+		if !d.canAttemptRendezvous(peer.WGPubKey) {
+			continue
+		}
+
+		d.tryRendezvousForPeer(peer)
 	}
 }
 
