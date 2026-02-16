@@ -4,16 +4,18 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"runtime"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
 
 const (
-	URIPrefix        = "wgmesh://"
-	URIVersion       = "v1"
-	DefaultWGPort    = 51820
-	DefaultInterface = "wg0"
+	URIPrefix          = "wgmesh://"
+	URIVersion         = "v1"
+	DefaultWGPort      = 51820
+	DefaultInterface   = "wg0"
+	DefaultInterfaceMac = "utun20"
 )
 
 // Config holds all derived configuration for the mesh daemon
@@ -53,7 +55,11 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 	// Set defaults
 	ifaceName := opts.InterfaceName
 	if ifaceName == "" {
-		ifaceName = DefaultInterface
+		if runtime.GOOS == "darwin" {
+			ifaceName = DefaultInterfaceMac
+		} else {
+			ifaceName = DefaultInterface
+		}
 	}
 
 	listenPort := opts.WGListenPort
