@@ -16,6 +16,7 @@ type PeerInfo struct {
 	WGPubKey         string
 	MeshIP           string
 	Endpoint         string // best known endpoint (ip:port)
+	Hostname         string
 	RoutableNetworks []string
 	LastSeen         time.Time
 	DiscoveredVia    []string       // ["lan", "dht", "gossip"]
@@ -59,6 +60,9 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	}
 	if info.MeshIP != "" {
 		existing.MeshIP = info.MeshIP
+	}
+	if info.Hostname != "" {
+		existing.Hostname = info.Hostname
 	}
 
 	existing.LastSeen = time.Now()

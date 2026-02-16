@@ -61,6 +61,7 @@ type LocalNode struct {
 	WGPrivateKey     string
 	MeshIP           string
 	WGEndpoint       string
+	Hostname         string
 	RoutableNetworks []string
 }
 

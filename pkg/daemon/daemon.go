@@ -46,6 +46,7 @@ type LocalNode struct {
 	WGPrivateKey     string
 	MeshIP           string
 	WGEndpoint       string
+	Hostname         string
 	RoutableNetworks []string
 }
 
@@ -134,6 +135,7 @@ func (d *Daemon) initLocalNode() error {
 		// Derive mesh IP from pubkey
 		d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
 		d.localNode.RoutableNetworks = d.config.AdvertiseRoutes
+		d.localNode.Hostname, _ = os.Hostname()
 		return nil
 	}
 
@@ -146,10 +148,12 @@ func (d *Daemon) initLocalNode() error {
 	// Derive mesh IP from public key
 	meshIP := crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, publicKey, d.config.Secret)
 
+	hostname, _ := os.Hostname()
 	d.localNode = &LocalNode{
 		WGPubKey:         publicKey,
 		WGPrivateKey:     privateKey,
 		MeshIP:           meshIP,
+		Hostname:         hostname,
 		RoutableNetworks: d.config.AdvertiseRoutes,
 	}
 

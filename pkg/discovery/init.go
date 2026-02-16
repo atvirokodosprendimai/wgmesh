@@ -18,6 +18,7 @@ func createDHTDiscovery(config *daemon.Config, localNode *daemon.LocalNode, peer
 		WGPrivateKey:     localNode.WGPrivateKey,
 		MeshIP:           localNode.MeshIP,
 		WGEndpoint:       localNode.WGEndpoint,
+		Hostname:         localNode.Hostname,
 		RoutableNetworks: localNode.RoutableNetworks,
 	}
 

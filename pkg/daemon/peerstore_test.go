@@ -132,6 +132,44 @@ func TestPeerStoreCleanupStale(t *testing.T) {
 	}
 }
 
+func TestPeerStoreUpdateMergesHostname(t *testing.T) {
+	ps := NewPeerStore()
+
+	// First update without hostname
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		MeshIP:   "10.0.0.1",
+		Endpoint: "1.2.3.4:51820",
+	}, "dht")
+
+	got, _ := ps.Get("key1")
+	if got.Hostname != "" {
+		t.Errorf("expected empty hostname, got %q", got.Hostname)
+	}
+
+	// Second update with hostname
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		Hostname: "node-alpha",
+	}, "gossip")
+
+	got, _ = ps.Get("key1")
+	if got.Hostname != "node-alpha" {
+		t.Errorf("expected hostname node-alpha, got %q", got.Hostname)
+	}
+
+	// Empty hostname should not overwrite existing
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		Hostname: "",
+	}, "lan")
+
+	got, _ = ps.Get("key1")
+	if got.Hostname != "node-alpha" {
+		t.Errorf("empty hostname should not overwrite, got %q", got.Hostname)
+	}
+}
+
 func TestPeerStoreIsDead(t *testing.T) {
 	ps := NewPeerStore()
 

@@ -337,7 +337,7 @@ func testPeerCmd() {
 	}
 
 	// Create and send test message
-	announcement := crypto.CreateAnnouncement("test-pubkey", "10.0.0.1", "test:51820", nil, nil)
+	announcement := crypto.CreateAnnouncement("test-pubkey", "10.0.0.1", "test:51820", "", nil, nil)
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, cfg.Keys.GossipKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create message: %v\n", err)

@@ -199,6 +199,80 @@ func TestHandleAnnouncementDropsWildcardEndpointWithoutSender(t *testing.T) {
 	}
 }
 
+func TestHandleAnnouncementPropagatesHostname(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+
+	localNode := &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1", Hostname: "local-host"}
+	gossip, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Announcement with hostname set
+	announcement := &crypto.PeerAnnouncement{
+		Protocol:   crypto.ProtocolVersion,
+		WGPubKey:   "remote-key-A",
+		MeshIP:     "10.0.0.2",
+		WGEndpoint: "192.168.1.10:51820",
+		Hostname:   "node-bravo",
+		Timestamp:  time.Now().Unix(),
+		KnownPeers: []crypto.KnownPeer{
+			{WGPubKey: "remote-key-B", MeshIP: "10.0.0.3", WGEndpoint: "192.168.1.20:51820", Hostname: "node-charlie"},
+		},
+	}
+
+	gossip.HandleAnnounce(announcement)
+
+	// Direct peer should have hostname
+	peer, ok := store.Get("remote-key-A")
+	if !ok {
+		t.Fatal("expected remote-key-A in peer store")
+	}
+	if peer.Hostname != "node-bravo" {
+		t.Errorf("expected hostname node-bravo, got %q", peer.Hostname)
+	}
+
+	// Transitive peer should have hostname
+	transitive, ok := store.Get("remote-key-B")
+	if !ok {
+		t.Fatal("expected remote-key-B in peer store (transitive)")
+	}
+	if transitive.Hostname != "node-charlie" {
+		t.Errorf("expected hostname node-charlie, got %q", transitive.Hostname)
+	}
+}
+
+func TestHandleAnnouncementWithoutHostname(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+
+	localNode := &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	gossip, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Announcement without hostname (backward compatibility with old nodes)
+	announcement := &crypto.PeerAnnouncement{
+		Protocol:   crypto.ProtocolVersion,
+		WGPubKey:   "remote-key",
+		MeshIP:     "10.0.0.2",
+		WGEndpoint: "192.168.1.10:51820",
+		Timestamp:  time.Now().Unix(),
+	}
+
+	gossip.HandleAnnounce(announcement)
+
+	peer, ok := store.Get("remote-key")
+	if !ok {
+		t.Fatal("expected remote-key in peer store")
+	}
+	if peer.Hostname != "" {
+		t.Errorf("expected empty hostname for old-format announcement, got %q", peer.Hostname)
+	}
+}
+
 func TestNewMeshGossipWithExchangeSetsExchange(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()

@@ -330,6 +330,7 @@ func (r *RendezvousRegistry) buildIssueBody(peers []*daemon.PeerInfo) (string, e
 		first.WGPubKey,
 		first.MeshIP,
 		first.Endpoint,
+		first.Hostname,
 		first.RoutableNetworks,
 		knownPeers,
 	)

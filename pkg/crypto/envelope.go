@@ -25,6 +25,7 @@ type PeerAnnouncement struct {
 	WGPubKey         string      `json:"wg_pubkey"`
 	MeshIP           string      `json:"mesh_ip"`
 	WGEndpoint       string      `json:"wg_endpoint"`
+	Hostname         string      `json:"hostname,omitempty"`
 	RoutableNetworks []string    `json:"routable_networks,omitempty"`
 	Timestamp        int64       `json:"timestamp"`
 	KnownPeers       []KnownPeer `json:"known_peers,omitempty"`
@@ -35,6 +36,7 @@ type KnownPeer struct {
 	WGPubKey   string `json:"wg_pubkey"`
 	MeshIP     string `json:"mesh_ip"`
 	WGEndpoint string `json:"wg_endpoint"`
+	Hostname   string `json:"hostname,omitempty"`
 }
 
 // Envelope wraps encrypted messages with nonce for transmission
@@ -138,12 +140,13 @@ func OpenEnvelope(data []byte, gossipKey [32]byte) (*Envelope, *PeerAnnouncement
 }
 
 // CreateAnnouncement creates a new peer announcement
-func CreateAnnouncement(wgPubKey, meshIP, wgEndpoint string, routableNetworks []string, knownPeers []KnownPeer) *PeerAnnouncement {
+func CreateAnnouncement(wgPubKey, meshIP, wgEndpoint, hostname string, routableNetworks []string, knownPeers []KnownPeer) *PeerAnnouncement {
 	return &PeerAnnouncement{
 		Protocol:         ProtocolVersion,
 		WGPubKey:         wgPubKey,
 		MeshIP:           meshIP,
 		WGEndpoint:       wgEndpoint,
+		Hostname:         hostname,
 		RoutableNetworks: routableNetworks,
 		Timestamp:        time.Now().Unix(),
 		KnownPeers:       knownPeers,

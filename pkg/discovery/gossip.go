@@ -189,6 +189,7 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 				WGPubKey:   p.WGPubKey,
 				MeshIP:     p.MeshIP,
 				WGEndpoint: p.Endpoint,
+				Hostname:   p.Hostname,
 			})
 		}
 	}
@@ -197,6 +198,7 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		g.localNode.WGPubKey,
 		g.localNode.MeshIP,
 		g.localNode.WGEndpoint,
+		g.localNode.Hostname,
 		g.localNode.RoutableNetworks,
 		knownPeers,
 	)
@@ -278,6 +280,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		WGPubKey:         announcement.WGPubKey,
 		MeshIP:           announcement.MeshIP,
 		Endpoint:         endpoint,
+		Hostname:         announcement.Hostname,
 		RoutableNetworks: announcement.RoutableNetworks,
 	}
 	g.peerStore.Update(peer, GossipMethod)
@@ -291,6 +294,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 			WGPubKey: kp.WGPubKey,
 			MeshIP:   kp.MeshIP,
 			Endpoint: kp.WGEndpoint,
+			Hostname: kp.Hostname,
 		}
 		g.peerStore.Update(transitivePeer, GossipMethod+"-transitive")
 	}

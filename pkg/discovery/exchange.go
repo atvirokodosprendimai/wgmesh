@@ -181,6 +181,7 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 		WGPubKey:         announcement.WGPubKey,
 		MeshIP:           announcement.MeshIP,
 		Endpoint:         resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr),
+		Hostname:         announcement.Hostname,
 		RoutableNetworks: announcement.RoutableNetworks,
 	}
 
@@ -200,6 +201,7 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 		WGPubKey:         reply.WGPubKey,
 		MeshIP:           reply.MeshIP,
 		Endpoint:         resolvePeerEndpoint(reply.WGEndpoint, remoteAddr),
+		Hostname:         reply.Hostname,
 		RoutableNetworks: reply.RoutableNetworks,
 	}
 
@@ -226,6 +228,7 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
 		pe.localNode.WGEndpoint,
+		pe.localNode.Hostname,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
@@ -258,6 +261,7 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
 		pe.localNode.WGEndpoint,
+		pe.localNode.Hostname,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
@@ -292,6 +296,7 @@ func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
 			WGPubKey: kp.WGPubKey,
 			MeshIP:   kp.MeshIP,
 			Endpoint: normalizeKnownPeerEndpoint(kp.WGEndpoint),
+			Hostname: kp.Hostname,
 		}
 		pe.peerStore.Update(transitivePeer, DHTMethod+"-transitive")
 	}
@@ -360,6 +365,7 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 			WGPubKey:   p.WGPubKey,
 			MeshIP:     p.MeshIP,
 			WGEndpoint: p.Endpoint,
+			Hostname:   p.Hostname,
 		})
 	}
 
@@ -374,6 +380,7 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
 		pe.localNode.WGEndpoint,
+		pe.localNode.Hostname,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
