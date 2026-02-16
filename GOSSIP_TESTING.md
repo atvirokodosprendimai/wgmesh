@@ -1,5 +1,10 @@
 # How to Test Gossip
 
+> **Note:** Gossip is a supplementary discovery layer that runs alongside
+> BitTorrent DHT, not a replacement. Both mechanisms operate simultaneously —
+> DHT handles initial peer discovery while gossip propagates peer information
+> transitively through the mesh for faster convergence.
+
 This repository includes an in-mesh gossip implementation in `pkg/discovery/gossip.go`.
 Gossip is enabled by passing the `--gossip` flag to `wgmesh join`, which starts
 the `MeshGossip` component alongside DHT-based discovery.

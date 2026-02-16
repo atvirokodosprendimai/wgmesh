@@ -193,7 +193,7 @@ EXAMPLES:
   wgmesh init --secret                          # Generate a new mesh secret
   wgmesh join --secret "wgmesh://v1/K7x2..."    # Join mesh on this node
   wgmesh join --secret "..." --privacy           # Join with Dandelion++ privacy
-  wgmesh join --secret "..." --gossip            # Enable in-mesh gossip
+  wgmesh join --secret "..." --gossip            # Enable in-mesh gossip (supplements DHT)
 
   # Centralized mode (SSH-based deployment):
   wgmesh -init -encrypt                         # Initialize encrypted state
@@ -238,7 +238,7 @@ func joinCmd() {
 	iface := fs.String("interface", "wg0", "WireGuard interface name")
 	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
-	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
+	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip in addition to DHT discovery")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -491,7 +491,7 @@ func installServiceCmd() {
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
-	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
+	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip in addition to DHT discovery")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {

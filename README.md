@@ -322,6 +322,23 @@ node3 <----> node4
 - Nodes behind NAT use persistent keepalive to maintain connections
 - The tool detects NAT by comparing SSH host with detected public IP
 
+### Discovery Layers
+
+Decentralized mode uses a layered discovery architecture. Each layer
+supplements the others — they run simultaneously, not as fallbacks:
+
+| Layer | Scope | How it works |
+|-------|-------|--------------|
+| **LAN multicast** | Local network | UDP broadcast on the local subnet discovers peers without internet access |
+| **BitTorrent DHT** | Internet-wide | Peers publish to a DHT infohash derived from the shared secret; always active |
+| **In-mesh gossip** | Connected peers | Enabled with `--gossip`; peers exchange known-peer lists over WireGuard tunnels for faster convergence |
+
+DHT is the primary discovery mechanism and is always running. Gossip is
+optional and additive — it propagates peer information transitively through
+already-connected nodes, which helps the mesh converge faster when new peers
+join. LAN multicast enables discovery on networks where DHT traffic may be
+blocked.
+
 ### Persistence Across Reboots
 
 The tool ensures configuration survives server reboots by:
