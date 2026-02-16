@@ -269,8 +269,12 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	}
 
 	log.Printf("[Exchange] Sending HELLO to %s (our exchange port: %d)", remoteAddr.String(), pe.port)
+	log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v)", remoteAddr.String(), ExchangeTimeout, PunchInterval)
+
+	attempts := 0
 
 	sendHello := func() error {
+		attempts++
 		_, sendErr := pe.conn.WriteToUDP(data, remoteAddr)
 		if sendErr != nil {
 			return fmt.Errorf("failed to send hello: %w", sendErr)
@@ -293,12 +297,18 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	for {
 		select {
 		case peerInfo := <-replyCh:
+			if attempts > 1 {
+				log.Printf("[NAT] Punch success with %s after %d HELLO attempts", remoteAddr.String(), attempts)
+			} else {
+				log.Printf("[NAT] Peer exchange succeeded with %s on first attempt", remoteAddr.String())
+			}
 			return peerInfo, nil
 		case <-punchTicker.C:
 			if err := sendHello(); err != nil {
 				log.Printf("[Exchange] HELLO resend to %s failed: %v", remoteAddr.String(), err)
 			}
 		case <-timeout.C:
+			log.Printf("[NAT] Punch timeout with %s after %d HELLO attempts", remoteAddr.String(), attempts)
 			return nil, fmt.Errorf("exchange timeout")
 		}
 	}

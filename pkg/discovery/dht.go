@@ -542,6 +542,7 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 		if !d.markContacted(peer.Endpoint, 20*time.Second) {
 			continue
 		}
+		log.Printf("[NAT] Trying transitive peer endpoint %s for %s", peer.Endpoint, peer.WGPubKey[:8]+"...")
 
 		// Acquire semaphore before spawning goroutine to limit concurrency
 		sem <- struct{}{}
@@ -553,6 +554,10 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 }
 
 func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod string) {
+	if discoveryMethod == DHTMethod+"-transitive" {
+		log.Printf("[NAT] Starting punch/exchange via transitive address %s", addrStr)
+	}
+
 	peerInfo, err := d.exchange.ExchangeWithPeer(addrStr)
 	if err != nil {
 		// Timeouts are expected for some addresses during NAT traversal.
@@ -567,6 +572,9 @@ func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod strin
 	}
 
 	log.Printf("[DHT] SUCCESS! Found wgmesh peer %s (%s) at %s", peerInfo.WGPubKey[:8]+"...", peerInfo.MeshIP, peerInfo.Endpoint)
+	if discoveryMethod == DHTMethod+"-transitive" {
+		log.Printf("[NAT] Peer established via NAT traversal path: %s (%s)", peerInfo.WGPubKey[:8]+"...", peerInfo.Endpoint)
+	}
 	d.peerStore.Update(peerInfo, discoveryMethod)
 }
 
