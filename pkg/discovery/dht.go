@@ -819,11 +819,6 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 				continue
 			}
 
-			// Only 2s throttle for rendezvous requests (not 20s)
-			if !d.markContacted(introducer.ControlEndpoint, 2*time.Second) {
-				continue
-			}
-
 			log.Printf("[NAT] Event-driven rendezvous: %s <-> %s via %s", shortKey(d.localNode.WGPubKey), shortKey(peer.WGPubKey), shortKey(introducer.WGPubKey))
 
 			go func(endpoint string, target *daemon.PeerInfo) {
@@ -838,7 +833,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			}(introducer.ControlEndpoint, peer)
 			return
 		}
-		// Introducers exist but all throttled — wait for next tick
+		// Introducers exist but none selected (shouldn't happen)
 		log.Printf("[NAT] Rendezvous throttled for %s (introducer busy)", shortKey(peer.WGPubKey))
 		return
 	}
