@@ -85,7 +85,7 @@ const (
     multicastIDSize      = 4   // IPv4 multicast group suffix
     pskSize              = 32  // WireGuard preshared key size
     gossipPortBytesSize  = 2   // uint16 for port derivation
-    rendezvousIDSize     = 8   // GitHub Issue search term
+    rendezvousIDSize     = 8   // DHT rendezvous point identifier
     membershipKeySize    = 32  // HMAC-SHA256 key size
     epochSeedSize        = 32  // Relay rotation seed
 )
