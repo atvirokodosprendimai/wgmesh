@@ -71,7 +71,9 @@ The default configuration in `docker-compose.yml` includes:
 - **Image**: `ghcr.io/atvirokodosprendimai/wgmesh:latest`
 - **Network Mode**: `host` (required for WireGuard)
 - **Capabilities**: `NET_ADMIN` and `SYS_MODULE` (for WireGuard interface management)
-- **Persistent Storage**: `./data/node1:/data` volume mount
+- **Persistent Storage**: Volume mounts for data persistence:
+  - `./data/node1:/data` - General data directory
+  - `./data/node1/wgmesh:/var/lib/wgmesh` - WireGuard keypairs and mesh state
 - **Interface**: `wg0` on port `51820`
 
 ### Advanced Options
@@ -275,12 +277,16 @@ Docker Compose uses `network_mode: host` because:
 
 ### Persistent State
 
-The `./data/` directory stores:
+The persistent volumes store:
 
-- WireGuard private key
-- Peer database
-- Discovery state
-- Gossip protocol data
+- **`./data/{node}/`** - General data directory (working directory)
+- **`./data/{node}/wgmesh/`** - Mesh state directory containing:
+  - WireGuard private/public keypair (`{interface}.json`)
+  - Peer database cache (`{interface}-peers.json`)
+  - DHT bootstrap nodes (`{interface}-dht.nodes`)
+  - Discovery state and gossip protocol data
+
+**Important**: The `/var/lib/wgmesh` directory in the container must be persisted to prevent loss of WireGuard keypairs during container restarts or redeployments. Without this volume mount, each container restart would generate new keys and require re-discovery by all peers.
 
 This data must persist across container restarts for stable mesh operation.
 
@@ -296,6 +302,7 @@ wgmesh-node:
   restart: unless-stopped
   volumes:
     - ./data/gateway:/data
+    - ./data/gateway/wgmesh:/var/lib/wgmesh
   command: >
     join
     --secret "${MESH_SECRET}"
@@ -317,6 +324,7 @@ wgmesh-node:
   restart: unless-stopped
   volumes:
     - ./data/private:/data
+    - ./data/private/wgmesh:/var/lib/wgmesh
   command: >
     join
     --secret "${MESH_SECRET}"
