@@ -20,6 +20,7 @@ func createDHTDiscovery(config *daemon.Config, localNode *daemon.LocalNode, peer
 		WGEndpoint:       localNode.WGEndpoint,
 		RoutableNetworks: localNode.RoutableNetworks,
 		Introducer:       localNode.Introducer,
+		NATType:          NATType(localNode.NATType),
 	}
 
 	return NewDHTDiscovery(config, discoveryLocalNode, peerStore)

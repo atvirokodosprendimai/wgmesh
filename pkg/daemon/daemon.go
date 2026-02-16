@@ -52,6 +52,7 @@ type LocalNode struct {
 	WGEndpoint       string
 	RoutableNetworks []string
 	Introducer       bool
+	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
 }
 
 // DiscoveryLayer is the interface for discovery implementations

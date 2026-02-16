@@ -73,6 +73,7 @@ type LocalNode struct {
 	WGEndpoint       string
 	RoutableNetworks []string
 	Introducer       bool
+	NATType          NATType // Detected NAT behavior (cone/symmetric/unknown)
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance
@@ -203,22 +204,35 @@ func (d *DHTDiscovery) Stop() error {
 	return nil
 }
 
-// discoverExternalEndpoint queries STUN servers to find this node's
-// server-reflexive address and updates localNode.WGEndpoint.
-// Falls back to the existing 0.0.0.0:port if STUN fails.
+// discoverExternalEndpoint queries two STUN servers to find this node's
+// server-reflexive address and detect NAT type. Updates localNode.WGEndpoint
+// and localNode.NATType. Falls back to the existing endpoint if STUN fails.
 func (d *DHTDiscovery) discoverExternalEndpoint() {
-	// Use ephemeral port — WG owns the listen port. External IP is the
-	// same for all source ports on cone NATs. For symmetric NATs the IP
-	// still helps even though the port will differ.
-	ip, _, err := DiscoverExternalEndpoint(0)
+	servers := DefaultSTUNServers
+	if len(servers) < 2 {
+		// Need at least 2 servers for NAT type detection; fall back to simple query
+		ip, _, err := DiscoverExternalEndpoint(0)
+		if err != nil {
+			log.Printf("[STUN] Failed to discover external endpoint: %v (keeping %s)", err, d.localNode.WGEndpoint)
+			return
+		}
+		endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+		log.Printf("[STUN] External endpoint discovered: %s (NAT type unknown — need 2 servers)", endpoint)
+		d.localNode.WGEndpoint = endpoint
+		d.localNode.NATType = NATUnknown
+		return
+	}
+
+	natType, ip, _, err := DetectNATType(servers[0], servers[1], 0, 3000)
 	if err != nil {
 		log.Printf("[STUN] Failed to discover external endpoint: %v (keeping %s)", err, d.localNode.WGEndpoint)
 		return
 	}
 
 	endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
-	log.Printf("[STUN] External endpoint discovered: %s", endpoint)
+	log.Printf("[STUN] External endpoint: %s, NAT type: %s", endpoint, natType)
 	d.localNode.WGEndpoint = endpoint
+	d.localNode.NATType = natType
 }
 
 // stunRefreshLoop periodically re-queries STUN servers to track NAT mapping changes.

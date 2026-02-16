@@ -299,6 +299,200 @@ func TestDiscoverExternalEndpoint_AllFail(t *testing.T) {
 	}
 }
 
+// mockSTUNServer starts a UDP server that replies with a hardcoded
+// XOR-MAPPED-ADDRESS. Returns the server conn (caller must close).
+func mockSTUNServer(t *testing.T, reflectIP net.IP, reflectPort uint16) *net.UDPConn {
+	t.Helper()
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ip4 := reflectIP.To4()
+
+	go func() {
+		buf := make([]byte, 512)
+		for {
+			n, clientAddr, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				return // closed
+			}
+			if n < stunHeaderSize {
+				continue
+			}
+
+			var txnID [12]byte
+			copy(txnID[:], buf[8:20])
+
+			xorPort := reflectPort ^ uint16(stunMagicCookie>>16)
+			var cookieBytes [4]byte
+			binary.BigEndian.PutUint32(cookieBytes[:], stunMagicCookie)
+			var xorIP [4]byte
+			for i := 0; i < 4; i++ {
+				xorIP[i] = ip4[i] ^ cookieBytes[i]
+			}
+
+			attr := make([]byte, 12)
+			binary.BigEndian.PutUint16(attr[0:2], stunAttrXORMappedAddress)
+			binary.BigEndian.PutUint16(attr[2:4], 8)
+			attr[4] = 0x00
+			attr[5] = 0x01
+			binary.BigEndian.PutUint16(attr[6:8], xorPort)
+			copy(attr[8:12], xorIP[:])
+
+			resp := make([]byte, stunHeaderSize+len(attr))
+			binary.BigEndian.PutUint16(resp[0:2], stunBindingResponse)
+			binary.BigEndian.PutUint16(resp[2:4], uint16(len(attr)))
+			binary.BigEndian.PutUint32(resp[4:8], stunMagicCookie)
+			copy(resp[8:20], txnID[:])
+			copy(resp[20:], attr)
+
+			conn.WriteToUDP(resp, clientAddr)
+		}
+	}()
+
+	return conn
+}
+
+// TestDetectNATType_Cone verifies that two STUN servers returning the same
+// external port classify the NAT as Cone (endpoint-independent mapping).
+func TestDetectNATType_Cone(t *testing.T) {
+	// Both servers reflect the same IP:port → Cone NAT
+	srv1 := mockSTUNServer(t, net.ParseIP("203.0.113.1"), 51820)
+	defer srv1.Close()
+	srv2 := mockSTUNServer(t, net.ParseIP("203.0.113.1"), 51820)
+	defer srv2.Close()
+
+	natType, ip, port, err := DetectNATType(
+		srv1.LocalAddr().String(),
+		srv2.LocalAddr().String(),
+		0, 2000,
+	)
+	if err != nil {
+		t.Fatalf("DetectNATType: %v", err)
+	}
+	if natType != NATCone {
+		t.Errorf("NAT type = %q, want %q", natType, NATCone)
+	}
+	if !ip.Equal(net.ParseIP("203.0.113.1")) {
+		t.Errorf("IP = %v, want 203.0.113.1", ip)
+	}
+	if port != 51820 {
+		t.Errorf("port = %d, want 51820", port)
+	}
+}
+
+// TestDetectNATType_Symmetric verifies that two STUN servers returning
+// different external ports classify the NAT as Symmetric.
+func TestDetectNATType_Symmetric(t *testing.T) {
+	// Servers reflect different ports → Symmetric NAT
+	srv1 := mockSTUNServer(t, net.ParseIP("203.0.113.1"), 51820)
+	defer srv1.Close()
+	srv2 := mockSTUNServer(t, net.ParseIP("203.0.113.1"), 62000)
+	defer srv2.Close()
+
+	natType, _, _, err := DetectNATType(
+		srv1.LocalAddr().String(),
+		srv2.LocalAddr().String(),
+		0, 2000,
+	)
+	if err != nil {
+		t.Fatalf("DetectNATType: %v", err)
+	}
+	if natType != NATSymmetric {
+		t.Errorf("NAT type = %q, want %q", natType, NATSymmetric)
+	}
+}
+
+// TestDetectNATType_SymmetricDifferentIP verifies that different external IPs
+// also classify as Symmetric (multi-homed NAT or carrier-grade NAT pool).
+func TestDetectNATType_SymmetricDifferentIP(t *testing.T) {
+	srv1 := mockSTUNServer(t, net.ParseIP("203.0.113.1"), 51820)
+	defer srv1.Close()
+	srv2 := mockSTUNServer(t, net.ParseIP("198.51.100.1"), 51820)
+	defer srv2.Close()
+
+	natType, _, _, err := DetectNATType(
+		srv1.LocalAddr().String(),
+		srv2.LocalAddr().String(),
+		0, 2000,
+	)
+	if err != nil {
+		t.Fatalf("DetectNATType: %v", err)
+	}
+	if natType != NATSymmetric {
+		t.Errorf("NAT type = %q, want %q", natType, NATSymmetric)
+	}
+}
+
+// TestDetectNATType_OneServerFails verifies graceful degradation when only
+// one STUN server responds — should return Unknown with the first result.
+func TestDetectNATType_OneServerFails(t *testing.T) {
+	srv1 := mockSTUNServer(t, net.ParseIP("203.0.113.1"), 51820)
+	defer srv1.Close()
+
+	// Second server: a socket that never replies
+	silent, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer silent.Close()
+
+	natType, ip, port, err := DetectNATType(
+		srv1.LocalAddr().String(),
+		silent.LocalAddr().String(),
+		0, 300, // short timeout
+	)
+	if err != nil {
+		t.Fatalf("DetectNATType: %v", err)
+	}
+	if natType != NATUnknown {
+		t.Errorf("NAT type = %q, want %q", natType, NATUnknown)
+	}
+	// Should still return the first server's result
+	if !ip.Equal(net.ParseIP("203.0.113.1")) {
+		t.Errorf("IP = %v, want 203.0.113.1", ip)
+	}
+	if port != 51820 {
+		t.Errorf("port = %d, want 51820", port)
+	}
+}
+
+// TestDetectNATType_BothFail verifies error when no STUN server responds.
+func TestDetectNATType_BothFail(t *testing.T) {
+	s1, _ := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	defer s1.Close()
+	s2, _ := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	defer s2.Close()
+
+	_, _, _, err := DetectNATType(
+		s1.LocalAddr().String(),
+		s2.LocalAddr().String(),
+		0, 200,
+	)
+	if err == nil {
+		t.Fatal("expected error when both STUN servers fail")
+	}
+}
+
+// TestNATTypeString verifies the String() representations.
+func TestNATTypeString(t *testing.T) {
+	tests := []struct {
+		nat  NATType
+		want string
+	}{
+		{NATUnknown, "unknown"},
+		{NATCone, "cone"},
+		{NATSymmetric, "symmetric"},
+		{NATType("other"), "other"},
+	}
+	for _, tt := range tests {
+		if got := string(tt.nat); got != tt.want {
+			t.Errorf("NATType(%q).String() = %q, want %q", tt.nat, got, tt.want)
+		}
+	}
+}
+
 // TestSTUNQueryIntegration tests against a real STUN server.
 // Skipped in short mode — run with: go test -run TestSTUNQueryIntegration
 func TestSTUNQueryIntegration(t *testing.T) {

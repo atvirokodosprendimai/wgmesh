@@ -225,3 +225,88 @@ func DiscoverExternalEndpoint(localPort int) (net.IP, int, error) {
 	}
 	return nil, 0, fmt.Errorf("all STUN servers failed")
 }
+
+// NATType classifies the NAT behavior observed via STUN.
+type NATType string
+
+const (
+	// NATUnknown means only one STUN server responded — can't classify.
+	NATUnknown NATType = "unknown"
+	// NATCone means both STUN servers saw the same external IP:port
+	// (endpoint-independent mapping). Hole-punching works reliably.
+	NATCone NATType = "cone"
+	// NATSymmetric means STUN servers saw different external mappings
+	// (endpoint-dependent). Direct hole-punching is unreliable; relay needed.
+	NATSymmetric NATType = "symmetric"
+)
+
+// DetectNATType queries two STUN servers from the same local socket and
+// compares the reflected external addresses.
+//
+// Same IP:port from both → Cone (port-preserving, hole-punch friendly).
+// Different IP or port   → Symmetric (per-destination mapping, needs relay).
+// Only one responds      → Unknown (still returns the successful result).
+//
+// Returns the NAT type, the external IP from the first server, the external
+// port from the first server, and any error. Returns error only if both fail.
+func DetectNATType(server1, server2 string, localPort int, timeoutMs int) (NATType, net.IP, int, error) {
+	// Bind a single UDP socket — both queries must originate from the
+	// same source port to compare NAT mappings.
+	var laddr *net.UDPAddr
+	if localPort > 0 {
+		laddr = &net.UDPAddr{Port: localPort}
+	}
+	conn, err := net.ListenUDP("udp4", laddr)
+	if err != nil {
+		return "", nil, 0, fmt.Errorf("bind UDP for NAT detection: %w", err)
+	}
+	defer conn.Close()
+
+	ip1, port1, err1 := stunQueryConn(conn, server1, timeoutMs)
+	ip2, port2, err2 := stunQueryConn(conn, server2, timeoutMs)
+
+	if err1 != nil && err2 != nil {
+		return "", nil, 0, fmt.Errorf("both STUN servers failed: %v; %v", err1, err2)
+	}
+
+	// Only one server responded — can't determine NAT type
+	if err1 != nil {
+		return NATUnknown, ip2, port2, nil
+	}
+	if err2 != nil {
+		return NATUnknown, ip1, port1, nil
+	}
+
+	// Compare: same IP and port → Cone; different → Symmetric
+	if ip1.Equal(ip2) && port1 == port2 {
+		return NATCone, ip1, port1, nil
+	}
+	return NATSymmetric, ip1, port1, nil
+}
+
+// stunQueryConn sends a STUN Binding Request on an existing UDP connection
+// and returns the server-reflexive address. Unlike STUNQuery, this reuses
+// a shared socket (required for NAT type detection).
+func stunQueryConn(conn *net.UDPConn, server string, timeoutMs int) (net.IP, int, error) {
+	raddr, err := net.ResolveUDPAddr("udp4", server)
+	if err != nil {
+		return nil, 0, fmt.Errorf("resolve %q: %w", server, err)
+	}
+
+	req := buildBindingRequest()
+	var txnID [12]byte
+	copy(txnID[:], req[8:20])
+
+	if _, err := conn.WriteToUDP(req, raddr); err != nil {
+		return nil, 0, fmt.Errorf("send to %s: %w", server, err)
+	}
+
+	conn.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond))
+	buf := make([]byte, 512)
+	n, _, err := conn.ReadFromUDP(buf)
+	if err != nil {
+		return nil, 0, fmt.Errorf("read from %s: %w", server, err)
+	}
+
+	return parseBindingResponse(buf[:n], txnID)
+}
