@@ -75,6 +75,46 @@ func TestPeerStorePrefersLANEndpoint(t *testing.T) {
 	}
 }
 
+func TestPeerStorePrefersRendezvousEndpointOverTransitive(t *testing.T) {
+	ps := NewPeerStore()
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		MeshIP:   "10.0.0.1",
+		Endpoint: "203.0.113.10:51821",
+	}, "dht-rendezvous")
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		Endpoint: "198.51.100.10:51820",
+	}, "dht-transitive")
+
+	got, _ := ps.Get("key1")
+	if got.Endpoint != "203.0.113.10:51821" {
+		t.Errorf("Expected rendezvous endpoint to be preserved, got %s", got.Endpoint)
+	}
+}
+
+func TestPeerStoreRendezvousOverridesDHT(t *testing.T) {
+	ps := NewPeerStore()
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		MeshIP:   "10.0.0.1",
+		Endpoint: "198.51.100.10:51820",
+	}, "dht")
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		Endpoint: "203.0.113.10:51821",
+	}, "dht-rendezvous")
+
+	got, _ := ps.Get("key1")
+	if got.Endpoint != "203.0.113.10:51821" {
+		t.Errorf("Expected rendezvous endpoint to override dht endpoint, got %s", got.Endpoint)
+	}
+}
+
 func TestPeerStoreGetActive(t *testing.T) {
 	ps := NewPeerStore()
 

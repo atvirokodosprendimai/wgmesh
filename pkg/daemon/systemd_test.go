@@ -187,3 +187,20 @@ func TestGenerateSystemdUnitWithLANDiscoveryDefault(t *testing.T) {
 		t.Error("Unit should not contain --no-lan-discovery when DisableLANDiscovery is false")
 	}
 }
+
+func TestGenerateSystemdUnitWithIntroducer(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:     "test-secret-that-is-long-enough",
+		BinaryPath: "/usr/local/bin/wgmesh",
+		Introducer: true,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--introducer") {
+		t.Error("Unit should contain --introducer flag when Introducer is true")
+	}
+}

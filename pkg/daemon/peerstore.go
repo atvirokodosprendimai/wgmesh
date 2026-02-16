@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -9,6 +10,7 @@ const (
 	PeerDeadTimeout   = 5 * time.Minute  // Consider peer dead after no updates
 	PeerRemoveTimeout = 10 * time.Minute // Remove peer from WG config after grace period
 	LANMethod         = "lan"
+	RendezvousMethod  = "dht-rendezvous"
 )
 
 // PeerInfo represents a discovered mesh peer
@@ -16,10 +18,12 @@ type PeerInfo struct {
 	WGPubKey         string
 	MeshIP           string
 	Endpoint         string // best known endpoint (ip:port)
+	Introducer       bool
 	RoutableNetworks []string
 	LastSeen         time.Time
 	DiscoveredVia    []string       // ["lan", "dht", "gossip"]
 	Latency          *time.Duration // measured via WG handshake
+	endpointMethod   string
 }
 
 // PeerStore is a thread-safe store for discovered peers
@@ -46,6 +50,9 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 		// New peer
 		info.LastSeen = time.Now()
 		info.DiscoveredVia = []string{discoveryMethod}
+		if info.Endpoint != "" {
+			info.endpointMethod = discoveryMethod
+		}
 		ps.peers[info.WGPubKey] = info
 		return
 	}
@@ -53,12 +60,16 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	// Update existing peer - newer info wins
 	if info.Endpoint != "" && shouldUpdateEndpoint(existing, discoveryMethod) {
 		existing.Endpoint = info.Endpoint
+		existing.endpointMethod = discoveryMethod
 	}
 	if len(info.RoutableNetworks) > 0 {
 		existing.RoutableNetworks = info.RoutableNetworks
 	}
 	if info.MeshIP != "" {
 		existing.MeshIP = info.MeshIP
+	}
+	if info.Introducer {
+		existing.Introducer = true
 	}
 
 	existing.LastSeen = time.Now()
@@ -80,10 +91,50 @@ func shouldUpdateEndpoint(existing *PeerInfo, discoveryMethod string) bool {
 	if existing.Endpoint == "" {
 		return true
 	}
-	if discoveryMethod == LANMethod {
+
+	newRank := endpointMethodRank(discoveryMethod)
+	oldRank := endpointMethodRank(existing.endpointMethod)
+
+	if newRank > oldRank {
 		return true
 	}
-	return !containsMethod(existing.DiscoveredVia, LANMethod)
+	if newRank < oldRank {
+		return false
+	}
+
+	// Equal rank: allow refresh from same family, but still protect LAN endpoint.
+	if oldRank == endpointMethodRank(LANMethod) {
+		return discoveryMethod == LANMethod
+	}
+	return true
+}
+
+func endpointMethodRank(method string) int {
+	if method == "" {
+		return 0
+	}
+	if method == LANMethod {
+		return 100
+	}
+	if strings.Contains(method, RendezvousMethod) {
+		return 90
+	}
+	if method == "dht" {
+		return 70
+	}
+	if strings.Contains(method, "dht-transitive") {
+		return 40
+	}
+	if strings.HasPrefix(method, "gossip") {
+		if strings.Contains(method, "transitive") {
+			return 35
+		}
+		return 65
+	}
+	if method == "cache" {
+		return 20
+	}
+	return 30
 }
 
 func containsMethod(methods []string, target string) bool {

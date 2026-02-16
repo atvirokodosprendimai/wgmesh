@@ -11,12 +11,14 @@ import (
 )
 
 const (
-	NonceSize           = 12
-	MaxMessageAge       = 10 * time.Minute
-	ProtocolVersion     = "wgmesh-v1"
-	MessageTypeHello    = "HELLO"
-	MessageTypeReply    = "REPLY"
-	MessageTypeAnnounce = "ANNOUNCE"
+	NonceSize                  = 12
+	MaxMessageAge              = 10 * time.Minute
+	ProtocolVersion            = "wgmesh-v1"
+	MessageTypeHello           = "HELLO"
+	MessageTypeReply           = "REPLY"
+	MessageTypeAnnounce        = "ANNOUNCE"
+	MessageTypeRendezvousOffer = "RENDEZVOUS_OFFER"
+	MessageTypeRendezvousStart = "RENDEZVOUS_START"
 )
 
 // PeerAnnouncement is the encrypted message format for peer discovery
@@ -25,6 +27,7 @@ type PeerAnnouncement struct {
 	WGPubKey         string      `json:"wg_pubkey"`
 	MeshIP           string      `json:"mesh_ip"`
 	WGEndpoint       string      `json:"wg_endpoint"`
+	Introducer       bool        `json:"introducer,omitempty"`
 	RoutableNetworks []string    `json:"routable_networks,omitempty"`
 	Timestamp        int64       `json:"timestamp"`
 	KnownPeers       []KnownPeer `json:"known_peers,omitempty"`
@@ -35,6 +38,7 @@ type KnownPeer struct {
 	WGPubKey   string `json:"wg_pubkey"`
 	MeshIP     string `json:"mesh_ip"`
 	WGEndpoint string `json:"wg_endpoint"`
+	Introducer bool   `json:"introducer,omitempty"`
 }
 
 // Envelope wraps encrypted messages with nonce for transmission
@@ -86,6 +90,22 @@ func SealEnvelope(messageType string, payload interface{}, gossipKey [32]byte) (
 
 // OpenEnvelope decrypts a message using AES-256-GCM with the gossip key
 func OpenEnvelope(data []byte, gossipKey [32]byte) (*Envelope, *PeerAnnouncement, error) {
+	envelope, plaintext, err := OpenEnvelopeRaw(data, gossipKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Parse announcement
+	var announcement PeerAnnouncement
+	if err := json.Unmarshal(plaintext, &announcement); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal announcement: %w", err)
+	}
+
+	return envelope, &announcement, nil
+}
+
+// OpenEnvelopeRaw decrypts a message and returns raw plaintext payload.
+func OpenEnvelopeRaw(data []byte, gossipKey [32]byte) (*Envelope, []byte, error) {
 	// Parse envelope
 	var envelope Envelope
 	if err := json.Unmarshal(data, &envelope); err != nil {
@@ -114,19 +134,22 @@ func OpenEnvelope(data []byte, gossipKey [32]byte) (*Envelope, *PeerAnnouncement
 		return nil, nil, fmt.Errorf("decryption failed (wrong key?): %w", err)
 	}
 
-	// Parse announcement
-	var announcement PeerAnnouncement
-	if err := json.Unmarshal(plaintext, &announcement); err != nil {
-		return nil, nil, fmt.Errorf("failed to unmarshal announcement: %w", err)
+	// Validate shared payload metadata for replay protection.
+	var meta struct {
+		Protocol  string `json:"protocol"`
+		Timestamp int64  `json:"timestamp"`
+	}
+	if err := json.Unmarshal(plaintext, &meta); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal payload metadata: %w", err)
 	}
 
 	// Verify protocol version
-	if announcement.Protocol != ProtocolVersion {
-		return nil, nil, fmt.Errorf("unsupported protocol version: %s", announcement.Protocol)
+	if meta.Protocol != ProtocolVersion {
+		return nil, nil, fmt.Errorf("unsupported protocol version: %s", meta.Protocol)
 	}
 
 	// Check timestamp to prevent replay attacks
-	msgTime := time.Unix(announcement.Timestamp, 0)
+	msgTime := time.Unix(meta.Timestamp, 0)
 	if time.Since(msgTime) > MaxMessageAge {
 		return nil, nil, fmt.Errorf("message too old: %v", time.Since(msgTime))
 	}
@@ -134,16 +157,17 @@ func OpenEnvelope(data []byte, gossipKey [32]byte) (*Envelope, *PeerAnnouncement
 		return nil, nil, fmt.Errorf("message timestamp in future")
 	}
 
-	return &envelope, &announcement, nil
+	return &envelope, plaintext, nil
 }
 
 // CreateAnnouncement creates a new peer announcement
-func CreateAnnouncement(wgPubKey, meshIP, wgEndpoint string, routableNetworks []string, knownPeers []KnownPeer) *PeerAnnouncement {
+func CreateAnnouncement(wgPubKey, meshIP, wgEndpoint string, introducer bool, routableNetworks []string, knownPeers []KnownPeer) *PeerAnnouncement {
 	return &PeerAnnouncement{
 		Protocol:         ProtocolVersion,
 		WGPubKey:         wgPubKey,
 		MeshIP:           meshIP,
 		WGEndpoint:       wgEndpoint,
+		Introducer:       introducer,
 		RoutableNetworks: routableNetworks,
 		Timestamp:        time.Now().Unix(),
 		KnownPeers:       knownPeers,

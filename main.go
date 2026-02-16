@@ -179,10 +179,12 @@ SUBCOMMANDS (decentralized mode):
   init --secret                 Generate a new mesh secret
 	join --secret <SECRET>        Join a mesh network
 	     [--no-lan-discovery]     Disable LAN multicast discovery
+	     [--introducer]           Enable rendezvous introducer role
   status --secret <SECRET>      Show mesh status
   qr --secret <SECRET>          Display secret as QR code (text)
 	install-service --secret ...  Install systemd service
 	     [--no-lan-discovery]     Disable LAN multicast discovery in service
+	     [--introducer]           Enable rendezvous introducer role in service
   uninstall-service             Remove systemd service
   rotate-secret                 Rotate mesh secret
 
@@ -242,6 +244,7 @@ func joinCmd() {
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
 	noLANDiscovery := fs.Bool("no-lan-discovery", false, "Disable LAN multicast discovery")
+	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -269,6 +272,7 @@ func joinCmd() {
 		Privacy:             *privacyMode,
 		Gossip:              *gossipMode,
 		DisableLANDiscovery: *noLANDiscovery,
+		Introducer:          *introducerMode,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create config: %v\n", err)
@@ -291,6 +295,9 @@ func joinCmd() {
 	}
 	if *noLANDiscovery {
 		fmt.Println("LAN discovery disabled")
+	}
+	if *introducerMode {
+		fmt.Println("Rendezvous introducer enabled")
 	}
 
 	if err := d.RunWithDHTDiscovery(); err != nil {
@@ -344,7 +351,7 @@ func testPeerCmd() {
 	}
 
 	// Create and send test message
-	announcement := crypto.CreateAnnouncement("test-pubkey", "10.0.0.1", "test:51820", nil, nil)
+	announcement := crypto.CreateAnnouncement("test-pubkey", "10.0.0.1", "test:51820", false, nil, nil)
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, cfg.Keys.GossipKey)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create message: %v\n", err)
@@ -500,6 +507,7 @@ func installServiceCmd() {
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
 	noLANDiscovery := fs.Bool("no-lan-discovery", false, "Disable LAN multicast discovery")
+	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -524,6 +532,7 @@ func installServiceCmd() {
 		Privacy:             *privacyMode,
 		Gossip:              *gossipMode,
 		DisableLANDiscovery: *noLANDiscovery,
+		Introducer:          *introducerMode,
 	}
 
 	fmt.Println("Installing wgmesh systemd service...")

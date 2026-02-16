@@ -41,6 +41,7 @@ type SystemdServiceConfig struct {
 	Privacy             bool
 	Gossip              bool
 	DisableLANDiscovery bool
+	Introducer          bool
 	BinaryPath          string
 }
 
@@ -78,6 +79,9 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	}
 	if cfg.DisableLANDiscovery {
 		args = append(args, "--no-lan-discovery")
+	}
+	if cfg.Introducer {
+		args = append(args, "--introducer")
 	}
 
 	data := struct {

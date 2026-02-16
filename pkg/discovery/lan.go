@@ -132,6 +132,7 @@ func (l *LANDiscovery) announce() {
 		l.localNode.WGPubKey,
 		l.localNode.MeshIP,
 		l.localNode.WGEndpoint,
+		l.localNode.Introducer,
 		l.localNode.RoutableNetworks,
 		nil, // No known peers in LAN announce (keep small)
 	)
@@ -200,6 +201,7 @@ func (l *LANDiscovery) listenLoop() {
 			WGPubKey:         announcement.WGPubKey,
 			MeshIP:           announcement.MeshIP,
 			Endpoint:         endpoint,
+			Introducer:       announcement.Introducer,
 			RoutableNetworks: announcement.RoutableNetworks,
 		}
 

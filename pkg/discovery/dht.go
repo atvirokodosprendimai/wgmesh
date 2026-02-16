@@ -3,10 +3,12 @@ package discovery
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,11 +23,15 @@ const (
 	DHTAnnounceInterval       = 15 * time.Minute
 	DHTQueryInterval          = 30 * time.Second
 	DHTQueryIntervalStable    = 60 * time.Second
-	DHTTransitiveInterval     = 12 * time.Second
+	DHTTransitiveInterval     = 1 * time.Second
 	DHTBootstrapTimeout       = 30 * time.Second
 	DHTPersistInterval        = 2 * time.Minute
 	DHTMethod                 = "dht"
 	DHTMaxConcurrentExchanges = 10 // Limit concurrent transitive exchanges to prevent resource exhaustion
+	RendezvousWindow          = 20 * time.Second
+	RendezvousPhase           = 3 * time.Second
+	RendezvousPunchDelay      = 500 * time.Millisecond
+	RendezvousMaxIntroducers  = 3
 )
 
 // Well-known BitTorrent DHT bootstrap nodes
@@ -52,6 +58,7 @@ type DHTDiscovery struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
 	contactedPeers map[string]time.Time // Dedup: don't spam same IP
+	controlPeers   map[string]string    // peer pubkey -> exchange/control endpoint
 
 	// Callbacks
 	onPeerDiscovered func(addr net.Addr)
@@ -64,6 +71,7 @@ type LocalNode struct {
 	MeshIP           string
 	WGEndpoint       string
 	RoutableNetworks []string
+	Introducer       bool
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance
@@ -77,6 +85,7 @@ func NewDHTDiscovery(config *daemon.Config, localNode *LocalNode, peerStore *dae
 		ctx:            ctx,
 		cancel:         cancel,
 		contactedPeers: make(map[string]time.Time),
+		controlPeers:   make(map[string]string),
 	}
 
 	// Create peer exchange handler
@@ -529,6 +538,7 @@ func (d *DHTDiscovery) transitiveConnectLoop() {
 
 func (d *DHTDiscovery) tryTransitivePeers() {
 	peers := d.peerStore.GetActive()
+	now := time.Now()
 
 	// Use a semaphore to limit concurrent exchanges
 	sem := make(chan struct{}, DHTMaxConcurrentExchanges)
@@ -542,18 +552,65 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 		if peer.Endpoint == "" {
 			continue
 		}
-
-		if !d.markContacted(peer.Endpoint, 20*time.Second) {
+		if !d.shouldAttemptRendezvous(peer.WGPubKey, now) {
 			continue
 		}
-		log.Printf("[NAT] Trying transitive peer endpoint %s for %s", peer.Endpoint, peer.WGPubKey[:8]+"...")
+
+		introducers := d.selectRendezvousIntroducers(peer.WGPubKey, peers, RendezvousMaxIntroducers)
+		requestedViaIntroducer := false
+		if len(introducers) > 0 {
+			for _, introducer := range introducers {
+				if introducer.ControlEndpoint == "" {
+					continue
+				}
+
+				if !d.markContacted(introducer.ControlEndpoint, 20*time.Second) {
+					continue
+				}
+
+				log.Printf("[NAT] Pair %s <-> %s using rendezvous introducer %s (control=%s wg=%s)", shortKey(d.localNode.WGPubKey), shortKey(peer.WGPubKey), shortKey(introducer.WGPubKey), introducer.ControlEndpoint, introducer.Endpoint)
+
+				sem <- struct{}{}
+				go func(endpoint string, target *daemon.PeerInfo) {
+					defer func() { <-sem }()
+					if err := d.exchange.RequestRendezvous(endpoint, target.WGPubKey, nil); err != nil {
+						log.Printf("[NAT] Failed to request rendezvous via %s for %s: %v", endpoint, shortKey(target.WGPubKey), err)
+						return
+					}
+					log.Printf("[NAT] Rendezvous request sent for pair %s <-> %s via %s", shortKey(d.localNode.WGPubKey), shortKey(target.WGPubKey), endpoint)
+				}(introducer.ControlEndpoint, peer)
+				requestedViaIntroducer = true
+			}
+		}
+
+		if requestedViaIntroducer {
+			continue
+		}
+
+		if len(introducers) > 0 {
+			log.Printf("[NAT] Waiting for rendezvous throttle window for %s (introducers selected but not contacted this tick)", shortKey(peer.WGPubKey))
+			continue
+		}
+
+		targetControlEndpoint := d.controlEndpointForPeer(peer)
+		if targetControlEndpoint == "" {
+			continue
+		}
+
+		if !d.markContacted(targetControlEndpoint, 20*time.Second) {
+			continue
+		}
+		log.Printf("[NAT] Synchronized punch window open for %s via %s (no introducer available)", shortKey(peer.WGPubKey), targetControlEndpoint)
 
 		// Acquire semaphore before spawning goroutine to limit concurrency
 		sem <- struct{}{}
-		go func(endpoint string) {
+		go func(endpoint string, hasIntroducer bool) {
 			defer func() { <-sem }()
+			if hasIntroducer {
+				time.Sleep(RendezvousPunchDelay)
+			}
 			d.exchangeWithAddress(endpoint, DHTMethod+"-transitive")
-		}(peer.Endpoint)
+		}(targetControlEndpoint, false)
 	}
 }
 
@@ -579,7 +636,203 @@ func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod strin
 	if discoveryMethod == DHTMethod+"-transitive" {
 		log.Printf("[NAT] Peer established via NAT traversal path: %s (%s)", peerInfo.WGPubKey[:8]+"...", peerInfo.Endpoint)
 	}
+	d.setControlEndpoint(peerInfo.WGPubKey, addrStr)
 	d.peerStore.Update(peerInfo, discoveryMethod)
+}
+
+func (d *DHTDiscovery) setControlEndpoint(peerPubKey, endpoint string) {
+	if peerPubKey == "" {
+		return
+	}
+	normalized := normalizeKnownPeerEndpoint(endpoint)
+	if normalized == "" {
+		return
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.controlPeers[peerPubKey] = normalized
+}
+
+func (d *DHTDiscovery) controlEndpointForPeer(peer *daemon.PeerInfo) string {
+	if peer == nil || peer.WGPubKey == "" {
+		return ""
+	}
+
+	d.mu.RLock()
+	if endpoint, ok := d.controlPeers[peer.WGPubKey]; ok {
+		d.mu.RUnlock()
+		return endpoint
+	}
+	d.mu.RUnlock()
+
+	if endpoint := toControlEndpoint(peer.Endpoint, int(d.config.Keys.GossipPort)); endpoint != "" {
+		return endpoint
+	}
+
+	return ""
+}
+
+func (d *DHTDiscovery) shouldAttemptRendezvous(remoteKey string, now time.Time) bool {
+	if remoteKey == "" {
+		return false
+	}
+
+	windowSeconds := int64(RendezvousWindow / time.Second)
+	if windowSeconds <= 0 {
+		return true
+	}
+	phaseSeconds := int64(RendezvousPhase / time.Second)
+	if phaseSeconds <= 0 {
+		phaseSeconds = 1
+	}
+
+	seed := pairSeed(d.localNode.WGPubKey, remoteKey)
+	offset := int64(seed % uint64(windowSeconds))
+	position := now.Unix() % windowSeconds
+	delta := position - offset
+	if delta < 0 {
+		delta += windowSeconds
+	}
+
+	return delta < phaseSeconds
+}
+
+type rendezvousIntroducer struct {
+	WGPubKey        string
+	Endpoint        string
+	ControlEndpoint string
+}
+
+func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*daemon.PeerInfo, maxCount int) []rendezvousIntroducer {
+	type introducerCandidate struct {
+		pubKey          string
+		endpoint        string
+		controlEndpoint string
+	}
+
+	candidates := make([]introducerCandidate, 0, len(peers))
+	for _, p := range peers {
+		if p == nil {
+			continue
+		}
+		if p.WGPubKey == "" || p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == remoteKey {
+			continue
+		}
+		if !p.Introducer {
+			continue
+		}
+		if !hasDiscoveryMethod(p.DiscoveredVia, DHTMethod) {
+			// Only use peers with direct DHT reachability as introducers.
+			continue
+		}
+		if p.Endpoint == "" || !isLikelyPublicEndpoint(p.Endpoint) {
+			continue
+		}
+
+		controlEndpoint := d.controlEndpointForPeer(p)
+		if controlEndpoint == "" || !isLikelyPublicEndpoint(controlEndpoint) {
+			continue
+		}
+
+		candidates = append(candidates, introducerCandidate{
+			pubKey:          p.WGPubKey,
+			endpoint:        p.Endpoint,
+			controlEndpoint: controlEndpoint,
+		})
+	}
+
+	if len(candidates) == 0 || maxCount <= 0 {
+		return nil
+	}
+
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].pubKey == candidates[j].pubKey {
+			return candidates[i].endpoint < candidates[j].endpoint
+		}
+		return candidates[i].pubKey < candidates[j].pubKey
+	})
+
+	seed := pairSeed(d.localNode.WGPubKey, remoteKey)
+	start := int(seed % uint64(len(candidates)))
+
+	if maxCount > len(candidates) {
+		maxCount = len(candidates)
+	}
+
+	out := make([]rendezvousIntroducer, 0, maxCount)
+	for i := 0; i < maxCount; i++ {
+		idx := (start + i) % len(candidates)
+		out = append(out, rendezvousIntroducer{
+			WGPubKey:        candidates[idx].pubKey,
+			Endpoint:        candidates[idx].endpoint,
+			ControlEndpoint: candidates[idx].controlEndpoint,
+		})
+	}
+
+	return out
+}
+
+func pairSeed(a, b string) uint64 {
+	if a > b {
+		a, b = b, a
+	}
+
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(a))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(b))
+	return h.Sum64()
+}
+
+func isLikelyPublicEndpoint(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		// DNS hostnames are treated as potentially public.
+		return true
+	}
+
+	if ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsPrivate() || ip.IsUnspecified() {
+		return false
+	}
+
+	return ip.IsGlobalUnicast()
+}
+
+func toControlEndpoint(endpoint string, controlPort int) string {
+	if controlPort <= 0 {
+		return ""
+	}
+
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return ""
+	}
+
+	return net.JoinHostPort(host, fmt.Sprintf("%d", controlPort))
+}
+
+func shortKey(key string) string {
+	if len(key) <= 8 {
+		return key
+	}
+	return key[:8] + "..."
+}
+
+func hasDiscoveryMethod(methods []string, method string) bool {
+	for _, m := range methods {
+		if m == method {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) bool {

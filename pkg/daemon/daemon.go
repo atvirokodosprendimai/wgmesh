@@ -47,6 +47,7 @@ type LocalNode struct {
 	MeshIP           string
 	WGEndpoint       string
 	RoutableNetworks []string
+	Introducer       bool
 }
 
 // DiscoveryLayer is the interface for discovery implementations
@@ -134,6 +135,7 @@ func (d *Daemon) initLocalNode() error {
 		// Derive mesh IP from pubkey
 		d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
 		d.localNode.RoutableNetworks = d.config.AdvertiseRoutes
+		d.localNode.Introducer = d.config.Introducer
 		return nil
 	}
 
@@ -151,6 +153,7 @@ func (d *Daemon) initLocalNode() error {
 		WGPrivateKey:     privateKey,
 		MeshIP:           meshIP,
 		RoutableNetworks: d.config.AdvertiseRoutes,
+		Introducer:       d.config.Introducer,
 	}
 
 	// Save to state file

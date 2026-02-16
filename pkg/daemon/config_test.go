@@ -28,3 +28,17 @@ func TestNewConfigDisableLANDiscovery(t *testing.T) {
 		t.Fatal("expected LANDiscovery to be disabled")
 	}
 }
+
+func TestNewConfigIntroducer(t *testing.T) {
+	cfg, err := NewConfig(DaemonOpts{
+		Secret:     testConfigSecret,
+		Introducer: true,
+	})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+
+	if !cfg.Introducer {
+		t.Fatal("expected Introducer to be enabled")
+	}
+}

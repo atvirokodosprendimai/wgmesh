@@ -27,6 +27,7 @@ type Config struct {
 	Privacy         bool
 	Gossip          bool
 	LANDiscovery    bool
+	Introducer      bool
 }
 
 // DaemonOpts holds options for the daemon
@@ -39,6 +40,7 @@ type DaemonOpts struct {
 	Privacy             bool
 	Gossip              bool
 	DisableLANDiscovery bool
+	Introducer          bool
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -78,6 +80,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		Privacy:         opts.Privacy,
 		Gossip:          opts.Gossip,
 		LANDiscovery:    !opts.DisableLANDiscovery,
+		Introducer:      opts.Introducer,
 	}, nil
 }
 
