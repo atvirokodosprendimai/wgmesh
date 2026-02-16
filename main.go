@@ -830,10 +830,15 @@ func handlePeersList(client *rpc.Client) {
 			lastSeenStr = "unknown"
 		}
 
-		discoveredVia := peer["discovered_via"].([]interface{})
-		discoveredViaStr := make([]string, len(discoveredVia))
-		for i, v := range discoveredVia {
-			discoveredViaStr[i] = v.(string)
+		var discoveredViaStr []string
+		if v, ok := peer["discovered_via"]; ok {
+			if discoveredVia, ok := v.([]interface{}); ok {
+				for _, item := range discoveredVia {
+					if s, ok := item.(string); ok {
+						discoveredViaStr = append(discoveredViaStr, s)
+					}
+				}
+			}
 		}
 
 		fmt.Printf("%-40s %-15s %-25s %-10s %s\n",
