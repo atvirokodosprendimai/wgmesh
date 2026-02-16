@@ -377,14 +377,19 @@ func IsWritable(path string) bool {
 		return false
 	}
 
-	// Try to create a temporary file
-	testFile := filepath.Join(path, ".wgmesh-test")
-	f, err := os.Create(testFile)
+	// Try to create a temporary file using a randomized name
+	f, err := os.CreateTemp(path, ".wgmesh-test-*")
 	if err != nil {
 		return false
 	}
-	f.Close()
-	os.Remove(testFile)
+	name := f.Name()
+	if err := f.Close(); err != nil {
+		_ = os.Remove(name)
+		return false
+	}
+	if err := os.Remove(name); err != nil {
+		return false
+	}
 
 	return true
 }
