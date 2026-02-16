@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	URIPrefix          = "wgmesh://"
-	URIVersion         = "v1"
-	DefaultWGPort      = 51820
-	DefaultInterface   = "wg0"
-	DefaultInterfaceMac = "utun20"
+	URIPrefix              = "wgmesh://"
+	URIVersion             = "v1"
+	DefaultWGPort          = 51820
+	DefaultInterface       = "wg0"
+	DefaultInterfaceDarwin = "utun20"
 )
 
 // Config holds all derived configuration for the mesh daemon
@@ -56,7 +56,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 	ifaceName := opts.InterfaceName
 	if ifaceName == "" {
 		if runtime.GOOS == "darwin" {
-			ifaceName = DefaultInterfaceMac
+			ifaceName = DefaultInterfaceDarwin
 		} else {
 			ifaceName = DefaultInterface
 		}

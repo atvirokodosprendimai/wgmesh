@@ -23,7 +23,7 @@ func TestNewConfig_DefaultInterfaceName(t *testing.T) {
 	// Verify the interface name is set to the correct default
 	expectedInterface := DefaultInterface
 	if runtime.GOOS == "darwin" {
-		expectedInterface = DefaultInterfaceMac
+		expectedInterface = DefaultInterfaceDarwin
 	}
 
 	if cfg.InterfaceName != expectedInterface {
