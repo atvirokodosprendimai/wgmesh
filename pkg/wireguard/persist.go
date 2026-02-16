@@ -7,6 +7,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
 
+// GenerateWgQuickConfig generates a wg-quick compatible configuration string.
 func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) string {
 	var sb strings.Builder
 
@@ -58,6 +59,7 @@ func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) string {
 	return sb.String()
 }
 
+// ApplyPersistentConfig applies a persistent WireGuard configuration via wg-quick.
 func ApplyPersistentConfig(client *ssh.Client, iface string, config *FullConfig, routes []ssh.RouteEntry) error {
 	configContent := GenerateWgQuickConfig(config, routes)
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", iface)
@@ -81,27 +83,30 @@ func ApplyPersistentConfig(client *ssh.Client, iface string, config *FullConfig,
 	return nil
 }
 
+// UpdatePersistentConfig updates a persistent WireGuard configuration with minimal disruption.
 func UpdatePersistentConfig(client *ssh.Client, iface string, config *FullConfig, routes []ssh.RouteEntry, diff *ConfigDiff) error {
 	if diff.InterfaceChanged || !canUseOnlineUpdate(diff) {
 		fmt.Printf("  Significant changes detected, applying full persistent config\n")
 		return ApplyPersistentConfig(client, iface, config, routes)
 	}
 
-	fmt.Printf("  Applying online peer updates and updating persistent config\n")
+	fmt.Printf("  Minor changes detected, updating online\n")
+	if err := UpdatePersistentConfigFile(client, iface, config, routes); err != nil {
+		return err
+	}
 
+	return nil
+}
+
+func UpdatePersistentConfigFile(client *ssh.Client, iface string, config *FullConfig, routes []ssh.RouteEntry) error {
 	configContent := GenerateWgQuickConfig(config, routes)
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", iface)
 
 	if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
+		return fmt.Errorf("failed to update config file: %w", err)
 	}
 
-	if err := ApplyDiff(client, iface, diff); err != nil {
-		return fmt.Errorf("failed to apply diff: %w", err)
-	}
-
-	// Note: Routes are now synced separately in the deploy logic
-
+	fmt.Printf("  Updated persistent configuration at %s\n", configPath)
 	return nil
 }
 
@@ -110,6 +115,7 @@ func canUseOnlineUpdate(diff *ConfigDiff) bool {
 	return !diff.InterfaceChanged
 }
 
+// RemovePersistentConfig removes a persistent WireGuard configuration.
 func RemovePersistentConfig(client *ssh.Client, iface string) error {
 	fmt.Printf("  Stopping and disabling wg-quick@%s service\n", iface)
 

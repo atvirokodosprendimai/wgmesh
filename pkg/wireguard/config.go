@@ -7,17 +7,20 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
 
+// Config represents a WireGuard interface configuration including interface settings and peer configurations.
 type Config struct {
 	Interface Interface
 	Peers     map[string]Peer
 }
 
+// Interface represents WireGuard interface settings.
 type Interface struct {
 	PrivateKey string
 	Address    string
 	ListenPort int
 }
 
+// Peer represents WireGuard peer settings.
 type Peer struct {
 	PublicKey           string
 	Endpoint            string
@@ -25,6 +28,7 @@ type Peer struct {
 	PersistentKeepalive int
 }
 
+// ConfigDiff represents differences between two WireGuard configurations.
 type ConfigDiff struct {
 	InterfaceChanged bool
 	AddedPeers       map[string]Peer
@@ -32,6 +36,7 @@ type ConfigDiff struct {
 	ModifiedPeers    map[string]Peer
 }
 
+// GetCurrentConfig retrieves the current WireGuard configuration for the specified interface via SSH.
 func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 	output, err := client.Run(fmt.Sprintf("wg show %s dump 2>/dev/null || true", iface))
 	if err != nil {
@@ -84,6 +89,7 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 	return config, nil
 }
 
+// CalculateDiff computes the differences between two WireGuard configurations.
 func CalculateDiff(current, desired *Config) *ConfigDiff {
 	diff := &ConfigDiff{
 		AddedPeers:    make(map[string]Peer),
@@ -113,6 +119,7 @@ func CalculateDiff(current, desired *Config) *ConfigDiff {
 	return diff
 }
 
+// HasChanges returns true if the diff contains any configuration changes.
 func (d *ConfigDiff) HasChanges() bool {
 	return d.InterfaceChanged || len(d.AddedPeers) > 0 || len(d.RemovedPeers) > 0 || len(d.ModifiedPeers) > 0
 }
@@ -144,6 +151,7 @@ func peersEqual(a, b Peer) bool {
 	return true
 }
 
+// ApplyDiff applies configuration differences to the specified interface via SSH.
 func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
 	if diff.InterfaceChanged {
 		return fmt.Errorf("interface changes require full reconfig")

@@ -7,11 +7,11 @@ import (
 	"strings"
 )
 
+// GenerateKeyPair generates a WireGuard private and public key pair.
 func GenerateKeyPair() (privateKey, publicKey string, err error) {
 	privCmd := exec.Command("wg", "genkey")
 	var privOut bytes.Buffer
 	privCmd.Stdout = &privOut
-
 	if err := privCmd.Run(); err != nil {
 		return "", "", fmt.Errorf("failed to generate private key: %w", err)
 	}
@@ -32,6 +32,7 @@ func GenerateKeyPair() (privateKey, publicKey string, err error) {
 	return privateKey, publicKey, nil
 }
 
+// ValidatePrivateKey validates a WireGuard private key.
 func ValidatePrivateKey(key string) error {
 	cmd := exec.Command("wg", "pubkey")
 	cmd.Stdin = strings.NewReader(key)

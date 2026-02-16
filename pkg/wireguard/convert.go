@@ -1,5 +1,6 @@
 package wireguard
 
+// FullConfigToConfig converts a FullConfig to a Config structure.
 func FullConfigToConfig(full *FullConfig) *Config {
 	config := &Config{
 		Interface: Interface{

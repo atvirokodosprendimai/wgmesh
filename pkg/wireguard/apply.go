@@ -9,17 +9,20 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
 
+// FullConfig represents a complete WireGuard configuration structure.
 type FullConfig struct {
 	Interface WGInterface
 	Peers     []WGPeer
 }
 
+// WGInterface represents WireGuard interface configuration with full details.
 type WGInterface struct {
 	PrivateKey string
 	Address    string
 	ListenPort int
 }
 
+// WGPeer represents WireGuard peer configuration with full details.
 type WGPeer struct {
 	PublicKey           string
 	Endpoint            string
@@ -27,6 +30,7 @@ type WGPeer struct {
 	PersistentKeepalive int
 }
 
+// ApplyFullConfiguration applies a complete WireGuard configuration to the specified interface via SSH.
 func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig) error {
 	fmt.Println("  Creating fresh WireGuard configuration...")
 
