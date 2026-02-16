@@ -555,5 +555,3 @@ type RPCStatusData struct {
 	Interface string
 }
 
-
-

@@ -66,12 +66,12 @@ func TestGetSocketPath(t *testing.T) {
 
 func TestIsWritable(t *testing.T) {
 	// Test that /tmp is writable
-	if !isWritable("/tmp") {
+	if !IsWritable("/tmp") {
 		t.Error("/tmp should be writable")
 	}
 
 	// Test that non-existent path is not writable
-	if isWritable("/nonexistent") {
+	if IsWritable("/nonexistent") {
 		t.Error("/nonexistent should not be writable")
 	}
 }

@@ -188,6 +188,14 @@ SUBCOMMANDS (decentralized mode):
   uninstall-service             Remove systemd service
   rotate-secret                 Rotate mesh secret
 
+QUERY SUBCOMMANDS (decentralized mode):
+  peers list                    List all active peers
+  peers count                   Show peer statistics
+  peers get <pubkey>            Get specific peer details
+
+  Note: These commands query a running daemon via RPC socket.
+  The daemon must be started with 'wgmesh join' first.
+
 EXAMPLES:
   # Show version
   wgmesh --version
@@ -198,6 +206,11 @@ EXAMPLES:
   wgmesh join --secret "wgmesh://v1/K7x2..."    # Join mesh on this node
   wgmesh join --secret "..." --privacy           # Join with Dandelion++ privacy
   wgmesh join --secret "..." --gossip            # Enable in-mesh gossip
+
+  # Query running daemon:
+  wgmesh peers list                              # List all active peers
+  wgmesh peers count                             # Show peer counts
+  wgmesh peers get <pubkey>                      # Get specific peer info
 
   # Centralized mode (SSH-based deployment):
   wgmesh -init -encrypt                         # Initialize encrypted state
@@ -656,44 +669,9 @@ func meshCmd() {
 	}
 }
 
-// getRPCSocketPath determines the RPC socket path
-// Import rpc package dynamically to avoid circular dependency
+// getRPCSocketPath determines the RPC socket path (uses rpc.GetSocketPath)
 func getRPCSocketPath() string {
-	// Check environment variable first
-	if path := os.Getenv("WGMESH_SOCKET"); path != "" {
-		return path
-	}
-
-	// Try /var/run (requires root)
-	if isWritable("/var/run") {
-		return "/var/run/wgmesh.sock"
-	}
-
-	// Fallback to XDG_RUNTIME_DIR for non-root
-	if runtimeDir := os.Getenv("XDG_RUNTIME_DIR"); runtimeDir != "" {
-		return runtimeDir + "/wgmesh.sock"
-	}
-
-	// Last resort: /tmp
-	return "/tmp/wgmesh.sock"
-}
-
-func isWritable(path string) bool {
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	if !info.IsDir() {
-		return false
-	}
-	testFile := path + "/.wgmesh-test"
-	f, err := os.Create(testFile)
-	if err != nil {
-		return false
-	}
-	f.Close()
-	os.Remove(testFile)
-	return true
+	return rpc.GetSocketPath()
 }
 
 // createRPCServer creates an RPC server for the daemon

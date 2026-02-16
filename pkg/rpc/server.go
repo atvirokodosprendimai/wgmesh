@@ -353,7 +353,7 @@ func GetSocketPath() string {
 	}
 
 	// Try /var/run (requires root)
-	if isWritable("/var/run") {
+	if IsWritable("/var/run") {
 		return "/var/run/wgmesh.sock"
 	}
 
@@ -366,8 +366,8 @@ func GetSocketPath() string {
 	return "/tmp/wgmesh.sock"
 }
 
-// isWritable checks if a directory is writable
-func isWritable(path string) bool {
+// IsWritable checks if a directory is writable
+func IsWritable(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
 		return false
