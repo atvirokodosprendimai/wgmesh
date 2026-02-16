@@ -529,6 +529,8 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 	// Use a semaphore to limit concurrent exchanges
 	sem := make(chan struct{}, DHTMaxConcurrentExchanges)
 
+	// Fire-and-forget: spawn goroutines up to semaphore limit
+	// The semaphore prevents resource exhaustion by limiting concurrent exchanges
 	for _, peer := range peers {
 		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
 			continue
