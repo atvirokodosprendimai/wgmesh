@@ -58,10 +58,26 @@ func TestServerConfig(t *testing.T) {
 }
 
 func TestGetSocketPath(t *testing.T) {
-	path := GetSocketPath()
-	if path == "" {
-		t.Error("socket path should not be empty")
-	}
+	t.Run("env var override", func(t *testing.T) {
+		const expected = "/tmp/test-wgmesh.sock"
+		t.Setenv("WGMESH_SOCKET", expected)
+
+		path := GetSocketPath()
+		if path != expected {
+			t.Fatalf("expected socket path %q from WGMESH_SOCKET, got %q", expected, path)
+		}
+	})
+
+	t.Run("default with clean env", func(t *testing.T) {
+		// Ensure environment variables that may affect GetSocketPath are cleared
+		t.Setenv("WGMESH_SOCKET", "")
+		t.Setenv("XDG_RUNTIME_DIR", "")
+
+		path := GetSocketPath()
+		if path == "" {
+			t.Fatal("socket path should not be empty when environment is clean")
+		}
+	})
 }
 
 func TestIsWritable(t *testing.T) {
