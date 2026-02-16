@@ -18,13 +18,14 @@ import (
 )
 
 const (
-	DHTAnnounceInterval    = 15 * time.Minute
-	DHTQueryInterval       = 30 * time.Second
-	DHTQueryIntervalStable = 60 * time.Second
-	DHTTransitiveInterval  = 12 * time.Second
-	DHTBootstrapTimeout    = 30 * time.Second
-	DHTPersistInterval     = 2 * time.Minute
-	DHTMethod              = "dht"
+	DHTAnnounceInterval       = 15 * time.Minute
+	DHTQueryInterval          = 30 * time.Second
+	DHTQueryIntervalStable    = 60 * time.Second
+	DHTTransitiveInterval     = 12 * time.Second
+	DHTBootstrapTimeout       = 30 * time.Second
+	DHTPersistInterval        = 2 * time.Minute
+	DHTMethod                 = "dht"
+	DHTMaxConcurrentExchanges = 10 // Limit concurrent transitive exchanges to prevent resource exhaustion
 )
 
 // Well-known BitTorrent DHT bootstrap nodes
@@ -524,6 +525,12 @@ func (d *DHTDiscovery) transitiveConnectLoop() {
 
 func (d *DHTDiscovery) tryTransitivePeers() {
 	peers := d.peerStore.GetActive()
+
+	// Use a semaphore to limit concurrent exchanges
+	sem := make(chan struct{}, DHTMaxConcurrentExchanges)
+
+	// Fire-and-forget: spawn goroutines up to semaphore limit
+	// The semaphore prevents resource exhaustion by limiting concurrent exchanges
 	for _, peer := range peers {
 		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
 			continue
@@ -536,7 +543,12 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 			continue
 		}
 
-		go d.exchangeWithAddress(peer.Endpoint, DHTMethod+"-transitive")
+		// Acquire semaphore before spawning goroutine to limit concurrency
+		sem <- struct{}{}
+		go func(endpoint string) {
+			defer func() { <-sem }()
+			d.exchangeWithAddress(endpoint, DHTMethod+"-transitive")
+		}(peer.Endpoint)
 	}
 }
 
