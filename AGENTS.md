@@ -130,6 +130,35 @@ func TestDeriveKeys_MinLength(t *testing.T) {
 - Assertions via `t.Fatalf`/`t.Errorf`, string matching via `strings.Contains()`
 - No build tags — all tests run with `go test ./...`
 
+### Test-First Workflow
+
+Use test-first (TDD) for changes that touch **contracts**: structs, interfaces, function signatures, serialization formats, or merge/business logic. This catches design problems before spreading changes across multiple files.
+
+**When to write tests first:**
+
+1. Adding/changing fields on wire protocol structs (`PeerAnnouncement`, `KnownPeer`, `Envelope`)
+2. Adding/changing fields on domain structs (`PeerInfo`, `LocalNode`, `Config`)
+3. Changing function signatures on exported functions (`CreateAnnouncement`, `DeriveKeys`)
+4. Adding merge/update logic (`PeerStore.Update`, collision detection)
+5. Any round-trip serialization (seal/open, marshal/unmarshal)
+
+**Workflow:**
+
+```
+1. Write failing test that asserts the new behavior/field exists
+2. Run test — confirm it fails for the right reason
+3. Implement the minimal change to make it pass
+4. Propagate to call sites (mechanical — no separate tests needed per call site)
+5. Run full test suite
+```
+
+**When test-first is optional:**
+
+- Docs-only changes
+- Mechanical call-site updates (adding a parameter to N callers)
+- CLI flag changes
+- Log message changes
+
 ### Comments
 
 Exported types and functions get godoc comments. Crypto code has inline "why" comments:
