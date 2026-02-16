@@ -1,7 +1,7 @@
 # Specification: Issue #111
 
 ## Classification
-fix
+feature
 
 ## Deliverables
 code
