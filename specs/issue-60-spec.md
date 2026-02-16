@@ -4,11 +4,13 @@
 feature
 
 ## Deliverables
-code (build infrastructure only — no Go code changes)
+code
 
 ## Problem Analysis
 
 Docker builds currently take ~8 minutes for every run, including PR validation builds that never push an image. The bottleneck is QEMU-emulated multi-arch builds (`linux/amd64,linux/arm64,linux/arm/v7`) running even on PRs where only a compile check is needed.
+
+This task involves only build infrastructure changes (GitHub Actions workflow, Dockerfile, .dockerignore) — no Go code changes are required.
 
 ## Proposed Approach
 
