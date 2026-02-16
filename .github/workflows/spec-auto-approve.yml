@@ -1,0 +1,160 @@
+name: Spec Auto-Approve
+
+# Validates and auto-approves Copilot spec PRs that pass all checks.
+# This triggers Goose implementation automatically, reducing manual work.
+#
+# Checks:
+#   1. Spec file exists at specs/issue-N-spec.md
+#   2. Required sections present (Classification, Problem Analysis, Proposed Approach)
+#   3. No code changes (only spec file in PR)
+#   4. Classification is actionable (not wont-do or needs-info)
+#
+# Uses pull_request_target to run on Copilot PRs without action_required blocking.
+
+on:
+  pull_request_target:
+    types: [opened]
+    branches: [main]
+
+permissions:
+  pull-requests: write
+  contents: read
+  issues: write
+
+jobs:
+  validate:
+    if: contains(github.event.pull_request.title, 'spec:')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout base branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fetch PR changes
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+        run: |
+          gh pr checkout ${{ github.event.pull_request.number }} --detach
+          git checkout ${{ github.event.pull_request.head.ref }}
+
+      - name: Extract issue number
+        id: issue
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          ISSUE_NUM=$(echo "$TITLE" | grep -oP 'Issue #\K\d+' || true)
+          if [ -z "$ISSUE_NUM" ]; then
+            echo "::error::Could not extract issue number from PR title: $TITLE"
+            exit 1
+          fi
+          echo "number=$ISSUE_NUM" >> $GITHUB_OUTPUT
+          echo "Issue number: $ISSUE_NUM"
+
+      - name: Validate spec
+        id: validate
+        env:
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+        run: |
+          SPEC_FILE="specs/issue-${ISSUE_NUM}-spec.md"
+          REASONS=""
+
+          # Check 1: Spec file exists
+          if [ ! -f "$SPEC_FILE" ]; then
+            REASONS="${REASONS}- Spec file not found: $SPEC_FILE\n"
+          fi
+
+          # Check 2: No code changes (only spec file should be modified)
+          CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
+          CODE_FILES=$(echo "$CHANGED_FILES" | grep -v "^specs/" | grep -v "^\.github/workflows/" || true)
+          if [ -n "$CODE_FILES" ]; then
+            REASONS="${REASONS}- PR contains non-spec file changes:\n$CODE_FILES\n"
+          fi
+
+          # Check 3: Required sections present
+          if [ -f "$SPEC_FILE" ]; then
+            CONTENT=$(cat "$SPEC_FILE")
+            
+            # Check for Classification section
+            if ! echo "$CONTENT" | grep -q "## Classification"; then
+              REASONS="${REASONS}- Missing required section: ## Classification\n"
+            fi
+            
+            # Check for Problem Analysis section
+            if ! echo "$CONTENT" | grep -q "## Problem Analysis"; then
+              REASONS="${REASONS}- Missing required section: ## Problem Analysis\n"
+            fi
+            
+            # Check for Proposed Approach section
+            if ! echo "$CONTENT" | grep -q "## Proposed Approach"; then
+              REASONS="${REASONS}- Missing required section: ## Proposed Approach\n"
+            fi
+
+            # Check 4: Classification is actionable (not wont-do or needs-info)
+            CLASSIFICATION=$(echo "$CONTENT" | grep -A1 "## Classification" | tail -1 | tr '[:upper:]' '[:lower:]' || true)
+            if echo "$CLASSIFICATION" | grep -qiE "wont-do|wont do|needs-info|needs info"; then
+              REASONS="${REASONS}- Classification requires human review: $(echo "$CLASSIFICATION" | xargs)\n"
+            fi
+          fi
+
+          # Result
+          if [ -z "$REASONS" ]; then
+            echo "valid=true" >> $GITHUB_OUTPUT
+            echo "reason=" >> $GITHUB_OUTPUT
+            echo "✅ All validation checks passed"
+          else
+            echo "valid=false" >> $GITHUB_OUTPUT
+            echo "reason<<EOF" >> $GITHUB_OUTPUT
+            echo -e "$REASONS" >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            echo "❌ Validation failed"
+            echo -e "$REASONS"
+          fi
+
+      - name: Auto-approve and trigger Goose
+        if: steps.validate.outputs.valid == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          REVIEWER="${{ github.actor }}"
+          
+          echo "Auto-approving spec PR #$PR_NUM"
+          
+          # Approve the PR
+          gh pr review $PR_NUM --approve --body "## Auto-Approved ✅
+
+          This spec PR passed all validation checks:
+          
+          - ✅ Spec file exists at \`specs/issue-${ISSUE_NUM}-spec.md\`
+          - ✅ Required sections present (Classification, Problem Analysis, Proposed Approach)
+          - ✅ No code changes detected
+          - ✅ Classification is actionable
+          
+          Goose will now implement the code based on this specification."
+          
+          # Add the label that triggers Goose
+          gh pr edit $PR_NUM --add-label approved-for-build
+          
+          echo "Added approved-for-build label, Goose will start implementation"
+
+      - name: Comment on validation failure
+        if: steps.validate.outputs.valid == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+        run: |
+          PR_NUM="${{ github.event.pull_request.number }}"
+          REASON="${{ steps.validate.outputs.reason }}"
+          
+          gh pr comment $PR_NUM --body "## Spec Validation Failed ❌
+
+          This spec PR could not be auto-approved:
+
+          $REASON
+
+          ---
+          
+          Please address these issues or wait for human review."
+          
+          echo "Posted validation failure comment"
