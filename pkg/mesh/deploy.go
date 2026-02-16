@@ -73,8 +73,8 @@ func (m *Mesh) Deploy() error {
 }
 
 func (m *Mesh) detectEndpoints() error {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for hostname, node := range m.Nodes {
 		if node.IsLocal {
@@ -91,7 +91,6 @@ func (m *Mesh) detectEndpoints() error {
 		if err != nil {
 			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
 		}
-		defer client.Close()
 
 		// Collect hostname and FQDN
 		if actualHostname, err := ssh.GetHostname(client); err == nil {
@@ -106,6 +105,7 @@ func (m *Mesh) detectEndpoints() error {
 		}
 
 		publicIP, err := ssh.DetectPublicIP(client)
+		client.Close()
 
 		if err != nil {
 			fmt.Printf("Warning: failed to detect public IP for %s: %v\n", hostname, err)
