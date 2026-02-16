@@ -295,17 +295,21 @@ func isPublicIPv6(ip net.IP) bool {
 	if ip.To4() != nil {
 		return false
 	}
+	if ip.IsUnspecified() {
+		return false
+	}
 
 	var specialPrefixes = []struct {
 		prefix net.IP
 		bits   int
 	}{
-		{net.ParseIP("200::"), 7},   // Teredo / Orchid / Apple Private Relay
-		{net.ParseIP("fc00::"), 7},  // ULA
-		{net.ParseIP("fd00::"), 8},  // ULA
-		{net.ParseIP("fe80::"), 10}, // Link-local
-		{net.ParseIP("ff00::"), 8},  // Multicast
-		{net.ParseIP("::1"), 128},   // Loopback
+		{net.ParseIP("200::"), 7},       // Teredo / Orchid / Apple Private Relay
+		{net.ParseIP("2001:db8::"), 32}, // Documentation
+		{net.ParseIP("fc00::"), 7},      // ULA
+		{net.ParseIP("fd00::"), 8},      // ULA
+		{net.ParseIP("fe80::"), 10},     // Link-local
+		{net.ParseIP("ff00::"), 8},      // Multicast
+		{net.ParseIP("::1"), 128},       // Loopback
 	}
 
 	for _, sp := range specialPrefixes {

@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -166,5 +167,37 @@ func TestRecordRendezvousAttempt_BackoffCappedAtMax(t *testing.T) {
 	maxAllowed := time.Now().Add(RendezvousMaxBackoff + 100*time.Millisecond)
 	if nextAttempt.After(maxAllowed) {
 		t.Errorf("Backoff should be capped at max: %v (expected at most %v)", nextAttempt, maxAllowed)
+	}
+}
+
+func TestIsPublicIPv6(t *testing.T) {
+	tests := []struct {
+		ip       string
+		expected bool
+	}{
+		{"2001:db8::1", false}, // Documentation prefix
+		{"200:b64f::1", false}, // Apple Private Relay / Teredo range
+		{"fc00::1", false},     // ULA
+		{"fd00::1", false},     // ULA
+		{"fe80::1", false},     // Link-local
+		{"::1", false},         // Loopback
+		{"ff02::1", false},     // Multicast
+		{"2607:f8b0::1", true}, // Google public IPv6
+		{"2a00:1450::1", true}, // Google public IPv6
+		{"2606:4700::1", true}, // Cloudflare public IPv6
+		{"::", false},          // Unspecified
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.ip, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("Failed to parse IP %s", tt.ip)
+			}
+			got := isPublicIPv6(ip)
+			if got != tt.expected {
+				t.Errorf("isPublicIPv6(%s) = %v, want %v", tt.ip, got, tt.expected)
+			}
+		})
 	}
 }
