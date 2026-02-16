@@ -213,7 +213,16 @@ func (d *DHTDiscovery) Stop() error {
 // discoverExternalEndpoint queries two STUN servers to find this node's
 // server-reflexive address and detect NAT type. Updates localNode.WGEndpoint
 // and localNode.NATType. Falls back to the existing endpoint if STUN fails.
+// Also discovers IPv6 endpoint if available (no NAT, preferred for direct connection).
 func (d *DHTDiscovery) discoverExternalEndpoint() {
+	// First try IPv6 - no NAT traversal needed
+	if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
+		log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
+		d.localNode.WGEndpoint = ipv6Endpoint
+		d.localNode.NATType = NATUnknown // IPv6 has no NAT
+		return
+	}
+
 	servers := DefaultSTUNServers
 	if len(servers) < 2 {
 		// Need at least 2 servers for NAT type detection; fall back to simple query
@@ -241,6 +250,40 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 	d.localNode.NATType = natType
 }
 
+func (d *DHTDiscovery) discoverIPv6Endpoint() string {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return ""
+	}
+
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			ipNet, ok := addr.(*net.IPNet)
+			if !ok {
+				continue
+			}
+			ip := ipNet.IP
+			if ip == nil || ip.To4() != nil {
+				continue
+			}
+			if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+				continue
+			}
+			if ip.IsGlobalUnicast() {
+				return net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+			}
+		}
+	}
+	return ""
+}
+
 // stunRefreshLoop periodically re-queries STUN servers to track NAT mapping changes.
 func (d *DHTDiscovery) stunRefreshLoop() {
 	ticker := time.NewTicker(60 * time.Second)
@@ -248,6 +291,15 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 	for {
 		select {
 		case <-ticker.C:
+			// Prefer IPv6 if available
+			if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
+				if ipv6Endpoint != d.localNode.WGEndpoint {
+					log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
+					d.localNode.WGEndpoint = ipv6Endpoint
+				}
+				continue
+			}
+
 			ip, _, err := DiscoverExternalEndpoint(0)
 			if err != nil {
 				log.Printf("[STUN] Refresh failed: %v", err)
