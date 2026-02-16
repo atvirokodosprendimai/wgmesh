@@ -55,6 +55,26 @@ func TestPeerStoreUpdateMerge(t *testing.T) {
 	}
 }
 
+func TestPeerStorePrefersLANEndpoint(t *testing.T) {
+	ps := NewPeerStore()
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		MeshIP:   "10.0.0.1",
+		Endpoint: "192.168.1.10:51820",
+	}, "lan")
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		Endpoint: "203.0.113.10:51820",
+	}, "dht")
+
+	got, _ := ps.Get("key1")
+	if got.Endpoint != "192.168.1.10:51820" {
+		t.Errorf("Expected LAN endpoint to be preserved, got %s", got.Endpoint)
+	}
+}
+
 func TestPeerStoreGetActive(t *testing.T) {
 	ps := NewPeerStore()
 
