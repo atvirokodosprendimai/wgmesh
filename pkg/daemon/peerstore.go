@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"log"
 	"sync"
 	"time"
 )
@@ -9,6 +10,7 @@ const (
 	PeerDeadTimeout   = 5 * time.Minute  // Consider peer dead after no updates
 	PeerRemoveTimeout = 10 * time.Minute // Remove peer from WG config after grace period
 	LANMethod         = "lan"
+	DefaultMaxPeers   = 1000 // Maximum number of peers to prevent DoS
 )
 
 // PeerInfo represents a discovered mesh peer
@@ -37,17 +39,27 @@ func NewPeerStore() *PeerStore {
 
 // Update adds or updates a peer in the store
 // Merge logic: newest timestamp wins for mutable fields (endpoint, routable_networks)
-func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
+func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) bool {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
 	existing, exists := ps.peers[info.WGPubKey]
 	if !exists {
+		// Check capacity before adding new peer
+		if len(ps.peers) >= DefaultMaxPeers {
+			pubKeyPreview := info.WGPubKey
+			if len(pubKeyPreview) > 16 {
+				pubKeyPreview = pubKeyPreview[:16] + "..."
+			}
+			log.Printf("[PeerStore] At capacity (%d peers), rejecting new peer %s via %s",
+				DefaultMaxPeers, pubKeyPreview, discoveryMethod)
+			return false
+		}
 		// New peer
 		info.LastSeen = time.Now()
 		info.DiscoveredVia = []string{discoveryMethod}
 		ps.peers[info.WGPubKey] = info
-		return
+		return true
 	}
 
 	// Update existing peer - newer info wins
@@ -74,6 +86,7 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	if !found {
 		existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
 	}
+	return true
 }
 
 func shouldUpdateEndpoint(existing *PeerInfo, discoveryMethod string) bool {

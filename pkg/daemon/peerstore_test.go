@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -143,5 +144,145 @@ func TestPeerStoreIsDead(t *testing.T) {
 
 	if !ps.IsDead("nonexistent") {
 		t.Error("Non-existent peer should be dead")
+	}
+}
+
+func TestPeerStoreMaxPeers(t *testing.T) {
+	ps := NewPeerStore()
+
+	// Add exactly DefaultMaxPeers
+	for i := 0; i < DefaultMaxPeers; i++ {
+		peer := &PeerInfo{
+			WGPubKey: fmt.Sprintf("key%d", i),
+			MeshIP:   fmt.Sprintf("10.0.%d.%d", i/255, i%255),
+		}
+		ps.Update(peer, "test")
+	}
+
+	if ps.Count() != DefaultMaxPeers {
+		t.Errorf("Expected %d peers, got %d", DefaultMaxPeers, ps.Count())
+	}
+
+	// Try to add one more - should fail
+	extraPeer := &PeerInfo{
+		WGPubKey: "extra",
+		MeshIP:   "10.1.0.1",
+	}
+	result := ps.Update(extraPeer, "test")
+
+	if ps.Count() != DefaultMaxPeers {
+		t.Errorf("Store should still have %d peers after rejection, got %d",
+			DefaultMaxPeers, ps.Count())
+	}
+
+	if result {
+		t.Error("Update should return false when at capacity")
+	}
+
+	if _, exists := ps.Get("extra"); exists {
+		t.Error("Extra peer should not be in store")
+	}
+}
+
+func TestPeerStoreCapacityRejection(t *testing.T) {
+	ps := NewPeerStore()
+
+	// Fill to capacity
+	for i := 0; i < DefaultMaxPeers; i++ {
+		peer := &PeerInfo{
+			WGPubKey: fmt.Sprintf("key%d", i),
+			MeshIP:   fmt.Sprintf("10.0.0.%d", i),
+		}
+		result := ps.Update(peer, "test")
+		if !result {
+			t.Errorf("Expected to add peer %d successfully", i)
+		}
+	}
+
+	// Try to add beyond capacity - all should fail
+	for i := 0; i < 10; i++ {
+		extraPeer := &PeerInfo{
+			WGPubKey: fmt.Sprintf("extra%d", i),
+			MeshIP:   "10.1.0.1",
+		}
+		result := ps.Update(extraPeer, "test")
+		if result {
+			t.Errorf("Expected peer %d to be rejected", i)
+		}
+	}
+
+	// Count should still be DefaultMaxPeers
+	if ps.Count() != DefaultMaxPeers {
+		t.Errorf("Expected %d peers, got %d", DefaultMaxPeers, ps.Count())
+	}
+}
+
+func TestPeerStoreUpdateExistingAtCapacity(t *testing.T) {
+	ps := NewPeerStore()
+
+	// Fill to capacity
+	for i := 0; i < DefaultMaxPeers; i++ {
+		peer := &PeerInfo{
+			WGPubKey: fmt.Sprintf("key%d", i),
+			MeshIP:   fmt.Sprintf("10.0.0.%d", i),
+			Endpoint: "1.2.3.4:51820",
+		}
+		ps.Update(peer, "test")
+	}
+
+	// Update an existing peer - should succeed
+	updated := &PeerInfo{
+		WGPubKey: "key0",
+		Endpoint: "5.6.7.8:51820",
+	}
+	result := ps.Update(updated, "lan")
+
+	if !result {
+		t.Error("Update of existing peer should succeed at capacity")
+	}
+
+	peer, _ := ps.Get("key0")
+	if peer.Endpoint != "5.6.7.8:51820" {
+		t.Error("Should be able to update existing peer when at capacity")
+	}
+
+	// Count should remain DefaultMaxPeers
+	if ps.Count() != DefaultMaxPeers {
+		t.Errorf("Expected %d peers, got %d", DefaultMaxPeers, ps.Count())
+	}
+}
+
+func TestPeerStoreCapacityAfterCleanup(t *testing.T) {
+	ps := NewPeerStore()
+
+	// Fill to capacity with old peers
+	for i := 0; i < DefaultMaxPeers; i++ {
+		ps.mu.Lock()
+		ps.peers[fmt.Sprintf("old%d", i)] = &PeerInfo{
+			WGPubKey: fmt.Sprintf("old%d", i),
+			LastSeen: time.Now().Add(-15 * time.Minute),
+		}
+		ps.mu.Unlock()
+	}
+
+	// Cleanup should remove all stale peers
+	removed := ps.CleanupStale()
+	if len(removed) != DefaultMaxPeers {
+		t.Errorf("Expected %d removed, got %d", DefaultMaxPeers, len(removed))
+	}
+
+	// Should now be able to add new peers
+	newPeer := &PeerInfo{
+		WGPubKey: "fresh",
+		MeshIP:   "10.0.0.1",
+	}
+	result := ps.Update(newPeer, "test")
+
+	if !result {
+		t.Error("Should be able to add peer after cleanup")
+	}
+
+	if _, exists := ps.Get("fresh"); !exists {
+		t.Error("Fresh peer should be in store after cleanup")
 	}
 }
