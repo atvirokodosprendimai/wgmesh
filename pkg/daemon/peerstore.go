@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	PeerDeadTimeout    = 5 * time.Minute  // Consider peer dead after no updates
-	PeerRemoveTimeout  = 10 * time.Minute // Remove peer from WG config after grace period
+	PeerDeadTimeout   = 5 * time.Minute  // Consider peer dead after no updates
+	PeerRemoveTimeout = 10 * time.Minute // Remove peer from WG config after grace period
 )
 
 // PeerInfo represents a discovered mesh peer

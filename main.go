@@ -20,6 +20,14 @@ import (
 var version = "dev"
 
 func main() {
+	// Check for version flags first (--version or -v)
+	for _, arg := range os.Args[1:] {
+		if arg == "--version" || arg == "-v" {
+			fmt.Println("wgmesh " + version)
+			return
+		}
+	}
+
 	// Check for subcommands first
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
@@ -147,6 +155,16 @@ func main() {
 func printUsage() {
 	fmt.Println(`wgmesh - WireGuard mesh network builder
 
+FLAGS:
+  --version, -v               Show version information
+  -state <file>    Path to mesh state file (default: mesh-state.json)
+  -add <spec>      Add node (format: hostname:ip:ssh_host[:ssh_port])
+  -remove <name>   Remove node by hostname
+  -list            List all nodes
+  -deploy          Deploy configuration to all nodes
+  -init            Initialize new mesh state file
+  -encrypt         Encrypt state file with password
+
 SUBCOMMANDS (decentralized mode):
   init --secret                 Generate a new mesh secret
   join --secret <SECRET>        Join a mesh network
@@ -156,16 +174,11 @@ SUBCOMMANDS (decentralized mode):
   uninstall-service             Remove systemd service
   rotate-secret                 Rotate mesh secret
 
-FLAGS (centralized mode):
-  -state <file>    Path to mesh state file (default: mesh-state.json)
-  -add <spec>      Add node (format: hostname:ip:ssh_host[:ssh_port])
-  -remove <name>   Remove node by hostname
-  -list            List all nodes
-  -deploy          Deploy configuration to all nodes
-  -init            Initialize new mesh state file
-  -encrypt         Encrypt state file with password
-
 EXAMPLES:
+  # Show version
+  wgmesh --version
+  wgmesh -v
+
   # Decentralized mode (automatic peer discovery):
   wgmesh init --secret                          # Generate a new mesh secret
   wgmesh join --secret "wgmesh://v1/K7x2..."    # Join mesh on this node

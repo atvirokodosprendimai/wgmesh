@@ -13,11 +13,11 @@ import (
 )
 
 const (
-	LANMulticastBase     = "239.192.0.0"
-	LANMulticastPort     = 51830
-	LANAnnounceInterval  = 5 * time.Second
-	LANMaxMessageSize    = 4096
-	LANMethod            = "lan"
+	LANMulticastBase    = "239.192.0.0"
+	LANMulticastPort    = 51830
+	LANAnnounceInterval = 5 * time.Second
+	LANMaxMessageSize   = 4096
+	LANMethod           = "lan"
 )
 
 // LANDiscovery handles peer discovery via UDP multicast on the local network

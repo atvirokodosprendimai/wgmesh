@@ -22,9 +22,9 @@ func TestPeerCacheSaveAndLoad(t *testing.T) {
 		Endpoint: "1.2.3.4:51820",
 	}, "test")
 	ps.Update(&PeerInfo{
-		WGPubKey: "pubkey2",
-		MeshIP:   "10.0.0.2",
-		Endpoint: "5.6.7.8:51820",
+		WGPubKey:         "pubkey2",
+		MeshIP:           "10.0.0.2",
+		Endpoint:         "5.6.7.8:51820",
 		RoutableNetworks: []string{"192.168.0.0/24"},
 	}, "test")
 

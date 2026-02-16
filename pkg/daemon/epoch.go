@@ -8,8 +8,8 @@ import (
 
 // EpochManager manages relay peer epochs for Dandelion++ privacy
 type EpochManager struct {
-	router  *privacy.DandelionRouter
-	stopCh  chan struct{}
+	router *privacy.DandelionRouter
+	stopCh chan struct{}
 }
 
 // NewEpochManager creates a new epoch manager

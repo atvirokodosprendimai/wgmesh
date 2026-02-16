@@ -53,10 +53,10 @@ func GetCurrentRoutes(client *Client, iface string) ([]RouteEntry, error) {
 
 func CalculateRouteDiff(current, desired []RouteEntry) (toAdd, toRemove []RouteEntry) {
 	// Build maps for exact matching (network+gateway) and network-only lookups
-	currentMap := make(map[string]RouteEntry)          // "network|gateway" -> route
-	desiredMap := make(map[string]RouteEntry)          // "network|gateway" -> route
-	currentByNetwork := make(map[string]RouteEntry)    // "network" -> route
-	desiredByNetwork := make(map[string]RouteEntry)    // "network" -> route
+	currentMap := make(map[string]RouteEntry)       // "network|gateway" -> route
+	desiredMap := make(map[string]RouteEntry)       // "network|gateway" -> route
+	currentByNetwork := make(map[string]RouteEntry) // "network" -> route
+	desiredByNetwork := make(map[string]RouteEntry) // "network" -> route
 
 	for _, r := range current {
 		key := makeRouteKey(r.Network, r.Gateway)
