@@ -3,11 +3,14 @@ package daemon
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,9 +26,10 @@ const (
 
 // Daemon manages the mesh node lifecycle
 type Daemon struct {
-	config    *Config
-	localNode *LocalNode
-	peerStore *PeerStore
+	config                 *Config
+	localNode              *LocalNode
+	peerStore              *PeerStore
+	lastAppliedPeerConfigs map[string]string
 
 	// Discovery layer (DHT discovery will be attached)
 	dhtDiscovery DiscoveryLayer
@@ -61,10 +65,11 @@ func NewDaemon(config *Config) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
-		config:    config,
-		peerStore: NewPeerStore(),
-		ctx:       ctx,
-		cancel:    cancel,
+		config:                 config,
+		peerStore:              NewPeerStore(),
+		lastAppliedPeerConfigs: make(map[string]string),
+		ctx:                    ctx,
+		cancel:                 cancel,
 	}
 
 	return d, nil
@@ -238,16 +243,9 @@ func (d *Daemon) reconcileLoop() {
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
 	peers := d.peerStore.GetActive()
-	for _, peer := range peers {
-		// Skip ourselves
-		if peer.WGPubKey == d.localNode.WGPubKey {
-			continue
-		}
-
-		// Add/update peer in WireGuard
-		if err := d.configurePeer(peer); err != nil {
-			log.Printf("Failed to configure peer %s: %v", peer.WGPubKey[:8]+"...", err)
-		}
+	desired := d.buildDesiredPeerConfigs(peers)
+	if err := d.applyDesiredPeerConfigs(desired); err != nil {
+		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
 	}
 
 	if err := d.syncPeerRoutes(peers); err != nil {
@@ -266,22 +264,152 @@ func (d *Daemon) reconcile() {
 	}
 }
 
-// configurePeer adds or updates a peer in the WireGuard configuration
-func (d *Daemon) configurePeer(peer *PeerInfo) error {
-	// Build allowed IPs (mesh IP + routable networks)
-	allowedIPs := peer.MeshIP + "/32"
-	for _, net := range peer.RoutableNetworks {
-		allowedIPs += "," + net
+type desiredPeerConfig struct {
+	peer    *PeerInfo
+	allowed map[string]struct{}
+}
+
+func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) map[string]*desiredPeerConfig {
+	desired := make(map[string]*desiredPeerConfig)
+	relayCandidates := make([]*PeerInfo, 0)
+
+	for _, p := range peers {
+		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" {
+			continue
+		}
+		if p.Introducer && p.Endpoint != "" {
+			relayCandidates = append(relayCandidates, p)
+		}
 	}
 
-	// Use wg set to add/update peer
-	return wireguard.SetPeer(
-		d.config.InterfaceName,
-		peer.WGPubKey,
-		d.config.Keys.PSK,
-		peer.Endpoint,
-		allowedIPs,
-	)
+	for _, p := range peers {
+		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" || p.MeshIP == "" {
+			continue
+		}
+
+		if d.shouldRelayPeer(p, relayCandidates) {
+			relay := d.selectRelayForPeer(p, relayCandidates)
+			if relay != nil {
+				d.addAllowedIP(desired, relay, p.MeshIP+"/32")
+				for _, network := range p.RoutableNetworks {
+					network = strings.TrimSpace(network)
+					if network != "" {
+						d.addAllowedIP(desired, relay, network)
+					}
+				}
+				continue
+			}
+		}
+
+		d.addAllowedIP(desired, p, p.MeshIP+"/32")
+		for _, network := range p.RoutableNetworks {
+			network = strings.TrimSpace(network)
+			if network != "" {
+				d.addAllowedIP(desired, p, network)
+			}
+		}
+	}
+
+	return desired
+}
+
+func (d *Daemon) shouldRelayPeer(peer *PeerInfo, relayCandidates []*PeerInfo) bool {
+	if d.config.Introducer {
+		return false
+	}
+	if peer.Introducer {
+		return false
+	}
+	if len(relayCandidates) == 0 {
+		return false
+	}
+	return true
+}
+
+func (d *Daemon) selectRelayForPeer(peer *PeerInfo, relayCandidates []*PeerInfo) *PeerInfo {
+	if len(relayCandidates) == 0 || peer == nil {
+		return nil
+	}
+
+	sorted := make([]*PeerInfo, 0, len(relayCandidates))
+	for _, candidate := range relayCandidates {
+		if candidate == nil || candidate.WGPubKey == "" || candidate.Endpoint == "" {
+			continue
+		}
+		sorted = append(sorted, candidate)
+	}
+	if len(sorted) == 0 {
+		return nil
+	}
+
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].WGPubKey < sorted[j].WGPubKey
+	})
+
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(d.localNode.WGPubKey))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(peer.WGPubKey))
+	idx := int(h.Sum64() % uint64(len(sorted)))
+
+	return sorted[idx]
+}
+
+func (d *Daemon) addAllowedIP(desired map[string]*desiredPeerConfig, peer *PeerInfo, cidr string) {
+	if peer == nil || peer.WGPubKey == "" || cidr == "" {
+		return
+	}
+
+	entry, exists := desired[peer.WGPubKey]
+	if !exists {
+		entry = &desiredPeerConfig{peer: peer, allowed: make(map[string]struct{})}
+		desired[peer.WGPubKey] = entry
+	}
+	entry.allowed[cidr] = struct{}{}
+}
+
+func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) error {
+	existing, err := wireguard.GetPeers(d.config.InterfaceName)
+	if err == nil {
+		for _, current := range existing {
+			if _, ok := desired[current.PublicKey]; !ok {
+				if err := wireguard.RemovePeer(d.config.InterfaceName, current.PublicKey); err != nil {
+					log.Printf("Failed to remove obsolete peer %s: %v", current.PublicKey[:8]+"...", err)
+				}
+				delete(d.lastAppliedPeerConfigs, current.PublicKey)
+			}
+		}
+	}
+
+	for pubKey, cfg := range desired {
+		if cfg.peer.Endpoint == "" {
+			continue
+		}
+		allowed := mapKeysSorted(cfg.allowed)
+		if len(allowed) == 0 {
+			continue
+		}
+		allowedCSV := strings.Join(allowed, ",")
+		signature := cfg.peer.Endpoint + "|" + allowedCSV
+		if prev, ok := d.lastAppliedPeerConfigs[pubKey]; ok && prev == signature {
+			continue
+		}
+		if err := wireguard.SetPeer(d.config.InterfaceName, pubKey, d.config.Keys.PSK, cfg.peer.Endpoint, allowedCSV); err != nil {
+			return fmt.Errorf("failed to configure peer %s: %w", pubKey[:8]+"...", err)
+		}
+		d.lastAppliedPeerConfigs[pubKey] = signature
+	}
+
+	return nil
+}
+
+func mapKeysSorted(m map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // removePeer removes a peer from the WireGuard configuration

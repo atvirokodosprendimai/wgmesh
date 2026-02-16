@@ -597,6 +597,8 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 			continue
 		}
 
+		log.Printf("[NAT] No eligible introducer for %s (need --introducer peer with public control endpoint and DHT reachability)", shortKey(peer.WGPubKey))
+
 		targetControlEndpoint := d.controlEndpointForPeer(peer)
 		if targetControlEndpoint == "" {
 			continue
@@ -726,8 +728,8 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		if !p.Introducer {
 			continue
 		}
-		if !hasDiscoveryMethod(p.DiscoveredVia, DHTMethod) {
-			// Only use peers with direct DHT reachability as introducers.
+		if !hasAnyDHTReachability(p.DiscoveredVia) {
+			// Only use peers with at least one DHT-based reachability signal.
 			continue
 		}
 		if p.Endpoint == "" || !isLikelyPublicEndpoint(p.Endpoint) {
@@ -834,6 +836,15 @@ func shortKey(key string) string {
 func hasDiscoveryMethod(methods []string, method string) bool {
 	for _, m := range methods {
 		if m == method {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAnyDHTReachability(methods []string) bool {
+	for _, m := range methods {
+		if strings.HasPrefix(m, DHTMethod) {
 			return true
 		}
 	}

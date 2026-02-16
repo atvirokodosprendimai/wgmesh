@@ -22,6 +22,7 @@ const (
 	RendezvousStartLeadTime = 1200 * time.Millisecond
 	RendezvousPunchCooldown = 15 * time.Second
 	RendezvousStartCooldown = 30 * time.Second
+	RendezvousPortSpread    = 2
 )
 
 type rendezvousOffer struct {
@@ -318,6 +319,10 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		return nil, fmt.Errorf("failed to resolve address: %w", err)
 	}
 
+	replyCh := make(chan *daemon.PeerInfo, 1)
+	pe.setPendingReplyChannel(remoteAddr.String(), replyCh)
+	defer pe.clearPendingReplyChannel(remoteAddr.String())
+
 	// Build list of known peers for transitive discovery
 	knownPeers := pe.getKnownPeers()
 
@@ -336,22 +341,13 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		return nil, fmt.Errorf("failed to seal hello: %w", err)
 	}
 
-	// Use a dedicated ephemeral UDP socket for this exchange attempt.
-	// This improves NAT traversal when multiple nodes are behind one NAT.
-	ephemeralConn, err := net.ListenUDP("udp", &net.UDPAddr{Port: 0})
-	if err != nil {
-		return nil, fmt.Errorf("failed to open ephemeral UDP socket: %w", err)
-	}
-	defer ephemeralConn.Close()
-
-	localPort := ephemeralConn.LocalAddr().(*net.UDPAddr).Port
-	log.Printf("[Exchange] Sending HELLO to %s (ephemeral port: %d)", remoteAddr.String(), localPort)
-	log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, localPort)
+	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), pe.port)
+	log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, pe.port)
 
 	attempts := 0
 	sendHello := func() error {
 		attempts++
-		_, sendErr := ephemeralConn.WriteToUDP(data, remoteAddr)
+		_, sendErr := pe.conn.WriteToUDP(data, remoteAddr)
 		if sendErr != nil {
 			return fmt.Errorf("failed to send hello: %w", sendErr)
 		}
@@ -362,90 +358,29 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		return nil, err
 	}
 
-	deadline := time.Now().Add(ExchangeTimeout)
+	timeout := time.NewTimer(ExchangeTimeout)
+	defer timeout.Stop()
 	punchTicker := time.NewTicker(PunchInterval)
 	defer punchTicker.Stop()
-	buf := make([]byte, MaxExchangeSize)
 
 	for {
-		if time.Now().After(deadline) {
-			log.Printf("[NAT] Punch timeout with %s after %d HELLO attempts", remoteAddr.String(), attempts)
-			return nil, fmt.Errorf("exchange timeout")
-		}
-
-		ephemeralConn.SetReadDeadline(time.Now().Add(200 * time.Millisecond))
-		n, from, readErr := ephemeralConn.ReadFromUDP(buf)
-		if readErr == nil {
-			envelope, plaintext, openErr := crypto.OpenEnvelopeRaw(buf[:n], pe.config.Keys.GossipKey)
-			if openErr == nil {
-				switch envelope.MessageType {
-				case crypto.MessageTypeReply:
-					var reply crypto.PeerAnnouncement
-					if err := json.Unmarshal(plaintext, &reply); err == nil {
-						peerInfo := &daemon.PeerInfo{
-							WGPubKey:         reply.WGPubKey,
-							MeshIP:           reply.MeshIP,
-							Endpoint:         resolvePeerEndpoint(reply.WGEndpoint, from),
-							Introducer:       reply.Introducer,
-							RoutableNetworks: reply.RoutableNetworks,
-						}
-						pe.updateTransitivePeers(reply.KnownPeers)
-						if attempts > 1 {
-							log.Printf("[NAT] Punch success with %s after %d HELLO attempts", remoteAddr.String(), attempts)
-						} else {
-							log.Printf("[NAT] Peer exchange succeeded with %s on first attempt", remoteAddr.String())
-						}
-						return peerInfo, nil
-					}
-				case crypto.MessageTypeHello:
-					var hello crypto.PeerAnnouncement
-					if err := json.Unmarshal(plaintext, &hello); err == nil && hello.WGPubKey != pe.localNode.WGPubKey {
-						peerInfo := &daemon.PeerInfo{
-							WGPubKey:         hello.WGPubKey,
-							MeshIP:           hello.MeshIP,
-							Endpoint:         resolvePeerEndpoint(hello.WGEndpoint, from),
-							Introducer:       hello.Introducer,
-							RoutableNetworks: hello.RoutableNetworks,
-						}
-						pe.peerStore.Update(peerInfo, DHTMethod)
-						pe.updateTransitivePeers(hello.KnownPeers)
-						if err := pe.sendReplyWithConn(ephemeralConn, from); err != nil {
-							log.Printf("[Exchange] Failed to send ephemeral reply to %s: %v", from.String(), err)
-						}
-					}
-				}
-			}
-		}
-
 		select {
+		case peerInfo := <-replyCh:
+			if attempts > 1 {
+				log.Printf("[NAT] Punch success with %s after %d HELLO attempts", remoteAddr.String(), attempts)
+			} else {
+				log.Printf("[NAT] Peer exchange succeeded with %s on first attempt", remoteAddr.String())
+			}
+			return peerInfo, nil
 		case <-punchTicker.C:
 			if err := sendHello(); err != nil {
 				log.Printf("[Exchange] HELLO resend to %s failed: %v", remoteAddr.String(), err)
 			}
-		default:
+		case <-timeout.C:
+			log.Printf("[NAT] Punch timeout with %s after %d HELLO attempts", remoteAddr.String(), attempts)
+			return nil, fmt.Errorf("exchange timeout")
 		}
 	}
-}
-
-func (pe *PeerExchange) sendReplyWithConn(conn *net.UDPConn, remoteAddr *net.UDPAddr) error {
-	knownPeers := pe.getKnownPeers()
-
-	announcement := crypto.CreateAnnouncement(
-		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
-		pe.localNode.WGEndpoint,
-		pe.localNode.Introducer,
-		pe.localNode.RoutableNetworks,
-		knownPeers,
-	)
-
-	data, err := crypto.SealEnvelope(crypto.MessageTypeReply, announcement, pe.config.Keys.GossipKey)
-	if err != nil {
-		return fmt.Errorf("failed to seal reply: %w", err)
-	}
-
-	_, err = conn.WriteToUDP(data, remoteAddr)
-	return err
 }
 
 // RequestRendezvous asks an introducer to coordinate synchronized NAT punching
@@ -504,7 +439,7 @@ func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr
 	observed := remoteAddr.String()
 	candidates := append([]string{}, offer.Candidates...)
 	candidates = append(candidates, observed)
-	candidates = normalizeCandidates(candidates)
+	candidates = expandCandidatePorts(normalizeCandidates(candidates), RendezvousPortSpread)
 	log.Printf("[NAT] Introducer %s received offer pair=%s from=%s target=%s observed=%s candidates=%v", shortKey(pe.localNode.WGPubKey), shortKey(pairID), shortKey(offer.FromPubKey), shortKey(offer.TargetPubKey), observed, candidates)
 
 	pe.rendezvousMu.Lock()
@@ -547,7 +482,7 @@ func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr
 					FromPubKey:    offer.TargetPubKey,
 					TargetPubKey:  offer.FromPubKey,
 					PairID:        pairID,
-					Candidates:    normalizeCandidates([]string{targetControl}),
+					Candidates:    expandCandidatePorts(normalizeCandidates([]string{targetControl}), RendezvousPortSpread),
 					IntroducerKey: pe.localNode.WGPubKey,
 				}
 				st.offers[offer.TargetPubKey] = b
@@ -716,6 +651,46 @@ func normalizeCandidates(candidates []string) []string {
 		}
 		seen[norm] = struct{}{}
 		out = append(out, norm)
+	}
+
+	return out
+}
+
+func expandCandidatePorts(candidates []string, spread int) []string {
+	if len(candidates) == 0 || spread <= 0 {
+		return candidates
+	}
+
+	seen := make(map[string]struct{}, len(candidates)*(spread*2+1))
+	out := make([]string, 0, len(candidates)*(spread*2+1))
+
+	appendCandidate := func(c string) {
+		if _, ok := seen[c]; ok {
+			return
+		}
+		seen[c] = struct{}{}
+		out = append(out, c)
+	}
+
+	for _, candidate := range candidates {
+		host, portStr, err := net.SplitHostPort(candidate)
+		if err != nil {
+			continue
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			continue
+		}
+
+		appendCandidate(net.JoinHostPort(host, strconv.Itoa(port)))
+		for delta := 1; delta <= spread; delta++ {
+			if p := port - delta; p > 0 {
+				appendCandidate(net.JoinHostPort(host, strconv.Itoa(p)))
+			}
+			if p := port + delta; p <= 65535 {
+				appendCandidate(net.JoinHostPort(host, strconv.Itoa(p)))
+			}
+		}
 	}
 
 	return out
