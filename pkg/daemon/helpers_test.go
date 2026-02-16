@@ -407,14 +407,14 @@ func TestSetInterfaceAddress_Darwin(t *testing.T) {
 						}
 					}
 					if name == "route" && len(args) >= 3 {
-						if args[2] == "add" {
+						if args[1] == "add" {
 							return &MockCommand{
 								combinedOutputFunc: func() ([]byte, error) {
 									return tt.routeAddOutput, tt.routeAddErr
 								},
 							}
 						}
-						if args[2] == "change" {
+						if args[1] == "change" {
 							return &MockCommand{
 								combinedOutputFunc: func() ([]byte, error) {
 									return tt.routeChangeOutput, tt.routeChangeErr
