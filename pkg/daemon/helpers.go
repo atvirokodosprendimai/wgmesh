@@ -103,12 +103,18 @@ func createInterface(name string) error {
 		}
 		
 		// Wait for the process in a goroutine to prevent zombie processes
+		// Copy the interface name to avoid capturing the loop variable
+		ifaceName := name
 		go func() {
 			if err := cmd.Wait(); err != nil {
 				// Log any errors but don't fail - wireguard-go runs as daemon
-				log.Printf("wireguard-go process for %s exited: %v", name, err)
-				if errBuf.Len() > 0 {
-					log.Printf("wireguard-go stderr: %s", errBuf.String())
+				// Read output after Wait() to avoid race conditions
+				log.Printf("wireguard-go process for %s exited: %v", ifaceName, err)
+				if stderr := errBuf.String(); stderr != "" {
+					log.Printf("wireguard-go stderr: %s", stderr)
+				}
+				if stdout := outBuf.String(); stdout != "" {
+					log.Printf("wireguard-go stdout: %s", stdout)
 				}
 			}
 		}()
