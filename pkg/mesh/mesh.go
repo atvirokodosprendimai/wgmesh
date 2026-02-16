@@ -76,7 +76,7 @@ func (m *Mesh) Save(stateFile string) error {
 
 	// Ensure directory exists
 	dir := filepath.Dir(stateFile)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
