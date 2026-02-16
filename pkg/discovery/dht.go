@@ -542,12 +542,11 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 			continue
 		}
 
+		// Acquire semaphore before spawning goroutine to limit concurrency
+		sem <- struct{}{}
 		wg.Add(1)
 		go func(endpoint string) {
 			defer wg.Done()
-
-			// Acquire semaphore
-			sem <- struct{}{}
 			defer func() { <-sem }()
 
 			d.exchangeWithAddress(endpoint, DHTMethod+"-transitive")
