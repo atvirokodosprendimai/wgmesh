@@ -276,12 +276,49 @@ func (d *DHTDiscovery) discoverIPv6Endpoint() string {
 			if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
 				continue
 			}
-			if ip.IsGlobalUnicast() {
-				return net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+			if !ip.IsGlobalUnicast() {
+				continue
 			}
+			if !isPublicIPv6(ip) {
+				continue
+			}
+			return net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 		}
 	}
 	return ""
+}
+
+func isPublicIPv6(ip net.IP) bool {
+	if ip == nil || len(ip) != 16 {
+		return false
+	}
+	if ip.To4() != nil {
+		return false
+	}
+
+	var specialPrefixes = []struct {
+		prefix net.IP
+		bits   int
+	}{
+		{net.ParseIP("200::"), 7},   // Teredo / Orchid / Apple Private Relay
+		{net.ParseIP("fc00::"), 7},  // ULA
+		{net.ParseIP("fd00::"), 8},  // ULA
+		{net.ParseIP("fe80::"), 10}, // Link-local
+		{net.ParseIP("ff00::"), 8},  // Multicast
+		{net.ParseIP("::1"), 128},   // Loopback
+	}
+
+	for _, sp := range specialPrefixes {
+		if sp.prefix == nil {
+			continue
+		}
+		mask := net.CIDRMask(sp.bits, 128)
+		if ip.Mask(mask).Equal(sp.prefix.Mask(mask)) {
+			return false
+		}
+	}
+
+	return true
 }
 
 // stunRefreshLoop periodically re-queries STUN servers to track NAT mapping changes.
