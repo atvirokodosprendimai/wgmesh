@@ -17,8 +17,8 @@ func (m *Mesh) Deploy() error {
 		return fmt.Errorf("failed to detect endpoints: %w", err)
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for hostname, node := range m.Nodes {
 		fmt.Printf("Deploying to %s...\n", hostname)
