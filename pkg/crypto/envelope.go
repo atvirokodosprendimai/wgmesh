@@ -17,6 +17,7 @@ const (
 	MessageTypeHello           = "HELLO"
 	MessageTypeReply           = "REPLY"
 	MessageTypeAnnounce        = "ANNOUNCE"
+	MessageTypeGoodbye         = "GOODBYE"
 	MessageTypeRendezvousOffer = "RENDEZVOUS_OFFER"
 	MessageTypeRendezvousStart = "RENDEZVOUS_START"
 )

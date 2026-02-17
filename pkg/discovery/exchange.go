@@ -50,6 +50,12 @@ type rendezvousStart struct {
 	IntroducerKey  string   `json:"introducer_key,omitempty"`
 }
 
+type goodbyeMessage struct {
+	Protocol  string `json:"protocol"`
+	Timestamp int64  `json:"timestamp"`
+	WGPubKey  string `json:"wg_pubkey"`
+}
+
 type rendezvousState struct {
 	offers    map[string]*rendezvousOffer
 	endpoints map[string]string
@@ -242,6 +248,21 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			return
 		}
 		pe.handleRendezvousStart(&start, remoteAddr)
+	case crypto.MessageTypeGoodbye:
+		var bye goodbyeMessage
+		if err := json.Unmarshal(plaintext, &bye); err != nil {
+			log.Printf("[Exchange] Invalid GOODBYE payload from %s: %v", remoteAddr.String(), err)
+			return
+		}
+		if bye.WGPubKey == "" || bye.WGPubKey == pe.localNode.WGPubKey {
+			return
+		}
+		pe.peerStore.Remove(bye.WGPubKey)
+		name := bye.WGPubKey
+		if len(name) > 8 {
+			name = name[:8] + "..."
+		}
+		log.Printf("[Exchange] Peer %s reported shutdown, removed from active set", name)
 	default:
 		log.Printf("[Exchange] Unknown message type: %s", envelope.MessageType)
 	}
@@ -998,6 +1019,31 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 
 	_, err = pe.conn.WriteToUDP(data, remoteAddr)
 	return err
+}
+
+// SendGoodbye sends a shutdown notification to a specific peer exchange endpoint.
+func (pe *PeerExchange) SendGoodbye(addr string) error {
+	remoteAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to resolve goodbye target %s: %w", addr, err)
+	}
+
+	msg := goodbyeMessage{
+		Protocol:  crypto.ProtocolVersion,
+		Timestamp: time.Now().Unix(),
+		WGPubKey:  pe.localNode.WGPubKey,
+	}
+
+	data, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, msg, pe.config.Keys.GossipKey)
+	if err != nil {
+		return fmt.Errorf("failed to seal goodbye: %w", err)
+	}
+
+	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	if err != nil {
+		return fmt.Errorf("failed to send goodbye: %w", err)
+	}
+	return nil
 }
 
 // SetAnnounceHandler sets a handler for gossip announcements.

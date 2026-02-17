@@ -271,6 +271,34 @@ func setInterfaceDown(name string) error {
 	}
 }
 
+// deleteInterface removes the WireGuard interface from the system.
+func deleteInterface(name string) error {
+	switch runtime.GOOS {
+	case "linux":
+		cmd := cmdExecutor.Command("ip", "link", "del", "dev", name)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			out := string(output)
+			if strings.Contains(out, "Cannot find device") || strings.Contains(out, "does not exist") {
+				return nil
+			}
+			return fmt.Errorf("failed to delete interface: %s: %w", out, err)
+		}
+		return nil
+	case "darwin":
+		cmd := cmdExecutor.Command("ifconfig", name, "destroy")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			out := string(output)
+			if strings.Contains(strings.ToLower(out), "does not exist") || strings.Contains(strings.ToLower(out), "no such") {
+				return nil
+			}
+			return fmt.Errorf("failed to delete interface: %s: %w", out, err)
+		}
+		return nil
+	default:
+		return nil
+	}
+}
+
 // resetInterface resets an existing interface for reconfiguration
 func resetInterface(name string) error {
 	// Bring interface down first

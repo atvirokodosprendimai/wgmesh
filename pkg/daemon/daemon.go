@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"hash/fnv"
@@ -8,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,7 +29,18 @@ const (
 	StaleCleanupInterval = 1 * time.Minute
 	HealthCheckInterval  = 20 * time.Second
 	HandshakeStaleAfter  = 150 * time.Second
+	MeshProbeInterval    = 1 * time.Second
+	MeshProbeDialTimeout = 800 * time.Millisecond
+	MeshProbeFailLimit   = 3
+	MeshProbePortOffset  = 2000
+	TemporaryOfflineTTL  = 30 * time.Second
+	soBindToDevice       = 25 // Linux SO_BINDTODEVICE
 )
+
+type peerProbeSession struct {
+	conn   net.Conn
+	reader *bufio.Reader
+}
 
 // Daemon manages the mesh node lifecycle
 type Daemon struct {
@@ -42,6 +55,13 @@ type Daemon struct {
 	peerHealthFailures     map[string]int
 	lastPeerTransferTotal  map[string]uint64
 	healthMu               sync.Mutex
+	healthProbePort        int
+	probeMu                sync.Mutex
+	probeSessions          map[string]*peerProbeSession
+	probeFailures          map[string]int
+	probeListeners         []net.Listener
+	offlineMu              sync.Mutex
+	temporaryOffline       map[string]time.Time
 
 	// Discovery layer (DHT discovery will be attached)
 	dhtDiscovery DiscoveryLayer
@@ -87,6 +107,10 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		localSubnetsFn:         detectLocalSubnets,
 		peerHealthFailures:     make(map[string]int),
 		lastPeerTransferTotal:  make(map[string]uint64),
+		healthProbePort:        int(config.Keys.GossipPort) + MeshProbePortOffset,
+		probeSessions:          make(map[string]*peerProbeSession),
+		probeFailures:          make(map[string]int),
+		temporaryOffline:       make(map[string]time.Time),
 		ctx:                    ctx,
 		cancel:                 cancel,
 	}
@@ -118,7 +142,11 @@ func (d *Daemon) Run() error {
 	if err := d.setupWireGuard(); err != nil {
 		return fmt.Errorf("failed to setup WireGuard: %w", err)
 	}
+	defer d.teardownWireGuard()
 	d.setLocalWGEndpoint()
+	if err := d.startMeshProbeServer(); err != nil {
+		log.Printf("[Health] Failed to start mesh probe server: %v", err)
+	}
 
 	// Start DHT discovery if configured
 	if d.dhtDiscovery != nil {
@@ -143,6 +171,9 @@ func (d *Daemon) Run() error {
 
 	// Monitor WG handshakes/transfer and quickly evict dead peers
 	go d.healthMonitorLoop()
+
+	// Keep persistent mesh-VPN health connections to peers
+	go d.meshProbeLoop()
 
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 
@@ -268,6 +299,21 @@ func (d *Daemon) setupWireGuard() error {
 	return nil
 }
 
+func (d *Daemon) teardownWireGuard() {
+	if d == nil || d.config == nil || d.config.InterfaceName == "" {
+		return
+	}
+
+	if err := setInterfaceDown(d.config.InterfaceName); err != nil {
+		log.Printf("[Shutdown] Failed to bring down interface %s: %v", d.config.InterfaceName, err)
+	}
+	if err := deleteInterface(d.config.InterfaceName); err != nil {
+		log.Printf("[Shutdown] Failed to delete interface %s: %v", d.config.InterfaceName, err)
+		return
+	}
+	log.Printf("[Shutdown] WireGuard interface %s removed", d.config.InterfaceName)
+}
+
 // reconcileLoop periodically reconciles the WireGuard configuration
 func (d *Daemon) reconcileLoop() {
 	ticker := time.NewTicker(ReconcileInterval)
@@ -326,6 +372,9 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desired
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" {
 			continue
 		}
+		if d.isTemporarilyOffline(p.WGPubKey) {
+			continue
+		}
 		if p.Introducer && p.Endpoint != "" && now.Sub(p.LastSeen) <= RelayCandidateMaxAge {
 			relayCandidates = append(relayCandidates, p)
 		}
@@ -336,6 +385,9 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desired
 
 	for _, p := range peers {
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" || p.MeshIP == "" {
+			continue
+		}
+		if d.isTemporarilyOffline(p.WGPubKey) {
 			continue
 		}
 
@@ -671,6 +723,287 @@ func (d *Daemon) healthMonitorLoop() {
 	}
 }
 
+func (d *Daemon) startMeshProbeServer() error {
+	if d.localNode == nil || d.localNode.MeshIP == "" {
+		return fmt.Errorf("local mesh IP not initialized")
+	}
+
+	listenAddrs := []string{net.JoinHostPort(d.localNode.MeshIP, strconv.Itoa(d.healthProbePort))}
+	if d.localNode.MeshIPv6 != "" {
+		listenAddrs = append(listenAddrs, net.JoinHostPort(d.localNode.MeshIPv6, strconv.Itoa(d.healthProbePort)))
+	}
+
+	started := 0
+	for _, addr := range listenAddrs {
+		ln, err := d.listenProbeOnInterface(addr)
+		if err != nil {
+			log.Printf("[Health] Probe listener bind failed on %s: %v", addr, err)
+			continue
+		}
+		started++
+		d.probeMu.Lock()
+		d.probeListeners = append(d.probeListeners, ln)
+		d.probeMu.Unlock()
+		go d.acceptProbeConnections(ln)
+	}
+
+	if started == 0 {
+		return fmt.Errorf("unable to bind probe listener")
+	}
+
+	go func() {
+		<-d.ctx.Done()
+		d.probeMu.Lock()
+		listeners := d.probeListeners
+		d.probeListeners = nil
+		d.probeMu.Unlock()
+		for _, ln := range listeners {
+			_ = ln.Close()
+		}
+	}()
+
+	log.Printf("[Health] Mesh probe server listening on tcp/%d", d.healthProbePort)
+	return nil
+}
+
+func (d *Daemon) acceptProbeConnections(ln net.Listener) {
+	for {
+		conn, err := ln.Accept()
+		if err != nil {
+			select {
+			case <-d.ctx.Done():
+				return
+			default:
+			}
+			continue
+		}
+		go handleProbeConnection(conn)
+	}
+}
+
+func handleProbeConnection(conn net.Conn) {
+	defer conn.Close()
+	reader := bufio.NewReader(conn)
+	for {
+		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return
+		}
+		if strings.TrimSpace(line) != "ping" {
+			continue
+		}
+		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+		if _, err := conn.Write([]byte("pong\n")); err != nil {
+			return
+		}
+	}
+}
+
+func (d *Daemon) meshProbeLoop() {
+	ticker := time.NewTicker(MeshProbeInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.probePeersOverMesh()
+		}
+	}
+}
+
+func (d *Daemon) probePeersOverMesh() {
+	peers := d.peerStore.GetActive()
+	activeSet := make(map[string]struct{}, len(peers))
+	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+
+	for _, p := range peers {
+		if p == nil || p.WGPubKey == "" || p.WGPubKey == d.localNode.WGPubKey || p.MeshIP == "" {
+			continue
+		}
+		activeSet[p.WGPubKey] = struct{}{}
+
+		// Only enforce probe health after a WG tunnel has been established at least once.
+		// Without this gate, newly discovered NAT peers can be evicted before first connect.
+		if ts, ok := handshakes[p.WGPubKey]; !ok || ts <= 0 {
+			d.probeMu.Lock()
+			d.probeFailures[p.WGPubKey] = 0
+			d.probeMu.Unlock()
+			d.closeProbeSession(p.WGPubKey)
+			continue
+		}
+
+		if d.probePeer(p) {
+			d.clearTemporarilyOffline(p.WGPubKey)
+			d.probeMu.Lock()
+			d.probeFailures[p.WGPubKey] = 0
+			d.probeMu.Unlock()
+			continue
+		}
+
+		d.probeMu.Lock()
+		d.probeFailures[p.WGPubKey]++
+		failures := d.probeFailures[p.WGPubKey]
+		d.probeMu.Unlock()
+
+		if failures >= MeshProbeFailLimit {
+			log.Printf("[Health] Probe failed %d times for %s, marking temporarily offline", failures, p.WGPubKey[:8]+"...")
+			d.evictPeerFromPool(p)
+		}
+	}
+
+	d.cleanupProbeSessions(activeSet)
+}
+
+func (d *Daemon) probePeer(peer *PeerInfo) bool {
+	if peer == nil || peer.WGPubKey == "" {
+		return false
+	}
+
+	session := d.getOrDialProbeSession(peer)
+	if session == nil {
+		return false
+	}
+
+	_ = session.conn.SetWriteDeadline(time.Now().Add(MeshProbeDialTimeout))
+	if _, err := session.conn.Write([]byte("ping\n")); err != nil {
+		d.closeProbeSession(peer.WGPubKey)
+		return false
+	}
+
+	_ = session.conn.SetReadDeadline(time.Now().Add(MeshProbeDialTimeout))
+	line, err := session.reader.ReadString('\n')
+	if err != nil {
+		d.closeProbeSession(peer.WGPubKey)
+		return false
+	}
+
+	if strings.TrimSpace(line) != "pong" {
+		d.closeProbeSession(peer.WGPubKey)
+		return false
+	}
+
+	return true
+}
+
+func (d *Daemon) getOrDialProbeSession(peer *PeerInfo) *peerProbeSession {
+	d.probeMu.Lock()
+	s := d.probeSessions[peer.WGPubKey]
+	d.probeMu.Unlock()
+	if s != nil {
+		return s
+	}
+
+	addrs := []string{net.JoinHostPort(peer.MeshIP, strconv.Itoa(d.healthProbePort))}
+	if !d.config.DisableIPv6 && peer.MeshIPv6 != "" {
+		addrs = append([]string{net.JoinHostPort(peer.MeshIPv6, strconv.Itoa(d.healthProbePort))}, addrs...)
+	}
+
+	for _, addr := range addrs {
+		conn, err := d.dialProbeOnInterface(addr)
+		if err != nil {
+			continue
+		}
+		session := &peerProbeSession{conn: conn, reader: bufio.NewReader(conn)}
+		d.probeMu.Lock()
+		d.probeSessions[peer.WGPubKey] = session
+		d.probeMu.Unlock()
+		return session
+	}
+
+	return nil
+}
+
+func (d *Daemon) closeProbeSession(pubKey string) {
+	d.probeMu.Lock()
+	s := d.probeSessions[pubKey]
+	delete(d.probeSessions, pubKey)
+	d.probeMu.Unlock()
+	if s != nil {
+		_ = s.conn.Close()
+	}
+}
+
+func (d *Daemon) cleanupProbeSessions(activeSet map[string]struct{}) {
+	d.probeMu.Lock()
+	keys := make([]string, 0)
+	for pubKey := range d.probeSessions {
+		if _, ok := activeSet[pubKey]; !ok {
+			keys = append(keys, pubKey)
+		}
+	}
+	d.probeMu.Unlock()
+
+	for _, pubKey := range keys {
+		d.closeProbeSession(pubKey)
+		d.probeMu.Lock()
+		delete(d.probeFailures, pubKey)
+		d.probeMu.Unlock()
+	}
+}
+
+func (d *Daemon) listenProbeOnInterface(addr string) (net.Listener, error) {
+	lc := net.ListenConfig{}
+	if runtime.GOOS == "linux" && d.config.InterfaceName != "" {
+		iface := d.config.InterfaceName
+		lc.Control = func(network, address string, c syscall.RawConn) error {
+			var sockErr error
+			err := c.Control(func(fd uintptr) {
+				sockErr = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, soBindToDevice, iface)
+			})
+			if err != nil {
+				return err
+			}
+			return sockErr
+		}
+	}
+	return lc.Listen(d.ctx, "tcp", addr)
+}
+
+func (d *Daemon) dialProbeOnInterface(addr string) (net.Conn, error) {
+	dialer := net.Dialer{Timeout: MeshProbeDialTimeout}
+	if local := d.probeLocalAddrForRemote(addr); local != nil {
+		dialer.LocalAddr = local
+	}
+	if runtime.GOOS == "linux" && d.config.InterfaceName != "" {
+		iface := d.config.InterfaceName
+		dialer.Control = func(network, address string, c syscall.RawConn) error {
+			var sockErr error
+			err := c.Control(func(fd uintptr) {
+				sockErr = syscall.SetsockoptString(int(fd), syscall.SOL_SOCKET, soBindToDevice, iface)
+			})
+			if err != nil {
+				return err
+			}
+			return sockErr
+		}
+	}
+	return dialer.DialContext(d.ctx, "tcp", addr)
+}
+
+func (d *Daemon) probeLocalAddrForRemote(remote string) net.Addr {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		return nil
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return nil
+	}
+	if ip.To4() != nil {
+		if d.localNode != nil && d.localNode.MeshIP != "" {
+			return &net.TCPAddr{IP: net.ParseIP(d.localNode.MeshIP)}
+		}
+		return nil
+	}
+	if d.localNode != nil && d.localNode.MeshIPv6 != "" {
+		return &net.TCPAddr{IP: net.ParseIP(d.localNode.MeshIPv6)}
+	}
+	return nil
+}
+
 func (d *Daemon) checkPeerHealth() {
 	handshakes, err := wireguard.GetLatestHandshakes(d.config.InterfaceName)
 	if err != nil {
@@ -782,6 +1115,7 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 		return
 	}
 	log.Printf("[Health] Evicting unresponsive peer %s from active pool", peer.WGPubKey[:8]+"...")
+	d.markTemporarilyOffline(peer.WGPubKey)
 	d.peerStore.Remove(peer.WGPubKey)
 	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
 		log.Printf("[Health] Failed to remove evicted peer %s from WireGuard: %v", peer.WGPubKey[:8]+"...", err)
@@ -796,6 +1130,48 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	delete(d.peerHealthFailures, peer.WGPubKey)
 	delete(d.lastPeerTransferTotal, peer.WGPubKey)
 	d.healthMu.Unlock()
+	d.closeProbeSession(peer.WGPubKey)
+	d.probeMu.Lock()
+	delete(d.probeFailures, peer.WGPubKey)
+	d.probeMu.Unlock()
+}
+
+func (d *Daemon) markTemporarilyOffline(pubKey string) {
+	if pubKey == "" {
+		return
+	}
+	d.offlineMu.Lock()
+	d.temporaryOffline[pubKey] = time.Now().Add(TemporaryOfflineTTL)
+	d.offlineMu.Unlock()
+}
+
+func (d *Daemon) clearTemporarilyOffline(pubKey string) {
+	if pubKey == "" {
+		return
+	}
+	d.offlineMu.Lock()
+	delete(d.temporaryOffline, pubKey)
+	d.offlineMu.Unlock()
+}
+
+func (d *Daemon) isTemporarilyOffline(pubKey string) bool {
+	if pubKey == "" {
+		return false
+	}
+	now := time.Now()
+	d.offlineMu.Lock()
+	until, ok := d.temporaryOffline[pubKey]
+	if !ok {
+		d.offlineMu.Unlock()
+		return false
+	}
+	if now.After(until) {
+		delete(d.temporaryOffline, pubKey)
+		d.offlineMu.Unlock()
+		return false
+	}
+	d.offlineMu.Unlock()
+	return true
 }
 
 // printStatus prints current mesh status
@@ -871,7 +1247,11 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	if err := d.setupWireGuard(); err != nil {
 		return fmt.Errorf("failed to setup WireGuard: %w", err)
 	}
+	defer d.teardownWireGuard()
 	d.setLocalWGEndpoint()
+	if err := d.startMeshProbeServer(); err != nil {
+		log.Printf("[Health] Failed to start mesh probe server: %v", err)
+	}
 
 	// Restore peers from cache for faster startup
 	RestoreFromCache(d.config.InterfaceName, d.peerStore)
@@ -929,6 +1309,9 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	// Monitor WG handshakes/transfer and quickly evict dead peers
 	go d.healthMonitorLoop()
+
+	// Keep persistent mesh-VPN health connections to peers
+	go d.meshProbeLoop()
 
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 

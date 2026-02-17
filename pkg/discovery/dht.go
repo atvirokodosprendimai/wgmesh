@@ -214,6 +214,8 @@ func (d *DHTDiscovery) Stop() error {
 	d.running = false
 	d.mu.Unlock()
 
+	d.broadcastGoodbye()
+
 	d.cancel()
 
 	if d.server != nil {
@@ -235,6 +237,33 @@ func (d *DHTDiscovery) Stop() error {
 
 	log.Printf("[DHT] Discovery stopped")
 	return nil
+}
+
+func (d *DHTDiscovery) broadcastGoodbye() {
+	if d.exchange == nil {
+		return
+	}
+
+	peers := d.peerStore.GetAll()
+	targets := make(map[string]struct{})
+	for _, p := range peers {
+		if p == nil || p.WGPubKey == "" || p.WGPubKey == d.localNode.WGPubKey {
+			continue
+		}
+		if endpoint := d.controlEndpointForPeer(p); endpoint != "" {
+			targets[endpoint] = struct{}{}
+			continue
+		}
+		if endpoint := toControlEndpoint(p.Endpoint, int(d.config.Keys.GossipPort)); endpoint != "" {
+			targets[endpoint] = struct{}{}
+		}
+	}
+
+	for endpoint := range targets {
+		if err := d.exchange.SendGoodbye(endpoint); err != nil {
+			d.debugf("[Exchange] Failed to send GOODBYE to %s: %v", endpoint, err)
+		}
+	}
 }
 
 // discoverExternalEndpoint queries two STUN servers to find this node's
