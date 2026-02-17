@@ -30,7 +30,7 @@ const (
 	HealthCheckInterval  = 20 * time.Second
 	HandshakeStaleAfter  = 150 * time.Second
 	MeshProbeInterval    = 1 * time.Second
-	MeshProbeDialTimeout = 800 * time.Millisecond
+	MeshProbeDialTimeout = 1200 * time.Millisecond // Increased from 800ms for cross-DC tolerance
 	MeshProbeFailLimit   = 8
 	MeshProbePortOffset  = 2000
 	TemporaryOfflineTTL  = 30 * time.Second

@@ -24,7 +24,7 @@ const (
 	RendezvousPunchCooldown = 6 * time.Second
 	RendezvousStartCooldown = 8 * time.Second
 	RendezvousPortSpread    = 2
-	HandshakeWaitTimeout    = 3 * time.Second
+	HandshakeWaitTimeout    = 10 * time.Second // Increased from 3s - WG handshake needs more time for cross-DC
 	HandshakePollInterval   = 250 * time.Millisecond
 	ExchangeLogCooldown     = 30 * time.Second
 )
