@@ -15,11 +15,15 @@ func createDHTDiscovery(config *daemon.Config, localNode *daemon.LocalNode, peer
 	// Convert daemon.LocalNode to discovery.LocalNode
 	discoveryLocalNode := &LocalNode{
 		WGPubKey:         localNode.WGPubKey,
+		Hostname:         localNode.Hostname,
 		WGPrivateKey:     localNode.WGPrivateKey,
 		MeshIP:           localNode.MeshIP,
-		WGEndpoint:       localNode.WGEndpoint,
+		MeshIPv6:         localNode.MeshIPv6,
 		RoutableNetworks: localNode.RoutableNetworks,
+		Introducer:       localNode.Introducer,
+		NATType:          NATType(localNode.NATType),
 	}
+	discoveryLocalNode.SetEndpoint(localNode.WGEndpoint)
 
 	return NewDHTDiscovery(config, discoveryLocalNode, peerStore)
 }

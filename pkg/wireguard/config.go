@@ -154,21 +154,21 @@ func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
 		if _, err := client.Run(cmd); err != nil {
 			return fmt.Errorf("failed to remove peer: %w", err)
 		}
-		fmt.Printf("    Removed peer: %s\n", pubKey[:16])
+		fmt.Printf("    Removed peer: %s\n", shortKey(pubKey))
 	}
 
 	for pubKey, peer := range diff.AddedPeers {
 		if err := addOrUpdatePeer(client, iface, pubKey, peer); err != nil {
 			return err
 		}
-		fmt.Printf("    Added peer: %s\n", pubKey[:16])
+		fmt.Printf("    Added peer: %s\n", shortKey(pubKey))
 	}
 
 	for pubKey, peer := range diff.ModifiedPeers {
 		if err := addOrUpdatePeer(client, iface, pubKey, peer); err != nil {
 			return err
 		}
-		fmt.Printf("    Updated peer: %s\n", pubKey[:16])
+		fmt.Printf("    Updated peer: %s\n", shortKey(pubKey))
 	}
 
 	return nil

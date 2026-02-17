@@ -9,6 +9,14 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
 
+// shortKey safely truncates a key for logging (avoids panic on short/empty keys).
+func shortKey(key string) string {
+	if len(key) > 16 {
+		return key[:16]
+	}
+	return key
+}
+
 type FullConfig struct {
 	Interface WGInterface
 	Peers     []WGPeer
@@ -25,6 +33,11 @@ type WGPeer struct {
 	Endpoint            string
 	AllowedIPs          []string
 	PersistentKeepalive int
+}
+
+type PeerTransfer struct {
+	RxBytes uint64
+	TxBytes uint64
 }
 
 func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig) error {
@@ -73,10 +86,10 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 		}
 
 		if _, err := client.Run(peerCmd); err != nil {
-			return fmt.Errorf("failed to add peer %s: %w", peer.PublicKey[:16], err)
+			return fmt.Errorf("failed to add peer %s: %w", shortKey(peer.PublicKey), err)
 		}
 
-		fmt.Printf("    Added peer: %s\n", peer.PublicKey[:16])
+		fmt.Printf("    Added peer: %s\n", shortKey(peer.PublicKey))
 	}
 
 	return nil
@@ -90,6 +103,7 @@ func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) er
 	hasStdin := false
 
 	// Add PSK if non-zero
+	// NOTE: /dev/stdin is Linux/macOS only; Windows would need a named pipe or temp file.
 	var zeroKey [32]byte
 	if psk != zeroKey {
 		pskB64 := base64.StdEncoding.EncodeToString(psk[:])
@@ -146,4 +160,60 @@ func GetPeers(iface string) ([]WGPeer, error) {
 	}
 
 	return peers, nil
+}
+
+// GetLatestHandshakes returns the most recent handshake time for each WG peer.
+// Returns a map of public key → Unix timestamp (0 means no handshake yet).
+func GetLatestHandshakes(iface string) (map[string]int64, error) {
+	cmd := exec.Command("wg", "show", iface, "latest-handshakes")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("wg show latest-handshakes failed: %w", err)
+	}
+
+	result := make(map[string]int64)
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Format: <pubkey>\t<unix_timestamp>
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		var ts int64
+		fmt.Sscanf(parts[1], "%d", &ts)
+		result[parts[0]] = ts
+	}
+
+	return result, nil
+}
+
+// GetPeerTransfers returns per-peer transfer counters from WireGuard.
+// Map key is peer public key and values are cumulative rx/tx bytes.
+func GetPeerTransfers(iface string) (map[string]PeerTransfer, error) {
+	cmd := exec.Command("wg", "show", iface, "transfer")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("wg show transfer failed: %w", err)
+	}
+
+	result := make(map[string]PeerTransfer)
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		var rx, tx uint64
+		fmt.Sscanf(parts[1], "%d", &rx)
+		fmt.Sscanf(parts[2], "%d", &tx)
+		result[parts[0]] = PeerTransfer{RxBytes: rx, TxBytes: tx}
+	}
+
+	return result, nil
 }

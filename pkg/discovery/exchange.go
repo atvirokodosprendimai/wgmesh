@@ -11,13 +11,56 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
 const (
-	ExchangeTimeout = 10 * time.Second
-	MaxExchangeSize = 65536 // 64KB max message size
-	ExchangePort    = 51821 // Default exchange port (can be derived from secret)
+	ExchangeTimeout         = 4 * time.Second
+	MaxExchangeSize         = 65536 // 64KB max message size
+	ExchangePort            = 51821 // Default exchange port (can be derived from secret)
+	PunchInterval           = 100 * time.Millisecond
+	RendezvousSessionTTL    = 20 * time.Second
+	RendezvousStartLeadTime = 1800 * time.Millisecond
+	RendezvousPunchCooldown = 6 * time.Second
+	RendezvousStartCooldown = 8 * time.Second
+	RendezvousPortSpread    = 2
+	HandshakeWaitTimeout    = 10 * time.Second // Increased from 3s - WG handshake needs more time for cross-DC
+	HandshakePollInterval   = 250 * time.Millisecond
+	ExchangeLogCooldown     = 30 * time.Second
 )
+
+type rendezvousOffer struct {
+	Protocol      string   `json:"protocol"`
+	Timestamp     int64    `json:"timestamp"`
+	FromPubKey    string   `json:"from_pubkey"`
+	TargetPubKey  string   `json:"target_pubkey"`
+	PairID        string   `json:"pair_id"`
+	Candidates    []string `json:"candidates,omitempty"`
+	ObservedAddr  string   `json:"observed_addr,omitempty"`
+	IntroducerKey string   `json:"introducer_key,omitempty"`
+}
+
+type rendezvousStart struct {
+	Protocol       string   `json:"protocol"`
+	Timestamp      int64    `json:"timestamp"`
+	PairID         string   `json:"pair_id"`
+	PeerPubKey     string   `json:"peer_pubkey"`
+	PeerCandidates []string `json:"peer_candidates,omitempty"`
+	StartAtUnixMs  int64    `json:"start_at_unix_ms"`
+	IntroducerKey  string   `json:"introducer_key,omitempty"`
+}
+
+type goodbyeMessage struct {
+	Protocol  string `json:"protocol"`
+	Timestamp int64  `json:"timestamp"`
+	WGPubKey  string `json:"wg_pubkey"`
+}
+
+type rendezvousState struct {
+	offers    map[string]*rendezvousOffer
+	endpoints map[string]string
+	createdAt time.Time
+}
 
 // PeerExchange handles the encrypted peer exchange protocol
 type PeerExchange struct {
@@ -36,16 +79,28 @@ type PeerExchange struct {
 	pendingReplies map[string]chan *daemon.PeerInfo
 
 	announceHandler func(*crypto.PeerAnnouncement, *net.UDPAddr)
+
+	rendezvousMu       sync.Mutex
+	rendezvousSessions map[string]*rendezvousState
+	activePunches      map[string]time.Time
+	rendezvousStarts   map[string]time.Time
+
+	logMu         sync.Mutex
+	lastPacketLog map[string]time.Time
 }
 
 // NewPeerExchange creates a new peer exchange handler
 func NewPeerExchange(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) *PeerExchange {
 	return &PeerExchange{
-		config:         config,
-		localNode:      localNode,
-		peerStore:      peerStore,
-		stopCh:         make(chan struct{}),
-		pendingReplies: make(map[string]chan *daemon.PeerInfo),
+		config:             config,
+		localNode:          localNode,
+		peerStore:          peerStore,
+		stopCh:             make(chan struct{}),
+		pendingReplies:     make(map[string]chan *daemon.PeerInfo),
+		rendezvousSessions: make(map[string]*rendezvousState),
+		activePunches:      make(map[string]time.Time),
+		rendezvousStarts:   make(map[string]time.Time),
+		lastPacketLog:      make(map[string]time.Time),
 	}
 }
 
@@ -71,6 +126,7 @@ func (pe *PeerExchange) Start() error {
 	pe.conn = conn
 	pe.port = port
 	pe.running = true
+	pe.stopCh = make(chan struct{}) // Re-create for restart safety (B8)
 
 	// Start listener
 	go pe.listenLoop()
@@ -143,27 +199,71 @@ func (pe *PeerExchange) listenLoop() {
 // handleMessage processes an incoming peer exchange message
 func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	// Try to decrypt the message
-	envelope, announcement, err := crypto.OpenEnvelope(data, pe.config.Keys.GossipKey)
+	envelope, plaintext, err := crypto.OpenEnvelopeRaw(data, pe.config.Keys.GossipKey)
 	if err != nil {
 		// Could be a DHT message or wrong key - log for debugging
 		log.Printf("[Exchange] Received non-wgmesh packet from %s (len=%d, possibly DHT or wrong secret)", remoteAddr.String(), len(data))
 		return
 	}
 
-	log.Printf("[Exchange] SUCCESS! Received valid %s from wgmesh peer at %s", envelope.MessageType, remoteAddr.String())
+	pe.logIncomingPacket(envelope.MessageType, remoteAddr)
 
 	switch envelope.MessageType {
 	case crypto.MessageTypeHello:
-		pe.handleHello(announcement, remoteAddr)
+		var announcement crypto.PeerAnnouncement
+		if err := json.Unmarshal(plaintext, &announcement); err != nil {
+			log.Printf("[Exchange] Invalid HELLO payload from %s: %v", remoteAddr.String(), err)
+			return
+		}
+		pe.handleHello(&announcement, remoteAddr)
 	case crypto.MessageTypeReply:
-		pe.handleReply(announcement, remoteAddr)
+		var reply crypto.PeerAnnouncement
+		if err := json.Unmarshal(plaintext, &reply); err != nil {
+			log.Printf("[Exchange] Invalid REPLY payload from %s: %v", remoteAddr.String(), err)
+			return
+		}
+		pe.handleReply(&reply, remoteAddr)
 	case crypto.MessageTypeAnnounce:
+		var announcement crypto.PeerAnnouncement
+		if err := json.Unmarshal(plaintext, &announcement); err != nil {
+			log.Printf("[Exchange] Invalid ANNOUNCE payload from %s: %v", remoteAddr.String(), err)
+			return
+		}
 		pe.mu.RLock()
 		handler := pe.announceHandler
 		pe.mu.RUnlock()
 		if handler != nil {
-			handler(announcement, remoteAddr)
+			handler(&announcement, remoteAddr)
 		}
+	case crypto.MessageTypeRendezvousOffer:
+		var offer rendezvousOffer
+		if err := json.Unmarshal(plaintext, &offer); err != nil {
+			log.Printf("[NAT] Invalid RENDEZVOUS_OFFER from %s: %v", remoteAddr.String(), err)
+			return
+		}
+		pe.handleRendezvousOffer(&offer, remoteAddr)
+	case crypto.MessageTypeRendezvousStart:
+		var start rendezvousStart
+		if err := json.Unmarshal(plaintext, &start); err != nil {
+			log.Printf("[NAT] Invalid RENDEZVOUS_START from %s: %v", remoteAddr.String(), err)
+			return
+		}
+		pe.handleRendezvousStart(&start, remoteAddr)
+	case crypto.MessageTypeGoodbye:
+		var bye goodbyeMessage
+		if err := json.Unmarshal(plaintext, &bye); err != nil {
+			log.Printf("[Exchange] Invalid GOODBYE payload from %s: %v", remoteAddr.String(), err)
+			return
+		}
+		if bye.WGPubKey == "" || bye.WGPubKey == pe.localNode.WGPubKey {
+			return
+		}
+		pe.peerStore.Remove(bye.WGPubKey)
+		name := bye.WGPubKey
+		if len(name) > 8 {
+			name = name[:8] + "..."
+		}
+		log.Printf("[Exchange] Peer %s reported shutdown, removed from active set", name)
 	default:
 		log.Printf("[Exchange] Unknown message type: %s", envelope.MessageType)
 	}
@@ -179,9 +279,13 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 	// Update peer store with the sender's info
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         announcement.WGPubKey,
+		Hostname:         announcement.Hostname,
 		MeshIP:           announcement.MeshIP,
-		Endpoint:         resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr),
+		MeshIPv6:         announcement.MeshIPv6,
+		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
+		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
+		NATType:          announcement.NATType,
 	}
 
 	pe.peerStore.Update(peerInfo, DHTMethod)
@@ -195,15 +299,29 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 }
 
 // handleReply routes a REPLY back to an in-flight exchange request.
+// If the reply contains ObservedEndpoint (peer-as-STUN reflector), we use
+// the reflected public IP to update our own localNode.WGEndpoint.
 func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *net.UDPAddr) {
+	// Peer-as-STUN reflector: the responder tells us what our public
+	// IP:port looks like. Use the reflected IP combined with our WG port.
+	pe.applyObservedEndpoint(reply.ObservedEndpoint)
+
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         reply.WGPubKey,
+		Hostname:         reply.Hostname,
 		MeshIP:           reply.MeshIP,
-		Endpoint:         resolvePeerEndpoint(reply.WGEndpoint, remoteAddr),
+		MeshIPv6:         reply.MeshIPv6,
+		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(reply.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
+		Introducer:       reply.Introducer,
 		RoutableNetworks: reply.RoutableNetworks,
+		NATType:          reply.NATType,
 	}
 
 	pe.updateTransitivePeers(reply.KnownPeers)
+
+	// Always update the peer store so reconcile can configure WG promptly,
+	// even when we also route this reply to a pending ExchangeWithPeer caller.
+	pe.peerStore.Update(peerInfo, DHTMethod)
 
 	if ch, ok := pe.getPendingReplyChannel(remoteAddr.String()); ok {
 		select {
@@ -214,10 +332,60 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 	}
 
 	log.Printf("[Exchange] Received unsolicited REPLY from %s", remoteAddr.String())
-	pe.peerStore.Update(peerInfo, DHTMethod)
 }
 
-// sendReply sends a REPLY message to a peer
+// applyObservedEndpoint updates localNode.WGEndpoint if a peer reflected
+// a usable public IP back to us. Only updates the IP component — the WG
+// port comes from our own config, not from the observed NAT port.
+func (pe *PeerExchange) applyObservedEndpoint(observed string) {
+	if observed == "" {
+		return
+	}
+
+	host, _, err := net.SplitHostPort(observed)
+	if err != nil {
+		return
+	}
+
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return
+	}
+	if pe.config.DisableIPv6 && ip.To4() == nil {
+		return
+	}
+
+	// Ignore private/loopback — both peers are on the same LAN,
+	// so the observed address isn't useful for NAT traversal.
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+		return
+	}
+
+	// Extract our WG listen port from the current endpoint
+	currentEP := pe.localNode.GetEndpoint()
+	currentHost, wgPort, err := net.SplitHostPort(currentEP)
+	if err != nil {
+		return
+	}
+
+	// If we already have a usable public IPv6 endpoint, don't downgrade it
+	// to IPv4 due to peer reflection from an IPv4-only path.
+	if currentIP := net.ParseIP(currentHost); currentIP != nil {
+		if currentIP.To4() == nil && currentIP.IsGlobalUnicast() && !currentIP.IsPrivate() && ip.To4() != nil {
+			return
+		}
+	}
+
+	newEndpoint := net.JoinHostPort(ip.String(), wgPort)
+	if newEndpoint != currentEP {
+		log.Printf("[Exchange] Peer reflected our address: %s (was %s)", newEndpoint, currentEP)
+		pe.localNode.SetEndpoint(newEndpoint)
+	}
+}
+
+// sendReply sends a REPLY message to a peer.
+// The reply includes ObservedEndpoint — the HELLO sender's public IP:port
+// as seen by us, enabling peer-as-STUN-reflector (zero infrastructure).
 func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 	// Build list of known peers for transitive discovery
 	knownPeers := pe.getKnownPeers()
@@ -225,10 +393,15 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
-		pe.localNode.WGEndpoint,
+		pe.localNode.GetEndpoint(),
+		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
+		pe.localNode.Hostname,
+		pe.localNode.MeshIPv6,
+		string(pe.localNode.NATType),
 	)
+	announcement.ObservedEndpoint = remoteAddr.String()
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeReply, announcement, pe.config.Keys.GossipKey)
 	if err != nil {
@@ -257,9 +430,13 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
-		pe.localNode.WGEndpoint,
+		pe.localNode.GetEndpoint(),
+		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
+		pe.localNode.Hostname,
+		pe.localNode.MeshIPv6,
+		string(pe.localNode.NATType),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
@@ -267,20 +444,450 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		return nil, fmt.Errorf("failed to seal hello: %w", err)
 	}
 
-	log.Printf("[Exchange] Sending HELLO to %s (our exchange port: %d)", remoteAddr.String(), pe.port)
+	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), pe.port)
+	if !pe.config.DisablePunching {
+		log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, pe.port)
+	}
 
-	// Send HELLO
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	attempts := 0
+	sendHello := func() error {
+		attempts++
+		_, sendErr := pe.conn.WriteToUDP(data, remoteAddr)
+		if sendErr != nil {
+			return fmt.Errorf("failed to send hello: %w", sendErr)
+		}
+		return nil
+	}
+
+	if err := sendHello(); err != nil {
+		return nil, err
+	}
+
+	if pe.config.DisablePunching {
+		timeout := time.NewTimer(ExchangeTimeout)
+		defer timeout.Stop()
+		select {
+		case peerInfo := <-replyCh:
+			log.Printf("[Exchange] Peer exchange succeeded with %s", remoteAddr.String())
+			return peerInfo, nil
+		case <-timeout.C:
+			return nil, fmt.Errorf("exchange timeout")
+		}
+	}
+
+	timeout := time.NewTimer(ExchangeTimeout)
+	defer timeout.Stop()
+	punchTicker := time.NewTicker(PunchInterval)
+	defer punchTicker.Stop()
+
+	for {
+		select {
+		case peerInfo := <-replyCh:
+			if attempts > 1 {
+				log.Printf("[NAT] Punch success with %s after %d HELLO attempts", remoteAddr.String(), attempts)
+			} else {
+				log.Printf("[NAT] Peer exchange succeeded with %s on first attempt", remoteAddr.String())
+			}
+			return peerInfo, nil
+		case <-punchTicker.C:
+			if err := sendHello(); err != nil {
+				log.Printf("[Exchange] HELLO resend to %s failed: %v", remoteAddr.String(), err)
+			}
+		case <-timeout.C:
+			log.Printf("[NAT] Punch timeout with %s after %d HELLO attempts", remoteAddr.String(), attempts)
+			return nil, fmt.Errorf("exchange timeout")
+		}
+	}
+}
+
+// RequestRendezvous asks an introducer to coordinate synchronized NAT punching
+// between this node and the target peer.
+func (pe *PeerExchange) RequestRendezvous(introducerAddr, targetPubKey string, candidates []string) error {
+	if pe.config.DisablePunching {
+		return nil
+	}
+	if introducerAddr == "" || targetPubKey == "" {
+		return fmt.Errorf("introducer and target pubkey are required")
+	}
+
+	remoteAddr, err := net.ResolveUDPAddr("udp", introducerAddr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send hello: %w", err)
+		return fmt.Errorf("failed to resolve introducer address: %w", err)
 	}
 
-	select {
-	case peerInfo := <-replyCh:
-		return peerInfo, nil
-	case <-time.After(ExchangeTimeout):
-		return nil, fmt.Errorf("exchange timeout")
+	offer := &rendezvousOffer{
+		Protocol:      crypto.ProtocolVersion,
+		Timestamp:     time.Now().Unix(),
+		FromPubKey:    pe.localNode.WGPubKey,
+		TargetPubKey:  targetPubKey,
+		PairID:        pairIDForPeers(pe.localNode.WGPubKey, targetPubKey),
+		Candidates:    filterCandidatesForConfig(normalizeCandidates(candidates), pe.config.DisableIPv6),
+		IntroducerKey: "",
 	}
+
+	data, err := crypto.SealEnvelope(crypto.MessageTypeRendezvousOffer, offer, pe.config.Keys.GossipKey)
+	if err != nil {
+		return fmt.Errorf("failed to seal rendezvous offer: %w", err)
+	}
+
+	if _, err := pe.conn.WriteToUDP(data, remoteAddr); err != nil {
+		return fmt.Errorf("failed to send rendezvous offer: %w", err)
+	}
+
+	log.Printf("[NAT] Sent rendezvous offer for pair %s via introducer %s", shortKey(offer.PairID), remoteAddr.String())
+	return nil
+}
+
+func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr *net.UDPAddr) {
+	if pe.config.DisablePunching {
+		return
+	}
+	if offer == nil || remoteAddr == nil {
+		return
+	}
+	if offer.FromPubKey == "" || offer.TargetPubKey == "" {
+		return
+	}
+	if offer.FromPubKey == pe.localNode.WGPubKey || offer.TargetPubKey == pe.localNode.WGPubKey {
+		// We are a participant, not an introducer for this pair.
+		return
+	}
+	if !pe.localNode.Introducer {
+		// Only designated introducers relay offers between other peers.
+		return
+	}
+
+	pairID := pairIDForPeers(offer.FromPubKey, offer.TargetPubKey)
+	if offer.PairID != "" && offer.PairID != pairID {
+		log.Printf("[NAT] Dropping rendezvous offer with invalid pair id from %s", remoteAddr.String())
+		return
+	}
+
+	observed := remoteAddr.String()
+	candidates := append([]string{}, offer.Candidates...)
+	candidates = append(candidates, observed)
+	candidates = expandCandidatePorts(normalizeCandidates(candidates), RendezvousPortSpread)
+	candidates = filterCandidatesForConfig(candidates, pe.config.DisableIPv6)
+	log.Printf("[NAT] Introducer %s received offer pair=%s from=%s target=%s observed=%s candidates=%v", shortKey(pe.localNode.WGPubKey), shortKey(pairID), shortKey(offer.FromPubKey), shortKey(offer.TargetPubKey), observed, candidates)
+
+	pe.rendezvousMu.Lock()
+	defer pe.rendezvousMu.Unlock()
+
+	now := time.Now()
+	for id, st := range pe.rendezvousSessions {
+		if now.Sub(st.createdAt) > RendezvousSessionTTL {
+			delete(pe.rendezvousSessions, id)
+		}
+	}
+	for id, t := range pe.rendezvousStarts {
+		if now.Sub(t) > RendezvousStartCooldown*2 {
+			delete(pe.rendezvousStarts, id)
+		}
+	}
+	for id, t := range pe.activePunches {
+		if now.Sub(t) > RendezvousPunchCooldown*2 {
+			delete(pe.activePunches, id)
+		}
+	}
+
+	st, ok := pe.rendezvousSessions[pairID]
+	if !ok {
+		st = &rendezvousState{
+			offers:    make(map[string]*rendezvousOffer),
+			endpoints: make(map[string]string),
+			createdAt: now,
+		}
+		pe.rendezvousSessions[pairID] = st
+	}
+
+	offerCopy := *offer
+	offerCopy.PairID = pairID
+	offerCopy.IntroducerKey = pe.localNode.WGPubKey
+	offerCopy.ObservedAddr = observed
+	offerCopy.Candidates = candidates
+	st.offers[offer.FromPubKey] = &offerCopy
+	st.endpoints[offer.FromPubKey] = observed
+
+	a := st.offers[offer.FromPubKey]
+	b := st.offers[offer.TargetPubKey]
+	if b == nil {
+		if target, ok := pe.peerStore.Get(offer.TargetPubKey); ok {
+			targetControl := controlEndpointFromPeerEndpoint(target.Endpoint, int(pe.config.Keys.GossipPort))
+			if targetControl != "" {
+				b = &rendezvousOffer{
+					Protocol:      crypto.ProtocolVersion,
+					Timestamp:     time.Now().Unix(),
+					FromPubKey:    offer.TargetPubKey,
+					TargetPubKey:  offer.FromPubKey,
+					PairID:        pairID,
+					Candidates:    expandCandidatePorts(normalizeCandidates([]string{targetControl}), RendezvousPortSpread),
+					IntroducerKey: pe.localNode.WGPubKey,
+				}
+				st.offers[offer.TargetPubKey] = b
+				st.endpoints[offer.TargetPubKey] = targetControl
+				log.Printf("[NAT] Introducer %s synthesized target offer for pair %s target=%s endpoint=%s", shortKey(pe.localNode.WGPubKey), shortKey(pairID), shortKey(offer.TargetPubKey), targetControl)
+			}
+		}
+	}
+	if a == nil || b == nil {
+		log.Printf("[NAT] Introducer %s waiting pair %s: got %s, waiting for %s", shortKey(pe.localNode.WGPubKey), shortKey(pairID), shortKey(offer.FromPubKey), shortKey(offer.TargetPubKey))
+		return
+	}
+
+	if lastStart, ok := pe.rendezvousStarts[pairID]; ok && time.Since(lastStart) < RendezvousStartCooldown {
+		log.Printf("[NAT] Introducer %s throttling START for pair %s (last start %v ago)", shortKey(pe.localNode.WGPubKey), shortKey(pairID), time.Since(lastStart).Round(time.Millisecond))
+		return
+	}
+	pe.rendezvousStarts[pairID] = time.Now()
+
+	startAt := time.Now().Add(RendezvousStartLeadTime)
+	go pe.sendRendezvousStart(pairID, a.FromPubKey, st.endpoints[a.FromPubKey], b.FromPubKey, b.Candidates, startAt)
+	go pe.sendRendezvousStart(pairID, b.FromPubKey, st.endpoints[b.FromPubKey], a.FromPubKey, a.Candidates, startAt)
+
+	delete(pe.rendezvousSessions, pairID)
+	log.Printf("[NAT] Introducer %s started synchronized rendezvous pair %s (%s <-> %s) at %s", shortKey(pe.localNode.WGPubKey), shortKey(pairID), shortKey(a.FromPubKey), shortKey(b.FromPubKey), startAt.UTC().Format(time.RFC3339Nano))
+}
+
+func (pe *PeerExchange) sendRendezvousStart(pairID, targetPubKey, targetEndpoint, peerPubKey string, peerCandidates []string, startAt time.Time) {
+	if targetEndpoint == "" || peerPubKey == "" {
+		return
+	}
+
+	remoteAddr, err := net.ResolveUDPAddr("udp", targetEndpoint)
+	if err != nil {
+		log.Printf("[NAT] Failed to resolve rendezvous START destination %s: %v", targetEndpoint, err)
+		return
+	}
+
+	msg := &rendezvousStart{
+		Protocol:       crypto.ProtocolVersion,
+		Timestamp:      time.Now().Unix(),
+		PairID:         pairID,
+		PeerPubKey:     peerPubKey,
+		PeerCandidates: filterCandidatesForConfig(normalizeCandidates(peerCandidates), pe.config.DisableIPv6),
+		StartAtUnixMs:  startAt.UnixMilli(),
+		IntroducerKey:  pe.localNode.WGPubKey,
+	}
+
+	data, err := crypto.SealEnvelope(crypto.MessageTypeRendezvousStart, msg, pe.config.Keys.GossipKey)
+	if err != nil {
+		log.Printf("[NAT] Failed to seal rendezvous START: %v", err)
+		return
+	}
+
+	if _, err := pe.conn.WriteToUDP(data, remoteAddr); err != nil {
+		log.Printf("[NAT] Failed to send rendezvous START to %s: %v", remoteAddr.String(), err)
+		return
+	}
+
+	log.Printf("[NAT] Introducer %s sent START pair=%s to=%s for_peer=%s candidates=%v start_at=%s", shortKey(pe.localNode.WGPubKey), shortKey(pairID), remoteAddr.String(), shortKey(peerPubKey), msg.PeerCandidates, startAt.UTC().Format(time.RFC3339Nano))
+}
+
+func (pe *PeerExchange) handleRendezvousStart(start *rendezvousStart, remoteAddr *net.UDPAddr) {
+	if pe.config.DisablePunching {
+		return
+	}
+	if start == nil {
+		return
+	}
+	if start.PeerPubKey == "" || start.PairID == "" {
+		return
+	}
+
+	pairID := pairIDForPeers(pe.localNode.WGPubKey, start.PeerPubKey)
+	if pairID != start.PairID {
+		log.Printf("[NAT] Ignoring rendezvous START for mismatched pair %s from %s", start.PairID, remoteAddr.String())
+		return
+	}
+
+	var startAt time.Time
+	if start.StartAtUnixMs > 0 {
+		startAt = time.UnixMilli(start.StartAtUnixMs)
+	} else {
+		startAt = time.Now().Add(100 * time.Millisecond)
+	}
+
+	candidates := append([]string{}, start.PeerCandidates...)
+	candidates = normalizeCandidates(candidates)
+	candidates = filterCandidatesForConfig(candidates, pe.config.DisableIPv6)
+	if len(candidates) == 0 {
+		log.Printf("[NAT] Rendezvous START for pair %s had no peer candidates", shortKey(start.PairID))
+		return
+	}
+
+	if !pe.beginPunchJob(pairID) {
+		log.Printf("[NAT] Rendezvous START ignored for pair %s (cooldown active)", shortKey(start.PairID))
+		return
+	}
+
+	log.Printf("[NAT] Rendezvous START received for pair %s via introducer %s; peer=%s candidates=%v start_at=%s", shortKey(start.PairID), shortKey(start.IntroducerKey), shortKey(start.PeerPubKey), candidates, startAt.UTC().Format(time.RFC3339Nano))
+
+	go pe.runRendezvousPunch(pairID, start.PeerPubKey, candidates, startAt)
+}
+
+func (pe *PeerExchange) runRendezvousPunch(pairID, peerPubKey string, candidates []string, startAt time.Time) {
+	defer pe.endPunchJob(pairID)
+
+	wait := time.Until(startAt)
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+
+	baselineHandshake := pe.getLatestHandshake(peerPubKey)
+
+	for _, candidate := range candidates {
+		log.Printf("[NAT] Rendezvous punching peer %s via candidate %s", shortKey(peerPubKey), candidate)
+		peerInfo, err := pe.ExchangeWithPeer(candidate)
+		if err != nil {
+			continue
+		}
+		if peerInfo == nil {
+			continue
+		}
+		if peerPubKey != "" && peerInfo.WGPubKey != "" && peerInfo.WGPubKey != peerPubKey {
+			log.Printf("[NAT] Candidate %s replied with unexpected peer %s (wanted %s)", candidate, shortKey(peerInfo.WGPubKey), shortKey(peerPubKey))
+			continue
+		}
+
+		newHandshake := pe.waitForHandshake(peerPubKey, baselineHandshake, HandshakeWaitTimeout)
+		if newHandshake <= baselineHandshake {
+			log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(peerPubKey), candidate)
+			continue
+		}
+
+		if isIPv6Endpoint(peerInfo.Endpoint) {
+			log.Printf("[Path] Direct IPv6 established for pair %s with %s at %s", shortKey(pairID), shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+		} else {
+			log.Printf("[NAT] Rendezvous punch succeeded for pair %s with %s at %s", shortKey(pairID), shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+		}
+		pe.peerStore.Update(peerInfo, DHTMethod+"-rendezvous")
+		return
+	}
+
+	log.Printf("[NAT] Rendezvous punch failed for pair %s peer %s", shortKey(pairID), shortKey(peerPubKey))
+}
+
+func (pe *PeerExchange) getLatestHandshake(peerPubKey string) int64 {
+	if peerPubKey == "" {
+		return 0
+	}
+	hs, err := wireguard.GetLatestHandshakes(pe.config.InterfaceName)
+	if err != nil {
+		return 0
+	}
+	return hs[peerPubKey]
+}
+
+func (pe *PeerExchange) waitForHandshake(peerPubKey string, baseline int64, timeout time.Duration) int64 {
+	if peerPubKey == "" {
+		return 0
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		current := pe.getLatestHandshake(peerPubKey)
+		if current > baseline {
+			return current
+		}
+		time.Sleep(HandshakePollInterval)
+	}
+	return pe.getLatestHandshake(peerPubKey)
+}
+
+func (pe *PeerExchange) beginPunchJob(pairID string) bool {
+	pe.rendezvousMu.Lock()
+	defer pe.rendezvousMu.Unlock()
+
+	last, exists := pe.activePunches[pairID]
+	if exists && time.Since(last) < RendezvousPunchCooldown {
+		return false
+	}
+
+	pe.activePunches[pairID] = time.Now()
+	return true
+}
+
+func (pe *PeerExchange) endPunchJob(pairID string) {
+	pe.rendezvousMu.Lock()
+	defer pe.rendezvousMu.Unlock()
+	pe.activePunches[pairID] = time.Now()
+}
+
+func pairIDForPeers(a, b string) string {
+	return fmt.Sprintf("%016x", pairSeed(a, b))
+}
+
+func normalizeCandidates(candidates []string) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, c := range candidates {
+		norm := normalizeKnownPeerEndpoint(c)
+		if norm == "" {
+			continue
+		}
+		if _, ok := seen[norm]; ok {
+			continue
+		}
+		seen[norm] = struct{}{}
+		out = append(out, norm)
+	}
+
+	return out
+}
+
+func isIPv6Endpoint(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.To4() == nil
+}
+
+func expandCandidatePorts(candidates []string, spread int) []string {
+	if len(candidates) == 0 || spread <= 0 {
+		return candidates
+	}
+
+	seen := make(map[string]struct{}, len(candidates)*(spread*2+1))
+	out := make([]string, 0, len(candidates)*(spread*2+1))
+
+	appendCandidate := func(c string) {
+		if _, ok := seen[c]; ok {
+			return
+		}
+		seen[c] = struct{}{}
+		out = append(out, c)
+	}
+
+	for _, candidate := range candidates {
+		host, portStr, err := net.SplitHostPort(candidate)
+		if err != nil {
+			continue
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			continue
+		}
+
+		appendCandidate(net.JoinHostPort(host, strconv.Itoa(port)))
+		for delta := 1; delta <= spread; delta++ {
+			if p := port - delta; p > 0 {
+				appendCandidate(net.JoinHostPort(host, strconv.Itoa(p)))
+			}
+			if p := port + delta; p <= 65535 {
+				appendCandidate(net.JoinHostPort(host, strconv.Itoa(p)))
+			}
+		}
+	}
+
+	return out
 }
 
 func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
@@ -289,9 +896,13 @@ func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
 			continue
 		}
 		transitivePeer := &daemon.PeerInfo{
-			WGPubKey: kp.WGPubKey,
-			MeshIP:   kp.MeshIP,
-			Endpoint: normalizeKnownPeerEndpoint(kp.WGEndpoint),
+			WGPubKey:   kp.WGPubKey,
+			Hostname:   kp.Hostname,
+			MeshIP:     kp.MeshIP,
+			MeshIPv6:   kp.MeshIPv6,
+			Endpoint:   filterEndpointForConfig(normalizeKnownPeerEndpoint(kp.WGEndpoint), pe.config.DisableIPv6),
+			Introducer: kp.Introducer,
+			NATType:    kp.NATType,
 		}
 		pe.peerStore.Update(transitivePeer, DHTMethod+"-transitive")
 	}
@@ -350,6 +961,52 @@ func normalizeKnownPeerEndpoint(endpoint string) string {
 	return endpoint
 }
 
+func filterEndpointForConfig(endpoint string, disableIPv6 bool) string {
+	if endpoint == "" {
+		return ""
+	}
+	if disableIPv6 && isIPv6Endpoint(endpoint) {
+		return ""
+	}
+	return endpoint
+}
+
+func filterCandidatesForConfig(candidates []string, disableIPv6 bool) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		filtered := filterEndpointForConfig(candidate, disableIPv6)
+		if filtered == "" {
+			continue
+		}
+		if _, ok := seen[filtered]; ok {
+			continue
+		}
+		seen[filtered] = struct{}{}
+		out = append(out, filtered)
+	}
+
+	return out
+}
+
+func controlEndpointFromPeerEndpoint(endpoint string, controlPort int) string {
+	if endpoint == "" || controlPort <= 0 {
+		return ""
+	}
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return ""
+	}
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		return ""
+	}
+	return net.JoinHostPort(host, strconv.Itoa(controlPort))
+}
+
 // getKnownPeers returns a list of known peers for sharing with other nodes
 func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 	peers := pe.peerStore.GetActive()
@@ -358,8 +1015,12 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 	for _, p := range peers {
 		knownPeers = append(knownPeers, crypto.KnownPeer{
 			WGPubKey:   p.WGPubKey,
+			Hostname:   p.Hostname,
 			MeshIP:     p.MeshIP,
+			MeshIPv6:   p.MeshIPv6,
 			WGEndpoint: p.Endpoint,
+			Introducer: p.Introducer,
+			NATType:    p.NATType,
 		})
 	}
 
@@ -373,9 +1034,13 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
-		pe.localNode.WGEndpoint,
+		pe.localNode.GetEndpoint(),
+		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
+		pe.localNode.Hostname,
+		pe.localNode.MeshIPv6,
+		string(pe.localNode.NATType),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)
@@ -385,6 +1050,31 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 
 	_, err = pe.conn.WriteToUDP(data, remoteAddr)
 	return err
+}
+
+// SendGoodbye sends a shutdown notification to a specific peer exchange endpoint.
+func (pe *PeerExchange) SendGoodbye(addr string) error {
+	remoteAddr, err := net.ResolveUDPAddr("udp", addr)
+	if err != nil {
+		return fmt.Errorf("failed to resolve goodbye target %s: %w", addr, err)
+	}
+
+	msg := goodbyeMessage{
+		Protocol:  crypto.ProtocolVersion,
+		Timestamp: time.Now().Unix(),
+		WGPubKey:  pe.localNode.WGPubKey,
+	}
+
+	data, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, msg, pe.config.Keys.GossipKey)
+	if err != nil {
+		return fmt.Errorf("failed to seal goodbye: %w", err)
+	}
+
+	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	if err != nil {
+		return fmt.Errorf("failed to send goodbye: %w", err)
+	}
+	return nil
 }
 
 // SetAnnounceHandler sets a handler for gossip announcements.
@@ -403,4 +1093,31 @@ func (pe *PeerExchange) MarshalJSON() ([]byte, error) {
 		"port":    pe.port,
 		"running": pe.running,
 	})
+}
+
+func (pe *PeerExchange) logIncomingPacket(messageType string, remoteAddr *net.UDPAddr) {
+	if remoteAddr == nil {
+		return
+	}
+	key := messageType + "|" + remoteAddr.String()
+	now := time.Now()
+
+	pe.logMu.Lock()
+	last, exists := pe.lastPacketLog[key]
+	if exists && now.Sub(last) < ExchangeLogCooldown {
+		pe.logMu.Unlock()
+		return
+	}
+	pe.lastPacketLog[key] = now
+	// Periodic cleanup of stale log entries
+	if len(pe.lastPacketLog) > 100 {
+		for k, t := range pe.lastPacketLog {
+			if now.Sub(t) > ExchangeLogCooldown*2 {
+				delete(pe.lastPacketLog, k)
+			}
+		}
+	}
+	pe.logMu.Unlock()
+
+	log.Printf("[Exchange] Received valid %s from %s", messageType, remoteAddr.String())
 }

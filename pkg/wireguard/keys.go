@@ -31,14 +31,3 @@ func GenerateKeyPair() (privateKey, publicKey string, err error) {
 
 	return privateKey, publicKey, nil
 }
-
-func ValidatePrivateKey(key string) error {
-	cmd := exec.Command("wg", "pubkey")
-	cmd.Stdin = strings.NewReader(key)
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("invalid private key: %w", err)
-	}
-
-	return nil
-}

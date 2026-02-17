@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -18,16 +19,32 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 	}
 
 	desired := make([]routeEntry, 0)
+	relayRoutes := d.currentRelayRoutesSnapshot()
+	meshIPByPubKey := make(map[string]string, len(peers))
+	for _, p := range peers {
+		if p != nil && p.WGPubKey != "" && p.MeshIP != "" {
+			meshIPByPubKey[p.WGPubKey] = p.MeshIP
+		}
+	}
 	for _, peer := range peers {
 		if peer.WGPubKey == d.localNode.WGPubKey || peer.MeshIP == "" {
 			continue
+		}
+		if d.isTemporarilyOffline(peer.WGPubKey) {
+			continue
+		}
+		gateway := peer.MeshIP
+		if relayPubKey, ok := relayRoutes[peer.WGPubKey]; ok {
+			if relayIP := meshIPByPubKey[relayPubKey]; relayIP != "" {
+				gateway = relayIP
+			}
 		}
 		for _, network := range peer.RoutableNetworks {
 			network = strings.TrimSpace(network)
 			if network == "" {
 				continue
 			}
-			desired = append(desired, routeEntry{Network: network, Gateway: peer.MeshIP})
+			desired = append(desired, routeEntry{Network: network, Gateway: gateway})
 		}
 	}
 
@@ -38,6 +55,16 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 
 	toAdd, toRemove := calculateRouteDiff(current, desired)
 	return applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
+}
+
+func (d *Daemon) currentRelayRoutesSnapshot() map[string]string {
+	d.relayMu.RLock()
+	defer d.relayMu.RUnlock()
+	out := make(map[string]string, len(d.relayRoutes))
+	for k, v := range d.relayRoutes {
+		out[k] = v
+	}
+	return out
 }
 
 func getCurrentRoutes(iface string) ([]routeEntry, error) {
@@ -150,5 +177,21 @@ func applyRouteDiff(iface string, toAdd, toRemove []routeEntry) error {
 	cmd := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
 	_ = cmd.Run()
 
+	ensureWGForwardingRule(iface)
+
 	return nil
+}
+
+func ensureWGForwardingRule(iface string) {
+	// Best-effort: allow forwarding between WG peers on this interface.
+	// This is required for relay mode when traffic must pass through a public node.
+	check := exec.Command("iptables", "-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
+	if err := check.Run(); err == nil {
+		return
+	}
+
+	add := exec.Command("iptables", "-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
+	if out, err := add.CombinedOutput(); err != nil {
+		log.Printf("Failed to install relay FORWARD rule for %s: %s: %v", iface, strings.TrimSpace(string(out)), err)
+	}
 }

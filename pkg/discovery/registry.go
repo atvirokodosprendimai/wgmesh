@@ -31,6 +31,7 @@ const (
 type RegistryPeerEntry struct {
 	WGPubKey         string   `json:"wg_pubkey"`
 	MeshIP           string   `json:"mesh_ip"`
+	MeshIPv6         string   `json:"mesh_ipv6,omitempty"`
 	Endpoint         string   `json:"endpoint"`
 	RoutableNetworks []string `json:"routable_networks,omitempty"`
 	Timestamp        int64    `json:"timestamp"`
@@ -154,7 +155,7 @@ func (r *RendezvousRegistry) decryptPeerList(body string) []*daemon.PeerInfo {
 	const endMarker = ":PEERS -->"
 
 	startIdx := strings.Index(body, startMarker)
-	endIdx := strings.Index(body, endMarker)
+	endIdx := strings.LastIndex(body, endMarker)
 	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
 		return nil
 	}
@@ -177,9 +178,12 @@ func (r *RendezvousRegistry) decryptPeerList(body string) []*daemon.PeerInfo {
 	if announcement.WGPubKey != "" {
 		peers = append(peers, &daemon.PeerInfo{
 			WGPubKey:         announcement.WGPubKey,
+			Hostname:         announcement.Hostname,
 			MeshIP:           announcement.MeshIP,
+			MeshIPv6:         announcement.MeshIPv6,
 			Endpoint:         announcement.WGEndpoint,
 			RoutableNetworks: announcement.RoutableNetworks,
+			NATType:          announcement.NATType,
 		})
 	}
 
@@ -187,8 +191,11 @@ func (r *RendezvousRegistry) decryptPeerList(body string) []*daemon.PeerInfo {
 	for _, kp := range announcement.KnownPeers {
 		peers = append(peers, &daemon.PeerInfo{
 			WGPubKey: kp.WGPubKey,
+			Hostname: kp.Hostname,
 			MeshIP:   kp.MeshIP,
+			MeshIPv6: kp.MeshIPv6,
 			Endpoint: kp.WGEndpoint,
+			NATType:  kp.NATType,
 		})
 	}
 
@@ -319,8 +326,12 @@ func (r *RendezvousRegistry) buildIssueBody(peers []*daemon.PeerInfo) (string, e
 	for _, p := range peers[1:] {
 		knownPeers = append(knownPeers, crypto.KnownPeer{
 			WGPubKey:   p.WGPubKey,
+			Hostname:   p.Hostname,
 			MeshIP:     p.MeshIP,
+			MeshIPv6:   p.MeshIPv6,
 			WGEndpoint: p.Endpoint,
+			Introducer: p.Introducer,
+			NATType:    p.NATType,
 		})
 	}
 
@@ -330,8 +341,12 @@ func (r *RendezvousRegistry) buildIssueBody(peers []*daemon.PeerInfo) (string, e
 		first.WGPubKey,
 		first.MeshIP,
 		first.Endpoint,
+		first.Introducer,
 		first.RoutableNetworks,
 		knownPeers,
+		first.Hostname,
+		first.MeshIPv6,
+		first.NATType,
 	)
 
 	encrypted, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, r.GossipKey)

@@ -1,0 +1,126 @@
+name: Hetzner Integration Tests
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tiers:
+        description: 'Test tiers to run (comma-separated: 1,2,3,4,5,6,7)'
+        required: false
+        default: '1,2,3'
+      vm_count:
+        description: 'Number of VMs (1 introducer + N-1 nodes)'
+        required: false
+        default: '5'
+
+# Only one integration test run at a time (shared Hetzner infra)
+concurrency:
+  group: hetzner-integration
+  cancel-in-progress: true
+
+env:
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  GO_VERSION: '1.23'
+
+jobs:
+  integration-test:
+    name: Cloud Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Generate ephemeral SSH key
+        run: |
+          ssh-keygen -t ed25519 -f ~/.ssh/wgmesh-ci -N "" -q
+          echo "SSH_KEY_FILE=$HOME/.ssh/wgmesh-ci" >> "$GITHUB_ENV"
+
+      - name: Build binary (linux/arm64)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v \
+            -ldflags="-s -w -X main.version=ci-${GITHUB_SHA::8}" \
+            -o wgmesh-linux-arm64 .
+          ls -lh wgmesh-linux-arm64
+          echo "BINARY_PATH=$PWD/wgmesh-linux-arm64" >> "$GITHUB_ENV"
+
+      - name: Clean up orphaned VMs
+        if: always()
+        run: |
+          source testlab/cloud/lib.sh
+          source testlab/cloud/provision.sh
+          teardown_orphans || true
+        env:
+          SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
+
+      - name: Run integration tests
+        id: tests
+        run: |
+          chmod +x testlab/cloud/*.sh
+          ./testlab/cloud/test-cloud.sh \
+            --binary "$BINARY_PATH" \
+            --vms "${{ inputs.vm_count || '5' }}" \
+            --tiers "${{ inputs.tiers || '1,2,3' }}"
+        env:
+          SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          VM_PREFIX: wgmesh-ci
+
+      - name: Upload test logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-test-logs
+          path: /tmp/wgmesh-ci-logs/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      # Safety net: always tear down VMs even if the test step is cancelled/fails.
+      # The test script has its own EXIT trap, but this is a belt-and-suspenders measure.
+      - name: Teardown VMs (safety net)
+        if: always()
+        run: |
+          source testlab/cloud/lib.sh
+          source testlab/cloud/provision.sh
+          teardown_vms || true
+          teardown_orphans || true
+        env:
+          SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          VM_PREFIX: wgmesh-ci
+
+  # Periodic orphan cleanup — runs even without a test trigger
+  cleanup-orphans:
+    name: Cleanup Orphaned VMs
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    timeout-minutes: 5
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+
+      - name: Cleanup orphans
+        run: |
+          export SSH_KEY_FILE=/dev/null
+          source testlab/cloud/lib.sh
+          source testlab/cloud/provision.sh
+          teardown_orphans

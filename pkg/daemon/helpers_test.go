@@ -354,11 +354,14 @@ func TestSetInterfaceAddress_Darwin(t *testing.T) {
 			errorContains: "invalid address format",
 		},
 		{
-			name:          "error - IPv6 not supported",
-			interfaceName: "utun0",
-			address:       "fd00::1/64",
-			expectError:   true,
-			errorContains: "only IPv4 addresses are supported",
+			name:           "success - IPv6 address and route added",
+			interfaceName:  "utun0",
+			address:        "fd00::1/64",
+			ifconfigOutput: []byte(""),
+			ifconfigErr:    nil,
+			routeAddOutput: []byte(""),
+			routeAddErr:    nil,
+			expectError:    false,
 		},
 		{
 			name:           "error - ifconfig fails",
@@ -406,15 +409,22 @@ func TestSetInterfaceAddress_Darwin(t *testing.T) {
 							},
 						}
 					}
-					if name == "route" && len(args) >= 3 {
-						if args[2] == "add" {
+					if name == "route" && len(args) >= 2 {
+						action := ""
+						for _, arg := range args {
+							if arg == "add" || arg == "change" {
+								action = arg
+								break
+							}
+						}
+						if action == "add" {
 							return &MockCommand{
 								combinedOutputFunc: func() ([]byte, error) {
 									return tt.routeAddOutput, tt.routeAddErr
 								},
 							}
 						}
-						if args[2] == "change" {
+						if action == "change" {
 							return &MockCommand{
 								combinedOutputFunc: func() ([]byte, error) {
 									return tt.routeChangeOutput, tt.routeChangeErr
