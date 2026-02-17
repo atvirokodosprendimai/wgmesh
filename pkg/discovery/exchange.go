@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -9,10 +10,16 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
+
+var exchangeTracer = otel.Tracer("wgmesh.exchange")
 
 const (
 	ExchangeTimeout         = 4 * time.Second
@@ -271,6 +278,13 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 
 // handleHello responds to a peer's HELLO message
 func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remoteAddr *net.UDPAddr) {
+	_, span := exchangeTracer.Start(context.Background(), "exchange.handle_hello",
+		trace.WithAttributes(
+			attribute.String("peer.pubkey", shortKey(announcement.WGPubKey)),
+			attribute.String("peer.endpoint", remoteAddr.String()),
+		))
+	defer span.End()
+
 	// Skip if this is from ourselves
 	if announcement.WGPubKey == pe.localNode.WGPubKey {
 		return
@@ -302,6 +316,13 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 // If the reply contains ObservedEndpoint (peer-as-STUN reflector), we use
 // the reflected public IP to update our own localNode.WGEndpoint.
 func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *net.UDPAddr) {
+	_, span := exchangeTracer.Start(context.Background(), "exchange.handle_reply",
+		trace.WithAttributes(
+			attribute.String("peer.pubkey", shortKey(reply.WGPubKey)),
+			attribute.String("peer.endpoint", remoteAddr.String()),
+		))
+	defer span.End()
+
 	// Peer-as-STUN reflector: the responder tells us what our public
 	// IP:port looks like. Use the reflected IP combined with our WG port.
 	pe.applyObservedEndpoint(reply.ObservedEndpoint)
@@ -1029,6 +1050,10 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 
 // SendAnnounce sends an announce message to a specific peer (used for gossip)
 func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
+	_, span := exchangeTracer.Start(context.Background(), "exchange.send_announce",
+		trace.WithAttributes(attribute.String("target.addr", remoteAddr.String())))
+	defer span.End()
+
 	knownPeers := pe.getKnownPeers()
 
 	announcement := crypto.CreateAnnouncement(

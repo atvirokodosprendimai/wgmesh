@@ -1,10 +1,14 @@
 package daemon
 
 import (
+	"context"
 	"net"
 	"strings"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/metric"
 )
 
 const (
@@ -122,6 +126,8 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 			ps.peers[info.WGPubKey] = info
 			eventKey = info.WGPubKey
 			eventKind = PeerEventNew
+			metricPeersDiscovered.Add(context.Background(), 1,
+				metric.WithAttributes(attribute.String("method", discoveryMethod)))
 			return
 		}
 

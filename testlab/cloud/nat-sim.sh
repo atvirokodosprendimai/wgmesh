@@ -220,6 +220,7 @@ ExecStart=/usr/bin/ip netns exec ${ns} /usr/local/bin/wgmesh join \
     --secret \"${MESH_SECRET}\" \
     --interface ${WG_INTERFACE} \
     --gossip \
+    --no-ipv6 \
     ${extra_flags}
 Restart=no
 LimitNOFILE=65535

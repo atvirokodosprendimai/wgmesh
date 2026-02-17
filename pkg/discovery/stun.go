@@ -1,11 +1,15 @@
 package discovery
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"fmt"
 	"net"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // STUN constants per RFC 5389
@@ -18,6 +22,8 @@ const (
 	stunAttrMappedAddress    = 0x0001
 	stunAttrXORMappedAddress = 0x0020
 )
+
+var stunTracer = otel.Tracer("wgmesh.stun")
 
 // Default STUN servers (public, free, reliable)
 var DefaultSTUNServers = []string{
@@ -267,6 +273,9 @@ const (
 // Returns the NAT type, the external IP from the first server, the external
 // port from the first server, and any error. Returns error only if both fail.
 func DetectNATType(server1, server2 string, localPort int, timeoutMs int) (NATType, net.IP, int, error) {
+	_, span := stunTracer.Start(context.Background(), "stun.detect_nat_type")
+	defer span.End()
+
 	// Bind a single UDP socket — both queries must originate from the
 	// same source port to compare NAT mappings.
 	var laddr *net.UDPAddr
@@ -288,16 +297,20 @@ func DetectNATType(server1, server2 string, localPort int, timeoutMs int) (NATTy
 
 	// Only one server responded — can't determine NAT type
 	if err1 != nil {
+		span.SetAttributes(attribute.String("nat.type", string(NATUnknown)), attribute.String("external.addr", fmt.Sprintf("%s:%d", ip2, port2)))
 		return NATUnknown, ip2, port2, nil
 	}
 	if err2 != nil {
+		span.SetAttributes(attribute.String("nat.type", string(NATUnknown)), attribute.String("external.addr", fmt.Sprintf("%s:%d", ip1, port1)))
 		return NATUnknown, ip1, port1, nil
 	}
 
 	// Compare: same IP and port → Cone; different → Symmetric
 	if ip1.Equal(ip2) && port1 == port2 {
+		span.SetAttributes(attribute.String("nat.type", string(NATCone)), attribute.String("external.addr", fmt.Sprintf("%s:%d", ip1, port1)))
 		return NATCone, ip1, port1, nil
 	}
+	span.SetAttributes(attribute.String("nat.type", string(NATSymmetric)), attribute.String("external.addr", fmt.Sprintf("%s:%d", ip1, port1)))
 	return NATSymmetric, ip1, port1, nil
 }
 

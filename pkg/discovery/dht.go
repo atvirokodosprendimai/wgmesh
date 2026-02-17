@@ -14,6 +14,9 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/anacrolix/dht/v2"
 	"github.com/anacrolix/dht/v2/krpc"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
@@ -30,21 +33,26 @@ const (
 	DHTPersistInterval        = 2 * time.Minute
 	DHTMethod                 = "dht"
 	DHTMaxConcurrentExchanges = 10 // Limit concurrent transitive exchanges to prevent resource exhaustion
-	RendezvousWindow          = 20 * time.Second
-	RendezvousPhase           = 4 * time.Second
-	RendezvousPunchDelay      = 500 * time.Millisecond
-	RendezvousMaxIntroducers  = 3
-	RendezvousMinBackoff      = 3 * time.Second
-	RendezvousMaxBackoff      = 30 * time.Second
-	RendezvousStaleCheck      = 10 * time.Second // How often to check for stale handshakes
-	IPv6SyncWindow            = 8 * time.Second
-	IPv6SyncPhase             = 2 * time.Second
+
+	dhtTracerName = "wgmesh.dht"
+
+	RendezvousWindow         = 20 * time.Second
+	RendezvousPhase          = 4 * time.Second
+	RendezvousPunchDelay     = 500 * time.Millisecond
+	RendezvousMaxIntroducers = 3
+	RendezvousMinBackoff     = 3 * time.Second
+	RendezvousMaxBackoff     = 30 * time.Second
+	RendezvousStaleCheck     = 10 * time.Second // How often to check for stale handshakes
+	IPv6SyncWindow           = 8 * time.Second
+	IPv6SyncPhase            = 2 * time.Second
 )
 
 type backoffEntry struct {
 	nextAttempt time.Time
 	duration    time.Duration
 }
+
+var dhtTracer = otel.Tracer(dhtTracerName)
 
 // Well-known BitTorrent DHT bootstrap nodes
 var DHTBootstrapNodes = []string{
@@ -667,6 +675,9 @@ func (d *DHTDiscovery) announceLoop() {
 
 // announce publishes our presence to the DHT under the network ID
 func (d *DHTDiscovery) announce() {
+	_, span := dhtTracer.Start(d.ctx, "dht.announce")
+	defer span.End()
+
 	// Get current and previous network IDs (for hourly rotation)
 	current, previous, err := crypto.GetCurrentAndPreviousNetworkIDs(d.config.Secret)
 	if err != nil {
@@ -675,6 +686,11 @@ func (d *DHTDiscovery) announce() {
 	}
 
 	port := d.exchange.Port()
+	span.SetAttributes(
+		attribute.String("dht.network_id", fmt.Sprintf("%x", current[:8])),
+		attribute.Int("dht.exchange_port", port),
+		attribute.Int("dht.port", d.dhtPort),
+	)
 
 	log.Printf("[DHT] Announcing to network ID %x on exchange port %d (DHT port %d)", current[:8], port, d.dhtPort)
 
@@ -747,12 +763,20 @@ func (d *DHTDiscovery) queryLoop() {
 
 // queryPeers queries the DHT for other peers in our mesh
 func (d *DHTDiscovery) queryPeers() {
+	_, span := dhtTracer.Start(d.ctx, "dht.query_peers")
+	defer span.End()
+
 	// Get current and previous network IDs
 	current, previous, err := crypto.GetCurrentAndPreviousNetworkIDs(d.config.Secret)
 	if err != nil {
 		log.Printf("[DHT] Failed to derive network IDs: %v", err)
 		return
 	}
+
+	span.SetAttributes(
+		attribute.String("dht.network_id", fmt.Sprintf("%x", current[:8])),
+		attribute.Int("dht.node_count", d.server.NumNodes()),
+	)
 
 	log.Printf("[DHT] Querying network ID %x (DHT has %d nodes)", current[:8], d.server.NumNodes())
 

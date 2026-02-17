@@ -17,6 +17,9 @@ import (
 	"syscall"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
@@ -71,6 +74,9 @@ type Daemon struct {
 
 	// Cache stop channel
 	cacheStopCh chan struct{}
+
+	// OTel metrics tracking
+	lastPeerCount int64
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -286,7 +292,10 @@ func (d *Daemon) setupWireGuard() error {
 	}
 	if d.localNode.MeshIPv6 != "" {
 		if err := setInterfaceAddress(d.config.InterfaceName, d.localNode.MeshIPv6+"/64"); err != nil {
-			return fmt.Errorf("failed to set IPv6 address: %w", err)
+			// IPv6 address assignment can fail when IPv6 is disabled at the OS level
+			// (e.g., sysctl net.ipv6.conf.all.disable_ipv6=1). Log and continue —
+			// IPv4 mesh connectivity is sufficient.
+			log.Printf("[WireGuard] IPv6 address assignment failed (continuing with IPv4 only): %v", err)
 		}
 	}
 
@@ -331,6 +340,8 @@ func (d *Daemon) reconcileLoop() {
 
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
+	start := time.Now()
+
 	peers := d.peerStore.GetActive()
 	desired, relayRoutes := d.buildDesiredPeerConfigs(peers)
 	d.relayMu.Lock()
@@ -338,14 +349,21 @@ func (d *Daemon) reconcile() {
 	d.relayMu.Unlock()
 	if err := d.applyDesiredPeerConfigs(desired); err != nil {
 		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
+		metricReconcileErrors.Add(d.ctx, 1)
 	}
 
 	if err := d.syncPeerRoutes(peers); err != nil {
 		log.Printf("Failed to sync peer routes: %v", err)
+		metricReconcileErrors.Add(d.ctx, 1)
 	}
 
 	// Check for mesh IP collisions
 	d.CheckAndResolveCollisions()
+
+	// Record metrics
+	metricReconcileDurMs.Record(d.ctx, float64(time.Since(start).Milliseconds()))
+	metricPeersActive.Add(d.ctx, int64(len(peers))-d.lastPeerCount)
+	d.lastPeerCount = int64(len(peers))
 
 	// Stale peer cleanup is handled by staleCleanupLoop (W3: avoid double cleanup)
 }
@@ -1062,11 +1080,14 @@ func (d *Daemon) checkPeerHealth() {
 			continue
 		}
 
+		metricHandshakeStale.Add(d.ctx, 1)
+
 		if failures == 1 {
 			d.attemptPeerReconnect(p)
 			continue
 		}
 		if failures >= 2 {
+			metricHealthEvictions.Add(d.ctx, 1)
 			d.evictPeerFromPool(p)
 		}
 	}
@@ -1257,10 +1278,15 @@ func (d *Daemon) GetConfig() *Config {
 // RunWithDHTDiscovery runs the daemon with DHT discovery enabled
 // This is the main entry point for the join command
 func (d *Daemon) RunWithDHTDiscovery() error {
+	tracer := otel.Tracer("wgmesh.daemon")
+
+	_, initSpan := tracer.Start(d.ctx, "daemon.init")
 	log.Printf("Starting wgmesh daemon with DHT discovery...")
 
 	// Load or create local node first
 	if err := d.initLocalNode(); err != nil {
+		initSpan.RecordError(err)
+		initSpan.End()
 		return fmt.Errorf("failed to initialize local node: %w", err)
 	}
 
@@ -1270,11 +1296,20 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		log.Printf("Mesh IPv6: %s", d.localNode.MeshIPv6)
 	}
 	log.Printf("Network ID: %x (both nodes must show the same ID to find each other)", d.config.Keys.NetworkID[:8])
+	initSpan.SetAttributes(
+		attribute.String("mesh.ip", d.localNode.MeshIP),
+		attribute.String("wg.pubkey", shortKey(d.localNode.WGPubKey)),
+	)
+	initSpan.End()
 
 	// Setup WireGuard interface
+	_, wgSpan := tracer.Start(d.ctx, "daemon.setup_wireguard")
 	if err := d.setupWireGuard(); err != nil {
+		wgSpan.RecordError(err)
+		wgSpan.End()
 		return fmt.Errorf("failed to setup WireGuard: %w", err)
 	}
+	wgSpan.End()
 	defer d.teardownWireGuard()
 	d.setLocalWGEndpoint()
 	if err := d.startMeshProbeServer(); err != nil {
@@ -1300,15 +1335,21 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Import is handled via interface to avoid circular dependency
 	dhtFactory := GetDHTDiscoveryFactory()
 	if dhtFactory != nil {
+		_, dhtSpan := tracer.Start(d.ctx, "daemon.dht_start")
 		dht, err := dhtFactory(d.config, d.localNode, d.peerStore)
 		if err != nil {
+			dhtSpan.RecordError(err)
+			dhtSpan.End()
 			return fmt.Errorf("failed to create DHT discovery: %w", err)
 		}
 		d.dhtDiscovery = dht
 
 		if err := d.dhtDiscovery.Start(); err != nil {
+			dhtSpan.RecordError(err)
+			dhtSpan.End()
 			return fmt.Errorf("failed to start DHT discovery: %w", err)
 		}
+		dhtSpan.End()
 		defer d.dhtDiscovery.Stop()
 	} else {
 		log.Printf("Warning: DHT discovery factory not set, running without DHT")

@@ -279,6 +279,14 @@ _setup_single_vm() {
     local extra_flags=""
     [ "$role" = "introducer" ] && extra_flags="--introducer"
 
+    # Build OTel environment block if endpoint is configured
+    local otel_env=""
+    if [ -n "${OTEL_EXPORTER_OTLP_ENDPOINT:-}" ]; then
+        otel_env="Environment=OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT}
+Environment=OTEL_EXPORTER_OTLP_HEADERS=${OTEL_EXPORTER_OTLP_HEADERS:-}
+Environment=OTEL_RESOURCE_ATTRIBUTES=test.run_id=${GITHUB_RUN_ID:-local},test.vm=${node},test.role=${role}"
+    fi
+
     run_on "$node" "cat > /etc/systemd/system/wgmesh.service << 'UNIT'
 [Unit]
 Description=wgmesh integration test
@@ -294,6 +302,7 @@ ExecStart=/usr/local/bin/wgmesh join \\
     ${extra_flags}
 Restart=no
 LimitNOFILE=65535
+${otel_env}
 
 [Install]
 WantedBy=multi-user.target

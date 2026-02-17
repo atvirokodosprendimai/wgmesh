@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
+	wgotel "github.com/atvirokodosprendimai/wgmesh/pkg/otel"
 
 	// Import discovery to register the DHT factory via init()
 	_ "github.com/atvirokodosprendimai/wgmesh/pkg/discovery"
@@ -290,6 +293,13 @@ func joinCmd() {
 		fmt.Fprintf(os.Stderr, "Failed to create config: %v\n", err)
 		os.Exit(1)
 	}
+
+	// Initialize OpenTelemetry (noop when OTEL_EXPORTER_OTLP_ENDPOINT is unset)
+	otelShutdown, otelErr := wgotel.Init(context.Background(), "wgmesh", version)
+	if otelErr != nil {
+		log.Printf("[OTel] warning: %v", otelErr)
+	}
+	defer otelShutdown(context.Background())
 
 	// Create and run daemon with DHT discovery
 	d, err := daemon.NewDaemon(cfg)
