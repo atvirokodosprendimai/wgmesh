@@ -180,10 +180,14 @@ func shouldRefreshLastSeen(discoveryMethod string) bool {
 	if discoveryMethod == "cache" {
 		return false
 	}
-	if strings.Contains(discoveryMethod, "transitive") {
+	if isTransitiveMethod(discoveryMethod) {
 		return false
 	}
 	return true
+}
+
+func isTransitiveMethod(discoveryMethod string) bool {
+	return strings.Contains(discoveryMethod, "transitive")
 }
 
 func shouldUpdateEndpoint(existing *PeerInfo, discoveryMethod string) bool {
