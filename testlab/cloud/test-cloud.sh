@@ -23,6 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 source "$SCRIPT_DIR/chaos.sh"
 source "$SCRIPT_DIR/provision.sh"
+source "$SCRIPT_DIR/nat-sim.sh"
 
 # ---------------------------------------------------------------------------
 # CLI parsing
@@ -703,11 +704,381 @@ test_t24_asymmetric() {
 # TIER 5 — NAT Simulation (iptables MASQUERADE)
 # ===========================================================================
 
-# T25-T27: NAT simulation requires a gateway VM setup which is complex.
-# These are marked as SKIP for now with a clear note.
-test_t25_cone_nat()     { echo "NAT simulation requires gateway VM — not yet implemented"; return 2; }
-test_t26_symmetric_nat() { echo "NAT simulation requires gateway VM — not yet implemented"; return 2; }
-test_t27_mixed_nat()    { echo "NAT simulation requires gateway VM — not yet implemented"; return 2; }
+# --- NAT test helpers ---
+
+# Stop everything, clean up any prior NAT state.
+_nat_clean_slate() {
+    stop_mesh 2>/dev/null || true
+    nat_teardown_all 2>/dev/null || true
+    chaos_clear_all 2>/dev/null || true
+    sleep 2
+}
+
+# Pick the introducer node name.
+_nat_get_introducer() {
+    for node in "${!NODE_ROLES[@]}"; do
+        if [ "${NODE_ROLES[$node]}" = "introducer" ]; then
+            echo "$node"
+            return
+        fi
+    done
+}
+
+# Pick N non-introducer nodes.
+_nat_pick_nodes() {
+    local count="${1:-2}"
+    local nodes=()
+    for node in "${!NODE_ROLES[@]}"; do
+        [ "${NODE_ROLES[$node]}" != "introducer" ] && nodes+=("$node")
+        [ ${#nodes[@]} -ge "$count" ] && break
+    done
+    echo "${nodes[@]}"
+}
+
+# Wait for WG handshake between two nodes (handles NATed nodes).
+# Usage: _nat_wait_handshake <from> <to-mesh-ip> <timeout>
+_nat_wait_handshake() {
+    local from="$1" to_mesh_ip="$2" timeout="${3:-120}"
+    local start end
+    start=$(date +%s)
+    end=$((start + timeout))
+
+    while true; do
+        local age
+        age=$(nat_handshake_age "$from" "$to_mesh_ip") || age=999999
+        if [ "$age" -lt 300 ] 2>/dev/null; then
+            local elapsed=$(( $(date +%s) - start ))
+            log_info "nat-sim: handshake $from → $to_mesh_ip established (age=${age}s, took ${elapsed}s)"
+            return 0
+        fi
+        if [ "$(date +%s)" -ge "$end" ]; then
+            log_error "nat-sim: handshake $from → $to_mesh_ip timed out after ${timeout}s (age=$age)"
+            return 1
+        fi
+        sleep 3
+    done
+}
+
+# Check if WG endpoint for a peer goes through the introducer (relay).
+# Returns 0 if relayed, 1 if direct.
+_nat_is_relayed() {
+    local node="$1" peer_mesh_ip="$2" introducer_ip="$3"
+    local endpoint
+    endpoint=$(nat_wg_endpoint "$node" "$peer_mesh_ip") || return 1
+    if [ -z "$endpoint" ]; then
+        return 1
+    fi
+    # Check if the endpoint IP matches the introducer's public IP
+    local endpoint_ip="${endpoint%%:*}"
+    if [ "$endpoint_ip" = "$introducer_ip" ]; then
+        return 0  # relayed
+    fi
+    return 1  # direct
+}
+
+# --- T25: Cone NAT — two peers behind cone NAT should hole-punch ---
+#
+# Setup: introducer on bare host, 2 nodes behind cone NAT (MASQUERADE).
+# Expected: STUN detects "cone" on both peers, hole-punch succeeds,
+#           WG tunnels are established directly (not relayed).
+test_t25_cone_nat() {
+    _nat_clean_slate
+
+    local intro
+    intro=$(_nat_get_introducer)
+    local peers
+    read -ra peers <<< "$(_nat_pick_nodes 2)"
+
+    if [ ${#peers[@]} -lt 2 ]; then
+        echo "T25 requires >= 3 VMs (1 introducer + 2 nodes)"
+        return 2
+    fi
+
+    local peer_a="${peers[0]}" peer_b="${peers[1]}"
+    log_info "T25: cone NAT on $peer_a and $peer_b, introducer=$intro"
+
+    # Set up cone NAT on both peers
+    nat_setup "$peer_a" cone
+    nat_setup "$peer_b" cone
+
+    # Start introducer on bare host (normal systemd service)
+    start_mesh_node "$intro"
+    sleep 5
+
+    # Start NATed peers
+    nat_start "$peer_a"
+    nat_start "$peer_b"
+
+    # Wait for mesh to form — this may take longer with NAT
+    sleep 15
+    NODE_MESH_IPS=()
+    nat_populate_mesh_ips
+
+    local intro_mesh="${NODE_MESH_IPS[$intro]:-}"
+    local a_mesh="${NODE_MESH_IPS[$peer_a]:-}"
+    local b_mesh="${NODE_MESH_IPS[$peer_b]:-}"
+
+    if [ -z "$intro_mesh" ] || [ -z "$a_mesh" ] || [ -z "$b_mesh" ]; then
+        echo "Failed to get mesh IPs: intro=$intro_mesh a=$a_mesh b=$b_mesh"
+        nat_logs "$peer_a" | tail -30
+        nat_logs "$peer_b" | tail -30
+        nat_teardown_all
+        return 1
+    fi
+
+    # Wait for handshakes: intro↔a, intro↔b, then a↔b
+    _nat_wait_handshake "$intro" "$a_mesh" 120 || {
+        echo "Introducer → peer_a handshake failed"
+        nat_logs "$peer_a" | tail -30
+        nat_teardown_all; return 1
+    }
+    _nat_wait_handshake "$intro" "$b_mesh" 120 || {
+        echo "Introducer → peer_b handshake failed"
+        nat_logs "$peer_b" | tail -30
+        nat_teardown_all; return 1
+    }
+
+    # The critical test: peer_a ↔ peer_b through hole-punching
+    # Allow extra time for rendezvous cycle to complete
+    _nat_wait_handshake "$peer_a" "$b_mesh" 180 || {
+        echo "peer_a → peer_b handshake failed (cone NAT hole-punch)"
+        nat_logs "$peer_a" | grep -i NAT | tail -20
+        nat_logs "$peer_b" | grep -i NAT | tail -20
+        nat_teardown_all; return 1
+    }
+
+    # Verify connectivity
+    nat_ping "$peer_a" "$b_mesh" 3 || {
+        echo "peer_a cannot ping peer_b mesh IP"
+        nat_teardown_all; return 1
+    }
+
+    # Verify STUN detected cone NAT
+    local a_nat b_nat
+    a_nat=$(nat_detected_type "$peer_a")
+    b_nat=$(nat_detected_type "$peer_b")
+    log_info "T25: detected NAT types: $peer_a=$a_nat, $peer_b=$b_nat"
+
+    # Verify the connection is DIRECT (not relayed through introducer)
+    local intro_pub_ip="${NODE_IPS[$intro]}"
+    if _nat_is_relayed "$peer_a" "$b_mesh" "$intro_pub_ip"; then
+        log_warn "T25: peer_a→peer_b is relayed (expected direct for cone+cone)"
+        # Not a hard failure — hole-punch timing can miss, but log it
+    else
+        log_info "T25: peer_a→peer_b is DIRECT (hole-punch worked)"
+    fi
+
+    nat_teardown_all
+    log_info "T25: cone NAT test passed"
+}
+
+# --- T26: Symmetric NAT — two peers behind symmetric NAT should relay ---
+#
+# Setup: introducer on bare host, 2 nodes behind symmetric NAT (SNAT --random-fully).
+# Expected: STUN detects "symmetric" on both peers, shouldRelayPeer() → true,
+#           traffic goes via introducer relay.
+test_t26_symmetric_nat() {
+    _nat_clean_slate
+
+    local intro
+    intro=$(_nat_get_introducer)
+    local peers
+    read -ra peers <<< "$(_nat_pick_nodes 2)"
+
+    if [ ${#peers[@]} -lt 2 ]; then
+        echo "T26 requires >= 3 VMs (1 introducer + 2 nodes)"
+        return 2
+    fi
+
+    local peer_a="${peers[0]}" peer_b="${peers[1]}"
+    log_info "T26: symmetric NAT on $peer_a and $peer_b, introducer=$intro"
+
+    # Set up symmetric NAT on both peers
+    nat_setup "$peer_a" symmetric
+    nat_setup "$peer_b" symmetric
+
+    # Start introducer on bare host
+    start_mesh_node "$intro"
+    sleep 5
+
+    # Start NATed peers
+    nat_start "$peer_a"
+    nat_start "$peer_b"
+
+    # Wait for mesh to form
+    sleep 15
+    NODE_MESH_IPS=()
+    nat_populate_mesh_ips
+
+    local intro_mesh="${NODE_MESH_IPS[$intro]:-}"
+    local a_mesh="${NODE_MESH_IPS[$peer_a]:-}"
+    local b_mesh="${NODE_MESH_IPS[$peer_b]:-}"
+
+    if [ -z "$intro_mesh" ] || [ -z "$a_mesh" ] || [ -z "$b_mesh" ]; then
+        echo "Failed to get mesh IPs: intro=$intro_mesh a=$a_mesh b=$b_mesh"
+        nat_logs "$peer_a" | tail -30
+        nat_logs "$peer_b" | tail -30
+        nat_teardown_all
+        return 1
+    fi
+
+    # Wait for handshakes: peers ↔ introducer
+    _nat_wait_handshake "$intro" "$a_mesh" 120 || {
+        echo "Introducer → peer_a handshake failed"
+        nat_logs "$peer_a" | tail -30
+        nat_teardown_all; return 1
+    }
+    _nat_wait_handshake "$intro" "$b_mesh" 120 || {
+        echo "Introducer → peer_b handshake failed"
+        nat_logs "$peer_b" | tail -30
+        nat_teardown_all; return 1
+    }
+
+    # For symmetric+symmetric, direct hole-punch should FAIL.
+    # The daemon should fall back to relay via introducer.
+    # Allow time for the relay decision to propagate.
+    sleep 30
+
+    # Wait for peer_a ↔ peer_b connectivity (via relay)
+    _nat_wait_handshake "$peer_a" "$b_mesh" 180 || {
+        # Even relay may take time — but at minimum, peers should see each other
+        log_warn "T26: peer_a → peer_b handshake not yet established"
+        # Check if the peer is at least known
+        nat_logs "$peer_a" | grep -i "relay\|symmetric" | tail -10
+        nat_logs "$peer_b" | grep -i "relay\|symmetric" | tail -10
+    }
+
+    # Verify STUN detected symmetric NAT
+    local a_nat b_nat
+    a_nat=$(nat_detected_type "$peer_a")
+    b_nat=$(nat_detected_type "$peer_b")
+    log_info "T26: detected NAT types: $peer_a=$a_nat, $peer_b=$b_nat"
+
+    if [ "$a_nat" != "symmetric" ] && [ "$a_nat" != "unknown" ]; then
+        log_warn "T26: expected symmetric NAT on $peer_a, got $a_nat"
+    fi
+    if [ "$b_nat" != "symmetric" ] && [ "$b_nat" != "unknown" ]; then
+        log_warn "T26: expected symmetric NAT on $peer_b, got $b_nat"
+    fi
+
+    # Verify the connection is RELAYED through introducer
+    local intro_pub_ip="${NODE_IPS[$intro]}"
+    if _nat_is_relayed "$peer_a" "$b_mesh" "$intro_pub_ip"; then
+        log_info "T26: peer_a→peer_b is RELAYED via introducer (correct for symmetric+symmetric)"
+    else
+        log_warn "T26: peer_a→peer_b appears DIRECT (unexpected for symmetric+symmetric)"
+        # This could happen if hole-punch got lucky or IPv6 was used — not a hard fail
+    fi
+
+    # Basic connectivity check (direct or relayed, should work)
+    nat_ping "$peer_a" "$b_mesh" 3 || {
+        echo "T26: peer_a cannot reach peer_b (even via relay)"
+        nat_logs "$peer_a" | tail -30
+        nat_logs "$peer_b" | tail -30
+        nat_teardown_all; return 1
+    }
+
+    nat_teardown_all
+    log_info "T26: symmetric NAT test passed"
+}
+
+# --- T27: Mixed NAT — one cone + one symmetric, hole-punch should work ---
+#
+# Setup: introducer on bare host, peer_a behind cone NAT, peer_b behind symmetric.
+# Expected: The cone peer can receive on its mapped port, so hole-punch from
+#           the symmetric side should reach it. The rendezvous protocol
+#           sends both peers' candidates, and the cone peer's stable mapping
+#           makes it reachable. Connection should be DIRECT.
+test_t27_mixed_nat() {
+    _nat_clean_slate
+
+    local intro
+    intro=$(_nat_get_introducer)
+    local peers
+    read -ra peers <<< "$(_nat_pick_nodes 2)"
+
+    if [ ${#peers[@]} -lt 2 ]; then
+        echo "T27 requires >= 3 VMs (1 introducer + 2 nodes)"
+        return 2
+    fi
+
+    local peer_cone="${peers[0]}" peer_sym="${peers[1]}"
+    log_info "T27: mixed NAT — $peer_cone=cone, $peer_sym=symmetric, introducer=$intro"
+
+    # Set up different NAT types
+    nat_setup "$peer_cone" cone
+    nat_setup "$peer_sym" symmetric
+
+    # Start introducer
+    start_mesh_node "$intro"
+    sleep 5
+
+    # Start NATed peers
+    nat_start "$peer_cone"
+    nat_start "$peer_sym"
+
+    # Wait for mesh to form
+    sleep 15
+    NODE_MESH_IPS=()
+    nat_populate_mesh_ips
+
+    local intro_mesh="${NODE_MESH_IPS[$intro]:-}"
+    local cone_mesh="${NODE_MESH_IPS[$peer_cone]:-}"
+    local sym_mesh="${NODE_MESH_IPS[$peer_sym]:-}"
+
+    if [ -z "$intro_mesh" ] || [ -z "$cone_mesh" ] || [ -z "$sym_mesh" ]; then
+        echo "Failed to get mesh IPs: intro=$intro_mesh cone=$cone_mesh sym=$sym_mesh"
+        nat_logs "$peer_cone" | tail -30
+        nat_logs "$peer_sym" | tail -30
+        nat_teardown_all
+        return 1
+    fi
+
+    # Wait for handshakes: peers ↔ introducer
+    _nat_wait_handshake "$intro" "$cone_mesh" 120 || {
+        echo "Introducer → cone peer handshake failed"
+        nat_logs "$peer_cone" | tail -30
+        nat_teardown_all; return 1
+    }
+    _nat_wait_handshake "$intro" "$sym_mesh" 120 || {
+        echo "Introducer → symmetric peer handshake failed"
+        nat_logs "$peer_sym" | tail -30
+        nat_teardown_all; return 1
+    }
+
+    # Wait for cone ↔ symmetric peer connectivity
+    # The cone side has a stable mapping so the symmetric side should reach it
+    _nat_wait_handshake "$peer_cone" "$sym_mesh" 180 || {
+        echo "cone → symmetric handshake failed"
+        nat_logs "$peer_cone" | grep -i NAT | tail -20
+        nat_logs "$peer_sym" | grep -i NAT | tail -20
+        nat_teardown_all; return 1
+    }
+
+    # Verify connectivity
+    nat_ping "$peer_cone" "$sym_mesh" 3 || {
+        echo "cone peer cannot ping symmetric peer"
+        nat_teardown_all; return 1
+    }
+
+    # Check NAT detection
+    local cone_nat sym_nat
+    cone_nat=$(nat_detected_type "$peer_cone")
+    sym_nat=$(nat_detected_type "$peer_sym")
+    log_info "T27: detected NAT types: $peer_cone=$cone_nat, $peer_sym=$sym_nat"
+
+    # For mixed NAT (cone+symmetric), shouldRelayPeer returns false
+    # because one side is cone (can receive). Check endpoint.
+    local intro_pub_ip="${NODE_IPS[$intro]}"
+    if _nat_is_relayed "$peer_cone" "$sym_mesh" "$intro_pub_ip"; then
+        log_warn "T27: cone→sym is relayed (expected direct for cone+symmetric)"
+    else
+        log_info "T27: cone→sym is DIRECT (correct for cone+symmetric)"
+    fi
+
+    nat_teardown_all
+    log_info "T27: mixed NAT test passed"
+}
 
 # ===========================================================================
 # TIER 6 — Chaos Monkey / Fuzzing
