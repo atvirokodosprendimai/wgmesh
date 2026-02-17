@@ -1,9 +1,12 @@
-name: Spec PR Review Handler
+name: PR Review Handler
 
 # Uses native GitHub PR review flow:
 #   Approve        → labels PR 'approved-for-build', triggers Goose implementation
 #   Request Changes → re-assigns Copilot to address feedback
 #   Close PR       → rejection (no workflow needed, just close it)
+#
+# For non-spec PRs (impl/fix/feat):
+#   Issue creator approval → labels PR 'issue-creator-approved', enables auto-merge
 
 on:
   pull_request_review:
@@ -16,9 +19,9 @@ permissions:
 
 jobs:
   # ──────────────────────────────────────────────────────
-  # PR Approved → Trigger Goose build
+  # Spec PR Approved → Trigger Goose build
   # ──────────────────────────────────────────────────────
-  approve:
+  approve-spec:
     if: >-
       github.event.review.state == 'approved' &&
       contains(github.event.pull_request.title, 'spec:')
@@ -76,7 +79,94 @@ jobs:
             console.log(`Spec PR #${prNumber} approved by @${reviewer}, labeled for Goose build`);
 
   # ──────────────────────────────────────────────────────
-  # Changes Requested → Re-assign Copilot to revise spec
+  # Non-spec PR: Issue creator approval → auto-merge
+  # ──────────────────────────────────────────────────────
+  approve-by-issue-creator:
+    if: >-
+      github.event.review.state == 'approved' &&
+      !contains(github.event.pull_request.title, 'spec:')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if reviewer is the issue creator and auto-merge
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const prNumber = pr.number;
+            const reviewer = context.payload.review.user.login;
+
+            // Extract issue number from PR body ("Fixes #N") or title ("Issue #N")
+            const bodyMatch = pr.body?.match(/[Ff]ixes\s+(?:[\w-]+\/[\w-]+)?#(\d+)/);
+            const titleMatch = pr.title.match(/(?:Issue |#)(\d+)/i);
+            const issueNumber = bodyMatch
+              ? parseInt(bodyMatch[1], 10)
+              : titleMatch
+                ? parseInt(titleMatch[1], 10)
+                : null;
+
+            if (!issueNumber) {
+              console.log('No linked issue found in PR title or body, skipping issue-creator check');
+              return;
+            }
+
+            // Fetch the original issue to get creator
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+            });
+
+            const issueCreator = issue.user.login;
+            console.log(`PR #${prNumber} fixes issue #${issueNumber} (created by @${issueCreator})`);
+            console.log(`Reviewer: @${reviewer}`);
+
+            if (reviewer !== issueCreator) {
+              console.log(`Reviewer @${reviewer} is not the issue creator @${issueCreator}, skipping`);
+              return;
+            }
+
+            console.log(`Issue creator @${issueCreator} approved PR #${prNumber}`);
+
+            // Label the PR
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['issue-creator-approved']
+            });
+
+            // Enable auto-merge
+            try {
+              await github.graphql(`
+                mutation($prId: ID!) {
+                  enablePullRequestAutoMerge(input: {pullRequestId: $prId, mergeMethod: SQUASH}) {
+                    clientMutationId
+                  }
+                }
+              `, { prId: pr.node_id });
+              console.log(`Auto-merge enabled for PR #${prNumber}`);
+            } catch (error) {
+              core.warning(`Could not enable auto-merge: ${error.message}`);
+            }
+
+            // Comment on the issue
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                `**Approved by issue creator** @${issueCreator}`,
+                ``,
+                `PR #${prNumber} has been approved and auto-merge is enabled.`,
+                `It will merge once all required checks pass.`,
+              ].join('\n')
+            });
+
+            console.log(`Issue creator approval processed for PR #${prNumber}`);
+
+  # ──────────────────────────────────────────────────────
+  # Spec PR: Changes Requested → Re-assign Copilot to revise
   # ──────────────────────────────────────────────────────
   revision:
     if: >-
