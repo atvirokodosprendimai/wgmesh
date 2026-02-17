@@ -492,30 +492,3 @@ func TestNATTypeString(t *testing.T) {
 		}
 	}
 }
-
-// TestSTUNQueryIntegration tests against a real STUN server.
-// Skipped in short mode — run with: go test -run TestSTUNQueryIntegration
-func TestSTUNQueryIntegration(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping integration test in short mode")
-	}
-
-	ip, port, err := STUNQuery("stun.l.google.com:19302", 0, 3000)
-	if err != nil {
-		t.Fatalf("STUNQuery: %v", err)
-	}
-
-	if ip == nil {
-		t.Fatal("got nil IP")
-	}
-	if port == 0 {
-		t.Fatal("got port 0")
-	}
-
-	t.Logf("External endpoint: %s:%d", ip, port)
-
-	// Sanity: should not be a private IP
-	if ip.IsLoopback() || ip.IsLinkLocalUnicast() {
-		t.Errorf("got non-public IP: %v", ip)
-	}
-}

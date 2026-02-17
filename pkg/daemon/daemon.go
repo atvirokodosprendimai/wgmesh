@@ -78,6 +78,9 @@ type Daemon struct {
 	// OTel metrics tracking
 	lastPeerCount int64
 
+	// wg tracks background goroutines for graceful shutdown
+	wg sync.WaitGroup
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -167,10 +170,18 @@ func (d *Daemon) Run() error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start reconciliation loop
-	go d.reconcileLoop()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.reconcileLoop()
+	}()
 
 	// Start status printer
-	go d.statusLoop()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.statusLoop()
+	}()
 
 	// Periodically remove long-stale peers from memory/cache
 	go d.staleCleanupLoop()
@@ -192,7 +203,16 @@ func (d *Daemon) Run() error {
 	}
 
 	d.cancel()
+	log.Printf("Waiting for background tasks to complete...")
+	d.wg.Wait()
 	return nil
+}
+
+// Shutdown cancels the daemon context, signalling background goroutines
+// to stop. Callers that need to wait for full shutdown completion should
+// wait for Run() or RunWithDHTDiscovery() to return.
+func (d *Daemon) Shutdown() {
+	d.cancel()
 }
 
 // initLocalNode loads or creates the local WireGuard node
@@ -1322,14 +1342,6 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Start peer cache saver
 	d.cacheStopCh = make(chan struct{})
 	go StartCacheSaver(d.config.InterfaceName, d.peerStore, d.cacheStopCh)
-	defer func() {
-		select {
-		case <-d.cacheStopCh:
-			// Already closed
-		default:
-			close(d.cacheStopCh)
-		}
-	}()
 
 	// Now create DHT discovery with the initialized local node
 	// Import is handled via interface to avoid circular dependency
@@ -1368,10 +1380,18 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	// Start reconciliation loop
-	go d.reconcileLoop()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.reconcileLoop()
+	}()
 
 	// Start status printer
-	go d.statusLoop()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		d.statusLoop()
+	}()
 
 	// Periodically remove long-stale peers from memory/cache
 	go d.staleCleanupLoop()
@@ -1393,6 +1413,18 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	}
 
 	d.cancel()
+
+	// Stop cache saver first so its final save completes before we return.
+	// Must happen before wg.Wait() since cache saver is not tracked by wg.
+	select {
+	case <-d.cacheStopCh:
+		// Already closed
+	default:
+		close(d.cacheStopCh)
+	}
+
+	log.Printf("Waiting for background tasks to complete...")
+	d.wg.Wait()
 	return nil
 }
 
