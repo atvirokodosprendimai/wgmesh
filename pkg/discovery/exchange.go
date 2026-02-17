@@ -437,7 +437,9 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	}
 
 	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), pe.port)
-	log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, pe.port)
+	if !pe.config.DisablePunching {
+		log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, pe.port)
+	}
 
 	attempts := 0
 	sendHello := func() error {
@@ -451,6 +453,18 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 
 	if err := sendHello(); err != nil {
 		return nil, err
+	}
+
+	if pe.config.DisablePunching {
+		timeout := time.NewTimer(ExchangeTimeout)
+		defer timeout.Stop()
+		select {
+		case peerInfo := <-replyCh:
+			log.Printf("[Exchange] Peer exchange succeeded with %s", remoteAddr.String())
+			return peerInfo, nil
+		case <-timeout.C:
+			return nil, fmt.Errorf("exchange timeout")
+		}
 	}
 
 	timeout := time.NewTimer(ExchangeTimeout)
@@ -481,6 +495,9 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 // RequestRendezvous asks an introducer to coordinate synchronized NAT punching
 // between this node and the target peer.
 func (pe *PeerExchange) RequestRendezvous(introducerAddr, targetPubKey string, candidates []string) error {
+	if pe.config.DisablePunching {
+		return nil
+	}
 	if introducerAddr == "" || targetPubKey == "" {
 		return fmt.Errorf("introducer and target pubkey are required")
 	}
@@ -514,6 +531,9 @@ func (pe *PeerExchange) RequestRendezvous(introducerAddr, targetPubKey string, c
 }
 
 func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr *net.UDPAddr) {
+	if pe.config.DisablePunching {
+		return
+	}
 	if offer == nil || remoteAddr == nil {
 		return
 	}
@@ -656,6 +676,9 @@ func (pe *PeerExchange) sendRendezvousStart(pairID, targetPubKey, targetEndpoint
 }
 
 func (pe *PeerExchange) handleRendezvousStart(start *rendezvousStart, remoteAddr *net.UDPAddr) {
+	if pe.config.DisablePunching {
+		return
+	}
 	if start == nil {
 		return
 	}

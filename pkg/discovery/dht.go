@@ -955,6 +955,10 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 		log.Printf("[NAT] Skipping direct IPv6 endpoint for %s (no IPv6 route), trying rendezvous", shortKey(peer.WGPubKey))
 		hasDirectRoute = false
 	}
+	if hasDirectRoute && isIPv6Endpoint(peer.Endpoint) {
+		// Public IPv6 is already end-to-end reachable; prefer direct path over NAT rendezvous.
+		return
+	}
 
 	introducers := d.selectRendezvousIntroducers(peer.WGPubKey, d.peerStore.GetActive(), RendezvousMaxIntroducers)
 

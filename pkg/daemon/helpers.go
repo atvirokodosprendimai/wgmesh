@@ -212,7 +212,9 @@ func setInterfaceAddress(name, address string) error {
 			return nil
 		}
 
-		cmd := cmdExecutor.Command("ifconfig", name, "inet6", ip.String(), "prefixlen", fmt.Sprintf("%d", maskSize(ipNet.Mask)), "alias")
+		// On macOS utun, host /128 assignment is more reliable for local traffic,
+		// while we still install the mesh /64 route separately below.
+		cmd := cmdExecutor.Command("ifconfig", name, "inet6", ip.String(), "prefixlen", "128", "alias")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			if !strings.Contains(string(output), "File exists") {
 				return fmt.Errorf("failed to set address: %s: %w", string(output), err)
