@@ -11,6 +11,9 @@ on:
   # Also fires when a draft PR is marked ready for review
   pull_request:
     types: [ready_for_review]
+  # Periodic fallback to catch PRs where timing caused a miss
+  schedule:
+    - cron: '*/10 * * * *'
 
 permissions:
   contents: write
@@ -20,24 +23,24 @@ jobs:
   auto-merge:
     runs-on: ubuntu-latest
     steps:
-      - name: Find mergeable PR
-        id: pr
+      - name: Auto-approve and merge eligible PRs
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
         uses: actions/github-script@v7
         with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
           script: |
-            let prs;
+            // Collect candidate PRs based on event type
+            let candidates = [];
 
             if (context.eventName === 'workflow_run') {
               const run = context.payload.workflow_run;
-              // Only proceed on successful workflow runs
               if (run.conclusion !== 'success') {
                 core.info(`Workflow run conclusion: ${run.conclusion}, skipping`);
                 return;
               }
-
-              // Find open PRs matching this head SHA
-              prs = run.pull_requests || [];
-              if (prs.length === 0) {
+              candidates = (run.pull_requests || []).map(p => p.number);
+              if (candidates.length === 0) {
                 core.info('No PRs associated with this workflow run');
                 return;
               }
@@ -47,95 +50,118 @@ jobs:
                 core.info('PR is still a draft, skipping');
                 return;
               }
-              prs = [{ number: pr.number }];
+              candidates = [pr.number];
+            } else if (context.eventName === 'schedule') {
+              const { data: openPRs } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                base: 'main',
+                per_page: 50,
+              });
+              candidates = openPRs.filter(p => !p.draft).map(p => p.number);
+              if (candidates.length === 0) {
+                core.info('No open non-draft PRs targeting main');
+                return;
+              }
+              core.info(`Schedule: checking ${candidates.length} open PRs`);
             }
 
-            for (const prRef of prs) {
-              // Get full PR details
-              const { data: pr } = await github.rest.pulls.get({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: prRef.number,
-              });
+            for (const prNumber of candidates) {
+              try {
+                const { data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                });
 
-              // Skip drafts
-              if (pr.draft) {
-                core.info(`PR #${pr.number} is a draft, skipping`);
-                continue;
+                if (pr.draft || pr.state !== 'open' || pr.base.ref !== 'main') {
+                  core.info(`PR #${prNumber}: draft=${pr.draft} state=${pr.state} base=${pr.base.ref}, skipping`);
+                  continue;
+                }
+
+                // Check if already approved
+                const { data: reviews } = await github.rest.pulls.listReviews({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                });
+                const hasApproval = reviews.some(r => r.state === 'APPROVED');
+
+                // Check if auto-merge is already enabled
+                if (pr.auto_merge) {
+                  core.info(`PR #${prNumber}: auto-merge already enabled, skipping`);
+                  continue;
+                }
+
+                // Verify ALL check runs passed
+                const { data: checkRuns } = await github.rest.checks.listForRef({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  ref: pr.head.sha,
+                });
+
+                const relevant = checkRuns.check_runs.filter(
+                  cr => cr.name !== 'auto-merge' &&
+                        cr.name !== 'Auto-merge on CI pass' &&
+                        cr.name !== 'sync'
+                );
+
+                if (relevant.length === 0) {
+                  core.info(`PR #${prNumber}: no relevant checks found yet`);
+                  continue;
+                }
+
+                const allComplete = relevant.every(cr => cr.status === 'completed');
+                const allPassed = relevant.every(
+                  cr => cr.conclusion === 'success' || cr.conclusion === 'skipped'
+                );
+
+                if (!allComplete) {
+                  core.info(`PR #${prNumber}: ${relevant.filter(cr => cr.status !== 'completed').map(cr => cr.name).join(', ')} still running`);
+                  continue;
+                }
+
+                if (!allPassed) {
+                  const failed = relevant
+                    .filter(cr => cr.conclusion !== 'success' && cr.conclusion !== 'skipped')
+                    .map(cr => `${cr.name}: ${cr.conclusion}`);
+                  core.info(`PR #${prNumber}: failing: ${failed.join(', ')}`);
+                  continue;
+                }
+
+                core.info(`PR #${prNumber}: all ${relevant.length} checks passed`);
+
+                // Approve if needed
+                if (!hasApproval) {
+                  await github.rest.pulls.createReview({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber,
+                    event: 'APPROVE',
+                    body: 'Auto-approved: all CI checks passed.',
+                  });
+                  core.info(`PR #${prNumber}: approved`);
+                }
+
+                // Enable auto-merge (squash)
+                try {
+                  await github.graphql(`
+                    mutation($prId: ID!) {
+                      enablePullRequestAutoMerge(input: {
+                        pullRequestId: $prId,
+                        mergeMethod: SQUASH
+                      }) {
+                        pullRequest { number }
+                      }
+                    }
+                  `, { prId: pr.node_id });
+                  core.info(`PR #${prNumber}: auto-merge enabled`);
+                } catch (mergeErr) {
+                  core.warning(`PR #${prNumber}: failed to enable auto-merge: ${mergeErr.message}`);
+                }
+
+              } catch (err) {
+                core.warning(`PR #${prNumber}: error: ${err.message}`);
               }
-
-              // Skip PRs not targeting main
-              if (pr.base.ref !== 'main') {
-                core.info(`PR #${pr.number} targets ${pr.base.ref}, not main`);
-                continue;
-              }
-
-              // Skip already-merged or closed PRs
-              if (pr.state !== 'open') {
-                core.info(`PR #${pr.number} is ${pr.state}, skipping`);
-                continue;
-              }
-
-              // Check if already approved (avoid duplicate approvals)
-              const { data: reviews } = await github.rest.pulls.listReviews({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-              });
-              const hasApproval = reviews.some(r => r.state === 'APPROVED');
-
-              // Verify ALL check runs passed for this SHA
-              const { data: checkRuns } = await github.rest.checks.listForRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: pr.head.sha,
-              });
-
-              const relevant = checkRuns.check_runs.filter(
-                cr => cr.name !== 'auto-merge' && cr.name !== 'sync'
-              );
-
-              const allComplete = relevant.every(cr => cr.status === 'completed');
-              const allPassed = relevant.every(
-                cr => cr.conclusion === 'success' || cr.conclusion === 'skipped'
-              );
-
-              if (!allComplete) {
-                core.info(`PR #${pr.number}: not all checks complete yet`);
-                continue;
-              }
-
-              if (!allPassed) {
-                const failed = relevant
-                  .filter(cr => cr.conclusion !== 'success' && cr.conclusion !== 'skipped')
-                  .map(cr => `${cr.name}: ${cr.conclusion}`);
-                core.info(`PR #${pr.number}: checks not passing: ${failed.join(', ')}`);
-                continue;
-              }
-
-              core.info(`PR #${pr.number}: all ${relevant.length} checks passed, ${hasApproval ? 'already approved' : 'needs approval'}`);
-              core.setOutput('number', pr.number);
-              core.setOutput('approved', hasApproval ? 'true' : 'false');
-              return;
             }
-
-      - name: Approve PR
-        if: steps.pr.outputs.number && steps.pr.outputs.approved != 'true'
-        env:
-          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
-        run: |
-          gh pr review ${{ steps.pr.outputs.number }} \
-            --repo ${{ github.repository }} \
-            --approve \
-            --body "Auto-approved: all CI checks passed."
-
-      - name: Merge PR
-        if: steps.pr.outputs.number
-        env:
-          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
-        run: |
-          gh pr merge ${{ steps.pr.outputs.number }} \
-            --repo ${{ github.repository }} \
-            --squash \
-            --auto \
-            --delete-branch
