@@ -262,7 +262,6 @@ setup_all_vms() {
 _setup_single_vm() {
     local node="$1"
     local role="${NODE_ROLES[$node]}"
-    local mesh_ip="${NODE_MESH_IPS[$node]}"
 
     # Install dependencies
     run_on "$node" "
@@ -302,7 +301,7 @@ UNIT
     systemctl daemon-reload
     "
 
-    log_info "VM $node setup complete (role=$role, mesh_ip=$mesh_ip)"
+    log_info "VM $node setup complete (role=$role)"
 }
 
 # ---------------------------------------------------------------------------
