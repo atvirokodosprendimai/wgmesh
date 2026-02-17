@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # chaos.sh — Network impairment harness for wgmesh chaos testing
 #
 # Applies and removes network impairments on remote nodes using tc netem

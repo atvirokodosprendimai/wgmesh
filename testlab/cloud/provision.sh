@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # provision.sh — Create and destroy Hetzner Cloud VMs for wgmesh testing
 #
 # Usage:
@@ -49,9 +49,10 @@ provision_vms() {
     local key_name="${VM_PREFIX}-key"
     local run_id="${GITHUB_RUN_ID:-$(date +%s)}"
 
+    local letters=(a b c d e f g h)
+
     log_info "Provisioning $count VMs (prefix=${VM_PREFIX}, run=${run_id})..."
 
-    local pids=()
     local names=()
 
     for (( i=0; i<count; i++ )); do
@@ -61,34 +62,37 @@ provision_vms() {
             role="introducer"
             name="${VM_PREFIX}-${run_id}-introducer"
         else
-            name="${VM_PREFIX}-${run_id}-node-$(printf '%c' $(( 97 + i - 1 )) )"  # node-a, node-b, ...
+            name="${VM_PREFIX}-${run_id}-node-${letters[$((i - 1))]}"
         fi
+        # Spread across locations, with fallback on unavailability
         local loc="${locations[$(( i % ${#locations[@]} ))]}"
 
         names+=("$name")
 
-        hcloud server create \
-            --name "$name" \
-            --type "$VM_TYPE" \
-            --image "$VM_IMAGE" \
-            --location "$loc" \
-            --ssh-key "$key_name" \
-            --label "role=$role" \
-            --label "run=$run_id" \
-            --label "created=$(date +%s)" \
-            >/dev/null &
-        pids+=($!)
+        local created=false
+        for try_loc in "$loc" "${locations[@]}"; do
+            if hcloud server create \
+                --name "$name" \
+                --type "$VM_TYPE" \
+                --image "$VM_IMAGE" \
+                --location "$try_loc" \
+                --ssh-key "$key_name" \
+                --label "role=$role" \
+                --label "run=$run_id" \
+                --label "created=$(date +%s)" \
+                >/dev/null 2>&1; then
+                created=true
+                log_info "Created $name in $try_loc"
+                break
+            else
+                log_warn "Failed to create $name in $try_loc, trying next location..."
+            fi
+        done
+        if [ "$created" = "false" ]; then
+            log_error "Failed to create $name in any location"
+            return 1
+        fi
     done
-
-    # Wait for all VMs to be created
-    local failed=0
-    for pid in "${pids[@]}"; do
-        wait "$pid" || ((failed++))
-    done
-    if [ "$failed" -gt 0 ]; then
-        log_error "$failed VM(s) failed to create"
-        return 1
-    fi
 
     log_info "All $count VMs created"
 
@@ -117,17 +121,15 @@ provision_vms() {
 populate_node_info() {
     local run_id="${GITHUB_RUN_ID:-}"
 
-    # List all VMs with our prefix
-    local servers
+    # Get server names
+    local server_names
     if [ -n "$run_id" ]; then
-        servers=$(hcloud server list -o noheader -o columns=name,ipv4,labels,datacenter \
-            -l "run=$run_id" 2>/dev/null) || true
+        server_names=$(hcloud server list -l "run=$run_id" -o noheader -o columns=name 2>/dev/null) || true
     else
-        servers=$(hcloud server list -o noheader -o columns=name,ipv4,labels,datacenter \
-            | grep "^${VM_PREFIX}" 2>/dev/null) || true
+        server_names=$(hcloud server list -o noheader -o columns=name 2>/dev/null | grep "^${VM_PREFIX}") || true
     fi
 
-    if [ -z "$servers" ]; then
+    if [ -z "$server_names" ]; then
         log_error "No VMs found with prefix $VM_PREFIX"
         return 1
     fi
@@ -138,28 +140,35 @@ populate_node_info() {
     NODE_MESH_IPS=()
     NODE_LOCATIONS=()
 
-    # Mesh IP counter: introducer=10.248.0.1, nodes=10.248.0.10, .20, .30, ...
     local node_idx=0
 
-    while IFS=$'\t' read -r name ip labels dc; do
+    while read -r full_name; do
+        [ -z "$full_name" ] && continue
+
+        # Get IP and datacenter via hcloud
+        local ip dc
+        ip=$(hcloud server ip "$full_name" 2>/dev/null) || continue
+        dc=$(hcloud server describe "$full_name" -o format='{{.Datacenter.Name}}' 2>/dev/null) || dc="unknown"
+
         # Normalize name to short form
         local short_name
-        if [[ "$name" == *-introducer ]]; then
+        if [[ "$full_name" == *-introducer ]]; then
             short_name="introducer"
             NODE_ROLES["$short_name"]="introducer"
             NODE_MESH_IPS["$short_name"]="10.248.0.1"
         else
-            # Extract letter suffix: wgmesh-ci-12345-node-a -> node-a
-            short_name=$(echo "$name" | grep -oP 'node-[a-z]$' || echo "node-$node_idx")
+            # Extract suffix: wgmesh-ci-12345-node-a -> node-a
+            short_name="${full_name##*-node-}"
+            short_name="node-${short_name}"
             NODE_ROLES["$short_name"]="node"
-            ((node_idx++))
+            node_idx=$((node_idx + 1))
             NODE_MESH_IPS["$short_name"]="10.248.0.$((node_idx * 10))"
         fi
 
         NODE_IPS["$short_name"]="$ip"
         NODE_LOCATIONS["$short_name"]="$dc"
 
-    done <<< "$servers"
+    done <<< "$server_names"
 
     log_info "Populated ${#NODE_IPS[@]} nodes:"
     for name in $(echo "${!NODE_IPS[@]}" | tr ' ' '\n' | sort); do
@@ -187,7 +196,7 @@ setup_all_vms() {
 
     local failed=0
     for pid in "${pids[@]}"; do
-        wait "$pid" || ((failed++))
+        wait "$pid" || failed=$((failed + 1))
     done
     if [ "$failed" -gt 0 ]; then
         log_error "$failed VM(s) failed setup"

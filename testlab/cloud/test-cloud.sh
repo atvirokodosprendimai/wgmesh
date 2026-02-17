@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # test-cloud.sh — wgmesh cloud integration test runner
 #
 # Runs all test tiers against live Hetzner Cloud VMs.
@@ -158,7 +158,7 @@ test_t3_ipv6() {
         for (( j=i+1; j<n; j++ )); do
             if ! mesh_ping6 "${nodes[$i]}" "${nodes[$j]}" 1; then
                 log_warn "IPv6 ping failed: ${nodes[$i]} -> ${nodes[$j]}"
-                ((failures++))
+                failures=$((failures + 1))
             fi
         done
     done
@@ -169,16 +169,27 @@ test_t3_ipv6() {
 test_t4_cross_dc_latency() {
     local nodes=("${!NODE_IPS[@]}")
     local n=${#nodes[@]}
+    local max_ms=50
 
     for (( i=0; i<n; i++ )); do
         for (( j=i+1; j<n; j++ )); do
             local from="${nodes[$i]}" to="${nodes[$j]}"
             local to_ip="${NODE_MESH_IPS[$to]}"
             local rtt
-            rtt=$(run_on "$from" "ping -c 5 -W 3 $to_ip 2>/dev/null | tail -1 | awk -F'/' '{print \$5}'" 2>/dev/null) || rtt="999"
+            # Extract avg RTT from ping output: "rtt min/avg/max/mdev = 0.5/0.7/1.0/0.1 ms"
+            rtt=$(run_on "$from" "ping -c 5 -W 3 $to_ip" 2>/dev/null \
+                | grep -oE 'rtt [^=]+= [0-9.]+/([0-9.]+)/' \
+                | grep -oE '/[0-9.]+/' | tr -d '/') || rtt=""
 
-            if (( $(echo "$rtt > 50" | bc -l 2>/dev/null || echo 1) )); then
-                log_warn "High latency $from -> $to: ${rtt}ms (limit 50ms)"
+            if [ -z "$rtt" ]; then
+                log_warn "No RTT for $from -> $to (ping failed?)"
+                return 1
+            fi
+
+            # Integer comparison: strip decimal, compare
+            local rtt_int="${rtt%%.*}"
+            if [ "$rtt_int" -gt "$max_ms" ] 2>/dev/null; then
+                log_warn "High latency $from -> $to: ${rtt}ms (limit ${max_ms}ms)"
                 return 1
             fi
             log_info "$from -> $to: ${rtt}ms"
@@ -195,7 +206,7 @@ test_t5_late_join() {
     stop_mesh 2>/dev/null || true
     sleep 2
 
-    # Start only 3 nodes initially
+    # Collect nodes
     local all_nodes=()
     local intro=""
     for node in "${!NODE_ROLES[@]}"; do
@@ -206,6 +217,13 @@ test_t5_late_join() {
         fi
     done
 
+    # Need at least 3 non-introducer nodes (4+ VMs total)
+    if [ ${#all_nodes[@]} -lt 3 ]; then
+        echo "T5 requires >= 4 VMs (1 intro + 3 nodes), have $((${#all_nodes[@]} + 1))"
+        return 2  # SKIP
+    fi
+
+    # Start only 3 nodes initially (introducer + 2 nodes)
     start_mesh_node "$intro"
     sleep 3
     start_mesh_node "${all_nodes[0]}"
@@ -214,11 +232,11 @@ test_t5_late_join() {
     # Wait for initial 3-node mesh
     wait_for "initial 3-node mesh" 60 _t1_check "$intro" "${all_nodes[0]}" "${all_nodes[1]}"
 
-    # Now add a 4th node
+    # Now add a 4th node (the late joiner)
     sleep 5
     start_mesh_node "${all_nodes[2]}"
 
-    # Verify new node can reach all 3 existing nodes
+    # Verify late joiner can reach all 3 existing nodes
     local late="${all_nodes[2]}"
     wait_for "late joiner $late connected" 60 _t5_check "$late" "$intro" "${all_nodes[0]}" "${all_nodes[1]}"
 }
@@ -232,8 +250,11 @@ _t5_check() {
 
 # --- T6: Graceful leave ---
 test_t6_graceful_leave() {
-    # Mesh should be running
-    verify_full_mesh 30
+    # Ensure clean mesh state
+    stop_mesh 2>/dev/null || true
+    sleep 2
+    start_mesh 30
+    verify_full_mesh 60
 
     local nodes=()
     for node in "${!NODE_ROLES[@]}"; do
@@ -247,15 +268,15 @@ test_t6_graceful_leave() {
     # Remaining mesh should be fully connected
     verify_mesh_without "$victim" 30
     scan_logs_for_errors
-
-    # Restart victim for subsequent tests
-    start_mesh_node "$victim"
-    sleep 10
 }
 
 # --- T7: Peer crash ---
 test_t7_crash() {
-    verify_full_mesh 30
+    # Ensure clean mesh state
+    stop_mesh 2>/dev/null || true
+    sleep 2
+    start_mesh 30
+    verify_full_mesh 60
 
     local nodes=()
     for node in "${!NODE_ROLES[@]}"; do
@@ -271,16 +292,25 @@ test_t7_crash() {
     verify_mesh_without "$victim" 30
 }
 
-# --- T8: Peer rejoin ---
+# --- T8: Peer rejoin after crash ---
 test_t8_rejoin() {
-    # victim from T7 is still down
+    # Ensure clean mesh, then crash a node and verify it rejoins
+    stop_mesh 2>/dev/null || true
+    sleep 2
+    start_mesh 30
+    verify_full_mesh 60
+
     local nodes=()
     for node in "${!NODE_ROLES[@]}"; do
         [ "${NODE_ROLES[$node]}" != "introducer" ] && nodes+=("$node")
     done
     local victim="${nodes[1]}"
 
-    sleep 5
+    crash_mesh_node "$victim"
+    sleep 10
+    verify_mesh_without "$victim" 30
+
+    # Now rejoin
     start_mesh_node "$victim"
 
     # Should rejoin full mesh
@@ -289,7 +319,11 @@ test_t8_rejoin() {
 
 # --- T9: Introducer crash ---
 test_t9_introducer_crash() {
-    verify_full_mesh 30
+    # Ensure clean mesh state
+    stop_mesh 2>/dev/null || true
+    sleep 2
+    start_mesh 30
+    verify_full_mesh 60
 
     local intro=""
     for node in "${!NODE_ROLES[@]}"; do
@@ -305,11 +339,22 @@ test_t9_introducer_crash() {
 
 # --- T10: Introducer rejoin ---
 test_t10_introducer_rejoin() {
+    # Ensure clean mesh, crash introducer, then verify it rejoins
+    stop_mesh 2>/dev/null || true
+    sleep 2
+    start_mesh 30
+    verify_full_mesh 60
+
     local intro=""
     for node in "${!NODE_ROLES[@]}"; do
         [ "${NODE_ROLES[$node]}" = "introducer" ] && intro="$node"
     done
 
+    crash_mesh_node "$intro"
+    sleep 5
+    verify_mesh_without "$intro" 15
+
+    # Rejoin
     start_mesh_node "$intro"
     verify_full_mesh 90
 }
@@ -856,7 +901,7 @@ test_t39_clean_soak() {
 
     while [ $(( $(date +%s) - start )) -lt "$duration" ]; do
         if ! _check_all_pairs "${!NODE_IPS[@]}" 2>/dev/null; then
-            ((failures++))
+            failures=$((failures + 1))
             log_warn "Soak: connectivity gap at $(( $(date +%s) - start ))s"
         fi
         sleep "$interval"

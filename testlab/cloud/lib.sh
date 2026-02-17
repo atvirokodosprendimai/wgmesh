@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # lib.sh — Shared functions for wgmesh cloud integration tests
 #
 # Source this file from other scripts:
