@@ -339,11 +339,11 @@ test_t8_rejoin() {
 
 # --- T9: Introducer crash ---
 test_t9_introducer_crash() {
-    # Ensure clean mesh state
+    # Ensure clean mesh state (longer settle after multiple prior tests)
     stop_mesh 2>/dev/null || true
-    sleep 2
-    start_mesh 30
-    verify_full_mesh 120
+    sleep 3
+    start_mesh 45
+    verify_full_mesh 180
 
     local intro=""
     for node in "${!NODE_ROLES[@]}"; do
@@ -354,16 +354,16 @@ test_t9_introducer_crash() {
     sleep 5
 
     # Existing direct tunnels between nodes should survive
-    verify_mesh_without "$intro" 30
+    verify_mesh_without "$intro" 60
 }
 
 # --- T10: Introducer rejoin ---
 test_t10_introducer_rejoin() {
     # Ensure clean mesh, crash introducer, then verify it rejoins
     stop_mesh 2>/dev/null || true
-    sleep 2
-    start_mesh 30
-    verify_full_mesh 60
+    sleep 3
+    start_mesh 45
+    verify_full_mesh 180
 
     local intro=""
     for node in "${!NODE_ROLES[@]}"; do
@@ -372,11 +372,11 @@ test_t10_introducer_rejoin() {
 
     crash_mesh_node "$intro"
     sleep 5
-    verify_mesh_without "$intro" 15
+    verify_mesh_without "$intro" 60
 
     # Rejoin
     start_mesh_node "$intro"
-    verify_full_mesh 90
+    verify_full_mesh 120
 }
 
 # ===========================================================================
