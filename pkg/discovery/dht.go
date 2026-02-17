@@ -39,6 +39,11 @@ const (
 	RendezvousStaleCheck      = 10 * time.Second // How often to check for stale handshakes
 )
 
+type backoffEntry struct {
+	nextAttempt time.Time
+	duration    time.Duration
+}
+
 // Well-known BitTorrent DHT bootstrap nodes
 var DHTBootstrapNodes = []string{
 	"router.bittorrent.com:6881",
@@ -62,9 +67,9 @@ type DHTDiscovery struct {
 	running           bool
 	ctx               context.Context
 	cancel            context.CancelFunc
-	contactedPeers    map[string]time.Time // Dedup: don't spam same IP
-	controlPeers      map[string]string    // peer pubkey -> exchange/control endpoint
-	rendezvousBackoff map[string]time.Time // peer pubkey -> next allowed rendezvous attempt
+	contactedPeers    map[string]time.Time    // Dedup: don't spam same IP
+	controlPeers      map[string]string       // peer pubkey -> exchange/control endpoint
+	rendezvousBackoff map[string]backoffEntry // peer pubkey -> backoff state
 
 	// Callbacks
 	onPeerDiscovered func(addr net.Addr)
@@ -77,10 +82,26 @@ type LocalNode struct {
 	WGPrivateKey     string
 	MeshIP           string
 	MeshIPv6         string
-	WGEndpoint       string
 	RoutableNetworks []string
 	Introducer       bool
 	NATType          NATType // Detected NAT behavior (cone/symmetric/unknown)
+
+	endpointMu sync.RWMutex
+	wgEndpoint string
+}
+
+// GetEndpoint returns the current WG endpoint (thread-safe).
+func (n *LocalNode) GetEndpoint() string {
+	n.endpointMu.RLock()
+	defer n.endpointMu.RUnlock()
+	return n.wgEndpoint
+}
+
+// SetEndpoint updates the WG endpoint (thread-safe).
+func (n *LocalNode) SetEndpoint(ep string) {
+	n.endpointMu.Lock()
+	defer n.endpointMu.Unlock()
+	n.wgEndpoint = ep
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance
@@ -95,7 +116,7 @@ func NewDHTDiscovery(config *daemon.Config, localNode *LocalNode, peerStore *dae
 		cancel:            cancel,
 		contactedPeers:    make(map[string]time.Time),
 		controlPeers:      make(map[string]string),
-		rendezvousBackoff: make(map[string]time.Time),
+		rendezvousBackoff: make(map[string]backoffEntry),
 	}
 
 	// Create peer exchange handler
@@ -227,7 +248,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		// First try IPv6 - no NAT traversal needed
 		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
 			log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
-			d.localNode.WGEndpoint = ipv6Endpoint
+			d.localNode.SetEndpoint(ipv6Endpoint)
 			d.localNode.NATType = NATUnknown // IPv6 has no NAT
 			return
 		}
@@ -238,25 +259,25 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		// Need at least 2 servers for NAT type detection; fall back to simple query
 		ip, _, err := DiscoverExternalEndpoint(0)
 		if err != nil {
-			log.Printf("[STUN] Failed to discover external endpoint: %v (keeping %s)", err, d.localNode.WGEndpoint)
+			log.Printf("[STUN] Failed to discover external endpoint: %v (keeping %s)", err, d.localNode.GetEndpoint())
 			return
 		}
 		endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 		log.Printf("[STUN] External endpoint discovered: %s (NAT type unknown — need 2 servers)", endpoint)
-		d.localNode.WGEndpoint = endpoint
+		d.localNode.SetEndpoint(endpoint)
 		d.localNode.NATType = NATUnknown
 		return
 	}
 
 	natType, ip, _, err := DetectNATType(servers[0], servers[1], 0, 3000)
 	if err != nil {
-		log.Printf("[STUN] Failed to discover external endpoint: %v (keeping %s)", err, d.localNode.WGEndpoint)
+		log.Printf("[STUN] Failed to discover external endpoint: %v (keeping %s)", err, d.localNode.GetEndpoint())
 		return
 	}
 
 	endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 	log.Printf("[STUN] External endpoint: %s, NAT type: %s", endpoint, natType)
-	d.localNode.WGEndpoint = endpoint
+	d.localNode.SetEndpoint(endpoint)
 	d.localNode.NATType = natType
 }
 
@@ -345,9 +366,9 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 			if !d.config.DisableIPv6 {
 				// Prefer IPv6 if available
 				if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
-					if ipv6Endpoint != d.localNode.WGEndpoint {
+					if ipv6Endpoint != d.localNode.GetEndpoint() {
 						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
-						d.localNode.WGEndpoint = ipv6Endpoint
+						d.localNode.SetEndpoint(ipv6Endpoint)
 					}
 					continue
 				}
@@ -359,9 +380,10 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 				continue
 			}
 			newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
-			if newEndpoint != d.localNode.WGEndpoint {
-				log.Printf("[STUN] External endpoint changed: %s -> %s", d.localNode.WGEndpoint, newEndpoint)
-				d.localNode.WGEndpoint = newEndpoint
+			currentEP := d.localNode.GetEndpoint()
+			if newEndpoint != currentEP {
+				log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
+				d.localNode.SetEndpoint(newEndpoint)
 			}
 		case <-d.ctx.Done():
 			return
@@ -686,7 +708,7 @@ func (d *DHTDiscovery) contactPeer(addr krpc.NodeAddr) {
 	}
 
 	// Skip if this is our own address
-	if addrStr == d.localNode.WGEndpoint {
+	if addrStr == d.localNode.GetEndpoint() {
 		return
 	}
 
@@ -778,11 +800,11 @@ func (d *DHTDiscovery) canAttemptRendezvous(pubKey string) bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 
-	nextAttempt, ok := d.rendezvousBackoff[pubKey]
+	entry, ok := d.rendezvousBackoff[pubKey]
 	if !ok {
 		return true
 	}
-	return time.Now().After(nextAttempt)
+	return time.Now().After(entry.nextAttempt)
 }
 
 func (d *DHTDiscovery) recordRendezvousAttempt(pubKey string, success bool) {
@@ -795,15 +817,13 @@ func (d *DHTDiscovery) recordRendezvousAttempt(pubKey string, success bool) {
 		return
 	}
 
-	// Exponential backoff: double the interval, capped at max
+	// Exponential backoff: double the previous duration, capped at max
 	existing, ok := d.rendezvousBackoff[pubKey]
 	var nextBackoff time.Duration
 	if !ok {
 		nextBackoff = RendezvousMinBackoff
 	} else {
-		// Calculate how long since last attempt
-		sinceLast := time.Since(existing.Add(-RendezvousMinBackoff))
-		nextBackoff = sinceLast * 2
+		nextBackoff = existing.duration * 2
 		if nextBackoff < RendezvousMinBackoff {
 			nextBackoff = RendezvousMinBackoff
 		}
@@ -812,7 +832,10 @@ func (d *DHTDiscovery) recordRendezvousAttempt(pubKey string, success bool) {
 		}
 	}
 
-	d.rendezvousBackoff[pubKey] = time.Now().Add(nextBackoff)
+	d.rendezvousBackoff[pubKey] = backoffEntry{
+		nextAttempt: time.Now().Add(nextBackoff),
+		duration:    nextBackoff,
+	}
 }
 
 func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
@@ -820,6 +843,12 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 		return
 	}
 	if peer.WGPubKey == "" {
+		return
+	}
+
+	// Skip peers we already have a recent WG handshake with — no rendezvous needed.
+	hs := getPeerHandshakeTS(d.config.InterfaceName, peer.WGPubKey)
+	if hs > 0 && time.Since(time.Unix(hs, 0)) < 2*time.Minute {
 		return
 	}
 
@@ -855,7 +884,9 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 					return
 				}
 				log.Printf("[NAT] Rendezvous request sent for pair %s <-> %s via %s", shortKey(d.localNode.WGPubKey), shortKey(target.WGPubKey), endpoint)
-				d.recordRendezvousAttempt(target.WGPubKey, true)
+				// Don't record success here — sending the UDP packet doesn't mean
+				// the rendezvous succeeded. Success is recorded when the WG handshake
+				// completes via handleRendezvousStart → runRendezvousPunch.
 			}(introducer.ControlEndpoint, peer)
 			sent++
 		}

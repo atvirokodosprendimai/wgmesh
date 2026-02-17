@@ -297,6 +297,10 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 
 	pe.updateTransitivePeers(reply.KnownPeers)
 
+	// Always update the peer store so reconcile can configure WG promptly,
+	// even when we also route this reply to a pending ExchangeWithPeer caller.
+	pe.peerStore.Update(peerInfo, DHTMethod)
+
 	if ch, ok := pe.getPendingReplyChannel(remoteAddr.String()); ok {
 		select {
 		case ch <- peerInfo:
@@ -306,7 +310,6 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 	}
 
 	log.Printf("[Exchange] Received unsolicited REPLY from %s", remoteAddr.String())
-	pe.peerStore.Update(peerInfo, DHTMethod)
 }
 
 // applyObservedEndpoint updates localNode.WGEndpoint if a peer reflected
@@ -337,15 +340,16 @@ func (pe *PeerExchange) applyObservedEndpoint(observed string) {
 	}
 
 	// Extract our WG listen port from the current endpoint
-	_, wgPort, err := net.SplitHostPort(pe.localNode.WGEndpoint)
+	currentEP := pe.localNode.GetEndpoint()
+	_, wgPort, err := net.SplitHostPort(currentEP)
 	if err != nil {
 		return
 	}
 
 	newEndpoint := net.JoinHostPort(ip.String(), wgPort)
-	if newEndpoint != pe.localNode.WGEndpoint {
-		log.Printf("[Exchange] Peer reflected our address: %s (was %s)", newEndpoint, pe.localNode.WGEndpoint)
-		pe.localNode.WGEndpoint = newEndpoint
+	if newEndpoint != currentEP {
+		log.Printf("[Exchange] Peer reflected our address: %s (was %s)", newEndpoint, currentEP)
+		pe.localNode.SetEndpoint(newEndpoint)
 	}
 }
 
@@ -359,15 +363,14 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
-		pe.localNode.WGEndpoint,
+		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
 	announcement.MeshIPv6 = pe.localNode.MeshIPv6
 	announcement.Hostname = pe.localNode.Hostname
-
-	// Reflect the sender's observed address back to them
+	announcement.NATType = string(pe.localNode.NATType)
 	announcement.ObservedEndpoint = remoteAddr.String()
 	announcement.NATType = string(pe.localNode.NATType)
 
@@ -398,7 +401,7 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
-		pe.localNode.WGEndpoint,
+		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
@@ -497,7 +500,11 @@ func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr
 		return
 	}
 	if offer.FromPubKey == pe.localNode.WGPubKey || offer.TargetPubKey == pe.localNode.WGPubKey {
-		// We only act as introducer here.
+		// We are a participant, not an introducer for this pair.
+		return
+	}
+	if !pe.localNode.Introducer {
+		// Only designated introducers relay offers between other peers.
 		return
 	}
 
@@ -521,6 +528,16 @@ func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr
 	for id, st := range pe.rendezvousSessions {
 		if now.Sub(st.createdAt) > RendezvousSessionTTL {
 			delete(pe.rendezvousSessions, id)
+		}
+	}
+	for id, t := range pe.rendezvousStarts {
+		if now.Sub(t) > RendezvousStartCooldown*2 {
+			delete(pe.rendezvousStarts, id)
+		}
+	}
+	for id, t := range pe.activePunches {
+		if now.Sub(t) > RendezvousPunchCooldown*2 {
+			delete(pe.activePunches, id)
 		}
 	}
 
@@ -631,8 +648,10 @@ func (pe *PeerExchange) handleRendezvousStart(start *rendezvousStart, remoteAddr
 		return
 	}
 
-	startAt := time.UnixMilli(start.StartAtUnixMs)
-	if startAt.IsZero() {
+	var startAt time.Time
+	if start.StartAtUnixMs > 0 {
+		startAt = time.UnixMilli(start.StartAtUnixMs)
+	} else {
 		startAt = time.Now().Add(100 * time.Millisecond)
 	}
 
@@ -963,7 +982,7 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
 		pe.localNode.MeshIP,
-		pe.localNode.WGEndpoint,
+		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
@@ -1013,6 +1032,14 @@ func (pe *PeerExchange) logIncomingPacket(messageType string, remoteAddr *net.UD
 		return
 	}
 	pe.lastPacketLog[key] = now
+	// Periodic cleanup of stale log entries
+	if len(pe.lastPacketLog) > 100 {
+		for k, t := range pe.lastPacketLog {
+			if now.Sub(t) > ExchangeLogCooldown*2 {
+				delete(pe.lastPacketLog, k)
+			}
+		}
+	}
 	pe.logMu.Unlock()
 
 	log.Printf("[Exchange] Received valid %s from %s", messageType, remoteAddr.String())

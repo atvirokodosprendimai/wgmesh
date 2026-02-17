@@ -86,7 +86,24 @@ func TestShouldRelayPeer_ConeNAT_NeverRelays(t *testing.T) {
 	}
 }
 
-func TestShouldRelayPeer_StaleHandshake(t *testing.T) {
+func TestShouldRelayPeer_StaleHandshake_SymmetricSymmetric(t *testing.T) {
+	d := &Daemon{
+		config:    &Config{},
+		localNode: &LocalNode{NATType: "symmetric"},
+	}
+	peer := &PeerInfo{WGPubKey: "peer1", NATType: "symmetric"}
+	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
+
+	// Handshake 5 minutes ago → stale + both symmetric → relay
+	staleTS := time.Now().Add(-5 * time.Minute).Unix()
+	handshakes := map[string]int64{"peer1": staleTS}
+
+	if !d.shouldRelayPeer(peer, relays, handshakes) {
+		t.Error("should relay when WG handshake is stale and both sides symmetric NAT")
+	}
+}
+
+func TestShouldRelayPeer_StaleHandshake_ConeCone_NoRelay(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
 		localNode: &LocalNode{NATType: "cone"},
@@ -94,12 +111,12 @@ func TestShouldRelayPeer_StaleHandshake(t *testing.T) {
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "cone"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
 
-	// Handshake 5 minutes ago → stale → relay
+	// Handshake 5 minutes ago → stale but cone+cone → transient, don't relay
 	staleTS := time.Now().Add(-5 * time.Minute).Unix()
 	handshakes := map[string]int64{"peer1": staleTS}
 
-	if !d.shouldRelayPeer(peer, relays, handshakes) {
-		t.Error("should relay when WG handshake is stale (>2 min)")
+	if d.shouldRelayPeer(peer, relays, handshakes) {
+		t.Error("should not relay cone+cone with stale handshake (likely transient WG rekey)")
 	}
 }
 

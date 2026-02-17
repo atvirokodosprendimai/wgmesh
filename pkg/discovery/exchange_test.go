@@ -76,10 +76,10 @@ func TestHandleReply_UpdatesLocalEndpoint(t *testing.T) {
 	peerStore := daemon.NewPeerStore()
 
 	localNode := &LocalNode{
-		WGPubKey:   "local-pubkey",
-		MeshIP:     "10.0.0.1",
-		WGEndpoint: "0.0.0.0:51820",
+		WGPubKey: "local-pubkey",
+		MeshIP:   "10.0.0.1",
 	}
+	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
 
@@ -104,8 +104,8 @@ func TestHandleReply_UpdatesLocalEndpoint(t *testing.T) {
 	// The local endpoint should now use the observed IP (203.0.113.42)
 	// combined with the original WG port (51820), NOT the observed port (54321)
 	want := "203.0.113.42:51820"
-	if localNode.WGEndpoint != want {
-		t.Errorf("localNode.WGEndpoint = %q, want %q", localNode.WGEndpoint, want)
+	if localNode.GetEndpoint() != want {
+		t.Errorf("localNode.GetEndpoint() = %q, want %q", localNode.GetEndpoint(), want)
 	}
 }
 
@@ -119,10 +119,10 @@ func TestHandleReply_IgnoresEmptyObservedEndpoint(t *testing.T) {
 	peerStore := daemon.NewPeerStore()
 
 	localNode := &LocalNode{
-		WGPubKey:   "local-pubkey",
-		MeshIP:     "10.0.0.1",
-		WGEndpoint: "0.0.0.0:51820",
+		WGPubKey: "local-pubkey",
+		MeshIP:   "10.0.0.1",
 	}
+	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
 
@@ -143,8 +143,8 @@ func TestHandleReply_IgnoresEmptyObservedEndpoint(t *testing.T) {
 	pe.handleReply(reply, remoteAddr)
 
 	// Endpoint should be unchanged
-	if localNode.WGEndpoint != "0.0.0.0:51820" {
-		t.Errorf("localNode.WGEndpoint changed to %q, want unchanged 0.0.0.0:51820", localNode.WGEndpoint)
+	if localNode.GetEndpoint() != "0.0.0.0:51820" {
+		t.Errorf("localNode.GetEndpoint() changed to %q, want unchanged 0.0.0.0:51820", localNode.GetEndpoint())
 	}
 }
 
@@ -158,10 +158,10 @@ func TestHandleReply_SkipsSelfReflection(t *testing.T) {
 	peerStore := daemon.NewPeerStore()
 
 	localNode := &LocalNode{
-		WGPubKey:   "local-pubkey",
-		MeshIP:     "10.0.0.1",
-		WGEndpoint: "0.0.0.0:51820",
+		WGPubKey: "local-pubkey",
+		MeshIP:   "10.0.0.1",
 	}
+	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
 
@@ -177,7 +177,7 @@ func TestHandleReply_SkipsSelfReflection(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			localNode.WGEndpoint = "0.0.0.0:51820" // reset
+			localNode.SetEndpoint("0.0.0.0:51820") // reset
 
 			reply := &crypto.PeerAnnouncement{
 				Protocol:         crypto.ProtocolVersion,
@@ -194,8 +194,8 @@ func TestHandleReply_SkipsSelfReflection(t *testing.T) {
 
 			pe.handleReply(reply, remoteAddr)
 
-			if localNode.WGEndpoint != "0.0.0.0:51820" {
-				t.Errorf("localNode.WGEndpoint = %q, want unchanged for private observed addr %q", localNode.WGEndpoint, tt.observed)
+			if localNode.GetEndpoint() != "0.0.0.0:51820" {
+				t.Errorf("localNode.GetEndpoint() = %q, want unchanged for private observed addr %q", localNode.GetEndpoint(), tt.observed)
 			}
 		})
 	}
@@ -211,10 +211,10 @@ func TestSendReply_PopulatesObservedEndpoint(t *testing.T) {
 	peerStore := daemon.NewPeerStore()
 
 	localNode := &LocalNode{
-		WGPubKey:   "local-pubkey",
-		MeshIP:     "10.0.0.1",
-		WGEndpoint: "1.2.3.4:51820",
+		WGPubKey: "local-pubkey",
+		MeshIP:   "10.0.0.1",
 	}
+	localNode.SetEndpoint("1.2.3.4:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
 

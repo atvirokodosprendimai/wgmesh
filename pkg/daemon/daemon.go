@@ -398,24 +398,36 @@ func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*P
 	if d.config.ForceRelay {
 		return len(relayCandidates) > 0
 	}
-	if !d.config.DisableIPv6 && isIPv6Endpoint(peer.Endpoint) {
-		return false // IPv6 peers should stay direct
-	}
 	if len(relayCandidates) == 0 {
 		return false // No relay available
 	}
 
 	// Check WG handshake first — if we've had a recent handshake, direct
-	// connectivity is confirmed regardless of NAT type.
+	// connectivity is confirmed regardless of NAT type or IPv6.
 	if handshakes != nil {
 		if ts, ok := handshakes[peer.WGPubKey]; ok && ts > 0 {
 			lastHandshake := time.Unix(ts, 0)
-			if time.Since(lastHandshake) < 2*time.Minute {
+			if time.Since(lastHandshake) < HandshakeStaleAfter {
 				return false // Direct path is working
 			}
-			// Handshake stale >2 min — peer may be unreachable directly
-			return true
+			// Handshake stale — but only relay if NAT situation warrants it.
+			// For cone/unknown NAT or IPv6, the staleness is likely transient
+			// (e.g., WG rekey timing). Only relay for symmetric+symmetric.
+			if d.localNode.NATType == "symmetric" && peer.NATType == "symmetric" {
+				return true
+			}
+			// For transitive-only peers with stale handshake, relay to avoid blackhole
+			if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") &&
+				!hasDiscoveryMethod(peer.DiscoveredVia, "dht") {
+				return true
+			}
+			return false
 		}
+	}
+
+	// No handshake data yet — IPv6 endpoints should try direct first
+	if !d.config.DisableIPv6 && isIPv6Endpoint(peer.Endpoint) {
+		return false
 	}
 
 	// Both sides symmetric → hole-punch is unreliable, relay

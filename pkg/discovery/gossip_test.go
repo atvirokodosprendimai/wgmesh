@@ -24,7 +24,8 @@ func TestHandleAnnouncementUpdatesPeerStore(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	localNode := &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1", WGEndpoint: "127.0.0.1:51820"}
+	localNode := &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode.SetEndpoint("127.0.0.1:51820")
 	gossip, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)

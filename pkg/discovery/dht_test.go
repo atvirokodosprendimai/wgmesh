@@ -70,7 +70,7 @@ func TestCanAttemptRendezvous_BackoffNotExpired(t *testing.T) {
 	d, _ := NewDHTDiscovery(cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	d.mu.Lock()
-	d.rendezvousBackoff["peer1"] = time.Now().Add(30 * time.Second)
+	d.rendezvousBackoff["peer1"] = backoffEntry{nextAttempt: time.Now().Add(30 * time.Second), duration: 30 * time.Second}
 	d.mu.Unlock()
 
 	if d.canAttemptRendezvous("peer1") {
@@ -83,7 +83,7 @@ func TestCanAttemptRendezvous_BackoffExpired(t *testing.T) {
 	d, _ := NewDHTDiscovery(cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	d.mu.Lock()
-	d.rendezvousBackoff["peer1"] = time.Now().Add(-1 * time.Second)
+	d.rendezvousBackoff["peer1"] = backoffEntry{nextAttempt: time.Now().Add(-1 * time.Second), duration: RendezvousMinBackoff}
 	d.mu.Unlock()
 
 	if !d.canAttemptRendezvous("peer1") {
@@ -96,7 +96,7 @@ func TestRecordRendezvousAttempt_SuccessResetsBackoff(t *testing.T) {
 	d, _ := NewDHTDiscovery(cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	d.mu.Lock()
-	d.rendezvousBackoff["peer1"] = time.Now().Add(30 * time.Second)
+	d.rendezvousBackoff["peer1"] = backoffEntry{nextAttempt: time.Now().Add(30 * time.Second), duration: 30 * time.Second}
 	d.mu.Unlock()
 
 	d.recordRendezvousAttempt("peer1", true)
@@ -125,8 +125,11 @@ func TestRecordRendezvousAttempt_FailureSetsMinBackoff(t *testing.T) {
 	}
 
 	minAllowed := time.Now().Add(RendezvousMinBackoff - 100*time.Millisecond)
-	if nextAttempt.Before(minAllowed) {
-		t.Errorf("First failure backoff too short: %v (expected at least %v)", nextAttempt, minAllowed)
+	if nextAttempt.nextAttempt.Before(minAllowed) {
+		t.Errorf("First failure backoff too short: %v (expected at least %v)", nextAttempt.nextAttempt, minAllowed)
+	}
+	if nextAttempt.duration != RendezvousMinBackoff {
+		t.Errorf("First failure duration should be min backoff: got %v", nextAttempt.duration)
 	}
 }
 
@@ -146,8 +149,11 @@ func TestRecordRendezvousAttempt_ExponentialBackoff(t *testing.T) {
 	secondBackoff := d.rendezvousBackoff["peer1"]
 	d.mu.RUnlock()
 
-	if !secondBackoff.After(firstBackoff) {
-		t.Errorf("Second failure should have longer backoff: first=%v, second=%v", firstBackoff, secondBackoff)
+	if secondBackoff.duration <= firstBackoff.duration {
+		t.Errorf("Second failure should have longer backoff duration: first=%v, second=%v", firstBackoff.duration, secondBackoff.duration)
+	}
+	if !secondBackoff.nextAttempt.After(firstBackoff.nextAttempt) {
+		t.Errorf("Second failure should have later next attempt: first=%v, second=%v", firstBackoff.nextAttempt, secondBackoff.nextAttempt)
 	}
 }
 
@@ -165,8 +171,11 @@ func TestRecordRendezvousAttempt_BackoffCappedAtMax(t *testing.T) {
 	d.mu.RUnlock()
 
 	maxAllowed := time.Now().Add(RendezvousMaxBackoff + 100*time.Millisecond)
-	if nextAttempt.After(maxAllowed) {
-		t.Errorf("Backoff should be capped at max: %v (expected at most %v)", nextAttempt, maxAllowed)
+	if nextAttempt.nextAttempt.After(maxAllowed) {
+		t.Errorf("Backoff should be capped at max: %v (expected at most %v)", nextAttempt.nextAttempt, maxAllowed)
+	}
+	if nextAttempt.duration > RendezvousMaxBackoff {
+		t.Errorf("Backoff duration should be capped at max: got %v", nextAttempt.duration)
 	}
 }
 

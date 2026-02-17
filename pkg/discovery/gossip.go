@@ -200,7 +200,7 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 	announcement := crypto.CreateAnnouncement(
 		g.localNode.WGPubKey,
 		g.localNode.MeshIP,
-		g.localNode.WGEndpoint,
+		g.localNode.GetEndpoint(),
 		g.localNode.Introducer,
 		g.localNode.RoutableNetworks,
 		knownPeers,
