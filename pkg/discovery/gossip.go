@@ -204,10 +204,10 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		g.localNode.Introducer,
 		g.localNode.RoutableNetworks,
 		knownPeers,
+		g.localNode.Hostname,
+		g.localNode.MeshIPv6,
+		string(g.localNode.NATType),
 	)
-	announcement.MeshIPv6 = g.localNode.MeshIPv6
-	announcement.Hostname = g.localNode.Hostname
-	announcement.NATType = string(g.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, g.gossipKey)
 	if err != nil {

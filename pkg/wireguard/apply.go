@@ -9,6 +9,14 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
 
+// shortKey safely truncates a key for logging (avoids panic on short/empty keys).
+func shortKey(key string) string {
+	if len(key) > 16 {
+		return key[:16]
+	}
+	return key
+}
+
 type FullConfig struct {
 	Interface WGInterface
 	Peers     []WGPeer
@@ -78,10 +86,10 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 		}
 
 		if _, err := client.Run(peerCmd); err != nil {
-			return fmt.Errorf("failed to add peer %s: %w", peer.PublicKey[:16], err)
+			return fmt.Errorf("failed to add peer %s: %w", shortKey(peer.PublicKey), err)
 		}
 
-		fmt.Printf("    Added peer: %s\n", peer.PublicKey[:16])
+		fmt.Printf("    Added peer: %s\n", shortKey(peer.PublicKey))
 	}
 
 	return nil

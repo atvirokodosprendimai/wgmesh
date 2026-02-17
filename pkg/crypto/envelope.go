@@ -175,16 +175,19 @@ func OpenEnvelopeRaw(data []byte, gossipKey [32]byte) (*Envelope, []byte, error)
 	return &envelope, plaintext, nil
 }
 
-// CreateAnnouncement creates a new peer announcement
-func CreateAnnouncement(wgPubKey, meshIP, wgEndpoint string, introducer bool, routableNetworks []string, knownPeers []KnownPeer) *PeerAnnouncement {
+// CreateAnnouncement creates a new peer announcement with all identity fields.
+func CreateAnnouncement(wgPubKey, meshIP, wgEndpoint string, introducer bool, routableNetworks []string, knownPeers []KnownPeer, hostname, meshIPv6, natType string) *PeerAnnouncement {
 	return &PeerAnnouncement{
 		Protocol:         ProtocolVersion,
 		WGPubKey:         wgPubKey,
+		Hostname:         hostname,
 		MeshIP:           meshIP,
+		MeshIPv6:         meshIPv6,
 		WGEndpoint:       wgEndpoint,
 		Introducer:       introducer,
 		RoutableNetworks: routableNetworks,
 		Timestamp:        time.Now().Unix(),
 		KnownPeers:       knownPeers,
+		NATType:          natType,
 	}
 }

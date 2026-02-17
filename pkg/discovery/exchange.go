@@ -126,6 +126,7 @@ func (pe *PeerExchange) Start() error {
 	pe.conn = conn
 	pe.port = port
 	pe.running = true
+	pe.stopCh = make(chan struct{}) // Re-create for restart safety (B8)
 
 	// Start listener
 	go pe.listenLoop()
@@ -388,12 +389,11 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
+		pe.localNode.Hostname,
+		pe.localNode.MeshIPv6,
+		string(pe.localNode.NATType),
 	)
-	announcement.MeshIPv6 = pe.localNode.MeshIPv6
-	announcement.Hostname = pe.localNode.Hostname
-	announcement.NATType = string(pe.localNode.NATType)
 	announcement.ObservedEndpoint = remoteAddr.String()
-	announcement.NATType = string(pe.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeReply, announcement, pe.config.Keys.GossipKey)
 	if err != nil {
@@ -426,10 +426,10 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
+		pe.localNode.Hostname,
+		pe.localNode.MeshIPv6,
+		string(pe.localNode.NATType),
 	)
-	announcement.MeshIPv6 = pe.localNode.MeshIPv6
-	announcement.Hostname = pe.localNode.Hostname
-	announcement.NATType = string(pe.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
 	if err != nil {
@@ -1007,10 +1007,10 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		pe.localNode.Introducer,
 		pe.localNode.RoutableNetworks,
 		knownPeers,
+		pe.localNode.Hostname,
+		pe.localNode.MeshIPv6,
+		string(pe.localNode.NATType),
 	)
-	announcement.MeshIPv6 = pe.localNode.MeshIPv6
-	announcement.Hostname = pe.localNode.Hostname
-	announcement.NATType = string(pe.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)
 	if err != nil {

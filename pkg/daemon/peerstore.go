@@ -81,8 +81,15 @@ func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
 }
 
 func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
+	// Take a snapshot of subscribers under the lock to avoid races,
+	// then send outside the lock to prevent deadlock (D7).
+	ps.mu.RLock()
+	subs := make([]chan PeerEvent, len(ps.subscribers))
+	copy(subs, ps.subscribers)
+	ps.mu.RUnlock()
+
 	ev := PeerEvent{PubKey: pubKey, Kind: kind}
-	for _, ch := range ps.subscribers {
+	for _, ch := range subs {
 		select {
 		case ch <- ev:
 		default:
@@ -93,68 +100,80 @@ func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
 // Update adds or updates a peer in the store
 // Merge logic: newest timestamp wins for mutable fields (endpoint, routable_networks)
 func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-	now := time.Now()
+	var eventKey string
+	var eventKind PeerEventKind
 
-	existing, exists := ps.peers[info.WGPubKey]
-	if !exists {
-		// New peer
-		if info.LastSeen.IsZero() {
-			info.LastSeen = now
+	func() {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		now := time.Now()
+
+		existing, exists := ps.peers[info.WGPubKey]
+		if !exists {
+			// New peer
+			if info.LastSeen.IsZero() {
+				info.LastSeen = now
+			}
+			info.DiscoveredVia = []string{discoveryMethod}
+			if info.Endpoint != "" {
+				info.endpointMethod = discoveryMethod
+			}
+			ps.peers[info.WGPubKey] = info
+			eventKey = info.WGPubKey
+			eventKind = PeerEventNew
+			return
 		}
-		info.DiscoveredVia = []string{discoveryMethod}
-		if info.Endpoint != "" {
-			info.endpointMethod = discoveryMethod
+
+		// Update existing peer - newer info wins
+		if info.Endpoint != "" && shouldUpdateEndpoint(existing, discoveryMethod) {
+			existing.Endpoint = info.Endpoint
+			existing.endpointMethod = discoveryMethod
 		}
-		ps.peers[info.WGPubKey] = info
-		ps.notify(info.WGPubKey, PeerEventNew)
-		return
-	}
-
-	// Update existing peer - newer info wins
-	if info.Endpoint != "" && shouldUpdateEndpoint(existing, discoveryMethod) {
-		existing.Endpoint = info.Endpoint
-		existing.endpointMethod = discoveryMethod
-	}
-	if len(info.RoutableNetworks) > 0 {
-		existing.RoutableNetworks = info.RoutableNetworks
-	}
-	if info.MeshIP != "" {
-		existing.MeshIP = info.MeshIP
-	}
-	if info.MeshIPv6 != "" {
-		existing.MeshIPv6 = info.MeshIPv6
-	}
-	if info.Hostname != "" {
-		existing.Hostname = info.Hostname
-	}
-	if info.Introducer {
-		existing.Introducer = true
-	}
-	if info.NATType != "" {
-		existing.NATType = info.NATType
-	}
-
-	if shouldRefreshLastSeen(discoveryMethod) {
-		existing.LastSeen = now
-	} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
-		existing.LastSeen = info.LastSeen
-	}
-
-	// Add discovery method if not already present
-	found := false
-	for _, method := range existing.DiscoveredVia {
-		if method == discoveryMethod {
-			found = true
-			break
+		if len(info.RoutableNetworks) > 0 {
+			existing.RoutableNetworks = info.RoutableNetworks
 		}
-	}
-	if !found {
-		existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
-	}
+		if info.MeshIP != "" {
+			existing.MeshIP = info.MeshIP
+		}
+		if info.MeshIPv6 != "" {
+			existing.MeshIPv6 = info.MeshIPv6
+		}
+		if info.Hostname != "" {
+			existing.Hostname = info.Hostname
+		}
+		// Always update Introducer flag from the latest announcement.
+		// A node can stop being an introducer if reconfigured.
+		existing.Introducer = info.Introducer
+		if info.NATType != "" {
+			existing.NATType = info.NATType
+		}
 
-	ps.notify(info.WGPubKey, PeerEventUpdated)
+		if shouldRefreshLastSeen(discoveryMethod) {
+			existing.LastSeen = now
+		} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
+			existing.LastSeen = info.LastSeen
+		}
+
+		// Add discovery method if not already present
+		found := false
+		for _, method := range existing.DiscoveredVia {
+			if method == discoveryMethod {
+				found = true
+				break
+			}
+		}
+		if !found {
+			existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
+		}
+
+		eventKey = info.WGPubKey
+		eventKind = PeerEventUpdated
+	}()
+
+	// Notify outside the lock to prevent deadlock if subscribers call back (D7)
+	if eventKey != "" {
+		ps.notify(eventKey, eventKind)
+	}
 }
 
 func shouldRefreshLastSeen(discoveryMethod string) bool {
