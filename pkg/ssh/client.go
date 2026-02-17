@@ -114,3 +114,36 @@ func (c *Client) WriteFile(path string, content []byte, mode os.FileMode) error 
 
 	return nil
 }
+
+func (c *Client) RunWithStdin(cmd, stdinContent string) (string, error) {
+	session, err := c.conn.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	var outputBuf strings.Builder
+	session.Stdout = &outputBuf
+	session.Stderr = &outputBuf
+
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		return "", fmt.Errorf("failed to get stdin: %w", err)
+	}
+
+	if err := session.Start(cmd); err != nil {
+		return "", fmt.Errorf("failed to start command: %w", err)
+	}
+
+	if _, err := io.Copy(stdin, strings.NewReader(stdinContent)); err != nil {
+		return "", fmt.Errorf("failed to write stdin: %w", err)
+	}
+
+	stdin.Close()
+
+	if err := session.Wait(); err != nil {
+		return outputBuf.String(), fmt.Errorf("command failed: %w", err)
+	}
+
+	return outputBuf.String(), nil
+}
