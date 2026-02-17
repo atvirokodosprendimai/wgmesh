@@ -825,9 +825,11 @@ func (d *Daemon) probePeersOverMesh() {
 		}
 		activeSet[p.WGPubKey] = struct{}{}
 
-		// Only enforce probe health after a WG tunnel has been established at least once.
-		// Without this gate, newly discovered NAT peers can be evicted before first connect.
-		if ts, ok := handshakes[p.WGPubKey]; !ok || ts <= 0 {
+		// Avoid evicting brand-new peers too early, but still enforce for relay-routed
+		// peers (no direct handshake entry by design) and for stale entries.
+		ts := handshakes[p.WGPubKey]
+		enforce := ts > 0 || d.isRelayRoutedPeer(p.WGPubKey) || time.Since(p.LastSeen) > 45*time.Second
+		if !enforce {
 			d.probeMu.Lock()
 			d.probeFailures[p.WGPubKey] = 0
 			d.probeMu.Unlock()
@@ -1172,6 +1174,16 @@ func (d *Daemon) isTemporarilyOffline(pubKey string) bool {
 	}
 	d.offlineMu.Unlock()
 	return true
+}
+
+func (d *Daemon) isRelayRoutedPeer(pubKey string) bool {
+	if pubKey == "" {
+		return false
+	}
+	d.relayMu.RLock()
+	_, ok := d.relayRoutes[pubKey]
+	d.relayMu.RUnlock()
+	return ok
 }
 
 // printStatus prints current mesh status
