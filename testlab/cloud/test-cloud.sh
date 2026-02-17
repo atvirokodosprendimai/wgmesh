@@ -427,6 +427,7 @@ test_t11_loss_10() {
 
 # --- T12: 30% packet loss on 1 node ---
 test_t12_loss_30() {
+    _chaos_setup
     local node
     node=$(_pick_node)
 
@@ -474,8 +475,9 @@ test_t14_loss_80() {
 
     # Node will be evicted — expected
     chaos_clear "$node"
+    sleep 30  # Allow network to settle
     restart_mesh_node "$node"
-    verify_full_mesh 90
+    verify_full_mesh 180
     scan_logs_for_errors
 }
 
