@@ -150,8 +150,15 @@ func configureInterface(name, privateKey string, listenPort int) error {
 func setInterfaceAddress(name, address string) error {
 	switch runtime.GOOS {
 	case "linux":
-		// Remove existing addresses first
-		cmdExecutor.Command("ip", "addr", "flush", "dev", name).Run()
+		ip, _, err := net.ParseCIDR(address)
+		if err != nil {
+			return fmt.Errorf("invalid address format: %s: %w", address, err)
+		}
+		if ip.To4() != nil {
+			cmdExecutor.Command("ip", "-4", "addr", "flush", "dev", name).Run()
+		} else {
+			cmdExecutor.Command("ip", "-6", "addr", "flush", "dev", name).Run()
+		}
 
 		cmd := cmdExecutor.Command("ip", "addr", "add", address, "dev", name)
 		if output, err := cmd.CombinedOutput(); err != nil {
@@ -168,26 +175,47 @@ func setInterfaceAddress(name, address string) error {
 		}
 
 		ipv4 := ip.To4()
-		if ipv4 == nil {
-			return fmt.Errorf("only IPv4 addresses are supported on macOS: %s", address)
+		if ipv4 != nil {
+			netmask := net.IP(ipNet.Mask).String()
+			cmd := cmdExecutor.Command("ifconfig", name, "inet", ipv4.String(), ipv4.String(), "netmask", netmask, "alias")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				if !strings.Contains(string(output), "File exists") {
+					return fmt.Errorf("failed to set address: %s: %w", string(output), err)
+				}
+			}
+
+			// macOS utun interfaces are point-to-point and may not add a connected
+			// route for the CIDR. Ensure the mesh subnet routes via this interface.
+			networkCIDR := ipNet.String()
+			routeAdd := cmdExecutor.Command("route", "-n", "add", "-net", networkCIDR, "-interface", name)
+			if output, err := routeAdd.CombinedOutput(); err != nil {
+				out := string(output)
+				if strings.Contains(out, "File exists") {
+					routeChange := cmdExecutor.Command("route", "-n", "change", "-net", networkCIDR, "-interface", name)
+					if changeOutput, changeErr := routeChange.CombinedOutput(); changeErr != nil {
+						return fmt.Errorf("failed to update route %s via %s: %s: %w", networkCIDR, name, string(changeOutput), changeErr)
+					}
+				} else {
+					return fmt.Errorf("failed to add route %s via %s: %s: %w", networkCIDR, name, out, err)
+				}
+			}
+
+			return nil
 		}
 
-		netmask := net.IP(ipNet.Mask).String()
-		cmd := cmdExecutor.Command("ifconfig", name, "inet", ipv4.String(), ipv4.String(), "netmask", netmask, "alias")
+		cmd := cmdExecutor.Command("ifconfig", name, "inet6", ip.String(), "prefixlen", fmt.Sprintf("%d", maskSize(ipNet.Mask)), "alias")
 		if output, err := cmd.CombinedOutput(); err != nil {
 			if !strings.Contains(string(output), "File exists") {
 				return fmt.Errorf("failed to set address: %s: %w", string(output), err)
 			}
 		}
 
-		// macOS utun interfaces are point-to-point and may not add a connected
-		// route for the CIDR. Ensure the mesh subnet routes via this interface.
 		networkCIDR := ipNet.String()
-		routeAdd := cmdExecutor.Command("route", "-n", "add", "-net", networkCIDR, "-interface", name)
+		routeAdd := cmdExecutor.Command("route", "-n", "add", "-inet6", "-net", networkCIDR, "-interface", name)
 		if output, err := routeAdd.CombinedOutput(); err != nil {
 			out := string(output)
 			if strings.Contains(out, "File exists") {
-				routeChange := cmdExecutor.Command("route", "-n", "change", "-net", networkCIDR, "-interface", name)
+				routeChange := cmdExecutor.Command("route", "-n", "change", "-inet6", "-net", networkCIDR, "-interface", name)
 				if changeOutput, changeErr := routeChange.CombinedOutput(); changeErr != nil {
 					return fmt.Errorf("failed to update route %s via %s: %s: %w", networkCIDR, name, string(changeOutput), changeErr)
 				}
@@ -200,6 +228,11 @@ func setInterfaceAddress(name, address string) error {
 	default:
 		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
 	}
+}
+
+func maskSize(mask net.IPMask) int {
+	ones, _ := mask.Size()
+	return ones
 }
 
 // setInterfaceUp brings an interface up

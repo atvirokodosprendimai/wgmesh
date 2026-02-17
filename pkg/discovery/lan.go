@@ -136,6 +136,8 @@ func (l *LANDiscovery) announce() {
 		l.localNode.RoutableNetworks,
 		nil, // No known peers in LAN announce (keep small)
 	)
+	announcement.MeshIPv6 = l.localNode.MeshIPv6
+	announcement.Hostname = l.localNode.Hostname
 	announcement.NATType = string(l.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, l.gossipKey)
@@ -200,7 +202,9 @@ func (l *LANDiscovery) listenLoop() {
 
 		peer := &daemon.PeerInfo{
 			WGPubKey:         announcement.WGPubKey,
+			Hostname:         announcement.Hostname,
 			MeshIP:           announcement.MeshIP,
+			MeshIPv6:         announcement.MeshIPv6,
 			Endpoint:         endpoint,
 			Introducer:       announcement.Introducer,
 			RoutableNetworks: announcement.RoutableNetworks,
@@ -214,17 +218,17 @@ func (l *LANDiscovery) listenLoop() {
 
 // resolveEndpoint resolves the peer endpoint from the announcement and sender address
 func resolveEndpoint(advertised string, sender *net.UDPAddr) string {
-	if host, port, err := net.SplitHostPort(advertised); err == nil {
-		if host == "" || host == "0.0.0.0" || host == "::" {
-			if sender != nil && sender.IP != nil {
-				return net.JoinHostPort(sender.IP.String(), port)
-			}
-		}
-		return advertised
-	}
 	if sender != nil && sender.IP != nil {
+		if _, port, err := net.SplitHostPort(advertised); err == nil && port != "" {
+			return net.JoinHostPort(sender.IP.String(), port)
+		}
 		return net.JoinHostPort(sender.IP.String(), fmt.Sprintf("%d", daemon.DefaultWGPort))
 	}
+
+	if _, _, err := net.SplitHostPort(advertised); err == nil {
+		return advertised
+	}
+
 	return ""
 }
 

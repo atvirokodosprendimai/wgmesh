@@ -31,12 +31,12 @@ const (
 	DHTMethod                 = "dht"
 	DHTMaxConcurrentExchanges = 10 // Limit concurrent transitive exchanges to prevent resource exhaustion
 	RendezvousWindow          = 20 * time.Second
-	RendezvousPhase           = 3 * time.Second
+	RendezvousPhase           = 4 * time.Second
 	RendezvousPunchDelay      = 500 * time.Millisecond
 	RendezvousMaxIntroducers  = 3
-	RendezvousMinBackoff      = 5 * time.Second
-	RendezvousMaxBackoff      = 60 * time.Second
-	RendezvousStaleCheck      = 30 * time.Second // How often to check for stale handshakes
+	RendezvousMinBackoff      = 3 * time.Second
+	RendezvousMaxBackoff      = 30 * time.Second
+	RendezvousStaleCheck      = 10 * time.Second // How often to check for stale handshakes
 )
 
 // Well-known BitTorrent DHT bootstrap nodes
@@ -73,8 +73,10 @@ type DHTDiscovery struct {
 // LocalNode represents our local node information
 type LocalNode struct {
 	WGPubKey         string
+	Hostname         string
 	WGPrivateKey     string
 	MeshIP           string
+	MeshIPv6         string
 	WGEndpoint       string
 	RoutableNetworks []string
 	Introducer       bool
@@ -170,7 +172,11 @@ func (d *DHTDiscovery) Start() error {
 	go d.announceLoop()
 	go d.queryLoop()
 	go d.persistLoop()
-	go d.transitiveConnectLoop()
+	if d.config.DisablePunching {
+		log.Printf("[NAT] NAT punching disabled by configuration")
+	} else {
+		go d.transitiveConnectLoop()
+	}
 	go d.stunRefreshLoop()
 
 	log.Printf("[DHT] Discovery started, listening on port %d", d.exchange.Port())
@@ -215,12 +221,16 @@ func (d *DHTDiscovery) Stop() error {
 // and localNode.NATType. Falls back to the existing endpoint if STUN fails.
 // Also discovers IPv6 endpoint if available (no NAT, preferred for direct connection).
 func (d *DHTDiscovery) discoverExternalEndpoint() {
-	// First try IPv6 - no NAT traversal needed
-	if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
-		log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
-		d.localNode.WGEndpoint = ipv6Endpoint
-		d.localNode.NATType = NATUnknown // IPv6 has no NAT
-		return
+	if d.config.DisableIPv6 {
+		log.Printf("[STUN] IPv6 discovery disabled by configuration")
+	} else {
+		// First try IPv6 - no NAT traversal needed
+		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
+			log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
+			d.localNode.WGEndpoint = ipv6Endpoint
+			d.localNode.NATType = NATUnknown // IPv6 has no NAT
+			return
+		}
 	}
 
 	servers := DefaultSTUNServers
@@ -332,13 +342,15 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 	for {
 		select {
 		case <-ticker.C:
-			// Prefer IPv6 if available
-			if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
-				if ipv6Endpoint != d.localNode.WGEndpoint {
-					log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
-					d.localNode.WGEndpoint = ipv6Endpoint
+			if !d.config.DisableIPv6 {
+				// Prefer IPv6 if available
+				if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
+					if ipv6Endpoint != d.localNode.WGEndpoint {
+						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
+						d.localNode.WGEndpoint = ipv6Endpoint
+					}
+					continue
 				}
-				continue
 			}
 
 			ip, _, err := DiscoverExternalEndpoint(0)
@@ -669,6 +681,9 @@ func (d *DHTDiscovery) queryInfohash(infohash [20]byte) {
 // contactPeer initiates peer exchange with a discovered address
 func (d *DHTDiscovery) contactPeer(addr krpc.NodeAddr) {
 	addrStr := addr.String()
+	if d.config.DisableIPv6 && isIPv6Endpoint(addrStr) {
+		return
+	}
 
 	// Skip if this is our own address
 	if addrStr == d.localNode.WGEndpoint {
@@ -801,12 +816,18 @@ func (d *DHTDiscovery) recordRendezvousAttempt(pubKey string, success bool) {
 }
 
 func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
+	if d.config.DisablePunching {
+		return
+	}
 	if peer.WGPubKey == "" {
 		return
 	}
 
 	// Skip IPv6 endpoints only for direct punch (rendezvous doesn't need direct route)
 	hasDirectRoute := peer.Endpoint != ""
+	if hasDirectRoute && d.config.DisableIPv6 && isIPv6Endpoint(peer.Endpoint) {
+		hasDirectRoute = false
+	}
 	if hasDirectRoute && strings.HasPrefix(peer.Endpoint, "[") && !d.hasIPv6Route() {
 		log.Printf("[NAT] Skipping direct IPv6 endpoint for %s (no IPv6 route), trying rendezvous", shortKey(peer.WGPubKey))
 		hasDirectRoute = false
@@ -815,8 +836,12 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 	introducers := d.selectRendezvousIntroducers(peer.WGPubKey, d.peerStore.GetActive(), RendezvousMaxIntroducers)
 
 	if len(introducers) > 0 {
+		sent := 0
 		for _, introducer := range introducers {
 			if introducer.ControlEndpoint == "" {
+				continue
+			}
+			if !d.markContacted(introducer.ControlEndpoint, 20*time.Second) {
 				continue
 			}
 
@@ -832,10 +857,11 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 				log.Printf("[NAT] Rendezvous request sent for pair %s <-> %s via %s", shortKey(d.localNode.WGPubKey), shortKey(target.WGPubKey), endpoint)
 				d.recordRendezvousAttempt(target.WGPubKey, true)
 			}(introducer.ControlEndpoint, peer)
-			return
+			sent++
 		}
-		// Introducers exist but none selected (shouldn't happen)
-		log.Printf("[NAT] Rendezvous throttled for %s (introducer busy)", shortKey(peer.WGPubKey))
+		if sent == 0 {
+			log.Printf("[NAT] Rendezvous throttled for %s (introducer busy)", shortKey(peer.WGPubKey))
+		}
 		return
 	}
 
@@ -856,6 +882,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 	log.Printf("[NAT] Event-driven punch: %s via %s (no introducer)", shortKey(peer.WGPubKey), targetControlEndpoint)
 
 	go func(endpoint string, target *daemon.PeerInfo) {
+		baseline := getPeerHandshakeTS(d.config.InterfaceName, target.WGPubKey)
 		peerInfo, err := d.exchange.ExchangeWithPeer(endpoint)
 		if err != nil {
 			if !strings.Contains(err.Error(), "timeout") {
@@ -865,7 +892,17 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			return
 		}
 		if peerInfo != nil {
-			log.Printf("[NAT] Punch succeeded: %s (%s)", peerInfo.WGPubKey[:8]+"...", peerInfo.Endpoint)
+			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, HandshakeWaitTimeout)
+			if newHandshake <= baseline {
+				log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(target.WGPubKey), endpoint)
+				d.recordRendezvousAttempt(target.WGPubKey, false)
+				return
+			}
+			if isIPv6Endpoint(peerInfo.Endpoint) {
+				log.Printf("[Path] Direct IPv6 established: %s (%s)", shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+			} else {
+				log.Printf("[NAT] Punch succeeded: %s (%s)", shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+			}
 			d.setControlEndpoint(peerInfo.WGPubKey, endpoint)
 			d.peerStore.Update(peerInfo, DHTMethod+"-transitive")
 			d.recordRendezvousAttempt(target.WGPubKey, true)
@@ -979,6 +1016,9 @@ func (d *DHTDiscovery) tryTransitivePeers() {
 }
 
 func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod string) {
+	if d.config.DisableIPv6 && isIPv6Endpoint(addrStr) {
+		return
+	}
 	if discoveryMethod == DHTMethod+"-transitive" {
 		log.Printf("[NAT] Starting punch/exchange via transitive address %s", addrStr)
 	}
@@ -998,10 +1038,37 @@ func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod strin
 
 	log.Printf("[DHT] SUCCESS! Found wgmesh peer %s (%s) at %s", peerInfo.WGPubKey[:8]+"...", peerInfo.MeshIP, peerInfo.Endpoint)
 	if discoveryMethod == DHTMethod+"-transitive" {
-		log.Printf("[NAT] Peer established via NAT traversal path: %s (%s)", peerInfo.WGPubKey[:8]+"...", peerInfo.Endpoint)
+		if isIPv6Endpoint(peerInfo.Endpoint) {
+			log.Printf("[Path] Peer established via direct IPv6 path: %s (%s)", shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+		} else {
+			log.Printf("[NAT] Peer established via NAT traversal path: %s (%s)", shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+		}
 	}
 	d.setControlEndpoint(peerInfo.WGPubKey, addrStr)
 	d.peerStore.Update(peerInfo, discoveryMethod)
+}
+
+func getPeerHandshakeTS(iface, peerPubKey string) int64 {
+	if iface == "" || peerPubKey == "" {
+		return 0
+	}
+	hs, err := wireguard.GetLatestHandshakes(iface)
+	if err != nil {
+		return 0
+	}
+	return hs[peerPubKey]
+}
+
+func waitForPeerHandshake(iface, peerPubKey string, baseline int64, timeout time.Duration) int64 {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		current := getPeerHandshakeTS(iface, peerPubKey)
+		if current > baseline {
+			return current
+		}
+		time.Sleep(HandshakePollInterval)
+	}
+	return getPeerHandshakeTS(iface, peerPubKey)
 }
 
 func (d *DHTDiscovery) setControlEndpoint(peerPubKey, endpoint string) {
@@ -1009,6 +1076,7 @@ func (d *DHTDiscovery) setControlEndpoint(peerPubKey, endpoint string) {
 		return
 	}
 	normalized := normalizeKnownPeerEndpoint(endpoint)
+	normalized = filterEndpointForConfig(normalized, d.config.DisableIPv6)
 	if normalized == "" {
 		return
 	}
@@ -1030,6 +1098,9 @@ func (d *DHTDiscovery) controlEndpointForPeer(peer *daemon.PeerInfo) string {
 	d.mu.RUnlock()
 
 	if endpoint := toControlEndpoint(peer.Endpoint, int(d.config.Keys.GossipPort)); endpoint != "" {
+		if d.config.DisableIPv6 && isIPv6Endpoint(endpoint) {
+			return ""
+		}
 		return endpoint
 	}
 
@@ -1091,6 +1162,9 @@ func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo) bool {
 }
 
 func (d *DHTDiscovery) hasIPv6Route() bool {
+	if d.config.DisableIPv6 {
+		return false
+	}
 	conn, err := net.Dial("udp6", "[2001:4860:4860::8888]:53")
 	if err != nil {
 		return false
@@ -1116,14 +1190,21 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 			continue
 		}
 		if !hasAnyDHTReachability(p.DiscoveredVia) {
+			d.debugf("[NAT] DEBUG: %s skipped - no DHT reachability (via=%v)", shortKey(p.WGPubKey), p.DiscoveredVia)
 			continue
 		}
 		if p.Endpoint == "" || !isLikelyPublicEndpoint(p.Endpoint) {
+			d.debugf("[NAT] DEBUG: %s skipped - endpoint not public (%s)", shortKey(p.WGPubKey), p.Endpoint)
+			continue
+		}
+		if d.config.DisableIPv6 && isIPv6Endpoint(p.Endpoint) {
+			d.debugf("[NAT] DEBUG: %s skipped - IPv6 disabled (%s)", shortKey(p.WGPubKey), p.Endpoint)
 			continue
 		}
 
 		controlEndpoint := d.controlEndpointForPeer(p)
 		if controlEndpoint == "" || !isLikelyPublicEndpoint(controlEndpoint) {
+			d.debugf("[NAT] DEBUG: %s skipped - control endpoint not public (%s)", shortKey(p.WGPubKey), controlEndpoint)
 			continue
 		}
 
@@ -1131,15 +1212,21 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		isAuto := !isExplicit && d.isAutoIntroducerCandidate(p)
 
 		if !isExplicit && !isAuto {
+			d.debugf("[NAT] DEBUG: %s skipped - not explicit introducer and not auto-eligible (explicit=%v auto=%v)", shortKey(p.WGPubKey), isExplicit, isAuto)
 			continue
 		}
 
+		d.debugf("[NAT] DEBUG: %s selected as introducer (explicit=%v auto=%v control=%s)", shortKey(p.WGPubKey), isExplicit, isAuto, controlEndpoint)
 		candidates = append(candidates, introducerCandidate{
 			pubKey:          p.WGPubKey,
 			endpoint:        p.Endpoint,
 			controlEndpoint: controlEndpoint,
 			isExplicit:      isExplicit,
 		})
+	}
+
+	if len(candidates) == 0 {
+		d.debugf("[NAT] DEBUG: no introducer candidates for %s", shortKey(remoteKey))
 	}
 
 	if len(candidates) == 0 || maxCount <= 0 {
@@ -1228,6 +1315,12 @@ func shortKey(key string) string {
 		return key
 	}
 	return key[:8] + "..."
+}
+
+func (d *DHTDiscovery) debugf(format string, args ...interface{}) {
+	if strings.EqualFold(d.config.LogLevel, "debug") {
+		log.Printf(format, args...)
+	}
 }
 
 func hasDiscoveryMethod(methods []string, method string) bool {

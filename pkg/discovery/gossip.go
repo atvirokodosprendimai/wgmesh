@@ -187,7 +187,9 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		if p.WGPubKey != target.WGPubKey {
 			knownPeers = append(knownPeers, crypto.KnownPeer{
 				WGPubKey:   p.WGPubKey,
+				Hostname:   p.Hostname,
 				MeshIP:     p.MeshIP,
+				MeshIPv6:   p.MeshIPv6,
 				WGEndpoint: p.Endpoint,
 				Introducer: p.Introducer,
 				NATType:    p.NATType,
@@ -203,6 +205,8 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		g.localNode.RoutableNetworks,
 		knownPeers,
 	)
+	announcement.MeshIPv6 = g.localNode.MeshIPv6
+	announcement.Hostname = g.localNode.Hostname
 	announcement.NATType = string(g.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, g.gossipKey)
@@ -276,11 +280,14 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 	if sender == nil {
 		endpoint = normalizeKnownPeerEndpoint(announcement.WGEndpoint)
 	}
+	endpoint = filterEndpointForConfig(endpoint, g.config.DisableIPv6)
 
 	// Update the sender's info
 	peer := &daemon.PeerInfo{
 		WGPubKey:         announcement.WGPubKey,
+		Hostname:         announcement.Hostname,
 		MeshIP:           announcement.MeshIP,
+		MeshIPv6:         announcement.MeshIPv6,
 		Endpoint:         endpoint,
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
@@ -295,8 +302,10 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		}
 		transitivePeer := &daemon.PeerInfo{
 			WGPubKey:   kp.WGPubKey,
+			Hostname:   kp.Hostname,
 			MeshIP:     kp.MeshIP,
-			Endpoint:   kp.WGEndpoint,
+			MeshIPv6:   kp.MeshIPv6,
+			Endpoint:   filterEndpointForConfig(normalizeKnownPeerEndpoint(kp.WGEndpoint), g.config.DisableIPv6),
 			Introducer: kp.Introducer,
 			NATType:    kp.NATType,
 		}

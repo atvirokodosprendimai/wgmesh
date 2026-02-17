@@ -179,11 +179,17 @@ SUBCOMMANDS (decentralized mode):
   init --secret                 Generate a new mesh secret
 	join --secret <SECRET>        Join a mesh network
 	     [--no-lan-discovery]     Disable LAN multicast discovery
+	     [--no-ipv6]              Ignore IPv6 endpoints for connectivity
+	     [--force-relay]          Prefer relay path for non-LAN peers
+	     [--no-punching]          Disable NAT port punching/rendezvous
 	     [--introducer]           Enable rendezvous introducer role
   status --secret <SECRET>      Show mesh status
   qr --secret <SECRET>          Display secret as QR code (text)
 	install-service --secret ...  Install systemd service
 	     [--no-lan-discovery]     Disable LAN multicast discovery in service
+	     [--no-ipv6]              Ignore IPv6 endpoints in service
+	     [--force-relay]          Prefer relay path in service
+	     [--no-punching]          Disable NAT punching in service
 	     [--introducer]           Enable rendezvous introducer role in service
   uninstall-service             Remove systemd service
   rotate-secret                 Rotate mesh secret
@@ -244,6 +250,9 @@ func joinCmd() {
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
 	noLANDiscovery := fs.Bool("no-lan-discovery", false, "Disable LAN multicast discovery")
+	noIPv6 := fs.Bool("no-ipv6", false, "Ignore IPv6 endpoints for connectivity")
+	forceRelay := fs.Bool("force-relay", false, "Prefer relay path for non-LAN peers")
+	noPunching := fs.Bool("no-punching", false, "Disable NAT port punching/rendezvous")
 	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
 	fs.Parse(os.Args[2:])
 
@@ -272,6 +281,9 @@ func joinCmd() {
 		Privacy:             *privacyMode,
 		Gossip:              *gossipMode,
 		DisableLANDiscovery: *noLANDiscovery,
+		DisableIPv6:         *noIPv6,
+		ForceRelay:          *forceRelay,
+		DisablePunching:     *noPunching,
 		Introducer:          *introducerMode,
 	})
 	if err != nil {
@@ -295,6 +307,15 @@ func joinCmd() {
 	}
 	if *noLANDiscovery {
 		fmt.Println("LAN discovery disabled")
+	}
+	if *noIPv6 {
+		fmt.Println("IPv6 connectivity disabled")
+	}
+	if *forceRelay {
+		fmt.Println("Force relay mode enabled")
+	}
+	if *noPunching {
+		fmt.Println("NAT punching disabled")
 	}
 	if *introducerMode {
 		fmt.Println("Rendezvous introducer enabled")
@@ -423,6 +444,7 @@ func statusCmd() {
 	fmt.Printf("Interface: %s\n", cfg.InterfaceName)
 	fmt.Printf("Network ID: %x\n", cfg.Keys.NetworkID[:8])
 	fmt.Printf("Mesh Subnet: 10.%d.0.0/16\n", cfg.Keys.MeshSubnet[0])
+	fmt.Printf("Mesh IPv6 Prefix: %s\n", formatIPv6Prefix(cfg.Keys.MeshPrefixV6))
 	fmt.Printf("Gossip Port: %d\n", cfg.Keys.GossipPort)
 	fmt.Printf("Rendezvous ID: %x\n", cfg.Keys.RendezvousID)
 	fmt.Println()
@@ -497,6 +519,15 @@ func printTextQR(data string) {
 	fmt.Println(border)
 }
 
+func formatIPv6Prefix(prefix [8]byte) string {
+	return fmt.Sprintf("%02x%02x:%02x%02x:%02x%02x:%02x%02x::/64",
+		prefix[0], prefix[1],
+		prefix[2], prefix[3],
+		prefix[4], prefix[5],
+		prefix[6], prefix[7],
+	)
+}
+
 // installServiceCmd handles the "install-service" subcommand
 func installServiceCmd() {
 	fs := flag.NewFlagSet("install-service", flag.ExitOnError)
@@ -507,6 +538,9 @@ func installServiceCmd() {
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
 	noLANDiscovery := fs.Bool("no-lan-discovery", false, "Disable LAN multicast discovery")
+	noIPv6 := fs.Bool("no-ipv6", false, "Ignore IPv6 endpoints for connectivity")
+	forceRelay := fs.Bool("force-relay", false, "Prefer relay path for non-LAN peers")
+	noPunching := fs.Bool("no-punching", false, "Disable NAT port punching/rendezvous")
 	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
 	fs.Parse(os.Args[2:])
 
@@ -532,6 +566,9 @@ func installServiceCmd() {
 		Privacy:             *privacyMode,
 		Gossip:              *gossipMode,
 		DisableLANDiscovery: *noLANDiscovery,
+		DisableIPv6:         *noIPv6,
+		ForceRelay:          *forceRelay,
+		DisablePunching:     *noPunching,
 		Introducer:          *introducerMode,
 	}
 

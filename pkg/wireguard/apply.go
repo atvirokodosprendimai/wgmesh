@@ -27,6 +27,11 @@ type WGPeer struct {
 	PersistentKeepalive int
 }
 
+type PeerTransfer struct {
+	RxBytes uint64
+	TxBytes uint64
+}
+
 func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig) error {
 	fmt.Println("  Creating fresh WireGuard configuration...")
 
@@ -171,6 +176,34 @@ func GetLatestHandshakes(iface string) (map[string]int64, error) {
 		var ts int64
 		fmt.Sscanf(parts[1], "%d", &ts)
 		result[parts[0]] = ts
+	}
+
+	return result, nil
+}
+
+// GetPeerTransfers returns per-peer transfer counters from WireGuard.
+// Map key is peer public key and values are cumulative rx/tx bytes.
+func GetPeerTransfers(iface string) (map[string]PeerTransfer, error) {
+	cmd := exec.Command("wg", "show", iface, "transfer")
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("wg show transfer failed: %w", err)
+	}
+
+	result := make(map[string]PeerTransfer)
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 3)
+		if len(parts) != 3 {
+			continue
+		}
+		var rx, tx uint64
+		fmt.Sscanf(parts[1], "%d", &rx)
+		fmt.Sscanf(parts[2], "%d", &tx)
+		result[parts[0]] = PeerTransfer{RxBytes: rx, TxBytes: tx}
 	}
 
 	return result, nil

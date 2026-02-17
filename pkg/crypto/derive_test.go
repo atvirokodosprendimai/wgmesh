@@ -28,6 +28,9 @@ func TestDeriveKeys(t *testing.T) {
 	if keys.MeshSubnet != keys2.MeshSubnet {
 		t.Error("MeshSubnet is not deterministic")
 	}
+	if keys.MeshPrefixV6 != keys2.MeshPrefixV6 {
+		t.Error("MeshPrefixV6 is not deterministic")
+	}
 	if keys.PSK != keys2.PSK {
 		t.Error("PSK is not deterministic")
 	}
@@ -147,6 +150,25 @@ func TestDeriveMeshIP(t *testing.T) {
 	// IP should start with 10.42.
 	if ip1[:6] != "10.42." {
 		t.Errorf("Expected IP to start with 10.42., got %s", ip1)
+	}
+}
+
+func TestDeriveMeshIPv6(t *testing.T) {
+	prefix := [8]byte{0xfd, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde}
+	ip1 := DeriveMeshIPv6(prefix, "pubkey1", "test-secret-that-is-long-enough")
+	ip2 := DeriveMeshIPv6(prefix, "pubkey2", "test-secret-that-is-long-enough")
+
+	if ip1 == ip2 {
+		t.Error("Different pubkeys should produce different mesh IPv6 addresses")
+	}
+
+	ip3 := DeriveMeshIPv6(prefix, "pubkey1", "test-secret-that-is-long-enough")
+	if ip1 != ip3 {
+		t.Error("Same inputs should produce same mesh IPv6")
+	}
+
+	if len(ip1) < 2 || ip1[:2] != "fd" {
+		t.Errorf("Expected ULA to start with fd, got %s", ip1)
 	}
 }
 

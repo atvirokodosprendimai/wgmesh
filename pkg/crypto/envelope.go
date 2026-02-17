@@ -25,7 +25,9 @@ const (
 type PeerAnnouncement struct {
 	Protocol         string      `json:"protocol"`
 	WGPubKey         string      `json:"wg_pubkey"`
+	Hostname         string      `json:"hostname,omitempty"`
 	MeshIP           string      `json:"mesh_ip"`
+	MeshIPv6         string      `json:"mesh_ipv6,omitempty"`
 	WGEndpoint       string      `json:"wg_endpoint"`
 	Introducer       bool        `json:"introducer,omitempty"`
 	RoutableNetworks []string    `json:"routable_networks,omitempty"`
@@ -45,7 +47,9 @@ type PeerAnnouncement struct {
 // KnownPeer represents a peer that this node knows about (for transitive discovery)
 type KnownPeer struct {
 	WGPubKey   string `json:"wg_pubkey"`
+	Hostname   string `json:"hostname,omitempty"`
 	MeshIP     string `json:"mesh_ip"`
+	MeshIPv6   string `json:"mesh_ipv6,omitempty"`
 	WGEndpoint string `json:"wg_endpoint"`
 	Introducer bool   `json:"introducer,omitempty"`
 	NATType    string `json:"nat_type,omitempty"`

@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"runtime"
 	"strings"
@@ -150,5 +151,21 @@ func applyRouteDiff(iface string, toAdd, toRemove []routeEntry) error {
 	cmd := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
 	_ = cmd.Run()
 
+	ensureWGForwardingRule(iface)
+
 	return nil
+}
+
+func ensureWGForwardingRule(iface string) {
+	// Best-effort: allow forwarding between WG peers on this interface.
+	// This is required for relay mode when traffic must pass through a public node.
+	check := exec.Command("iptables", "-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
+	if err := check.Run(); err == nil {
+		return
+	}
+
+	add := exec.Command("iptables", "-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
+	if out, err := add.CombinedOutput(); err != nil {
+		log.Printf("Failed to install relay FORWARD rule for %s: %s: %v", iface, strings.TrimSpace(string(out)), err)
+	}
 }

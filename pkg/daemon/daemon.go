@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -20,8 +21,12 @@ import (
 )
 
 const (
-	ReconcileInterval = 5 * time.Second
-	StatusInterval    = 30 * time.Second
+	ReconcileInterval    = 5 * time.Second
+	StatusInterval       = 30 * time.Second
+	RelayCandidateMaxAge = 90 * time.Second
+	StaleCleanupInterval = 1 * time.Minute
+	HealthCheckInterval  = 20 * time.Second
+	HandshakeStaleAfter  = 150 * time.Second
 )
 
 // Daemon manages the mesh node lifecycle
@@ -30,6 +35,13 @@ type Daemon struct {
 	localNode              *LocalNode
 	peerStore              *PeerStore
 	lastAppliedPeerConfigs map[string]string
+	appliedMu              sync.Mutex
+	relayRoutes            map[string]string // target pubkey -> relay pubkey
+	relayMu                sync.RWMutex
+	localSubnetsFn         func() []*net.IPNet
+	peerHealthFailures     map[string]int
+	lastPeerTransferTotal  map[string]uint64
+	healthMu               sync.Mutex
 
 	// Discovery layer (DHT discovery will be attached)
 	dhtDiscovery DiscoveryLayer
@@ -49,10 +61,12 @@ type LocalNode struct {
 	WGPubKey         string
 	WGPrivateKey     string
 	MeshIP           string
+	MeshIPv6         string
 	WGEndpoint       string
 	RoutableNetworks []string
 	Introducer       bool
 	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
+	Hostname         string
 }
 
 // DiscoveryLayer is the interface for discovery implementations
@@ -69,6 +83,10 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		config:                 config,
 		peerStore:              NewPeerStore(),
 		lastAppliedPeerConfigs: make(map[string]string),
+		relayRoutes:            make(map[string]string),
+		localSubnetsFn:         detectLocalSubnets,
+		peerHealthFailures:     make(map[string]int),
+		lastPeerTransferTotal:  make(map[string]uint64),
 		ctx:                    ctx,
 		cancel:                 cancel,
 	}
@@ -92,6 +110,9 @@ func (d *Daemon) Run() error {
 
 	log.Printf("Local node: %s", d.localNode.WGPubKey[:16]+"...")
 	log.Printf("Mesh IP: %s", d.localNode.MeshIP)
+	if d.localNode.MeshIPv6 != "" {
+		log.Printf("Mesh IPv6: %s", d.localNode.MeshIPv6)
+	}
 
 	// Setup WireGuard interface
 	if err := d.setupWireGuard(); err != nil {
@@ -117,6 +138,12 @@ func (d *Daemon) Run() error {
 	// Start status printer
 	go d.statusLoop()
 
+	// Periodically remove long-stale peers from memory/cache
+	go d.staleCleanupLoop()
+
+	// Monitor WG handshakes/transfer and quickly evict dead peers
+	go d.healthMonitorLoop()
+
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
@@ -133,6 +160,11 @@ func (d *Daemon) Run() error {
 
 // initLocalNode loads or creates the local WireGuard node
 func (d *Daemon) initLocalNode() error {
+	hostname, hostErr := os.Hostname()
+	if hostErr != nil {
+		hostname = ""
+	}
+
 	// Try to load existing key from state file
 	stateFile := fmt.Sprintf("/var/lib/wgmesh/%s.json", d.config.InterfaceName)
 	node, err := loadLocalNode(stateFile)
@@ -140,8 +172,10 @@ func (d *Daemon) initLocalNode() error {
 		d.localNode = node
 		// Derive mesh IP from pubkey
 		d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
+		d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret)
 		d.localNode.RoutableNetworks = d.config.AdvertiseRoutes
 		d.localNode.Introducer = d.config.Introducer
+		d.localNode.Hostname = hostname
 		return nil
 	}
 
@@ -153,13 +187,16 @@ func (d *Daemon) initLocalNode() error {
 
 	// Derive mesh IP from public key
 	meshIP := crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, publicKey, d.config.Secret)
+	meshIPv6 := crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, publicKey, d.config.Secret)
 
 	d.localNode = &LocalNode{
 		WGPubKey:         publicKey,
 		WGPrivateKey:     privateKey,
 		MeshIP:           meshIP,
+		MeshIPv6:         meshIPv6,
 		RoutableNetworks: d.config.AdvertiseRoutes,
 		Introducer:       d.config.Introducer,
+		Hostname:         hostname,
 	}
 
 	// Save to state file
@@ -216,6 +253,11 @@ func (d *Daemon) setupWireGuard() error {
 	if err := setInterfaceAddress(d.config.InterfaceName, d.localNode.MeshIP+"/16"); err != nil {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}
+	if d.localNode.MeshIPv6 != "" {
+		if err := setInterfaceAddress(d.config.InterfaceName, d.localNode.MeshIPv6+"/64"); err != nil {
+			return fmt.Errorf("failed to set IPv6 address: %w", err)
+		}
+	}
 
 	// Bring interface up
 	if err := setInterfaceUp(d.config.InterfaceName); err != nil {
@@ -244,7 +286,10 @@ func (d *Daemon) reconcileLoop() {
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
 	peers := d.peerStore.GetActive()
-	desired := d.buildDesiredPeerConfigs(peers)
+	desired, relayRoutes := d.buildDesiredPeerConfigs(peers)
+	d.relayMu.Lock()
+	d.relayRoutes = relayRoutes
+	d.relayMu.Unlock()
 	if err := d.applyDesiredPeerConfigs(desired); err != nil {
 		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
 	}
@@ -270,15 +315,18 @@ type desiredPeerConfig struct {
 	allowed map[string]struct{}
 }
 
-func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) map[string]*desiredPeerConfig {
+func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desiredPeerConfig, map[string]string) {
 	desired := make(map[string]*desiredPeerConfig)
+	relayRoutes := make(map[string]string)
 	relayCandidates := make([]*PeerInfo, 0)
+	now := time.Now()
+	localSubnets := d.getLocalSubnets()
 
 	for _, p := range peers {
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" {
 			continue
 		}
-		if p.Introducer && p.Endpoint != "" {
+		if p.Introducer && p.Endpoint != "" && now.Sub(p.LastSeen) <= RelayCandidateMaxAge {
 			relayCandidates = append(relayCandidates, p)
 		}
 	}
@@ -291,10 +339,14 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) map[string]*desiredP
 			continue
 		}
 
-		if d.shouldRelayPeer(p, relayCandidates, handshakes) {
+		if d.shouldRelayPeerWithSubnets(p, relayCandidates, handshakes, localSubnets) {
 			relay := d.selectRelayForPeer(p, relayCandidates)
 			if relay != nil {
+				relayRoutes[p.WGPubKey] = relay.WGPubKey
 				d.addAllowedIP(desired, relay, p.MeshIP+"/32")
+				if p.MeshIPv6 != "" {
+					d.addAllowedIP(desired, relay, p.MeshIPv6+"/128")
+				}
 				for _, network := range p.RoutableNetworks {
 					network = strings.TrimSpace(network)
 					if network != "" {
@@ -306,6 +358,9 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) map[string]*desiredP
 		}
 
 		d.addAllowedIP(desired, p, p.MeshIP+"/32")
+		if p.MeshIPv6 != "" {
+			d.addAllowedIP(desired, p, p.MeshIPv6+"/128")
+		}
 		for _, network := range p.RoutableNetworks {
 			network = strings.TrimSpace(network)
 			if network != "" {
@@ -314,7 +369,7 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) map[string]*desiredP
 		}
 	}
 
-	return desired
+	return desired, relayRoutes
 }
 
 // shouldRelayPeer decides whether traffic to a peer should be routed via
@@ -324,11 +379,27 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) map[string]*desiredP
 //
 // Never relays: from introducers, to introducers, without relay candidates.
 func (d *Daemon) shouldRelayPeer(peer *PeerInfo, relayCandidates []*PeerInfo, handshakes map[string]int64) bool {
+	return d.shouldRelayPeerWithSubnets(peer, relayCandidates, handshakes, d.getLocalSubnets())
+}
+
+func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*PeerInfo, handshakes map[string]int64, localSubnets []*net.IPNet) bool {
 	if d.config.Introducer {
 		return false // Introducers are always direct
 	}
 	if peer.Introducer {
 		return false // Don't relay to an introducer
+	}
+	if hasDiscoveryMethod(peer.DiscoveredVia, LANMethod) {
+		return false // LAN peers should stay direct
+	}
+	if endpointOnAnyLocalSubnet(peer.Endpoint, localSubnets) {
+		return false // Local subnet peers should stay direct
+	}
+	if d.config.ForceRelay {
+		return len(relayCandidates) > 0
+	}
+	if !d.config.DisableIPv6 && isIPv6Endpoint(peer.Endpoint) {
+		return false // IPv6 peers should stay direct
 	}
 	if len(relayCandidates) == 0 {
 		return false // No relay available
@@ -350,6 +421,16 @@ func (d *Daemon) shouldRelayPeer(peer *PeerInfo, relayCandidates []*PeerInfo, ha
 	// Both sides symmetric → hole-punch is unreliable, relay
 	if d.localNode.NATType == "symmetric" && peer.NATType == "symmetric" {
 		return true
+	}
+
+	// If peer is only reachable via transitive discovery and has no WG handshake yet,
+	// prefer relay to avoid prolonged blackholes for NATed peers.
+	if handshakes != nil {
+		if ts, ok := handshakes[peer.WGPubKey]; !ok || ts == 0 {
+			if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") {
+				return true
+			}
+		}
 	}
 
 	// No handshake data yet (peer just discovered) — try direct first.
@@ -407,7 +488,9 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 				if err := wireguard.RemovePeer(d.config.InterfaceName, current.PublicKey); err != nil {
 					log.Printf("Failed to remove obsolete peer %s: %v", current.PublicKey[:8]+"...", err)
 				}
+				d.appliedMu.Lock()
 				delete(d.lastAppliedPeerConfigs, current.PublicKey)
+				d.appliedMu.Unlock()
 			}
 		}
 	}
@@ -416,19 +499,27 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		if cfg.peer.Endpoint == "" {
 			continue
 		}
+		if d.config.DisableIPv6 && isIPv6Endpoint(cfg.peer.Endpoint) {
+			continue
+		}
 		allowed := mapKeysSorted(cfg.allowed)
 		if len(allowed) == 0 {
 			continue
 		}
 		allowedCSV := strings.Join(allowed, ",")
 		signature := cfg.peer.Endpoint + "|" + allowedCSV
-		if prev, ok := d.lastAppliedPeerConfigs[pubKey]; ok && prev == signature {
+		d.appliedMu.Lock()
+		prev, ok := d.lastAppliedPeerConfigs[pubKey]
+		d.appliedMu.Unlock()
+		if ok && prev == signature {
 			continue
 		}
 		if err := wireguard.SetPeer(d.config.InterfaceName, pubKey, d.config.Keys.PSK, cfg.peer.Endpoint, allowedCSV); err != nil {
 			return fmt.Errorf("failed to configure peer %s: %w", pubKey[:8]+"...", err)
 		}
+		d.appliedMu.Lock()
 		d.lastAppliedPeerConfigs[pubKey] = signature
+		d.appliedMu.Unlock()
 	}
 
 	return nil
@@ -441,6 +532,80 @@ func mapKeysSorted(m map[string]struct{}) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+func hasDiscoveryMethod(methods []string, target string) bool {
+	for _, m := range methods {
+		if m == target {
+			return true
+		}
+	}
+	return false
+}
+
+func isIPv6Endpoint(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.To4() == nil
+}
+
+func (d *Daemon) getLocalSubnets() []*net.IPNet {
+	if d.localSubnetsFn != nil {
+		return d.localSubnetsFn()
+	}
+	return detectLocalSubnets()
+}
+
+func detectLocalSubnets() []*net.IPNet {
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return nil
+	}
+
+	out := make([]*net.IPNet, 0)
+	for _, iface := range ifaces {
+		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		addrs, err := iface.Addrs()
+		if err != nil {
+			continue
+		}
+		for _, addr := range addrs {
+			if ipNet, ok := addr.(*net.IPNet); ok {
+				out = append(out, ipNet)
+			}
+		}
+	}
+
+	return out
+}
+
+func endpointOnAnyLocalSubnet(endpoint string, subnets []*net.IPNet) bool {
+	if endpoint == "" || len(subnets) == 0 {
+		return false
+	}
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+
+	for _, subnet := range subnets {
+		if subnet != nil && subnet.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 // removePeer removes a peer from the WireGuard configuration
@@ -463,12 +628,198 @@ func (d *Daemon) statusLoop() {
 	}
 }
 
+func (d *Daemon) staleCleanupLoop() {
+	ticker := time.NewTicker(StaleCleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			removed := d.peerStore.CleanupStale()
+			if len(removed) > 0 {
+				log.Printf("[Peers] Removed %d stale peers", len(removed))
+			}
+		}
+	}
+}
+
+func (d *Daemon) healthMonitorLoop() {
+	ticker := time.NewTicker(HealthCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-d.ctx.Done():
+			return
+		case <-ticker.C:
+			d.checkPeerHealth()
+		}
+	}
+}
+
+func (d *Daemon) checkPeerHealth() {
+	handshakes, err := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	if err != nil {
+		return
+	}
+	transfers, err := wireguard.GetPeerTransfers(d.config.InterfaceName)
+	if err != nil {
+		return
+	}
+
+	peers := d.peerStore.GetActive()
+	now := time.Now()
+	activeSet := make(map[string]struct{}, len(peers))
+
+	for _, p := range peers {
+		if p == nil || p.WGPubKey == "" || p.WGPubKey == d.localNode.WGPubKey {
+			continue
+		}
+		activeSet[p.WGPubKey] = struct{}{}
+
+		ts := handshakes[p.WGPubKey]
+		transfer := transfers[p.WGPubKey]
+		currentTotal := transfer.RxBytes + transfer.TxBytes
+
+		d.healthMu.Lock()
+		prevTotal := d.lastPeerTransferTotal[p.WGPubKey]
+		d.lastPeerTransferTotal[p.WGPubKey] = currentTotal
+		isStale := shouldTreatPeerAsStale(ts, prevTotal, currentTotal, now)
+		if isStale {
+			d.peerHealthFailures[p.WGPubKey]++
+		} else {
+			d.peerHealthFailures[p.WGPubKey] = 0
+		}
+		failures := d.peerHealthFailures[p.WGPubKey]
+		d.healthMu.Unlock()
+
+		if !isStale {
+			continue
+		}
+
+		if failures == 1 {
+			d.attemptPeerReconnect(p)
+			continue
+		}
+		if failures >= 2 {
+			d.evictPeerFromPool(p)
+		}
+	}
+
+	d.healthMu.Lock()
+	for pubKey := range d.peerHealthFailures {
+		if _, ok := activeSet[pubKey]; !ok {
+			delete(d.peerHealthFailures, pubKey)
+			delete(d.lastPeerTransferTotal, pubKey)
+		}
+	}
+	d.healthMu.Unlock()
+}
+
+func shouldTreatPeerAsStale(handshakeTS int64, prevTransferTotal, currentTransferTotal uint64, now time.Time) bool {
+	if handshakeTS <= 0 {
+		return false
+	}
+	if now.Sub(time.Unix(handshakeTS, 0)) <= HandshakeStaleAfter {
+		return false
+	}
+	// Transfer counters are cumulative; increase means peer is still active.
+	return currentTransferTotal <= prevTransferTotal
+}
+
+func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
+	if peer == nil || peer.WGPubKey == "" {
+		return
+	}
+	log.Printf("[Health] Peer %s stale handshake >%v with no transfer growth, forcing reconnect", peer.WGPubKey[:8]+"...", HandshakeStaleAfter)
+	if peer.Endpoint == "" {
+		return
+	}
+
+	allowed := make(map[string]struct{})
+	if peer.MeshIP != "" {
+		allowed[peer.MeshIP+"/32"] = struct{}{}
+	}
+	if peer.MeshIPv6 != "" {
+		allowed[peer.MeshIPv6+"/128"] = struct{}{}
+	}
+	for _, route := range peer.RoutableNetworks {
+		r := strings.TrimSpace(route)
+		if r != "" {
+			allowed[r] = struct{}{}
+		}
+	}
+	allowedCSV := strings.Join(mapKeysSorted(allowed), ",")
+	if allowedCSV == "" {
+		return
+	}
+
+	if err := wireguard.SetPeer(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, peer.Endpoint, allowedCSV); err != nil {
+		log.Printf("[Health] Failed to reconnect peer %s: %v", peer.WGPubKey[:8]+"...", err)
+		return
+	}
+	d.appliedMu.Lock()
+	delete(d.lastAppliedPeerConfigs, peer.WGPubKey)
+	d.appliedMu.Unlock()
+}
+
+func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
+	if peer == nil || peer.WGPubKey == "" {
+		return
+	}
+	log.Printf("[Health] Evicting unresponsive peer %s from active pool", peer.WGPubKey[:8]+"...")
+	d.peerStore.Remove(peer.WGPubKey)
+	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
+		log.Printf("[Health] Failed to remove evicted peer %s from WireGuard: %v", peer.WGPubKey[:8]+"...", err)
+	}
+	d.appliedMu.Lock()
+	delete(d.lastAppliedPeerConfigs, peer.WGPubKey)
+	d.appliedMu.Unlock()
+	d.relayMu.Lock()
+	delete(d.relayRoutes, peer.WGPubKey)
+	d.relayMu.Unlock()
+	d.healthMu.Lock()
+	delete(d.peerHealthFailures, peer.WGPubKey)
+	delete(d.lastPeerTransferTotal, peer.WGPubKey)
+	d.healthMu.Unlock()
+}
+
 // printStatus prints current mesh status
 func (d *Daemon) printStatus() {
 	peers := d.peerStore.GetActive()
+	localSubnets := d.getLocalSubnets()
+	d.relayMu.RLock()
+	relayRoutes := make(map[string]string, len(d.relayRoutes))
+	for target, relay := range d.relayRoutes {
+		relayRoutes[target] = relay
+	}
+	d.relayMu.RUnlock()
+
 	log.Printf("[Status] Active peers: %d", len(peers))
 	for _, p := range peers {
-		log.Printf("  - %s (%s) via %v", p.WGPubKey[:8]+"...", p.MeshIP, p.DiscoveredVia)
+		name := p.Hostname
+		if name == "" {
+			name = p.WGPubKey[:8] + "..."
+		}
+		route := "direct"
+		if hasDiscoveryMethod(p.DiscoveredVia, LANMethod) || endpointOnAnyLocalSubnet(p.Endpoint, localSubnets) {
+			route = "direct-lan"
+		}
+		if relayKey, ok := relayRoutes[p.WGPubKey]; ok {
+			relayName := relayKey[:8] + "..."
+			for _, rp := range peers {
+				if rp.WGPubKey == relayKey {
+					if rp.Hostname != "" {
+						relayName = rp.Hostname
+					}
+					break
+				}
+			}
+			route = "relay:" + relayName
+		}
+		log.Printf("  - %s (%s) route=%s via %v endpoint=%s", name, p.MeshIP, route, p.DiscoveredVia, p.Endpoint)
 	}
 }
 
@@ -499,6 +850,9 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	log.Printf("Local node: %s", d.localNode.WGPubKey[:16]+"...")
 	log.Printf("Mesh IP: %s", d.localNode.MeshIP)
+	if d.localNode.MeshIPv6 != "" {
+		log.Printf("Mesh IPv6: %s", d.localNode.MeshIPv6)
+	}
 	log.Printf("Network ID: %x (both nodes must show the same ID to find each other)", d.config.Keys.NetworkID[:8])
 
 	// Setup WireGuard interface
@@ -557,6 +911,12 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	// Start status printer
 	go d.statusLoop()
+
+	// Periodically remove long-stale peers from memory/cache
+	go d.staleCleanupLoop()
+
+	// Monitor WG handshakes/transfer and quickly evict dead peers
+	go d.healthMonitorLoop()
 
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 

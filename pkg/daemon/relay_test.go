@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"net"
 	"testing"
 	"time"
 )
@@ -133,6 +134,93 @@ func TestShouldRelayPeer_NoHandshakeYet(t *testing.T) {
 	// Should try direct first — no evidence of unreachability yet
 	if d.shouldRelayPeer(peer, relays, handshakes) {
 		t.Error("should try direct first when no handshake has occurred yet")
+	}
+}
+
+func TestShouldRelayPeer_LocalSubnetNeverRelays(t *testing.T) {
+	_, subnet, err := net.ParseCIDR("192.168.10.0/24")
+	if err != nil {
+		t.Fatalf("parse CIDR: %v", err)
+	}
+
+	d := &Daemon{
+		config:    &Config{},
+		localNode: &LocalNode{NATType: "symmetric"},
+		localSubnetsFn: func() []*net.IPNet {
+			return []*net.IPNet{subnet}
+		},
+	}
+	peer := &PeerInfo{WGPubKey: "peer1", NATType: "symmetric", Endpoint: "192.168.10.55:51820"}
+	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
+
+	if d.shouldRelayPeer(peer, relays, nil) {
+		t.Error("local subnet peer should stay direct and never relay")
+	}
+}
+
+func TestShouldRelayPeer_ForceRelayUsesRelayWhenAvailable(t *testing.T) {
+	d := &Daemon{
+		config:    &Config{ForceRelay: true},
+		localNode: &LocalNode{NATType: "cone"},
+	}
+	peer := &PeerInfo{WGPubKey: "peer1", NATType: "cone", Endpoint: "203.0.113.10:51820"}
+	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
+
+	if !d.shouldRelayPeer(peer, relays, map[string]int64{"peer1": time.Now().Unix()}) {
+		t.Error("force relay should route via relay when one is available")
+	}
+}
+
+func TestShouldRelayPeer_ForceRelayStillPrefersLAN(t *testing.T) {
+	_, subnet, err := net.ParseCIDR("192.168.10.0/24")
+	if err != nil {
+		t.Fatalf("parse CIDR: %v", err)
+	}
+
+	d := &Daemon{
+		config:    &Config{ForceRelay: true},
+		localNode: &LocalNode{NATType: "symmetric"},
+		localSubnetsFn: func() []*net.IPNet {
+			return []*net.IPNet{subnet}
+		},
+	}
+	peer := &PeerInfo{WGPubKey: "peer1", NATType: "symmetric", Endpoint: "192.168.10.55:51820"}
+	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
+
+	if d.shouldRelayPeer(peer, relays, nil) {
+		t.Error("force relay should not override LAN-direct routing")
+	}
+}
+
+func TestEndpointOnAnyLocalSubnet(t *testing.T) {
+	_, subnetA, err := net.ParseCIDR("10.0.0.0/24")
+	if err != nil {
+		t.Fatalf("parse CIDR A: %v", err)
+	}
+	_, subnetB, err := net.ParseCIDR("192.168.1.0/24")
+	if err != nil {
+		t.Fatalf("parse CIDR B: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		endpoint string
+		want     bool
+	}{
+		{name: "match subnet A", endpoint: "10.0.0.42:51820", want: true},
+		{name: "match subnet B", endpoint: "192.168.1.99:51820", want: true},
+		{name: "outside subnets", endpoint: "172.16.1.7:51820", want: false},
+		{name: "hostname endpoint", endpoint: "peer.local:51820", want: false},
+		{name: "invalid endpoint", endpoint: "bad-endpoint", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := endpointOnAnyLocalSubnet(tt.endpoint, []*net.IPNet{subnetA, subnetB})
+			if got != tt.want {
+				t.Errorf("endpointOnAnyLocalSubnet(%q) = %v, want %v", tt.endpoint, got, tt.want)
+			}
+		})
 	}
 }
 

@@ -41,6 +41,9 @@ type SystemdServiceConfig struct {
 	Privacy             bool
 	Gossip              bool
 	DisableLANDiscovery bool
+	DisableIPv6         bool
+	ForceRelay          bool
+	DisablePunching     bool
 	Introducer          bool
 	BinaryPath          string
 }
@@ -79,6 +82,15 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	}
 	if cfg.DisableLANDiscovery {
 		args = append(args, "--no-lan-discovery")
+	}
+	if cfg.DisableIPv6 {
+		args = append(args, "--no-ipv6")
+	}
+	if cfg.ForceRelay {
+		args = append(args, "--force-relay")
+	}
+	if cfg.DisablePunching {
+		args = append(args, "--no-punching")
 	}
 	if cfg.Introducer {
 		args = append(args, "--introducer")

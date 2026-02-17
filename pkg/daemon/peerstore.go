@@ -29,7 +29,9 @@ type PeerEvent struct {
 // PeerInfo represents a discovered mesh peer
 type PeerInfo struct {
 	WGPubKey         string
+	Hostname         string
 	MeshIP           string
+	MeshIPv6         string
 	Endpoint         string // best known endpoint (ip:port)
 	Introducer       bool
 	RoutableNetworks []string
@@ -93,11 +95,14 @@ func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
 func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	now := time.Now()
 
 	existing, exists := ps.peers[info.WGPubKey]
 	if !exists {
 		// New peer
-		info.LastSeen = time.Now()
+		if info.LastSeen.IsZero() {
+			info.LastSeen = now
+		}
 		info.DiscoveredVia = []string{discoveryMethod}
 		if info.Endpoint != "" {
 			info.endpointMethod = discoveryMethod
@@ -118,6 +123,12 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	if info.MeshIP != "" {
 		existing.MeshIP = info.MeshIP
 	}
+	if info.MeshIPv6 != "" {
+		existing.MeshIPv6 = info.MeshIPv6
+	}
+	if info.Hostname != "" {
+		existing.Hostname = info.Hostname
+	}
 	if info.Introducer {
 		existing.Introducer = true
 	}
@@ -125,7 +136,11 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 		existing.NATType = info.NATType
 	}
 
-	existing.LastSeen = time.Now()
+	if shouldRefreshLastSeen(discoveryMethod) {
+		existing.LastSeen = now
+	} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
+		existing.LastSeen = info.LastSeen
+	}
 
 	// Add discovery method if not already present
 	found := false
@@ -140,6 +155,16 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	}
 
 	ps.notify(info.WGPubKey, PeerEventUpdated)
+}
+
+func shouldRefreshLastSeen(discoveryMethod string) bool {
+	if discoveryMethod == "cache" {
+		return false
+	}
+	if strings.Contains(discoveryMethod, "transitive") {
+		return false
+	}
+	return true
 }
 
 func shouldUpdateEndpoint(existing *PeerInfo, discoveryMethod string) bool {

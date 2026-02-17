@@ -11,18 +11,22 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
 const (
-	ExchangeTimeout         = 10 * time.Second
+	ExchangeTimeout         = 4 * time.Second
 	MaxExchangeSize         = 65536 // 64KB max message size
 	ExchangePort            = 51821 // Default exchange port (can be derived from secret)
-	PunchInterval           = 300 * time.Millisecond
+	PunchInterval           = 100 * time.Millisecond
 	RendezvousSessionTTL    = 20 * time.Second
-	RendezvousStartLeadTime = 1200 * time.Millisecond
-	RendezvousPunchCooldown = 15 * time.Second
-	RendezvousStartCooldown = 30 * time.Second
+	RendezvousStartLeadTime = 1800 * time.Millisecond
+	RendezvousPunchCooldown = 6 * time.Second
+	RendezvousStartCooldown = 8 * time.Second
 	RendezvousPortSpread    = 2
+	HandshakeWaitTimeout    = 3 * time.Second
+	HandshakePollInterval   = 250 * time.Millisecond
+	ExchangeLogCooldown     = 30 * time.Second
 )
 
 type rendezvousOffer struct {
@@ -74,6 +78,9 @@ type PeerExchange struct {
 	rendezvousSessions map[string]*rendezvousState
 	activePunches      map[string]time.Time
 	rendezvousStarts   map[string]time.Time
+
+	logMu         sync.Mutex
+	lastPacketLog map[string]time.Time
 }
 
 // NewPeerExchange creates a new peer exchange handler
@@ -87,6 +94,7 @@ func NewPeerExchange(config *daemon.Config, localNode *LocalNode, peerStore *dae
 		rendezvousSessions: make(map[string]*rendezvousState),
 		activePunches:      make(map[string]time.Time),
 		rendezvousStarts:   make(map[string]time.Time),
+		lastPacketLog:      make(map[string]time.Time),
 	}
 }
 
@@ -191,7 +199,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		return
 	}
 
-	log.Printf("[Exchange] SUCCESS! Received valid %s from wgmesh peer at %s", envelope.MessageType, remoteAddr.String())
+	pe.logIncomingPacket(envelope.MessageType, remoteAddr)
 
 	switch envelope.MessageType {
 	case crypto.MessageTypeHello:
@@ -249,8 +257,10 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 	// Update peer store with the sender's info
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         announcement.WGPubKey,
+		Hostname:         announcement.Hostname,
 		MeshIP:           announcement.MeshIP,
-		Endpoint:         resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr),
+		MeshIPv6:         announcement.MeshIPv6,
+		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
 		NATType:          announcement.NATType,
@@ -276,8 +286,10 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         reply.WGPubKey,
+		Hostname:         reply.Hostname,
 		MeshIP:           reply.MeshIP,
-		Endpoint:         resolvePeerEndpoint(reply.WGEndpoint, remoteAddr),
+		MeshIPv6:         reply.MeshIPv6,
+		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(reply.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
 		Introducer:       reply.Introducer,
 		RoutableNetworks: reply.RoutableNetworks,
 		NATType:          reply.NATType,
@@ -312,6 +324,9 @@ func (pe *PeerExchange) applyObservedEndpoint(observed string) {
 
 	ip := net.ParseIP(host)
 	if ip == nil {
+		return
+	}
+	if pe.config.DisableIPv6 && ip.To4() == nil {
 		return
 	}
 
@@ -349,6 +364,8 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
+	announcement.MeshIPv6 = pe.localNode.MeshIPv6
+	announcement.Hostname = pe.localNode.Hostname
 
 	// Reflect the sender's observed address back to them
 	announcement.ObservedEndpoint = remoteAddr.String()
@@ -386,6 +403,8 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
+	announcement.MeshIPv6 = pe.localNode.MeshIPv6
+	announcement.Hostname = pe.localNode.Hostname
 	announcement.NATType = string(pe.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
@@ -453,7 +472,7 @@ func (pe *PeerExchange) RequestRendezvous(introducerAddr, targetPubKey string, c
 		FromPubKey:    pe.localNode.WGPubKey,
 		TargetPubKey:  targetPubKey,
 		PairID:        pairIDForPeers(pe.localNode.WGPubKey, targetPubKey),
-		Candidates:    normalizeCandidates(candidates),
+		Candidates:    filterCandidatesForConfig(normalizeCandidates(candidates), pe.config.DisableIPv6),
 		IntroducerKey: "",
 	}
 
@@ -492,6 +511,7 @@ func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr
 	candidates := append([]string{}, offer.Candidates...)
 	candidates = append(candidates, observed)
 	candidates = expandCandidatePorts(normalizeCandidates(candidates), RendezvousPortSpread)
+	candidates = filterCandidatesForConfig(candidates, pe.config.DisableIPv6)
 	log.Printf("[NAT] Introducer %s received offer pair=%s from=%s target=%s observed=%s candidates=%v", shortKey(pe.localNode.WGPubKey), shortKey(pairID), shortKey(offer.FromPubKey), shortKey(offer.TargetPubKey), observed, candidates)
 
 	pe.rendezvousMu.Lock()
@@ -578,7 +598,7 @@ func (pe *PeerExchange) sendRendezvousStart(pairID, targetPubKey, targetEndpoint
 		Timestamp:      time.Now().Unix(),
 		PairID:         pairID,
 		PeerPubKey:     peerPubKey,
-		PeerCandidates: normalizeCandidates(peerCandidates),
+		PeerCandidates: filterCandidatesForConfig(normalizeCandidates(peerCandidates), pe.config.DisableIPv6),
 		StartAtUnixMs:  startAt.UnixMilli(),
 		IntroducerKey:  pe.localNode.WGPubKey,
 	}
@@ -618,6 +638,7 @@ func (pe *PeerExchange) handleRendezvousStart(start *rendezvousStart, remoteAddr
 
 	candidates := append([]string{}, start.PeerCandidates...)
 	candidates = normalizeCandidates(candidates)
+	candidates = filterCandidatesForConfig(candidates, pe.config.DisableIPv6)
 	if len(candidates) == 0 {
 		log.Printf("[NAT] Rendezvous START for pair %s had no peer candidates", shortKey(start.PairID))
 		return
@@ -641,6 +662,8 @@ func (pe *PeerExchange) runRendezvousPunch(pairID, peerPubKey string, candidates
 		time.Sleep(wait)
 	}
 
+	baselineHandshake := pe.getLatestHandshake(peerPubKey)
+
 	for _, candidate := range candidates {
 		log.Printf("[NAT] Rendezvous punching peer %s via candidate %s", shortKey(peerPubKey), candidate)
 		peerInfo, err := pe.ExchangeWithPeer(candidate)
@@ -655,12 +678,48 @@ func (pe *PeerExchange) runRendezvousPunch(pairID, peerPubKey string, candidates
 			continue
 		}
 
-		log.Printf("[NAT] Rendezvous punch succeeded for pair %s with %s at %s", shortKey(pairID), shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+		newHandshake := pe.waitForHandshake(peerPubKey, baselineHandshake, HandshakeWaitTimeout)
+		if newHandshake <= baselineHandshake {
+			log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(peerPubKey), candidate)
+			continue
+		}
+
+		if isIPv6Endpoint(peerInfo.Endpoint) {
+			log.Printf("[Path] Direct IPv6 established for pair %s with %s at %s", shortKey(pairID), shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+		} else {
+			log.Printf("[NAT] Rendezvous punch succeeded for pair %s with %s at %s", shortKey(pairID), shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
+		}
 		pe.peerStore.Update(peerInfo, DHTMethod+"-rendezvous")
 		return
 	}
 
 	log.Printf("[NAT] Rendezvous punch failed for pair %s peer %s", shortKey(pairID), shortKey(peerPubKey))
+}
+
+func (pe *PeerExchange) getLatestHandshake(peerPubKey string) int64 {
+	if peerPubKey == "" {
+		return 0
+	}
+	hs, err := wireguard.GetLatestHandshakes(pe.config.InterfaceName)
+	if err != nil {
+		return 0
+	}
+	return hs[peerPubKey]
+}
+
+func (pe *PeerExchange) waitForHandshake(peerPubKey string, baseline int64, timeout time.Duration) int64 {
+	if peerPubKey == "" {
+		return 0
+	}
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		current := pe.getLatestHandshake(peerPubKey)
+		if current > baseline {
+			return current
+		}
+		time.Sleep(HandshakePollInterval)
+	}
+	return pe.getLatestHandshake(peerPubKey)
 }
 
 func (pe *PeerExchange) beginPunchJob(pairID string) bool {
@@ -706,6 +765,18 @@ func normalizeCandidates(candidates []string) []string {
 	}
 
 	return out
+}
+
+func isIPv6Endpoint(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.To4() == nil
 }
 
 func expandCandidatePorts(candidates []string, spread int) []string {
@@ -755,8 +826,10 @@ func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
 		}
 		transitivePeer := &daemon.PeerInfo{
 			WGPubKey:   kp.WGPubKey,
+			Hostname:   kp.Hostname,
 			MeshIP:     kp.MeshIP,
-			Endpoint:   normalizeKnownPeerEndpoint(kp.WGEndpoint),
+			MeshIPv6:   kp.MeshIPv6,
+			Endpoint:   filterEndpointForConfig(normalizeKnownPeerEndpoint(kp.WGEndpoint), pe.config.DisableIPv6),
 			Introducer: kp.Introducer,
 			NATType:    kp.NATType,
 		}
@@ -817,6 +890,38 @@ func normalizeKnownPeerEndpoint(endpoint string) string {
 	return endpoint
 }
 
+func filterEndpointForConfig(endpoint string, disableIPv6 bool) string {
+	if endpoint == "" {
+		return ""
+	}
+	if disableIPv6 && isIPv6Endpoint(endpoint) {
+		return ""
+	}
+	return endpoint
+}
+
+func filterCandidatesForConfig(candidates []string, disableIPv6 bool) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, len(candidates))
+	out := make([]string, 0, len(candidates))
+	for _, candidate := range candidates {
+		filtered := filterEndpointForConfig(candidate, disableIPv6)
+		if filtered == "" {
+			continue
+		}
+		if _, ok := seen[filtered]; ok {
+			continue
+		}
+		seen[filtered] = struct{}{}
+		out = append(out, filtered)
+	}
+
+	return out
+}
+
 func controlEndpointFromPeerEndpoint(endpoint string, controlPort int) string {
 	if endpoint == "" || controlPort <= 0 {
 		return ""
@@ -839,7 +944,9 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 	for _, p := range peers {
 		knownPeers = append(knownPeers, crypto.KnownPeer{
 			WGPubKey:   p.WGPubKey,
+			Hostname:   p.Hostname,
 			MeshIP:     p.MeshIP,
+			MeshIPv6:   p.MeshIPv6,
 			WGEndpoint: p.Endpoint,
 			Introducer: p.Introducer,
 			NATType:    p.NATType,
@@ -861,6 +968,8 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		pe.localNode.RoutableNetworks,
 		knownPeers,
 	)
+	announcement.MeshIPv6 = pe.localNode.MeshIPv6
+	announcement.Hostname = pe.localNode.Hostname
 	announcement.NATType = string(pe.localNode.NATType)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)
@@ -888,4 +997,23 @@ func (pe *PeerExchange) MarshalJSON() ([]byte, error) {
 		"port":    pe.port,
 		"running": pe.running,
 	})
+}
+
+func (pe *PeerExchange) logIncomingPacket(messageType string, remoteAddr *net.UDPAddr) {
+	if remoteAddr == nil {
+		return
+	}
+	key := messageType + "|" + remoteAddr.String()
+	now := time.Now()
+
+	pe.logMu.Lock()
+	last, exists := pe.lastPacketLog[key]
+	if exists && now.Sub(last) < ExchangeLogCooldown {
+		pe.logMu.Unlock()
+		return
+	}
+	pe.lastPacketLog[key] = now
+	pe.logMu.Unlock()
+
+	log.Printf("[Exchange] Received valid %s from %s", messageType, remoteAddr.String())
 }

@@ -186,6 +186,38 @@ func TestPeerStoreIsDead(t *testing.T) {
 	}
 }
 
+func TestPeerStoreCacheLastSeenPreservedOnInsert(t *testing.T) {
+	ps := NewPeerStore()
+	old := time.Now().Add(-30 * time.Minute).Round(time.Second)
+
+	ps.Update(&PeerInfo{WGPubKey: "cached", LastSeen: old}, "cache")
+
+	got, ok := ps.Get("cached")
+	if !ok {
+		t.Fatal("expected cached peer")
+	}
+	if !got.LastSeen.Equal(old) {
+		t.Fatalf("expected LastSeen %v, got %v", old, got.LastSeen)
+	}
+}
+
+func TestPeerStoreTransitiveDoesNotRefreshLastSeen(t *testing.T) {
+	ps := NewPeerStore()
+	ps.Update(&PeerInfo{WGPubKey: "peer1", Endpoint: "198.51.100.1:51820"}, "dht")
+
+	ps.mu.Lock()
+	base := time.Now().Add(-4 * time.Minute).Round(time.Second)
+	ps.peers["peer1"].LastSeen = base
+	ps.mu.Unlock()
+
+	ps.Update(&PeerInfo{WGPubKey: "peer1", Endpoint: "198.51.100.2:51820"}, "gossip-transitive")
+
+	got, _ := ps.Get("peer1")
+	if !got.LastSeen.Equal(base) {
+		t.Fatalf("expected LastSeen to remain %v, got %v", base, got.LastSeen)
+	}
+}
+
 func TestPeerStoreSubscribe(t *testing.T) {
 	ps := NewPeerStore()
 	ch := ps.Subscribe()

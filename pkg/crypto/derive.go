@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"time"
 
 	"golang.org/x/crypto/hkdf"
@@ -19,6 +20,7 @@ type DerivedKeys struct {
 	NetworkID     [20]byte // DHT infohash (20 bytes for BEP 5)
 	GossipKey     [32]byte // Symmetric encryption key for peer exchange
 	MeshSubnet    [2]byte  // Deterministic /16 subnet
+	MeshPrefixV6  [8]byte  // Deterministic ULA /64 prefix (fdxx:...)
 	MulticastID   [4]byte  // Multicast group discriminator
 	PSK           [32]byte // WireGuard PresharedKey
 	GossipPort    uint16   // In-mesh gossip port
@@ -48,6 +50,14 @@ func DeriveKeys(secret string) (*DerivedKeys, error) {
 	if err := deriveHKDF(secret, "wgmesh-subnet-v1", keys.MeshSubnet[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive mesh subnet: %w", err)
 	}
+
+	// mesh_prefix_v6 = fd + HKDF(secret, salt="wgmesh-ipv6-prefix-v1", 7 bytes)
+	var prefixTail [7]byte
+	if err := deriveHKDF(secret, "wgmesh-ipv6-prefix-v1", prefixTail[:]); err != nil {
+		return nil, fmt.Errorf("failed to derive mesh ipv6 prefix: %w", err)
+	}
+	keys.MeshPrefixV6[0] = 0xfd
+	copy(keys.MeshPrefixV6[1:], prefixTail[:])
 
 	// multicast_id = HKDF(secret, salt="wgmesh-mcast-v1", 4 bytes)
 	if err := deriveHKDF(secret, "wgmesh-mcast-v1", keys.MulticastID[:]); err != nil {
@@ -139,6 +149,35 @@ func DeriveMeshIP(meshSubnet [2]byte, wgPubKey, secret string) string {
 		(suffix>>8)&0xFF,
 		suffix&0xFF,
 	)
+}
+
+// DeriveMeshIPv6 derives a deterministic ULA IPv6 address from WG public key and secret.
+// Prefix is a mesh-scoped /64, interface ID is a stable SLAAC-like value from pubkey+secret hash.
+func DeriveMeshIPv6(meshPrefixV6 [8]byte, wgPubKey, secret string) string {
+	input := wgPubKey + "|" + secret + "|ipv6"
+	hash := sha256.Sum256([]byte(input))
+
+	var iid [8]byte
+	copy(iid[:], hash[:8])
+	// SLAAC-like IID flags: locally administered unicast
+	iid[0] = (iid[0] | 0x02) & 0xfe
+
+	allZero := true
+	for _, b := range iid {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		iid[7] = 1
+	}
+
+	ip := make(net.IP, net.IPv6len)
+	copy(ip[:8], meshPrefixV6[:])
+	copy(ip[8:], iid[:])
+
+	return ip.String()
 }
 
 // deriveHKDF derives key material using HKDF-SHA256

@@ -17,9 +17,13 @@ const (
 // PeerCacheEntry represents a cached peer entry
 type PeerCacheEntry struct {
 	WGPubKey         string   `json:"wg_pubkey"`
+	Hostname         string   `json:"hostname,omitempty"`
 	MeshIP           string   `json:"mesh_ip"`
+	MeshIPv6         string   `json:"mesh_ipv6,omitempty"`
 	Endpoint         string   `json:"endpoint"`
+	Introducer       bool     `json:"introducer,omitempty"`
 	RoutableNetworks []string `json:"routable_networks,omitempty"`
+	NATType          string   `json:"nat_type,omitempty"`
 	LastSeen         int64    `json:"last_seen"`
 }
 
@@ -60,9 +64,13 @@ func SavePeerCache(interfaceName string, peerStore *PeerStore) error {
 	for _, p := range peers {
 		cache.Peers = append(cache.Peers, PeerCacheEntry{
 			WGPubKey:         p.WGPubKey,
+			Hostname:         p.Hostname,
 			MeshIP:           p.MeshIP,
+			MeshIPv6:         p.MeshIPv6,
 			Endpoint:         p.Endpoint,
+			Introducer:       p.Introducer,
 			RoutableNetworks: p.RoutableNetworks,
+			NATType:          p.NATType,
 			LastSeen:         p.LastSeen.Unix(),
 		})
 	}
@@ -104,9 +112,13 @@ func RestoreFromCache(interfaceName string, peerStore *PeerStore) int {
 
 		peer := &PeerInfo{
 			WGPubKey:         entry.WGPubKey,
+			Hostname:         entry.Hostname,
 			MeshIP:           entry.MeshIP,
+			MeshIPv6:         entry.MeshIPv6,
 			Endpoint:         entry.Endpoint,
+			Introducer:       entry.Introducer,
 			RoutableNetworks: entry.RoutableNetworks,
+			NATType:          entry.NATType,
 			LastSeen:         lastSeen,
 		}
 

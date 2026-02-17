@@ -290,3 +290,23 @@ func TestResolvePeerEndpoint(t *testing.T) {
 		})
 	}
 }
+
+func TestFilterEndpointForConfig(t *testing.T) {
+	if got := filterEndpointForConfig("[2001:db8::1]:51820", true); got != "" {
+		t.Fatalf("expected IPv6 endpoint to be dropped, got %q", got)
+	}
+	if got := filterEndpointForConfig("203.0.113.10:51820", true); got != "203.0.113.10:51820" {
+		t.Fatalf("expected IPv4 endpoint to stay, got %q", got)
+	}
+	if got := filterEndpointForConfig("[2001:db8::1]:51820", false); got != "[2001:db8::1]:51820" {
+		t.Fatalf("expected IPv6 endpoint to stay when enabled, got %q", got)
+	}
+}
+
+func TestFilterCandidatesForConfig(t *testing.T) {
+	in := []string{"203.0.113.10:51820", "[2001:db8::1]:51820", "203.0.113.10:51820"}
+	got := filterCandidatesForConfig(in, true)
+	if len(got) != 1 || got[0] != "203.0.113.10:51820" {
+		t.Fatalf("unexpected filtered candidates: %v", got)
+	}
+}

@@ -42,3 +42,35 @@ func TestNewConfigIntroducer(t *testing.T) {
 		t.Fatal("expected Introducer to be enabled")
 	}
 }
+
+func TestNewConfigDisableIPv6(t *testing.T) {
+	cfg, err := NewConfig(DaemonOpts{
+		Secret:      testConfigSecret,
+		DisableIPv6: true,
+	})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+
+	if !cfg.DisableIPv6 {
+		t.Fatal("expected DisableIPv6 to be enabled")
+	}
+}
+
+func TestNewConfigForceRelayAndNoPunching(t *testing.T) {
+	cfg, err := NewConfig(DaemonOpts{
+		Secret:          testConfigSecret,
+		ForceRelay:      true,
+		DisablePunching: true,
+	})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+
+	if !cfg.ForceRelay {
+		t.Fatal("expected ForceRelay to be enabled")
+	}
+	if !cfg.DisablePunching {
+		t.Fatal("expected DisablePunching to be enabled")
+	}
+}
