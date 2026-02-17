@@ -31,7 +31,7 @@ const (
 	HandshakeStaleAfter  = 150 * time.Second
 	MeshProbeInterval    = 1 * time.Second
 	MeshProbeDialTimeout = 800 * time.Millisecond
-	MeshProbeFailLimit   = 3
+	MeshProbeFailLimit   = 8
 	MeshProbePortOffset  = 2000
 	TemporaryOfflineTTL  = 30 * time.Second
 	soBindToDevice       = 25 // Linux SO_BINDTODEVICE
@@ -830,9 +830,20 @@ func (d *Daemon) probePeersOverMesh() {
 		}
 		activeSet[p.WGPubKey] = struct{}{}
 
+		// If WG has a recent handshake, treat the peer as healthy and do not let
+		// probe jitter flap routes/AllowedIPs.
+		ts := handshakes[p.WGPubKey]
+		if ts > 0 && time.Since(time.Unix(ts, 0)) < HandshakeStaleAfter {
+			d.clearTemporarilyOffline(p.WGPubKey)
+			d.probeMu.Lock()
+			d.probeFailures[p.WGPubKey] = 0
+			d.probeMu.Unlock()
+			d.closeProbeSession(p.WGPubKey)
+			continue
+		}
+
 		// Avoid evicting brand-new peers too early, but still enforce for relay-routed
 		// peers (no direct handshake entry by design) and for stale entries.
-		ts := handshakes[p.WGPubKey]
 		enforce := ts > 0 || d.isRelayRoutedPeer(p.WGPubKey) || time.Since(p.LastSeen) > 45*time.Second
 		if !enforce {
 			d.probeMu.Lock()

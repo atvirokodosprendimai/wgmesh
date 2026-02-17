@@ -956,8 +956,11 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 		hasDirectRoute = false
 	}
 	if hasDirectRoute && isIPv6Endpoint(peer.Endpoint) {
-		// Public IPv6 is already end-to-end reachable; prefer direct path over NAT rendezvous.
-		return
+		// Prefer direct IPv6, but do not block fallback forever when there is no recent handshake.
+		if hs > 0 && time.Since(time.Unix(hs, 0)) < 90*time.Second {
+			return
+		}
+		log.Printf("[NAT] IPv6 direct path stale for %s, enabling rendezvous fallback", shortKey(peer.WGPubKey))
 	}
 
 	introducers := d.selectRendezvousIntroducers(peer.WGPubKey, d.peerStore.GetActive(), RendezvousMaxIntroducers)
