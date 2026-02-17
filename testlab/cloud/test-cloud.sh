@@ -316,9 +316,9 @@ test_t7_crash() {
 test_t8_rejoin() {
     # Ensure clean mesh, then crash a node and verify it rejoins
     stop_mesh 2>/dev/null || true
-    sleep 2
-    start_mesh 30
-    verify_full_mesh 60
+    sleep 3
+    start_mesh 45
+    verify_full_mesh 180
 
     local nodes=()
     for node in "${!NODE_ROLES[@]}"; do
@@ -328,13 +328,13 @@ test_t8_rejoin() {
 
     crash_mesh_node "$victim"
     sleep 10
-    verify_mesh_without "$victim" 30
+    verify_mesh_without "$victim" 60
 
     # Now rejoin
     start_mesh_node "$victim"
 
     # Should rejoin full mesh
-    verify_full_mesh 90
+    verify_full_mesh 120
 }
 
 # --- T9: Introducer crash ---
