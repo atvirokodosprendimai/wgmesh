@@ -258,11 +258,6 @@ func (g *MeshGossip) listenLoop() {
 	}
 }
 
-// HandleAnnounce processes an incoming gossip announcement.
-func (g *MeshGossip) HandleAnnounce(announcement *crypto.PeerAnnouncement) {
-	g.handleAnnouncement(announcement, nil)
-}
-
 // HandleAnnounceFrom processes an incoming gossip announcement and source address.
 func (g *MeshGossip) HandleAnnounceFrom(announcement *crypto.PeerAnnouncement, sender *net.UDPAddr) {
 	g.handleAnnouncement(announcement, sender)

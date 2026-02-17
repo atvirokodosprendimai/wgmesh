@@ -43,7 +43,7 @@ func TestHandleAnnouncementUpdatesPeerStore(t *testing.T) {
 		},
 	}
 
-	gossip.HandleAnnounce(announcement)
+	gossip.HandleAnnounceFrom(announcement, nil)
 
 	// Direct peer should be stored via "gossip"
 	peer, ok := store.Get("remote-key-A")
@@ -83,7 +83,7 @@ func TestHandleAnnouncementIgnoresOwnKey(t *testing.T) {
 		Timestamp:  time.Now().Unix(),
 	}
 
-	gossip.HandleAnnounce(announcement)
+	gossip.HandleAnnounceFrom(announcement, nil)
 
 	if store.Count() != 0 {
 		t.Errorf("expected 0 peers, got %d", store.Count())
@@ -101,7 +101,7 @@ func TestHandleAnnouncementIgnoresNil(t *testing.T) {
 	}
 
 	// Should not panic
-	gossip.HandleAnnounce(nil)
+	gossip.HandleAnnounceFrom(nil, nil)
 
 	if store.Count() != 0 {
 		t.Errorf("expected 0 peers, got %d", store.Count())
@@ -130,7 +130,7 @@ func TestHandleAnnouncementSkipsOwnKeyInTransitivePeers(t *testing.T) {
 		},
 	}
 
-	gossip.HandleAnnounce(announcement)
+	gossip.HandleAnnounceFrom(announcement, nil)
 
 	// remote-A should be added, remote-B should be added, but our own key should not
 	if store.Count() != 2 {
@@ -189,7 +189,7 @@ func TestHandleAnnouncementDropsWildcardEndpointWithoutSender(t *testing.T) {
 		Timestamp:  time.Now().Unix(),
 	}
 
-	gossip.HandleAnnounce(announcement)
+	gossip.HandleAnnounceFrom(announcement, nil)
 
 	peer, ok := store.Get("remote-key")
 	if !ok {

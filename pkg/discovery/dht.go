@@ -70,9 +70,6 @@ type DHTDiscovery struct {
 	contactedPeers    map[string]time.Time    // Dedup: don't spam same IP
 	controlPeers      map[string]string       // peer pubkey -> exchange/control endpoint
 	rendezvousBackoff map[string]backoffEntry // peer pubkey -> backoff state
-
-	// Callbacks
-	onPeerDiscovered func(addr net.Addr)
 }
 
 // LocalNode represents our local node information
@@ -316,6 +313,12 @@ func (d *DHTDiscovery) discoverIPv6Endpoint() string {
 		return ""
 	}
 
+	type ipv6Candidate struct {
+		ip    net.IP
+		score int // higher is better
+	}
+	var candidates []ipv6Candidate
+
 	for _, iface := range ifaces {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
@@ -342,10 +345,46 @@ func (d *DHTDiscovery) discoverIPv6Endpoint() string {
 			if !isPublicIPv6(ip) {
 				continue
 			}
-			return net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+			score := scoreIPv6(ip)
+			candidates = append(candidates, ipv6Candidate{ip: ip, score: score})
 		}
 	}
-	return ""
+
+	if len(candidates) == 0 {
+		return ""
+	}
+
+	// Sort: highest score first, then lexicographic for deterministic tiebreak.
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		return candidates[i].ip.String() < candidates[j].ip.String()
+	})
+
+	return net.JoinHostPort(candidates[0].ip.String(), strconv.Itoa(d.config.WGListenPort))
+}
+
+// scoreIPv6 ranks an IPv6 address for endpoint selection.
+// Higher scores are preferred. Stable GUA (non-temporary, non-EUI-64) is best.
+func scoreIPv6(ip net.IP) int {
+	if len(ip) != 16 {
+		return 0
+	}
+	score := 10 // base score for any valid public IPv6
+
+	// Prefer 2000::/3 global unicast addresses
+	if ip[0]&0xe0 == 0x20 {
+		score += 20
+	}
+
+	// Penalize EUI-64 addresses (ff:fe in bytes 11-12) — they embed MAC,
+	// are less stable across hardware changes, and leak hardware identity.
+	if ip[11] == 0xff && ip[12] == 0xfe {
+		score -= 5
+	}
+
+	return score
 }
 
 func isPublicIPv6(ip net.IP) bool {
@@ -363,7 +402,7 @@ func isPublicIPv6(ip net.IP) bool {
 		prefix net.IP
 		bits   int
 	}{
-		{net.ParseIP("200::"), 7},       // Teredo / Orchid / Apple Private Relay
+		{net.ParseIP("200::"), 7},       // 200::/7 — unassigned (Yggdrasil overlay, etc.)
 		{net.ParseIP("2001:db8::"), 32}, // Documentation
 		{net.ParseIP("fc00::"), 7},      // ULA
 		{net.ParseIP("fd00::"), 8},      // ULA
@@ -385,7 +424,10 @@ func isPublicIPv6(ip net.IP) bool {
 	return true
 }
 
-// stunRefreshLoop periodically re-queries STUN servers to track NAT mapping changes.
+// stunRefreshLoop periodically re-queries STUN servers to track NAT mapping
+// and type changes. It runs DetectNATType (two-server probe) to keep NATType
+// up-to-date, falling back to single-server DiscoverExternalEndpoint when
+// fewer than two servers are available.
 func (d *DHTDiscovery) stunRefreshLoop() {
 	ticker := time.NewTicker(60 * time.Second)
 	defer ticker.Stop()
@@ -399,20 +441,43 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
 						d.localNode.SetEndpoint(ipv6Endpoint)
 					}
+					d.localNode.NATType = NATUnknown // IPv6 has no NAT
 					continue
 				}
 			}
 
-			ip, _, err := DiscoverExternalEndpoint(0)
-			if err != nil {
-				log.Printf("[STUN] Refresh failed: %v", err)
-				continue
-			}
-			newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
-			currentEP := d.localNode.GetEndpoint()
-			if newEndpoint != currentEP {
-				log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
-				d.localNode.SetEndpoint(newEndpoint)
+			servers := DefaultSTUNServers
+			if len(servers) >= 2 {
+				// Full NAT type re-detection with two servers
+				natType, ip, _, err := DetectNATType(servers[0], servers[1], 0, 3000)
+				if err != nil {
+					log.Printf("[STUN] Refresh failed: %v", err)
+					continue
+				}
+				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+				currentEP := d.localNode.GetEndpoint()
+				oldNAT := d.localNode.NATType
+				if newEndpoint != currentEP {
+					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
+					d.localNode.SetEndpoint(newEndpoint)
+				}
+				if natType != oldNAT {
+					log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
+				}
+				d.localNode.NATType = natType
+			} else {
+				// Fallback: single-server IP-only refresh
+				ip, _, err := DiscoverExternalEndpoint(0)
+				if err != nil {
+					log.Printf("[STUN] Refresh failed: %v", err)
+					continue
+				}
+				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+				currentEP := d.localNode.GetEndpoint()
+				if newEndpoint != currentEP {
+					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
+					d.localNode.SetEndpoint(newEndpoint)
+				}
 			}
 		case <-d.ctx.Done():
 			return
@@ -991,90 +1056,6 @@ func (d *DHTDiscovery) tryTransitivePeersWithBackoff(peers []*daemon.PeerInfo) {
 	}
 }
 
-func (d *DHTDiscovery) tryTransitivePeers() {
-	peers := d.peerStore.GetActive()
-	now := time.Now()
-
-	// Use a semaphore to limit concurrent exchanges
-	sem := make(chan struct{}, DHTMaxConcurrentExchanges)
-
-	// Fire-and-forget: spawn goroutines up to semaphore limit
-	// The semaphore prevents resource exhaustion by limiting concurrent exchanges
-	for _, peer := range peers {
-		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
-			continue
-		}
-		if hasDiscoveryMethod(peer.DiscoveredVia, "dht-rendezvous") && time.Since(peer.LastSeen) < 2*time.Minute {
-			// Avoid churn for pairs that recently established via rendezvous.
-			continue
-		}
-		if peer.Endpoint == "" {
-			continue
-		}
-		if !d.shouldAttemptRendezvous(peer.WGPubKey, now) {
-			continue
-		}
-
-		introducers := d.selectRendezvousIntroducers(peer.WGPubKey, peers, RendezvousMaxIntroducers)
-		requestedViaIntroducer := false
-		if len(introducers) > 0 {
-			for _, introducer := range introducers {
-				if introducer.ControlEndpoint == "" {
-					continue
-				}
-
-				if !d.markContacted(introducer.ControlEndpoint, 20*time.Second) {
-					continue
-				}
-
-				log.Printf("[NAT] Pair %s <-> %s using rendezvous introducer %s (control=%s wg=%s)", shortKey(d.localNode.WGPubKey), shortKey(peer.WGPubKey), shortKey(introducer.WGPubKey), introducer.ControlEndpoint, introducer.Endpoint)
-
-				sem <- struct{}{}
-				go func(endpoint string, target *daemon.PeerInfo) {
-					defer func() { <-sem }()
-					if err := d.exchange.RequestRendezvous(endpoint, target.WGPubKey, nil); err != nil {
-						log.Printf("[NAT] Failed to request rendezvous via %s for %s: %v", endpoint, shortKey(target.WGPubKey), err)
-						return
-					}
-					log.Printf("[NAT] Rendezvous request sent for pair %s <-> %s via %s", shortKey(d.localNode.WGPubKey), shortKey(target.WGPubKey), endpoint)
-				}(introducer.ControlEndpoint, peer)
-				requestedViaIntroducer = true
-			}
-		}
-
-		if requestedViaIntroducer {
-			continue
-		}
-
-		if len(introducers) > 0 {
-			log.Printf("[NAT] Waiting for rendezvous throttle window for %s (introducers selected but not contacted this tick)", shortKey(peer.WGPubKey))
-			continue
-		}
-
-		log.Printf("[NAT] No eligible introducer for %s (need --introducer peer with public control endpoint and DHT reachability)", shortKey(peer.WGPubKey))
-
-		targetControlEndpoint := d.controlEndpointForPeer(peer)
-		if targetControlEndpoint == "" {
-			continue
-		}
-
-		if !d.markContacted(targetControlEndpoint, 20*time.Second) {
-			continue
-		}
-		log.Printf("[NAT] Synchronized punch window open for %s via %s (no introducer available)", shortKey(peer.WGPubKey), targetControlEndpoint)
-
-		// Acquire semaphore before spawning goroutine to limit concurrency
-		sem <- struct{}{}
-		go func(endpoint string, hasIntroducer bool) {
-			defer func() { <-sem }()
-			if hasIntroducer {
-				time.Sleep(RendezvousPunchDelay)
-			}
-			d.exchangeWithAddress(endpoint, DHTMethod+"-transitive")
-		}(targetControlEndpoint, false)
-	}
-}
-
 func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod string) {
 	if d.config.DisableIPv6 && isIPv6Endpoint(addrStr) {
 		return
@@ -1418,9 +1399,4 @@ func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) boo
 
 	d.contactedPeers[addr] = time.Now()
 	return true
-}
-
-// SetOnPeerDiscovered sets a callback for when peers are discovered
-func (d *DHTDiscovery) SetOnPeerDiscovered(callback func(addr net.Addr)) {
-	d.onPeerDiscovered = callback
 }

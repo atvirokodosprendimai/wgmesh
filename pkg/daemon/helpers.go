@@ -144,6 +144,7 @@ func createInterface(name string) error {
 // configureInterface configures a WireGuard interface with private key and port
 func configureInterface(name, privateKey string, listenPort int) error {
 	// Configure interface. Pass key via stdin to avoid filesystem permission issues.
+	// NOTE: /dev/stdin is Linux/macOS only; Windows would need a named pipe or temp file.
 	args := []string{"set", name, "private-key", "/dev/stdin", "listen-port", fmt.Sprintf("%d", listenPort)}
 	cmd := cmdExecutor.Command("wg", args...)
 	cmd.SetStdin(strings.NewReader(privateKey + "\n"))

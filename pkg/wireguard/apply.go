@@ -103,6 +103,7 @@ func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) er
 	hasStdin := false
 
 	// Add PSK if non-zero
+	// NOTE: /dev/stdin is Linux/macOS only; Windows would need a named pipe or temp file.
 	var zeroKey [32]byte
 	if psk != zeroKey {
 		pskB64 := base64.StdEncoding.EncodeToString(psk[:])

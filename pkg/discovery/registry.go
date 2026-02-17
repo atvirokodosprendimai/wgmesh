@@ -155,7 +155,7 @@ func (r *RendezvousRegistry) decryptPeerList(body string) []*daemon.PeerInfo {
 	const endMarker = ":PEERS -->"
 
 	startIdx := strings.Index(body, startMarker)
-	endIdx := strings.Index(body, endMarker)
+	endIdx := strings.LastIndex(body, endMarker)
 	if startIdx == -1 || endIdx == -1 || endIdx <= startIdx {
 		return nil
 	}
