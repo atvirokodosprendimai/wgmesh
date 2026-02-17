@@ -1010,7 +1010,10 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			if introducer.ControlEndpoint == "" {
 				continue
 			}
-			if !d.markContacted(introducer.ControlEndpoint, 20*time.Second) {
+			// Throttle per peer-pair, not per introducer endpoint.
+			// Different peers should be able to use the same introducer concurrently.
+			contactKey := introducer.ControlEndpoint + "|" + peer.WGPubKey
+			if !d.markContacted(contactKey, 20*time.Second) {
 				continue
 			}
 
@@ -1046,7 +1049,9 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 		return
 	}
 
-	if !d.markContacted(targetControlEndpoint, 20*time.Second) {
+	// Throttle per peer-pair for direct punch as well
+	contactKey := targetControlEndpoint + "|" + peer.WGPubKey
+	if !d.markContacted(contactKey, 20*time.Second) {
 		return
 	}
 

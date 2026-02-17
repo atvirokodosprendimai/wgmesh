@@ -134,15 +134,19 @@ nat_setup() {
             log_info "nat-sim: $node — cone NAT (MASQUERADE) on $iface for $subnet"
             ;;
         symmetric)
-            # Symmetric NAT: per-connection random port allocation.
-            # Use MASQUERADE for DNS (port 53) so DNS resolution works reliably,
-            # then SNAT --random-fully for everything else so STUN sees
-            # different mappings per destination → NATType=symmetric.
+            # Symmetric NAT: SNAT with --random-fully gives a random source port per
+            # destination → no consistent mapping → NATType=symmetric.
+            # IMPORTANT: Use MASQUERADE for wgmesh ports (51820-52822) so return traffic
+            # can be DNATted back into the namespace. Use SNAT --random-fully for other
+            # traffic to preserve symmetric NAT behavior for non-wgmesh connections.
             run_on "$node" "
                 # DNS must work — use simple MASQUERADE for DNS traffic
                 iptables -t nat -A POSTROUTING -s '$subnet' -o '$iface' -p udp --dport 53 -j MASQUERADE
                 iptables -t nat -A POSTROUTING -s '$subnet' -o '$iface' -p tcp --dport 53 -j MASQUERADE
-                # Everything else: random port per connection
+                # wgmesh control traffic: MASQUERADE (port-preserving) so DNAT works
+                iptables -t nat -A POSTROUTING -s '$subnet' -o '$iface' -p udp --dport 51820:52822 \
+                    -j MASQUERADE
+                # Everything else: random port per connection (true symmetric NAT)
                 iptables -t nat -A POSTROUTING -s '$subnet' -o '$iface' \
                     -j SNAT --to-source '${host_pub_ip}:32768-60999' --random-fully
             "
