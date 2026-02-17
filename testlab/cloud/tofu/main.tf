@@ -33,7 +33,7 @@ resource "hcloud_server" "nodes" {
   labels = {
     role    = each.value.role
     run     = var.run_id
-    created = formatdate("YYYY-MM-DD'T'hh:mm:ss", timestamp())
+    created = formatdate("YYYYMMDD-hhmmss", timestamp())
     managed = "opentofu"
   }
 
