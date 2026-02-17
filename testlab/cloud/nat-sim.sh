@@ -70,6 +70,8 @@ nat_setup() {
 
     # Stop wgmesh if running — we'll restart it inside the namespace
     run_on_ok "$node" "systemctl stop wgmesh 2>/dev/null; ip link del $WG_INTERFACE 2>/dev/null"
+    # Wait for port 51820 to be released
+    sleep 1
 
     run_on "$node" "
         set -e
@@ -96,6 +98,11 @@ nat_setup() {
         ip netns exec '$ns' ip link set '$veth_ns' up
         ip netns exec '$ns' ip link set lo up
 
+        # Disable IPv6 inside namespace — force IPv4-only so wgmesh
+        # doesn't try IPv6 endpoints that can't route through our NAT
+        ip netns exec '$ns' sysctl -w net.ipv6.conf.all.disable_ipv6=1 >/dev/null 2>&1 || true
+        ip netns exec '$ns' sysctl -w net.ipv6.conf.default.disable_ipv6=1 >/dev/null 2>&1 || true
+
         # Default route inside namespace → host side of veth
         ip netns exec '$ns' ip route add default via '$host_ip'
 
@@ -107,10 +114,13 @@ nat_setup() {
         sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
         # NAT rules on host
-        # Allow forwarding for this subnet
+        # Allow forwarding for this subnet (and established/related return traffic)
         iptables -t filter -A FORWARD -s '$subnet' -j ACCEPT
+        iptables -t filter -A FORWARD -d '$subnet' -m state --state ESTABLISHED,RELATED -j ACCEPT
         iptables -t filter -A FORWARD -d '$subnet' -j ACCEPT
     "
+
+    local host_pub_ip="${NODE_IPS[$node]}"
 
     # Apply the appropriate NAT type
     case "$nat_type" in
@@ -124,11 +134,15 @@ nat_setup() {
             log_info "nat-sim: $node — cone NAT (MASQUERADE) on $iface for $subnet"
             ;;
         symmetric)
-            # SNAT with --random-fully: per-connection random port allocation
-            # Each new destination gets a different external port → STUN sees
-            # different mappings → NATType=symmetric.
-            local host_pub_ip="${NODE_IPS[$node]}"
+            # Symmetric NAT: per-connection random port allocation.
+            # Use MASQUERADE for DNS (port 53) so DNS resolution works reliably,
+            # then SNAT --random-fully for everything else so STUN sees
+            # different mappings per destination → NATType=symmetric.
             run_on "$node" "
+                # DNS must work — use simple MASQUERADE for DNS traffic
+                iptables -t nat -A POSTROUTING -s '$subnet' -o '$iface' -p udp --dport 53 -j MASQUERADE
+                iptables -t nat -A POSTROUTING -s '$subnet' -o '$iface' -p tcp --dport 53 -j MASQUERADE
+                # Everything else: random port per connection
                 iptables -t nat -A POSTROUTING -s '$subnet' -o '$iface' \
                     -j SNAT --to-source '${host_pub_ip}:32768-60999' --random-fully
             "
@@ -140,12 +154,39 @@ nat_setup() {
             ;;
     esac
 
+    # DNAT: Forward WG port (51820/udp) and gossip port range from the host's
+    # public IP into the namespace. This is needed because peers will send
+    # WG handshakes and gossip to host_pub_ip:51820 — without DNAT, the host
+    # has no listener on that port (wgmesh is inside the namespace).
+    # This simulates a NAT/router with port forwarding (UPnP/PMP).
+    #
+    # Port ranges:
+    #   51820      = WireGuard data plane
+    #   51821-52821 = gossip/exchange port (derived: 51821 + HKDF % 1000)
+    #   exchange+1 = DHT port
+    run_on "$node" "
+        # Forward WG port into namespace
+        iptables -t nat -A PREROUTING -d '${host_pub_ip}' -p udp --dport 51820 \
+            -j DNAT --to-destination '${ns_ip}:51820'
+        # Forward entire gossip+DHT port range into namespace
+        iptables -t nat -A PREROUTING -d '${host_pub_ip}' -p udp --dport 51821:52822 \
+            -j DNAT --to-destination '${ns_ip}'
+    "
+    log_info "nat-sim: $node — DNAT port forwarding (51820-52822/udp) to $ns_ip"
+
     # Verify connectivity from namespace to internet
     if run_on "$node" "ip netns exec '$ns' ping -c 1 -W 5 8.8.8.8" >/dev/null 2>&1; then
         log_info "nat-sim: $node namespace has internet connectivity"
     else
         log_error "nat-sim: $node namespace CANNOT reach internet — NAT setup failed"
         return 1
+    fi
+
+    # Verify DNS works inside namespace
+    if run_on "$node" "ip netns exec '$ns' nslookup google.com 8.8.8.8 2>/dev/null | grep -q 'Address'" 2>/dev/null; then
+        log_info "nat-sim: $node namespace has DNS resolution"
+    else
+        log_warn "nat-sim: $node namespace DNS may not work (nslookup failed)"
     fi
 }
 
