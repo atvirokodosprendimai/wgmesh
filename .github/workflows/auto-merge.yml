@@ -4,8 +4,9 @@ name: Auto-merge on CI pass
 # Uses PUSH_TOKEN (PAT) so the approval counts toward the ruleset requirement.
 
 on:
-  # Fires when any check suite finishes on a PR
-  check_suite:
+  # Fires when CI workflows complete on PRs
+  workflow_run:
+    workflows: ["Build and Push Docker Images"]
     types: [completed]
   # Also fires when a draft PR is marked ready for review
   pull_request:
@@ -24,21 +25,20 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            let headSha, prs;
+            let prs;
 
-            if (context.eventName === 'check_suite') {
-              const suite = context.payload.check_suite;
-              // Only proceed on successful check suites
-              if (suite.conclusion !== 'success') {
-                core.info(`Check suite conclusion: ${suite.conclusion}, skipping`);
+            if (context.eventName === 'workflow_run') {
+              const run = context.payload.workflow_run;
+              // Only proceed on successful workflow runs
+              if (run.conclusion !== 'success') {
+                core.info(`Workflow run conclusion: ${run.conclusion}, skipping`);
                 return;
               }
-              headSha = suite.head_sha;
 
               // Find open PRs matching this head SHA
-              prs = suite.pull_requests || [];
+              prs = run.pull_requests || [];
               if (prs.length === 0) {
-                core.info('No PRs associated with this check suite');
+                core.info('No PRs associated with this workflow run');
                 return;
               }
             } else if (context.eventName === 'pull_request') {
@@ -47,7 +47,6 @@ jobs:
                 core.info('PR is still a draft, skipping');
                 return;
               }
-              headSha = pr.head.sha;
               prs = [{ number: pr.number }];
             }
 
