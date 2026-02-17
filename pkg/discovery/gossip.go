@@ -187,8 +187,12 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		if p.WGPubKey != target.WGPubKey {
 			knownPeers = append(knownPeers, crypto.KnownPeer{
 				WGPubKey:   p.WGPubKey,
+				Hostname:   p.Hostname,
 				MeshIP:     p.MeshIP,
+				MeshIPv6:   p.MeshIPv6,
 				WGEndpoint: p.Endpoint,
+				Introducer: p.Introducer,
+				NATType:    p.NATType,
 			})
 		}
 	}
@@ -196,9 +200,13 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 	announcement := crypto.CreateAnnouncement(
 		g.localNode.WGPubKey,
 		g.localNode.MeshIP,
-		g.localNode.WGEndpoint,
+		g.localNode.GetEndpoint(),
+		g.localNode.Introducer,
 		g.localNode.RoutableNetworks,
 		knownPeers,
+		g.localNode.Hostname,
+		g.localNode.MeshIPv6,
+		string(g.localNode.NATType),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, g.gossipKey)
@@ -250,11 +258,6 @@ func (g *MeshGossip) listenLoop() {
 	}
 }
 
-// HandleAnnounce processes an incoming gossip announcement.
-func (g *MeshGossip) HandleAnnounce(announcement *crypto.PeerAnnouncement) {
-	g.handleAnnouncement(announcement, nil)
-}
-
 // HandleAnnounceFrom processes an incoming gossip announcement and source address.
 func (g *MeshGossip) HandleAnnounceFrom(announcement *crypto.PeerAnnouncement, sender *net.UDPAddr) {
 	g.handleAnnouncement(announcement, sender)
@@ -272,13 +275,18 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 	if sender == nil {
 		endpoint = normalizeKnownPeerEndpoint(announcement.WGEndpoint)
 	}
+	endpoint = filterEndpointForConfig(endpoint, g.config.DisableIPv6)
 
 	// Update the sender's info
 	peer := &daemon.PeerInfo{
 		WGPubKey:         announcement.WGPubKey,
+		Hostname:         announcement.Hostname,
 		MeshIP:           announcement.MeshIP,
+		MeshIPv6:         announcement.MeshIPv6,
 		Endpoint:         endpoint,
+		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
+		NATType:          announcement.NATType,
 	}
 	g.peerStore.Update(peer, GossipMethod)
 
@@ -288,9 +296,13 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 			continue
 		}
 		transitivePeer := &daemon.PeerInfo{
-			WGPubKey: kp.WGPubKey,
-			MeshIP:   kp.MeshIP,
-			Endpoint: kp.WGEndpoint,
+			WGPubKey:   kp.WGPubKey,
+			Hostname:   kp.Hostname,
+			MeshIP:     kp.MeshIP,
+			MeshIPv6:   kp.MeshIPv6,
+			Endpoint:   filterEndpointForConfig(normalizeKnownPeerEndpoint(kp.WGEndpoint), g.config.DisableIPv6),
+			Introducer: kp.Introducer,
+			NATType:    kp.NATType,
 		}
 		g.peerStore.Update(transitivePeer, GossipMethod+"-transitive")
 	}
