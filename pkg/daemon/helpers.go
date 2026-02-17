@@ -16,6 +16,14 @@ import (
 // It can be replaced with a mock for testing.
 var cmdExecutor CommandExecutor = &RealCommandExecutor{}
 
+// shortKey safely truncates a key for logging (avoids panic on short/empty keys).
+func shortKey(key string) string {
+	if len(key) > 16 {
+		return key[:16]
+	}
+	return key
+}
+
 // localNodeState is the persisted state for a local node
 type localNodeState struct {
 	WGPubKey     string `json:"wg_pubkey"`

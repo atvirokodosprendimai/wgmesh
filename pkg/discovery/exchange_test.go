@@ -22,7 +22,7 @@ func TestObservedEndpoint_WireFormat(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ann := crypto.CreateAnnouncement("pubkey1", "10.0.0.1", "0.0.0.0:51820", false, nil, nil)
+			ann := crypto.CreateAnnouncement("pubkey1", "10.0.0.1", "0.0.0.0:51820", false, nil, nil, "", "", "")
 			ann.ObservedEndpoint = tt.observedEndpoint
 
 			data, err := json.Marshal(ann)

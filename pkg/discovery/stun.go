@@ -39,7 +39,8 @@ func buildBindingRequest() []byte {
 }
 
 // parseBindingResponse extracts the external IP and port from a STUN Binding Response.
-// Prefers XOR-MAPPED-ADDRESS, falls back to MAPPED-ADDRESS.
+// Validates the transaction ID matches the request, then prefers XOR-MAPPED-ADDRESS,
+// falls back to MAPPED-ADDRESS.
 func parseBindingResponse(data []byte, txnID [12]byte) (net.IP, int, error) {
 	if len(data) < stunHeaderSize {
 		return nil, 0, fmt.Errorf("response too short: %d bytes", len(data))
@@ -48,6 +49,19 @@ func parseBindingResponse(data []byte, txnID [12]byte) (net.IP, int, error) {
 	msgType := binary.BigEndian.Uint16(data[0:2])
 	if msgType != stunBindingResponse {
 		return nil, 0, fmt.Errorf("unexpected message type: 0x%04x", msgType)
+	}
+
+	// Validate magic cookie (RFC 5389 Section 6)
+	cookie := binary.BigEndian.Uint32(data[4:8])
+	if cookie != stunMagicCookie {
+		return nil, 0, fmt.Errorf("invalid magic cookie: 0x%08x", cookie)
+	}
+
+	// Validate transaction ID matches our request (M5: prevents spoofed responses)
+	var respTxnID [12]byte
+	copy(respTxnID[:], data[8:20])
+	if respTxnID != txnID {
+		return nil, 0, fmt.Errorf("transaction ID mismatch")
 	}
 
 	attrLen := binary.BigEndian.Uint16(data[2:4])
@@ -203,12 +217,15 @@ func STUNQuery(server string, localPort int, timeoutMs int) (net.IP, int, error)
 		return nil, 0, fmt.Errorf("send STUN request: %w", err)
 	}
 
-	// Read response
+	// Read response — validate sender matches the STUN server (M4: prevents spoofed responses)
 	conn.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond))
 	buf := make([]byte, 512)
-	n, _, err := conn.ReadFromUDP(buf)
+	n, sender, err := conn.ReadFromUDP(buf)
 	if err != nil {
 		return nil, 0, fmt.Errorf("read STUN response: %w", err)
+	}
+	if sender == nil || !sender.IP.Equal(raddr.IP) {
+		return nil, 0, fmt.Errorf("STUN response from unexpected sender %v (expected %v)", sender, raddr)
 	}
 
 	return parseBindingResponse(buf[:n], txnID)
@@ -303,9 +320,12 @@ func stunQueryConn(conn *net.UDPConn, server string, timeoutMs int) (net.IP, int
 
 	conn.SetReadDeadline(time.Now().Add(time.Duration(timeoutMs) * time.Millisecond))
 	buf := make([]byte, 512)
-	n, _, err := conn.ReadFromUDP(buf)
+	n, sender, err := conn.ReadFromUDP(buf)
 	if err != nil {
 		return nil, 0, fmt.Errorf("read from %s: %w", server, err)
+	}
+	if sender == nil || !sender.IP.Equal(raddr.IP) {
+		return nil, 0, fmt.Errorf("STUN response from unexpected sender %v (expected %v)", sender, raddr)
 	}
 
 	return parseBindingResponse(buf[:n], txnID)

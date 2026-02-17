@@ -132,7 +132,7 @@ func (d *Daemon) Run() error {
 		return fmt.Errorf("failed to initialize local node: %w", err)
 	}
 
-	log.Printf("Local node: %s", d.localNode.WGPubKey[:16]+"...")
+	log.Printf("Local node: %s...", shortKey(d.localNode.WGPubKey))
 	log.Printf("Mesh IP: %s", d.localNode.MeshIP)
 	if d.localNode.MeshIPv6 != "" {
 		log.Printf("Mesh IPv6: %s", d.localNode.MeshIPv6)
@@ -347,13 +347,7 @@ func (d *Daemon) reconcile() {
 	// Check for mesh IP collisions
 	d.CheckAndResolveCollisions()
 
-	// Cleanup stale peers
-	removed := d.peerStore.CleanupStale()
-	for _, pubKey := range removed {
-		if err := d.removePeer(pubKey); err != nil {
-			log.Printf("Failed to remove stale peer %s: %v", pubKey[:8]+"...", err)
-		}
-	}
+	// Stale peer cleanup is handled by staleCleanupLoop (W3: avoid double cleanup)
 }
 
 type desiredPeerConfig struct {
@@ -702,6 +696,11 @@ func (d *Daemon) staleCleanupLoop() {
 			return
 		case <-ticker.C:
 			removed := d.peerStore.CleanupStale()
+			for _, pubKey := range removed {
+				if err := d.removePeer(pubKey); err != nil {
+					log.Printf("[Peers] Failed to remove stale peer %s: %v", shortKey(pubKey), err)
+				}
+			}
 			if len(removed) > 0 {
 				log.Printf("[Peers] Removed %d stale peers", len(removed))
 			}
@@ -1236,7 +1235,7 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		return fmt.Errorf("failed to initialize local node: %w", err)
 	}
 
-	log.Printf("Local node: %s", d.localNode.WGPubKey[:16]+"...")
+	log.Printf("Local node: %s...", shortKey(d.localNode.WGPubKey))
 	log.Printf("Mesh IP: %s", d.localNode.MeshIP)
 	if d.localNode.MeshIPv6 != "" {
 		log.Printf("Mesh IPv6: %s", d.localNode.MeshIPv6)

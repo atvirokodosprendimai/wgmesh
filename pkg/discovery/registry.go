@@ -344,10 +344,10 @@ func (r *RendezvousRegistry) buildIssueBody(peers []*daemon.PeerInfo) (string, e
 		first.Introducer,
 		first.RoutableNetworks,
 		knownPeers,
+		first.Hostname,
+		first.MeshIPv6,
+		first.NATType,
 	)
-	announcement.MeshIPv6 = first.MeshIPv6
-	announcement.Hostname = first.Hostname
-	announcement.NATType = first.NATType
 
 	encrypted, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, r.GossipKey)
 	if err != nil {
