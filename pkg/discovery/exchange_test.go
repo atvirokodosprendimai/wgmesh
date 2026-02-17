@@ -267,6 +267,41 @@ func TestSendReply_PopulatesObservedEndpoint(t *testing.T) {
 	}
 }
 
+func TestHandleReply_DoesNotDowngradePublicIPv6ToIPv4Observed(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-reflector-v6-sticky-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+
+	localNode := &LocalNode{
+		WGPubKey: "local-pubkey",
+		MeshIP:   "10.0.0.1",
+	}
+	localNode.SetEndpoint("[2a01:4f9:c012:2c15::1]:51820")
+
+	pe := NewPeerExchange(cfg, localNode, peerStore)
+
+	reply := &crypto.PeerAnnouncement{
+		Protocol:         crypto.ProtocolVersion,
+		WGPubKey:         "remote-pubkey",
+		MeshIP:           "10.0.0.2",
+		WGEndpoint:       "198.51.100.1:51820",
+		ObservedEndpoint: "203.0.113.42:54321",
+	}
+	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
+
+	pe.pendingMu.Lock()
+	pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
+	pe.pendingMu.Unlock()
+
+	pe.handleReply(reply, remoteAddr)
+
+	if got := localNode.GetEndpoint(); got != "[2a01:4f9:c012:2c15::1]:51820" {
+		t.Fatalf("localNode.GetEndpoint() = %q, want unchanged public IPv6 endpoint", got)
+	}
+}
+
 // TestResolvePeerEndpoint tests existing resolution logic (regression guard).
 func TestResolvePeerEndpoint(t *testing.T) {
 	tests := []struct {

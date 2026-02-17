@@ -363,9 +363,17 @@ func (pe *PeerExchange) applyObservedEndpoint(observed string) {
 
 	// Extract our WG listen port from the current endpoint
 	currentEP := pe.localNode.GetEndpoint()
-	_, wgPort, err := net.SplitHostPort(currentEP)
+	currentHost, wgPort, err := net.SplitHostPort(currentEP)
 	if err != nil {
 		return
+	}
+
+	// If we already have a usable public IPv6 endpoint, don't downgrade it
+	// to IPv4 due to peer reflection from an IPv4-only path.
+	if currentIP := net.ParseIP(currentHost); currentIP != nil {
+		if currentIP.To4() == nil && currentIP.IsGlobalUnicast() && !currentIP.IsPrivate() && ip.To4() != nil {
+			return
+		}
 	}
 
 	newEndpoint := net.JoinHostPort(ip.String(), wgPort)
