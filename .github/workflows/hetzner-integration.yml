@@ -9,16 +9,11 @@ on:
       tiers:
         description: 'Test tiers to run (comma-separated: 1,2,3,4,5,6,7)'
         required: false
-        default: '1,2,3'
+        default: '1,2,3,4,5,6,7'
       vm_count:
         description: 'Number of VMs per tier (1 introducer + N-1 nodes)'
         required: false
         default: '5'
-      parallel:
-        description: 'Run tiers in parallel (each tier gets its own VMs)'
-        required: false
-        type: boolean
-        default: false
 
 # Only one integration test run at a time (shared Hetzner infra)
 concurrency:
@@ -30,11 +25,10 @@ env:
   GO_VERSION: '1.23'
 
 jobs:
-  # Build the binary once, share via artifact
-  build:
-    name: Build Binary
+  integration-test:
+    name: Integration Tests
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 90
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -49,71 +43,8 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v \
             -ldflags="-s -w -X main.version=ci-${GITHUB_SHA::8}" \
             -o wgmesh-linux-arm64 .
-          ls -lh wgmesh-linux-arm64
-
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: wgmesh-binary
-          path: wgmesh-linux-arm64
-          retention-days: 1
-
-  # Parse tiers input into a JSON matrix
-  prepare:
-    name: Prepare Matrix
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-      parallel: ${{ steps.set-matrix.outputs.parallel }}
-    steps:
-      - id: set-matrix
-        run: |
-          TIERS="${{ inputs.tiers || '1,2,3' }}"
-          PARALLEL="${{ inputs.parallel || 'false' }}"
-
-          if [ "$PARALLEL" = "true" ]; then
-            # Split tiers into separate matrix entries
-            MATRIX="["
-            FIRST=true
-            IFS=',' read -ra TIER_ARRAY <<< "$TIERS"
-            for t in "${TIER_ARRAY[@]}"; do
-              t=$(echo "$t" | tr -d ' ')
-              if [ "$FIRST" = "true" ]; then
-                FIRST=false
-              else
-                MATRIX+=","
-              fi
-              MATRIX+="{\"tier\":\"$t\",\"prefix\":\"wgmesh-t${t}\"}"
-            done
-            MATRIX+="]"
-          else
-            # Single entry with all tiers
-            MATRIX="[{\"tier\":\"$TIERS\",\"prefix\":\"wgmesh-ci\"}]"
-          fi
-
-          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
-          echo "parallel=$PARALLEL" >> "$GITHUB_OUTPUT"
-          echo "Matrix: $MATRIX"
-
-  # Run integration tests — parallelized by tier when requested
-  integration-test:
-    name: "Tier ${{ matrix.tier }}"
-    needs: [build, prepare]
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include: ${{ fromJson(needs.prepare.outputs.matrix) }}
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download binary
-        uses: actions/download-artifact@v4
-        with:
-          name: wgmesh-binary
+          chmod +x wgmesh-linux-arm64
+          echo "BINARY_PATH=$PWD/wgmesh-linux-arm64" >> "$GITHUB_ENV"
 
       - name: Install hcloud CLI
         run: |
@@ -126,11 +57,6 @@ jobs:
           ssh-keygen -t ed25519 -f ~/.ssh/wgmesh-ci -N "" -q
           echo "SSH_KEY_FILE=$HOME/.ssh/wgmesh-ci" >> "$GITHUB_ENV"
 
-      - name: Prepare binary
-        run: |
-          chmod +x wgmesh-linux-arm64
-          echo "BINARY_PATH=$PWD/wgmesh-linux-arm64" >> "$GITHUB_ENV"
-
       - name: Clean up orphaned VMs
         run: |
           source testlab/cloud/lib.sh
@@ -138,26 +64,23 @@ jobs:
           teardown_orphans || true
         env:
           SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
-          VM_PREFIX: ${{ matrix.prefix }}
 
-      - name: Run integration tests (tier ${{ matrix.tier }})
+      - name: Run integration tests
         id: tests
         run: |
           chmod +x testlab/cloud/*.sh
           ./testlab/cloud/test-cloud.sh \
             --binary "$BINARY_PATH" \
             --vms "${{ inputs.vm_count || '5' }}" \
-            --tiers "${{ matrix.tier }}"
+            --tiers "${{ inputs.tiers || '1,2,3,4,5,6,7' }}"
         env:
           SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
-          GITHUB_RUN_ID: "${{ github.run_id }}-${{ matrix.tier }}"
-          VM_PREFIX: ${{ matrix.prefix }}
 
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: "test-logs-tier-${{ matrix.tier }}"
+          name: test-logs
           path: /tmp/wgmesh-ci-logs/
           retention-days: 7
           if-no-files-found: ignore
@@ -172,8 +95,6 @@ jobs:
           teardown_orphans || true
         env:
           SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
-          GITHUB_RUN_ID: "${{ github.run_id }}-${{ matrix.tier }}"
-          VM_PREFIX: ${{ matrix.prefix }}
 
   # Periodic orphan cleanup — runs even without a test trigger
   cleanup-orphans:
@@ -195,7 +116,4 @@ jobs:
           export SSH_KEY_FILE=/dev/null
           source testlab/cloud/lib.sh
           source testlab/cloud/provision.sh
-          # Clean up all known prefixes
-          for pfx in wgmesh-ci wgmesh-t1 wgmesh-t2 wgmesh-t3 wgmesh-t4 wgmesh-t5 wgmesh-t6 wgmesh-t7; do
-            VM_PREFIX="$pfx" teardown_orphans || true
-          done
+          teardown_orphans || true
