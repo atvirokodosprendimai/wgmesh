@@ -37,6 +37,8 @@ const (
 	RendezvousMinBackoff      = 3 * time.Second
 	RendezvousMaxBackoff      = 30 * time.Second
 	RendezvousStaleCheck      = 10 * time.Second // How often to check for stale handshakes
+	IPv6SyncWindow            = 8 * time.Second
+	IPv6SyncPhase             = 2 * time.Second
 )
 
 type backoffEntry struct {
@@ -956,11 +958,24 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 		hasDirectRoute = false
 	}
 	if hasDirectRoute && isIPv6Endpoint(peer.Endpoint) {
-		// Prefer direct IPv6, but do not block fallback forever when there is no recent handshake.
+		// If both peers have IPv6 reachability, coordinate periodic synchronized
+		// direct exchange attempts so both sides initiate around the same time.
 		if hs > 0 && time.Since(time.Unix(hs, 0)) < 90*time.Second {
 			return
 		}
-		log.Printf("[NAT] IPv6 direct path stale for %s, enabling rendezvous fallback", shortKey(peer.WGPubKey))
+		if d.localNode.GetEndpoint() != "" && isIPv6Endpoint(d.localNode.GetEndpoint()) && d.shouldAttemptIPv6Sync(peer.WGPubKey, time.Now()) {
+			targetControlEndpoint := d.controlEndpointForPeer(peer)
+			if targetControlEndpoint != "" {
+				key := "ipv6-sync:" + targetControlEndpoint
+				if d.markContacted(key, 3*time.Second) {
+					go d.exchangeWithAddress(targetControlEndpoint, DHTMethod+"-ipv6-sync")
+					log.Printf("[Path] Scheduled synchronized IPv6 direct attempt for %s via %s", shortKey(peer.WGPubKey), targetControlEndpoint)
+				}
+			}
+		}
+		if !d.config.DisablePunching {
+			log.Printf("[NAT] IPv6 direct path stale for %s, enabling rendezvous fallback", shortKey(peer.WGPubKey))
+		}
 	}
 
 	introducers := d.selectRendezvousIntroducers(peer.WGPubKey, d.peerStore.GetActive(), RendezvousMaxIntroducers)
@@ -1165,6 +1180,31 @@ func (d *DHTDiscovery) shouldAttemptRendezvous(remoteKey string, now time.Time) 
 		return true
 	}
 	phaseSeconds := int64(RendezvousPhase / time.Second)
+	if phaseSeconds <= 0 {
+		phaseSeconds = 1
+	}
+
+	seed := pairSeed(d.localNode.WGPubKey, remoteKey)
+	offset := int64(seed % uint64(windowSeconds))
+	position := now.Unix() % windowSeconds
+	delta := position - offset
+	if delta < 0 {
+		delta += windowSeconds
+	}
+
+	return delta < phaseSeconds
+}
+
+func (d *DHTDiscovery) shouldAttemptIPv6Sync(remoteKey string, now time.Time) bool {
+	if remoteKey == "" {
+		return false
+	}
+
+	windowSeconds := int64(IPv6SyncWindow / time.Second)
+	if windowSeconds <= 0 {
+		return true
+	}
+	phaseSeconds := int64(IPv6SyncPhase / time.Second)
 	if phaseSeconds <= 0 {
 		phaseSeconds = 1
 	}

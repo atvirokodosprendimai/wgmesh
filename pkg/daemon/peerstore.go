@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -125,7 +126,7 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 		}
 
 		// Update existing peer - newer info wins
-		if info.Endpoint != "" && shouldUpdateEndpoint(existing, discoveryMethod) {
+		if info.Endpoint != "" && shouldUpdateEndpoint(existing, info.Endpoint, discoveryMethod) {
 			existing.Endpoint = info.Endpoint
 			existing.endpointMethod = discoveryMethod
 		}
@@ -190,7 +191,7 @@ func isTransitiveMethod(discoveryMethod string) bool {
 	return strings.Contains(discoveryMethod, "transitive")
 }
 
-func shouldUpdateEndpoint(existing *PeerInfo, discoveryMethod string) bool {
+func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint, discoveryMethod string) bool {
 	if existing.Endpoint == "" {
 		return true
 	}
@@ -205,11 +206,33 @@ func shouldUpdateEndpoint(existing *PeerInfo, discoveryMethod string) bool {
 		return false
 	}
 
+	// Equal-rank preference: keep IPv6 when available to prioritize direct IPv6 paths.
+	newIsV6 := isIPv6EndpointValue(newEndpoint)
+	oldIsV6 := isIPv6EndpointValue(existing.Endpoint)
+	if newIsV6 && !oldIsV6 {
+		return true
+	}
+	if oldIsV6 && !newIsV6 {
+		return false
+	}
+
 	// Equal rank: allow refresh from same family, but still protect LAN endpoint.
 	if oldRank == endpointMethodRank(LANMethod) {
 		return discoveryMethod == LANMethod
 	}
 	return true
+}
+
+func isIPv6EndpointValue(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.To4() == nil
 }
 
 func endpointMethodRank(method string) int {

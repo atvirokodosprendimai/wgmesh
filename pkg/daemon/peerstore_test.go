@@ -115,6 +115,46 @@ func TestPeerStoreRendezvousOverridesDHT(t *testing.T) {
 	}
 }
 
+func TestPeerStorePrefersIPv6EndpointAtSameRank(t *testing.T) {
+	ps := NewPeerStore()
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key-v6",
+		MeshIP:   "10.0.0.5",
+		Endpoint: "203.0.113.10:51820",
+	}, "dht")
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key-v6",
+		Endpoint: "[2001:db8::10]:51820",
+	}, "dht")
+
+	got, _ := ps.Get("key-v6")
+	if got.Endpoint != "[2001:db8::10]:51820" {
+		t.Errorf("Expected IPv6 endpoint to be preferred, got %s", got.Endpoint)
+	}
+}
+
+func TestPeerStoreKeepsIPv6OverIPv4AtSameRank(t *testing.T) {
+	ps := NewPeerStore()
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key-v6-sticky",
+		MeshIP:   "10.0.0.6",
+		Endpoint: "[2001:db8::20]:51820",
+	}, "dht")
+
+	ps.Update(&PeerInfo{
+		WGPubKey: "key-v6-sticky",
+		Endpoint: "198.51.100.20:51820",
+	}, "dht")
+
+	got, _ := ps.Get("key-v6-sticky")
+	if got.Endpoint != "[2001:db8::20]:51820" {
+		t.Errorf("Expected IPv6 endpoint to stay preferred, got %s", got.Endpoint)
+	}
+}
+
 func TestPeerStoreGetActive(t *testing.T) {
 	ps := NewPeerStore()
 
