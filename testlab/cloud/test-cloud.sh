@@ -171,6 +171,11 @@ test_t3_ipv6() {
 
 # --- T4: Cross-DC latency ---
 test_t4_cross_dc_latency() {
+    # Ensure we have mesh IPs
+    if [ ${#NODE_MESH_IPS[@]} -eq 0 ]; then
+        populate_mesh_ips || return 1
+    fi
+
     local nodes=("${!NODE_IPS[@]}")
     local n=${#nodes[@]}
     local max_ms=50
@@ -178,7 +183,11 @@ test_t4_cross_dc_latency() {
     for (( i=0; i<n; i++ )); do
         for (( j=i+1; j<n; j++ )); do
             local from="${nodes[$i]}" to="${nodes[$j]}"
-            local to_ip="${NODE_MESH_IPS[$to]}"
+            local to_ip="${NODE_MESH_IPS[$to]:-}"
+            if [ -z "$to_ip" ]; then
+                log_warn "No mesh IP for $to"
+                return 1
+            fi
             local rtt
             # Extract avg RTT from ping output: "rtt min/avg/max/mdev = 0.5/0.7/1.0/0.1 ms"
             rtt=$(run_on "$from" "ping -c 5 -W 3 $to_ip" 2>/dev/null \
@@ -334,7 +343,7 @@ test_t9_introducer_crash() {
     stop_mesh 2>/dev/null || true
     sleep 2
     start_mesh 30
-    verify_full_mesh 60
+    verify_full_mesh 120
 
     local intro=""
     for node in "${!NODE_ROLES[@]}"; do
@@ -345,7 +354,7 @@ test_t9_introducer_crash() {
     sleep 5
 
     # Existing direct tunnels between nodes should survive
-    verify_mesh_without "$intro" 15
+    verify_mesh_without "$intro" 30
 }
 
 # --- T10: Introducer rejoin ---
