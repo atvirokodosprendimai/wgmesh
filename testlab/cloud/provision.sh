@@ -117,7 +117,9 @@ provision_vms() {
 # Node info population
 # ---------------------------------------------------------------------------
 
-# Populate NODE_IPS, NODE_ROLES, NODE_MESH_IPS, NODE_LOCATIONS from live VMs.
+# Populate NODE_IPS, NODE_ROLES, NODE_LOCATIONS from live VMs.
+# NOTE: NODE_MESH_IPS is NOT populated here — mesh IPs are derived dynamically
+# by the daemon. Call populate_mesh_ips after starting the mesh.
 populate_node_info() {
     local run_id="${GITHUB_RUN_ID:-}"
 
@@ -140,8 +142,6 @@ populate_node_info() {
     NODE_MESH_IPS=()
     NODE_LOCATIONS=()
 
-    local node_idx=0
-
     while read -r full_name; do
         [ -z "$full_name" ] && continue
 
@@ -155,14 +155,11 @@ populate_node_info() {
         if [[ "$full_name" == *-introducer ]]; then
             short_name="introducer"
             NODE_ROLES["$short_name"]="introducer"
-            NODE_MESH_IPS["$short_name"]="10.248.0.1"
         else
             # Extract suffix: wgmesh-ci-12345-node-a -> node-a
             short_name="${full_name##*-node-}"
             short_name="node-${short_name}"
             NODE_ROLES["$short_name"]="node"
-            node_idx=$((node_idx + 1))
-            NODE_MESH_IPS["$short_name"]="10.248.0.$((node_idx * 10))"
         fi
 
         NODE_IPS["$short_name"]="$ip"
@@ -172,7 +169,63 @@ populate_node_info() {
 
     log_info "Populated ${#NODE_IPS[@]} nodes:"
     for name in $(echo "${!NODE_IPS[@]}" | tr ' ' '\n' | sort); do
-        log_info "  $name: ip=${NODE_IPS[$name]} mesh=${NODE_MESH_IPS[$name]} role=${NODE_ROLES[$name]} dc=${NODE_LOCATIONS[$name]}"
+        log_info "  $name: ip=${NODE_IPS[$name]} role=${NODE_ROLES[$name]} dc=${NODE_LOCATIONS[$name]}"
+    done
+}
+
+# Query actual mesh IPs from running wg0 interfaces on each node.
+# Must be called AFTER the mesh is started and interfaces are up.
+# Retries a few times since WG interface may take a moment to come up.
+populate_mesh_ips() {
+    log_info "Querying mesh IPs from running nodes..."
+    NODE_MESH_IPS=()
+
+    local max_retries=5
+    local retry=0
+
+    while [ $retry -lt $max_retries ]; do
+        local missing=0
+        for node in "${!NODE_IPS[@]}"; do
+            # Skip nodes we already have
+            [ -n "${NODE_MESH_IPS[$node]:-}" ] && continue
+
+            local mesh_ip
+            # Extract the 10.x.x.x address from the wg0 interface
+            mesh_ip=$(run_on "$node" "ip -4 addr show $WG_INTERFACE 2>/dev/null | grep -oP 'inet \K10\.[0-9]+\.[0-9]+\.[0-9]+'" 2>/dev/null) || mesh_ip=""
+
+            if [ -n "$mesh_ip" ]; then
+                NODE_MESH_IPS["$node"]="$mesh_ip"
+            else
+                missing=$((missing + 1))
+            fi
+        done
+
+        if [ $missing -eq 0 ]; then
+            break
+        fi
+
+        retry=$((retry + 1))
+        if [ $retry -lt $max_retries ]; then
+            log_info "Waiting for $missing node(s) to get mesh IPs (attempt $retry/$max_retries)..."
+            sleep 5
+        fi
+    done
+
+    if [ ${#NODE_MESH_IPS[@]} -eq 0 ]; then
+        log_error "No mesh IPs found on any node"
+        return 1
+    fi
+
+    log_info "Mesh IPs discovered (${#NODE_MESH_IPS[@]}/${#NODE_IPS[@]}):"
+    for name in $(echo "${!NODE_MESH_IPS[@]}" | tr ' ' '\n' | sort); do
+        log_info "  $name: mesh=${NODE_MESH_IPS[$name]}"
+    done
+
+    # Warn about missing nodes
+    for node in "${!NODE_IPS[@]}"; do
+        if [ -z "${NODE_MESH_IPS[$node]:-}" ]; then
+            log_warn "No mesh IP for $node (wg0 not up?)"
+        fi
     done
 }
 
@@ -277,6 +330,9 @@ start_mesh() {
 
     log_info "Waiting ${settle}s for mesh to form..."
     sleep "$settle"
+
+    # Discover actual mesh IPs from running WG interfaces
+    populate_mesh_ips
 }
 
 # Stop mesh on all nodes.

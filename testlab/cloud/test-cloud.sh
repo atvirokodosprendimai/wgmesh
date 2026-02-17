@@ -129,8 +129,12 @@ test_t1_basic_mesh() {
     start_mesh_node "${nodes[0]}"
     start_mesh_node "${nodes[1]}"
 
+    sleep 10
+    # Discover mesh IPs from running WG interfaces
+    populate_mesh_ips
+
     # Wait for all 3 pairs
-    wait_for "T1: 3-node mesh" 60 _t1_check "$intro" "${nodes[0]}" "${nodes[1]}"
+    wait_for "T1: 3-node mesh" 90 _t1_check "$intro" "${nodes[0]}" "${nodes[1]}"
     scan_logs_for_errors
 }
 
@@ -229,16 +233,23 @@ test_t5_late_join() {
     start_mesh_node "${all_nodes[0]}"
     start_mesh_node "${all_nodes[1]}"
 
+    sleep 10
+    populate_mesh_ips
+
     # Wait for initial 3-node mesh
-    wait_for "initial 3-node mesh" 60 _t1_check "$intro" "${all_nodes[0]}" "${all_nodes[1]}"
+    wait_for "initial 3-node mesh" 90 _t1_check "$intro" "${all_nodes[0]}" "${all_nodes[1]}"
 
     # Now add a 4th node (the late joiner)
     sleep 5
     start_mesh_node "${all_nodes[2]}"
 
+    # Re-discover mesh IPs (new node joined)
+    sleep 5
+    populate_mesh_ips
+
     # Verify late joiner can reach all 3 existing nodes
     local late="${all_nodes[2]}"
-    wait_for "late joiner $late connected" 60 _t5_check "$late" "$intro" "${all_nodes[0]}" "${all_nodes[1]}"
+    wait_for "late joiner $late connected" 90 _t5_check "$late" "$intro" "${all_nodes[0]}" "${all_nodes[1]}"
 }
 
 _t5_check() {
