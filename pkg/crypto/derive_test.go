@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -148,8 +149,50 @@ func TestDeriveMeshIP(t *testing.T) {
 	}
 
 	// IP should start with 10.42.
-	if ip1[:6] != "10.42." {
+	if len(ip1) < 6 || ip1[:6] != "10.42." {
 		t.Errorf("Expected IP to start with 10.42., got %s", ip1)
+	}
+
+	// Parse and verify last octet is in [1, 254]
+	var a, b, c, d int
+	fmt.Sscanf(ip1, "%d.%d.%d.%d", &a, &b, &c, &d)
+	if d < 1 || d > 254 {
+		t.Errorf("Last octet should be in [1,254], got %d (ip=%s)", d, ip1)
+	}
+	if a != 10 || b != 42 {
+		t.Errorf("Expected 10.42.x.y, got %s", ip1)
+	}
+}
+
+func TestDeriveMeshIPUsesSubnetByte1(t *testing.T) {
+	// Verify meshSubnet[1] affects the output
+	ip1 := DeriveMeshIP([2]byte{42, 0}, "pubkey1", "test-secret-that-is-long-enough")
+	ip2 := DeriveMeshIP([2]byte{42, 99}, "pubkey1", "test-secret-that-is-long-enough")
+
+	if ip1 == ip2 {
+		t.Error("Different meshSubnet[1] should produce different IPs")
+	}
+
+	// Both should share the same first two octets
+	var a1, b1, a2, b2 int
+	fmt.Sscanf(ip1, "%d.%d.", &a1, &b1)
+	fmt.Sscanf(ip2, "%d.%d.", &a2, &b2)
+	if a1 != a2 || b1 != b2 {
+		t.Errorf("First two octets should match: %s vs %s", ip1, ip2)
+	}
+}
+
+func TestDeriveMeshIPNoNetworkOrBroadcast(t *testing.T) {
+	// Generate many IPs and ensure none end in .0 or .255
+	meshSubnet := [2]byte{10, 20}
+	for i := 0; i < 1000; i++ {
+		pubkey := fmt.Sprintf("pubkey-%d", i)
+		ip := DeriveMeshIP(meshSubnet, pubkey, "test-secret-that-is-long-enough")
+		var a, b, c, d int
+		fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d)
+		if d == 0 || d == 255 {
+			t.Errorf("Generated network/broadcast address: %s (pubkey=%s)", ip, pubkey)
+		}
 	}
 }
 
