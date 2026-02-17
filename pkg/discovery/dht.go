@@ -1198,7 +1198,10 @@ type rendezvousIntroducer struct {
 	ControlEndpoint string
 }
 
-func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo) bool {
+// isAutoIntroducerCandidate checks if a peer qualifies as an auto-detected
+// introducer. The caller must provide handshakes to avoid forking `wg show`
+// per candidate (D6).
+func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo, handshakes map[string]int64) bool {
 	if p == nil {
 		return false
 	}
@@ -1212,7 +1215,6 @@ func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo) bool {
 		return false
 	}
 
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
 	if ts, ok := handshakes[p.WGPubKey]; ok && ts > 0 {
 		if time.Since(time.Unix(ts, 0)) < 2*time.Minute {
 			return true
@@ -1240,6 +1242,9 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		controlEndpoint string
 		isExplicit      bool
 	}
+
+	// Fetch handshakes once for all candidates (D6: avoid forking wg show per peer)
+	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
 
 	candidates := make([]introducerCandidate, 0, len(peers))
 	for _, p := range peers {
@@ -1269,7 +1274,7 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		}
 
 		isExplicit := p.Introducer
-		isAuto := !isExplicit && d.isAutoIntroducerCandidate(p)
+		isAuto := !isExplicit && d.isAutoIntroducerCandidate(p, handshakes)
 
 		if !isExplicit && !isAuto {
 			d.debugf("[NAT] DEBUG: %s skipped - not explicit introducer and not auto-eligible (explicit=%v auto=%v)", shortKey(p.WGPubKey), isExplicit, isAuto)

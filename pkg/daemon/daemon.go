@@ -544,7 +544,7 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		for _, current := range existing {
 			if _, ok := desired[current.PublicKey]; !ok {
 				if err := wireguard.RemovePeer(d.config.InterfaceName, current.PublicKey); err != nil {
-					log.Printf("Failed to remove obsolete peer %s: %v", current.PublicKey[:8]+"...", err)
+					log.Printf("Failed to remove obsolete peer %s...: %v", shortKey(current.PublicKey), err)
 				}
 				d.appliedMu.Lock()
 				delete(d.lastAppliedPeerConfigs, current.PublicKey)
@@ -566,18 +566,24 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		}
 		allowedCSV := strings.Join(allowed, ",")
 		signature := cfg.peer.Endpoint + "|" + allowedCSV
+
+		// Check-and-mark under the same lock to avoid TOCTOU (W4)
 		d.appliedMu.Lock()
 		prev, ok := d.lastAppliedPeerConfigs[pubKey]
-		d.appliedMu.Unlock()
 		if ok && prev == signature {
+			d.appliedMu.Unlock()
 			continue
 		}
-		if err := wireguard.SetPeer(d.config.InterfaceName, pubKey, d.config.Keys.PSK, cfg.peer.Endpoint, allowedCSV); err != nil {
-			return fmt.Errorf("failed to configure peer %s: %w", pubKey[:8]+"...", err)
-		}
-		d.appliedMu.Lock()
 		d.lastAppliedPeerConfigs[pubKey] = signature
 		d.appliedMu.Unlock()
+
+		if err := wireguard.SetPeer(d.config.InterfaceName, pubKey, d.config.Keys.PSK, cfg.peer.Endpoint, allowedCSV); err != nil {
+			// Rollback the optimistic write on failure
+			d.appliedMu.Lock()
+			delete(d.lastAppliedPeerConfigs, pubKey)
+			d.appliedMu.Unlock()
+			return fmt.Errorf("failed to configure peer %s: %w", shortKey(pubKey), err)
+		}
 	}
 
 	return nil
@@ -850,7 +856,7 @@ func (d *Daemon) probePeersOverMesh() {
 		d.probeMu.Unlock()
 
 		if failures >= MeshProbeFailLimit {
-			log.Printf("[Health] Probe failed %d times for %s, marking temporarily offline", failures, p.WGPubKey[:8]+"...")
+			log.Printf("[Health] Probe failed %d times for %s..., marking temporarily offline", failures, shortKey(p.WGPubKey))
 			d.evictPeerFromPool(p)
 		}
 	}
@@ -1079,7 +1085,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
 	}
-	log.Printf("[Health] Peer %s stale handshake >%v with no transfer growth, forcing reconnect", peer.WGPubKey[:8]+"...", HandshakeStaleAfter)
+	log.Printf("[Health] Peer %s... stale handshake >%v with no transfer growth, forcing reconnect", shortKey(peer.WGPubKey), HandshakeStaleAfter)
 	if peer.Endpoint == "" {
 		return
 	}
@@ -1103,7 +1109,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 	}
 
 	if err := wireguard.SetPeer(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, peer.Endpoint, allowedCSV); err != nil {
-		log.Printf("[Health] Failed to reconnect peer %s: %v", peer.WGPubKey[:8]+"...", err)
+		log.Printf("[Health] Failed to reconnect peer %s...: %v", shortKey(peer.WGPubKey), err)
 		return
 	}
 	d.appliedMu.Lock()
@@ -1115,11 +1121,11 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
 	}
-	log.Printf("[Health] Evicting unresponsive peer %s from active pool", peer.WGPubKey[:8]+"...")
+	log.Printf("[Health] Evicting unresponsive peer %s... from active pool", shortKey(peer.WGPubKey))
 	d.markTemporarilyOffline(peer.WGPubKey)
 	d.peerStore.Remove(peer.WGPubKey)
 	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
-		log.Printf("[Health] Failed to remove evicted peer %s from WireGuard: %v", peer.WGPubKey[:8]+"...", err)
+		log.Printf("[Health] Failed to remove evicted peer %s... from WireGuard: %v", shortKey(peer.WGPubKey), err)
 	}
 	d.appliedMu.Lock()
 	delete(d.lastAppliedPeerConfigs, peer.WGPubKey)
@@ -1200,14 +1206,14 @@ func (d *Daemon) printStatus() {
 	for _, p := range peers {
 		name := p.Hostname
 		if name == "" {
-			name = p.WGPubKey[:8] + "..."
+			name = shortKey(p.WGPubKey) + "..."
 		}
 		route := "direct"
 		if hasDiscoveryMethod(p.DiscoveredVia, LANMethod) || endpointOnAnyLocalSubnet(p.Endpoint, localSubnets) {
 			route = "direct-lan"
 		}
 		if relayKey, ok := relayRoutes[p.WGPubKey]; ok {
-			relayName := relayKey[:8] + "..."
+			relayName := shortKey(relayKey) + "..."
 			for _, rp := range peers {
 				if rp.WGPubKey == relayKey {
 					if rp.Hostname != "" {
