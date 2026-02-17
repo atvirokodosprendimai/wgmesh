@@ -35,6 +35,6 @@ variable "ssh_public_key_path" {
 
 variable "locations" {
   type        = list(string)
-  default     = ["nbg1", "fsn1", "hel1", "ash", "hil"]
-  description = "Hetzner datacenters to distribute VMs across (ordered by priority)"
+  default     = ["nbg1", "fsn1", "hel1"]
+  description = "Hetzner datacenters to distribute VMs across (cax11 ARM64 only available in EU)"
 }
