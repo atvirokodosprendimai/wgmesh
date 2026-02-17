@@ -5,16 +5,114 @@
 #   source lib.sh
 #   source provision.sh
 #
+#   provision_infra 5          # Create SSH key + 5 VMs via OpenTofu
+#   teardown_infra             # Destroy all via OpenTofu + hcloud fallback
+#   teardown_orphans           # Delete any stale wgmesh-ci-* VMs older than 30min
+#
+# Legacy (hcloud CLI only — used as fallback):
 #   provision_ssh_key          # Create or reuse SSH key
 #   provision_vms 5            # Create 5 VMs (1 introducer + 4 nodes)
 #   populate_node_info         # Fill NODE_IPS, NODE_MESH_IPS, etc.
 #   teardown_vms               # Delete all VMs and SSH key
-#   teardown_orphans           # Delete any stale wgmesh-ci-* VMs older than 30min
 
 set -euo pipefail
 
+TOFU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tofu"
+
 # ---------------------------------------------------------------------------
-# SSH Key management
+# OpenTofu provisioning (primary path)
+# ---------------------------------------------------------------------------
+
+# Provision SSH key + VMs via OpenTofu.
+# Replaces: provision_ssh_key + provision_vms
+# Usage: provision_infra [vm_count]
+provision_infra() {
+    local vm_count="${1:-5}"
+    local run_id="${GITHUB_RUN_ID:-$(date +%s)}"
+
+    # Ensure SSH key exists locally
+    if [ ! -f "$SSH_KEY_FILE" ]; then
+        ssh-keygen -t ed25519 -f "$SSH_KEY_FILE" -N "" -q
+        log_info "Generated SSH key: $SSH_KEY_FILE"
+    fi
+
+    log_info "Provisioning infrastructure with OpenTofu (${vm_count} VMs)..."
+
+    tofu -chdir="$TOFU_DIR" init -input=false
+
+    tofu -chdir="$TOFU_DIR" apply -auto-approve -input=false \
+        -var="hcloud_token=${HCLOUD_TOKEN}" \
+        -var="run_id=${run_id}" \
+        -var="vm_count=${vm_count}" \
+        -var="ssh_public_key_path=${SSH_KEY_FILE}.pub"
+
+    load_tofu_outputs
+
+    # Wait for SSH on all nodes
+    log_info "Waiting for SSH on all VMs..."
+    for node in "${!NODE_IPS[@]}"; do
+        wait_for "SSH on $node (${NODE_IPS[$node]})" 120 ssh \
+            -o StrictHostKeyChecking=no \
+            -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=5 \
+            -o LogLevel=ERROR \
+            -i "$SSH_KEY_FILE" \
+            "root@${NODE_IPS[$node]}" "true"
+    done
+
+    log_info "All $vm_count VMs created and reachable via SSH"
+}
+
+# Populate NODE_IPS, NODE_ROLES, NODE_LOCATIONS from OpenTofu outputs.
+# Replaces: populate_node_info
+load_tofu_outputs() {
+    local outputs
+    outputs=$(tofu -chdir="$TOFU_DIR" output -json)
+
+    # Reset arrays
+    NODE_ROLES=()
+    NODE_IPS=()
+    NODE_MESH_IPS=()
+    NODE_LOCATIONS=()
+
+    while IFS='=' read -r key val; do
+        NODE_IPS["$key"]="$val"
+    done < <(echo "$outputs" | jq -r '.node_ips.value | to_entries[] | "\(.key)=\(.value)"')
+
+    while IFS='=' read -r key val; do
+        NODE_ROLES["$key"]="$val"
+    done < <(echo "$outputs" | jq -r '.node_roles.value | to_entries[] | "\(.key)=\(.value)"')
+
+    while IFS='=' read -r key val; do
+        NODE_LOCATIONS["$key"]="$val"
+    done < <(echo "$outputs" | jq -r '.node_locations.value | to_entries[] | "\(.key)=\(.value)"')
+
+    log_info "Loaded ${#NODE_IPS[@]} nodes from OpenTofu outputs:"
+    for name in $(echo "${!NODE_IPS[@]}" | tr ' ' '\n' | sort); do
+        log_info "  $name: ip=${NODE_IPS[$name]} role=${NODE_ROLES[$name]} dc=${NODE_LOCATIONS[$name]}"
+    done
+}
+
+# Destroy all infrastructure via OpenTofu, with hcloud CLI fallback.
+# Replaces: teardown_vms
+teardown_infra() {
+    if [ -f "$TOFU_DIR/terraform.tfstate" ]; then
+        log_info "Destroying infrastructure with OpenTofu..."
+        tofu -chdir="$TOFU_DIR" destroy -auto-approve -input=false \
+            -var="hcloud_token=${HCLOUD_TOKEN}" \
+            -var="run_id=${GITHUB_RUN_ID:-0}" \
+            -var="ssh_public_key_path=${SSH_KEY_FILE}.pub" \
+            || log_warn "OpenTofu destroy failed, falling back to hcloud CLI"
+    else
+        log_warn "No OpenTofu state found, using hcloud CLI fallback"
+    fi
+
+    # Safety fallback: clean up by label/prefix if tofu state is missing or destroy failed
+    teardown_vms
+}
+
+# ---------------------------------------------------------------------------
+# Legacy hcloud CLI provisioning (kept as fallback)
 # ---------------------------------------------------------------------------
 
 # Create an ephemeral SSH key pair for this CI run.
@@ -36,11 +134,7 @@ provision_ssh_key() {
     log_info "Uploaded SSH key to Hetzner: $key_name"
 }
 
-# ---------------------------------------------------------------------------
-# VM provisioning
-# ---------------------------------------------------------------------------
-
-# Provision N VMs across multiple locations.
+# Provision N VMs across multiple locations (legacy hcloud CLI path).
 # VM 0 = introducer (hel1), VMs 1..N-1 = nodes spread across locations.
 # Usage: provision_vms <count>
 provision_vms() {
@@ -113,11 +207,7 @@ provision_vms() {
     log_info "All VMs reachable via SSH"
 }
 
-# ---------------------------------------------------------------------------
-# Node info population
-# ---------------------------------------------------------------------------
-
-# Populate NODE_IPS, NODE_ROLES, NODE_LOCATIONS from live VMs.
+# Populate NODE_IPS, NODE_ROLES, NODE_LOCATIONS from live VMs (legacy hcloud CLI path).
 # NOTE: NODE_MESH_IPS is NOT populated here — mesh IPs are derived dynamically
 # by the daemon. Call populate_mesh_ips after starting the mesh.
 populate_node_info() {

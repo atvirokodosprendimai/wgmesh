@@ -61,7 +61,7 @@ cleanup_on_exit() {
         log_info "Running teardown..."
         chaos_clear_all 2>/dev/null || true
         collect_logs || true
-        teardown_vms || true
+        teardown_infra || true
     fi
     exit $rc
 }
@@ -72,7 +72,7 @@ trap cleanup_on_exit EXIT
 # ---------------------------------------------------------------------------
 
 if [ "$TEARDOWN_ONLY" = "true" ]; then
-    teardown_vms
+    teardown_infra
     teardown_orphans
     exit 0
 fi
@@ -82,11 +82,18 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ "$SKIP_PROVISION" = "false" ]; then
-    provision_ssh_key
-    provision_vms "$VM_COUNT"
+    provision_infra "$VM_COUNT"
 fi
 
-populate_node_info
+# When skipping provision, load outputs from existing OpenTofu state.
+# Falls back to hcloud CLI if no state file exists.
+if [ "$SKIP_PROVISION" = "true" ]; then
+    if [ -f "$SCRIPT_DIR/tofu/terraform.tfstate" ]; then
+        load_tofu_outputs
+    else
+        populate_node_info
+    fi
+fi
 
 if [ -z "$MESH_SECRET" ]; then
     MESH_SECRET=$(generate_mesh_secret)

@@ -46,6 +46,11 @@ jobs:
           chmod +x wgmesh-linux-arm64
           echo "BINARY_PATH=$PWD/wgmesh-linux-arm64" >> "$GITHUB_ENV"
 
+      - name: Install OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: '1.9.0'
+
       - name: Install hcloud CLI
         run: |
           curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
@@ -93,7 +98,7 @@ jobs:
         run: |
           source testlab/cloud/lib.sh
           source testlab/cloud/provision.sh
-          teardown_vms || true
+          teardown_infra || true
           teardown_orphans || true
         env:
           SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
