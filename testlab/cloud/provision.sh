@@ -50,26 +50,39 @@ provision_infra() {
 
         tofu -chdir="$TOFU_DIR" init -input=false
 
-        if tofu -chdir="$TOFU_DIR" apply -auto-approve -input=false \
-            -var="hcloud_token=${HCLOUD_TOKEN}" \
-            -var="run_id=${run_id}" \
-            -var="vm_count=${vm_count}" \
-            -var="ssh_public_key_path=${SSH_KEY_FILE}.pub" \
-            -var="server_type=${server_type}"; then
+        # Try up to 3 times per server type with backoff
+        for attempt in 1 2 3; do
+            if [ $attempt -gt 1 ]; then
+                log_warn "Retry attempt $attempt for server type: $server_type"
+                sleep $((attempt * 5))  # 5s, 10s, 15s backoff
+            fi
 
-            provisioned=true
-            log_info "Successfully provisioned with server type: $server_type"
-            break
-        else
-            log_warn "Failed to provision with server type: $server_type, trying next..."
-            # Clean up any partial resources before trying next type
-            tofu -chdir="$TOFU_DIR" destroy -auto-approve -input=false \
+            if tofu -chdir="$TOFU_DIR" apply -auto-approve -input=false \
                 -var="hcloud_token=${HCLOUD_TOKEN}" \
                 -var="run_id=${run_id}" \
                 -var="vm_count=${vm_count}" \
                 -var="ssh_public_key_path=${SSH_KEY_FILE}.pub" \
-                -var="server_type=${server_type}" 2>/dev/null || true
-        fi
+                -var="server_type=${server_type}"; then
+
+                provisioned=true
+                log_info "Successfully provisioned with server type: $server_type"
+                break 2
+            else
+                log_warn "Failed attempt $attempt for server type: $server_type"
+            fi
+        done
+
+        # Clean up any partial resources before trying next type
+        log_info "Cleaning up failed attempt for server type: $server_type"
+        tofu -chdir="$TOFU_DIR" destroy -auto-approve -input=false \
+            -var="hcloud_token=${HCLOUD_TOKEN}" \
+            -var="run_id=${run_id}" \
+            -var="vm_count=${vm_count}" \
+            -var="ssh_public_key_path=${SSH_KEY_FILE}.pub" \
+            -var="server_type=${server_type}" 2>/dev/null || true
+        
+        # Short delay before trying next type
+        sleep 2
     done
 
     if [ "$provisioned" = "false" ]; then
