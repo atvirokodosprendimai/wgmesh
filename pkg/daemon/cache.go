@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -133,14 +134,16 @@ func RestoreFromCache(interfaceName string, peerStore *PeerStore) int {
 	return restored
 }
 
-// StartCacheSaver starts a background goroutine that periodically saves the peer cache
-func StartCacheSaver(interfaceName string, peerStore *PeerStore, stopCh <-chan struct{}) {
+// StartCacheSaver starts a background goroutine that periodically saves the
+// peer cache.  It stops when ctx is cancelled, performing a final save before
+// returning.
+func StartCacheSaver(ctx context.Context, interfaceName string, peerStore *PeerStore) {
 	ticker := time.NewTicker(CacheSaveInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-stopCh:
+		case <-ctx.Done():
 			// Final save on shutdown
 			if err := SavePeerCache(interfaceName, peerStore); err != nil {
 				log.Printf("[Cache] Failed to save peer cache on shutdown: %v", err)
