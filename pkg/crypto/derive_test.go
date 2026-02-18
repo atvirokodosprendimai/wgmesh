@@ -218,8 +218,8 @@ func TestDeriveMeshIPv6(t *testing.T) {
 func TestGossipPortRange(t *testing.T) {
 	// Test that gossip port is in expected range
 	keys, _ := DeriveKeys("test-secret-that-is-long-enough")
-	if keys.GossipPort < 51821 || keys.GossipPort >= 51821+1000 {
-		t.Errorf("GossipPort %d outside expected range [51821, 52821)", keys.GossipPort)
+	if keys.GossipPort < GossipPortBase || keys.GossipPort >= GossipPortBase+1000 {
+		t.Errorf("GossipPort %d outside expected range [%d, %d)", keys.GossipPort, GossipPortBase, GossipPortBase+1000)
 	}
 }
 
