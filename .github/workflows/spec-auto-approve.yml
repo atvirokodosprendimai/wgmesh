@@ -134,10 +134,18 @@ jobs:
           
           Goose will now implement the code based on this specification."
           
-          # Add the label that triggers Goose
+          # Add the label for tracking
           gh pr edit $PR_NUM --add-label approved-for-build
           
-          echo "Added approved-for-build label, Goose will start implementation"
+          # Directly trigger Goose implementation via workflow_dispatch.
+          # Labels added by workflows don't fire pull_request events (GitHub limitation),
+          # so we invoke goose-build.yml explicitly instead of relying on the labeled trigger.
+          echo "Triggering Goose implementation for issue #${ISSUE_NUM} (spec PR #${PR_NUM})"
+          gh workflow run goose-build.yml \
+            -f issue_number="${ISSUE_NUM}" \
+            -f spec_pr_number="${PR_NUM}"
+          
+          echo "Goose implementation triggered"
 
       - name: Comment on validation failure
         if: steps.validate.outputs.valid == 'false'
