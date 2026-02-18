@@ -36,15 +36,41 @@ provision_infra() {
         log_info "Generated SSH key: $SSH_KEY_FILE"
     fi
 
-    log_info "Provisioning infrastructure with OpenTofu (${vm_count} VMs)..."
+    # Try different server types until one works
+    local server_types=("cpx22" "cpx32" "cx22" "cx32" "ccx13" "ccx23")
+    local provisioned=false
 
-    tofu -chdir="$TOFU_DIR" init -input=false
+    for server_type in "${server_types[@]}"; do
+        log_info "Trying to provision with server type: $server_type"
 
-    tofu -chdir="$TOFU_DIR" apply -auto-approve -input=false \
-        -var="hcloud_token=${HCLOUD_TOKEN}" \
-        -var="run_id=${run_id}" \
-        -var="vm_count=${vm_count}" \
-        -var="ssh_public_key_path=${SSH_KEY_FILE}.pub"
+        tofu -chdir="$TOFU_DIR" init -input=false
+
+        if tofu -chdir="$TOFU_DIR" apply -auto-approve -input=false \
+            -var="hcloud_token=${HCLOUD_TOKEN}" \
+            -var="run_id=${run_id}" \
+            -var="vm_count=${vm_count}" \
+            -var="ssh_public_key_path=${SSH_KEY_FILE}.pub" \
+            -var="server_type=${server_type}"; then
+
+            provisioned=true
+            log_info "Successfully provisioned with server type: $server_type"
+            break
+        else
+            log_warn "Failed to provision with server type: $server_type, trying next..."
+            # Clean up any partial resources before trying next type
+            tofu -chdir="$TOFU_DIR" destroy -auto-approve -input=false \
+                -var="hcloud_token=${HCLOUD_TOKEN}" \
+                -var="run_id=${run_id}" \
+                -var="vm_count=${vm_count}" \
+                -var="ssh_public_key_path=${SSH_KEY_FILE}.pub" \
+                -var="server_type=${server_type}" 2>/dev/null || true
+        fi
+    done
+
+    if [ "$provisioned" = "false" ]; then
+        log_error "Failed to provision VMs with any server type"
+        return 1
+    fi
 
     load_tofu_outputs
 
@@ -164,26 +190,30 @@ provision_vms() {
         names+=("$name")
 
         local created=false
-        for try_loc in "$loc" "${locations[@]}"; do
-            if hcloud server create \
-                --name "$name" \
-                --type "$VM_TYPE" \
-                --image "$VM_IMAGE" \
-                --location "$try_loc" \
-                --ssh-key "$key_name" \
-                --label "role=$role" \
-                --label "run=$run_id" \
-                --label "created=$(date +%s)" \
-                >/dev/null 2>&1; then
-                created=true
-                log_info "Created $name in $try_loc"
-                break
-            else
-                log_warn "Failed to create $name in $try_loc, trying next location..."
-            fi
+        # Try different server types and locations
+        local server_types=("$VM_TYPE" "cpx32" "cx22" "cx32" "ccx13" "ccx23")
+        for try_type in "${server_types[@]}"; do
+            for try_loc in "$loc" "${locations[@]}"; do
+                if hcloud server create \
+                    --name "$name" \
+                    --type "$try_type" \
+                    --image "$VM_IMAGE" \
+                    --location "$try_loc" \
+                    --ssh-key "$key_name" \
+                    --label "role=$role" \
+                    --label "run=$run_id" \
+                    --label "created=$(date +%s)" \
+                    >/dev/null 2>&1; then
+                    created=true
+                    log_info "Created $name in $try_loc with type $try_type"
+                    break 2
+                else
+                    log_warn "Failed to create $name ($try_type) in $try_loc, trying..."
+                fi
+            done
         done
         if [ "$created" = "false" ]; then
-            log_error "Failed to create $name in any location"
+            log_error "Failed to create $name with any server type or location"
             return 1
         fi
     done

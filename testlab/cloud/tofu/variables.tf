@@ -21,7 +21,14 @@ variable "vm_count" {
 
 variable "server_type" {
   type    = string
-  default = "ccx13" # Dedicated AMD EPYC, 2 vCPU, 8GB - better availability
+  default = "cpx22"
+}
+
+# Alternative server types to try if primary fails
+variable "fallback_server_types" {
+  type        = list(string)
+  default     = ["cpx32", "cx22", "cx32", "ccx13", "ccx23", "cax31"]
+  description = "Fallback server types if primary is unavailable"
 }
 
 variable "image" {
