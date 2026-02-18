@@ -16,3 +16,13 @@ output "node_locations" {
 output "ssh_key_name" {
   value = hcloud_ssh_key.ci.name
 }
+
+output "server_type" {
+  description = "Server type used for provisioned VMs"
+  value       = var.server_type
+}
+
+output "locations" {
+  description = "Locations used for VM placement"
+  value       = var.locations
+}

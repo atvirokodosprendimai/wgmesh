@@ -20,6 +20,78 @@ set -euo pipefail
 TOFU_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/tofu"
 
 # ---------------------------------------------------------------------------
+# Dynamic availability probing
+# ---------------------------------------------------------------------------
+
+# Server types we're willing to use, ordered by cost (cheapest first).
+# Architecture: cax* = ARM64 (Ampere), everything else = x86_64.
+CANDIDATE_SERVER_TYPES=("cax11" "cpx22" "cx23" "cax21" "cpx32" "cx33" "ccx13" "ccx23")
+
+# Find an available server type + locations by querying the Hetzner API.
+# Outputs two variables:
+#   AVAIL_SERVER_TYPE  — the server type name (e.g., "cpx22")
+#   AVAIL_LOCATIONS    — space-separated list of locations (e.g., "nbg1 fsn1 hel1")
+# Returns 0 on success, 1 if nothing is available.
+find_available_server() {
+    log_info "Probing Hetzner API for available server types..."
+
+    # 1. Build a map of server-type name → id
+    local type_json
+    type_json=$(hcloud server-type list -o json 2>/dev/null) || {
+        log_warn "Failed to query server types"
+        return 1
+    }
+
+    # 2. Get datacenter availability: each datacenter lists available type IDs
+    local dc_json
+    dc_json=$(hcloud datacenter list -o json 2>/dev/null) || {
+        log_warn "Failed to query datacenters"
+        return 1
+    }
+
+    # 3. For each candidate type, check which datacenters have it available
+    for candidate in "${CANDIDATE_SERVER_TYPES[@]}"; do
+        # Get the numeric ID for this server type
+        local type_id
+        type_id=$(echo "$type_json" | jq -r \
+            --arg name "$candidate" \
+            '.[] | select(.name == $name) | .id // empty')
+
+        if [ -z "$type_id" ]; then
+            log_warn "Server type $candidate not found in API, skipping"
+            continue
+        fi
+
+        # Find all datacenters where this type ID is in the "available" list
+        local locations
+        locations=$(echo "$dc_json" | jq -r \
+            --argjson tid "$type_id" \
+            '[.[] | select(.server_types.available | index($tid)) | .location.name] | unique | .[]')
+
+        if [ -z "$locations" ]; then
+            log_info "  $candidate: not available in any datacenter"
+            continue
+        fi
+
+        # Deduplicate locations (datacenters may share a location)
+        local loc_list
+        loc_list=$(echo "$locations" | sort -u | tr '\n' ' ' | sed 's/ $//')
+        local loc_count
+        loc_count=$(echo "$locations" | sort -u | wc -l | tr -d ' ')
+
+        log_info "  $candidate: available in $loc_count location(s): $loc_list"
+
+        AVAIL_SERVER_TYPE="$candidate"
+        AVAIL_LOCATIONS="$loc_list"
+        export AVAIL_SERVER_TYPE AVAIL_LOCATIONS
+        return 0
+    done
+
+    log_warn "No candidate server types are available in any datacenter"
+    return 1
+}
+
+# ---------------------------------------------------------------------------
 # OpenTofu provisioning (primary path)
 # ---------------------------------------------------------------------------
 
@@ -36,19 +108,35 @@ provision_infra() {
         log_info "Generated SSH key: $SSH_KEY_FILE"
     fi
 
-    # Try different server types until one works
-    # Valid Hetzner cloud server types (as of 2025):
-    # - cpx22, cpx32 (AMD shared vCPU - Gen 2)
-    # - cax11, cax21 (ARM64 Ampere)
-    # - cx23, cx33 (Intel/AMD cost-optimized Gen 3)
-    # - ccx13, ccx23 (AMD dedicated vCPU)
-    local server_types=("cpx22" "cpx32" "cax11" "cax21" "cx23" "cx33" "ccx13" "ccx23")
+    # ---------------------------------------------------------------------------
+    # Phase 1: Probe the Hetzner API for available server types and locations.
+    # This avoids wasting time on blind retries against exhausted types.
+    # ---------------------------------------------------------------------------
+    local server_types_to_try=()
+    local locations_csv=""
+
+    if find_available_server; then
+        log_info "Using probed server type: $AVAIL_SERVER_TYPE in $AVAIL_LOCATIONS"
+        server_types_to_try=("$AVAIL_SERVER_TYPE")
+        # Convert space-separated locations to the tofu variable format
+        locations_csv="$AVAIL_LOCATIONS"
+    else
+        log_warn "Availability probe failed; falling back to blind retry across all types"
+        server_types_to_try=("${CANDIDATE_SERVER_TYPES[@]}")
+        locations_csv="nbg1 fsn1 hel1"
+    fi
+
     local provisioned=false
 
-    for server_type in "${server_types[@]}"; do
+    tofu -chdir="$TOFU_DIR" init -input=false
+
+    for server_type in "${server_types_to_try[@]}"; do
         log_info "Trying to provision with server type: $server_type"
 
-        tofu -chdir="$TOFU_DIR" init -input=false
+        # Build -var for locations as a JSON list for OpenTofu
+        local loc_json loc_arr
+        IFS=' ' read -ra loc_arr <<< "$locations_csv"
+        loc_json=$(printf '%s\n' "${loc_arr[@]}" | jq -R . | jq -sc .)
 
         # Try up to 3 times per server type with backoff
         for attempt in 1 2 3; do
@@ -62,7 +150,8 @@ provision_infra() {
                 -var="run_id=${run_id}" \
                 -var="vm_count=${vm_count}" \
                 -var="ssh_public_key_path=${SSH_KEY_FILE}.pub" \
-                -var="server_type=${server_type}"; then
+                -var="server_type=${server_type}" \
+                -var="locations=${loc_json}"; then
 
                 provisioned=true
                 PROVISIONED_SERVER_TYPE="$server_type"
@@ -185,9 +274,21 @@ provision_ssh_key() {
 # Usage: provision_vms <count>
 provision_vms() {
     local count="${1:-5}"
-    local locations=("hel1" "nbg1" "fsn1")
     local key_name="${VM_PREFIX}-key"
     local run_id="${GITHUB_RUN_ID:-$(date +%s)}"
+
+    # Use dynamic probing if available, otherwise fall back to defaults
+    local locations
+    local server_types
+    if find_available_server 2>/dev/null; then
+        IFS=' ' read -ra locations <<< "$AVAIL_LOCATIONS"
+        server_types=("$AVAIL_SERVER_TYPE")
+        log_info "Legacy path: using probed type $AVAIL_SERVER_TYPE in ${locations[*]}"
+    else
+        locations=("hel1" "nbg1" "fsn1")
+        server_types=("$VM_TYPE" "${CANDIDATE_SERVER_TYPES[@]}")
+        log_info "Legacy path: using blind fallback across ${#server_types[@]} types"
+    fi
 
     local letters=(a b c d e f g h)
 
@@ -210,8 +311,6 @@ provision_vms() {
         names+=("$name")
 
         local created=false
-        # Try different server types and locations
-        local server_types=("$VM_TYPE" "cpx32" "cax11" "cax21" "cx23" "cx33" "ccx13" "ccx23")
         for try_type in "${server_types[@]}"; do
             for try_loc in "$loc" "${locations[@]}"; do
                 if hcloud server create \
