@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -96,6 +97,54 @@ type LocalNode struct {
 type DiscoveryLayer interface {
 	Start() error
 	Stop() error
+}
+
+// parseLogLevel converts a log level string to slog.Level.
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// ConfigureLogging sets up the global logger with the given level.
+// All existing log.Printf calls are redirected through slog at the
+// configured level so they are always visible regardless of the filter.
+// This should be called once at program startup (e.g. from main) before
+// creating a Daemon; it must not be called from library code.
+func ConfigureLogging(level string) {
+	configureLogging(level)
+}
+
+func configureLogging(level string) {
+	lvl := parseLogLevel(level)
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: lvl,
+	})
+	slog.SetDefault(slog.New(handler))
+
+	// Redirect stdlib log.Printf → slog at the configured level so that
+	// legacy log.Printf calls are never silenced by a stricter filter.
+	// e.g. --log-level warn: log.Printf emits at WARN, still visible.
+	log.SetOutput(&slogWriter{level: lvl})
+	log.SetFlags(0) // slog adds its own timestamp
+}
+
+// slogWriter adapts log.Printf output to slog at a fixed level.
+type slogWriter struct {
+	level slog.Level
+}
+
+func (w *slogWriter) Write(p []byte) (n int, err error) {
+	msg := strings.TrimRight(string(p), "\n")
+	slog.Log(context.Background(), w.level, msg)
+	return len(p), nil
 }
 
 // NewDaemon creates a new mesh daemon
