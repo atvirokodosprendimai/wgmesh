@@ -47,7 +47,7 @@ provision_vms() {
     local count="${1:-5}"
     local locations=("hel1" "nbg1" "fsn1")
     local key_name="${VM_PREFIX}-key"
-    local run_id="${GITHUB_RUN_ID:-$(date +%s)}"
+    local run_id="${WGMESH_RUN_ID:-${GITHUB_RUN_ID:-$(date +%s)}}"
 
     local letters=(a b c d e f g h)
 
@@ -121,7 +121,7 @@ provision_vms() {
 # NOTE: NODE_MESH_IPS is NOT populated here — mesh IPs are derived dynamically
 # by the daemon. Call populate_mesh_ips after starting the mesh.
 populate_node_info() {
-    local run_id="${GITHUB_RUN_ID:-}"
+    local run_id="${WGMESH_RUN_ID:-${GITHUB_RUN_ID:-}}"
 
     # Get server names
     local server_names
@@ -353,7 +353,7 @@ stop_mesh() {
 
 # Delete ALL VMs and SSH key for this run.
 teardown_vms() {
-    local run_id="${GITHUB_RUN_ID:-}"
+    local run_id="${WGMESH_RUN_ID:-${GITHUB_RUN_ID:-}}"
 
     log_info "Tearing down VMs..."
 

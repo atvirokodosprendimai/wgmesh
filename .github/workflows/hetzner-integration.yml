@@ -132,7 +132,7 @@ jobs:
             --tiers "${{ matrix.tier }}"
         env:
           SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
-          GITHUB_RUN_ID: "${{ github.run_id }}-t${{ matrix.tier }}"
+          WGMESH_RUN_ID: "${{ github.run_id }}-t${{ matrix.tier }}"
           VM_PREFIX: "wgmesh-t${{ matrix.tier }}"
 
       - name: Upload test logs
@@ -153,7 +153,7 @@ jobs:
           teardown_orphans || true
         env:
           SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
-          GITHUB_RUN_ID: "${{ github.run_id }}-t${{ matrix.tier }}"
+          WGMESH_RUN_ID: "${{ github.run_id }}-t${{ matrix.tier }}"
           VM_PREFIX: "wgmesh-t${{ matrix.tier }}"
 
   # -----------------------------------------------------------------------
