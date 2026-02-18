@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -75,6 +76,40 @@ func TestDaemonWaitsForGoroutinesOnShutdown(t *testing.T) {
 	}
 	if !statusExited.Load() {
 		t.Error("statusLoop did not exit after context cancellation")
+	}
+}
+
+func TestParseLogLevel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"DEBUG", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"INFO", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"warning", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"ERROR", slog.LevelError},
+		{"", slog.LevelInfo},
+		{"invalid", slog.LevelInfo},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got := parseLogLevel(tt.input)
+			if got != tt.want {
+				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfigureLoggingDoesNotPanic(t *testing.T) {
+	// Verify that configuring logging with various levels doesn't panic
+	for _, level := range []string{"debug", "info", "warn", "error", ""} {
+		configureLogging(level)
 	}
 }
 

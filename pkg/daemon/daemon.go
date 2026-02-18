@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -98,8 +99,52 @@ type DiscoveryLayer interface {
 	Stop() error
 }
 
+// parseLogLevel converts a log level string to slog.Level.
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// configureLogging sets up the global logger with the given level.
+// All existing log.Printf calls are redirected through slog so they
+// respect the configured level (they are treated as INFO).
+func configureLogging(level string) {
+	lvl := parseLogLevel(level)
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: lvl,
+	})
+	slog.SetDefault(slog.New(handler))
+
+	// Redirect stdlib log.Printf → slog at INFO level.
+	// This makes the 189+ existing log.Printf calls level-aware
+	// without touching every call site.
+	log.SetOutput(&slogWriter{level: slog.LevelInfo})
+	log.SetFlags(0) // slog adds its own timestamp
+}
+
+// slogWriter adapts log.Printf output to slog at a fixed level.
+type slogWriter struct {
+	level slog.Level
+}
+
+func (w *slogWriter) Write(p []byte) (n int, err error) {
+	msg := strings.TrimRight(string(p), "\n")
+	slog.Log(context.Background(), w.level, msg)
+	return len(p), nil
+}
+
 // NewDaemon creates a new mesh daemon
 func NewDaemon(config *Config) (*Daemon, error) {
+	configureLogging(config.LogLevel)
+
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
