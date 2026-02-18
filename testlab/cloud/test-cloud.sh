@@ -1010,25 +1010,39 @@ log_bold "  Nodes: ${#NODE_IPS[@]}  |  Tiers: $TIERS"
 log_bold "============================================"
 
 if should_run_tier 1; then
-    log_bold "\n--- TIER 1: Topology Formation ---"
+    TOTAL_TESTS_IN_TIER=4
+    log_bold "\n=========================================="
+    log_bold "  TIER 1: Topology Formation ($TOTAL_TESTS_IN_TIER tests)"
+    log_bold "=========================================="
+    tier_start=$(date +%s)
     run_test T1  "Basic mesh (3 nodes)"         test_t1_basic_mesh
     run_test T2  "Full mesh (${#NODE_IPS[@]} nodes)" test_t2_full_mesh
     run_test T3  "IPv6 mesh connectivity"        test_t3_ipv6
     run_test T4  "Cross-DC latency sanity"       test_t4_cross_dc_latency
+    log_bold "  Tier 1 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
 if should_run_tier 2; then
-    log_bold "\n--- TIER 2: Peer Lifecycle ---"
+    TOTAL_TESTS_IN_TIER=6
+    log_bold "\n=========================================="
+    log_bold "  TIER 2: Peer Lifecycle ($TOTAL_TESTS_IN_TIER tests)"
+    log_bold "=========================================="
+    tier_start=$(date +%s)
     run_test T5  "Late peer join"                test_t5_late_join
     run_test T6  "Graceful peer leave"           test_t6_graceful_leave
     run_test T7  "Peer crash (SIGKILL)"          test_t7_crash
     run_test T8  "Peer rejoin after crash"       test_t8_rejoin
     run_test T9  "Introducer crash"              test_t9_introducer_crash
     run_test T10 "Introducer rejoin"             test_t10_introducer_rejoin
+    log_bold "  Tier 2 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
 if should_run_tier 3; then
-    log_bold "\n--- TIER 3: Network Chaos ---"
+    TOTAL_TESTS_IN_TIER=9
+    log_bold "\n=========================================="
+    log_bold "  TIER 3: Network Chaos ($TOTAL_TESTS_IN_TIER tests)"
+    log_bold "=========================================="
+    tier_start=$(date +%s)
     run_test T11 "10% packet loss (2 nodes)"     test_t11_loss_10
     run_test T12 "30% packet loss (1 node)"      test_t12_loss_30
     run_test T13 "50% packet loss (flap OK)"     test_t13_loss_50
@@ -1038,26 +1052,41 @@ if should_run_tier 3; then
     run_test T17 "Bandwidth throttle 100kbit"    test_t17_throttle
     run_test T18 "Packet reordering 25%"         test_t18_reorder
     run_test T19 "Packet duplication 30%"        test_t19_duplicate
+    log_bold "  Tier 3 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
 if should_run_tier 4; then
-    log_bold "\n--- TIER 4: Network Partitions ---"
+    TOTAL_TESTS_IN_TIER=5
+    log_bold "\n=========================================="
+    log_bold "  TIER 4: Network Partitions ($TOTAL_TESTS_IN_TIER tests)"
+    log_bold "=========================================="
+    tier_start=$(date +%s)
     run_test T20 "Partial partition"             test_t20_partial_partition
     run_test T21 "Full node isolation"           test_t21_full_isolation
     run_test T22 "Split brain"                   test_t22_split_brain
     run_test T23 "Introducer partition"          test_t23_introducer_partition
     run_test T24 "Asymmetric partition"          test_t24_asymmetric
+    log_bold "  Tier 4 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
 if should_run_tier 5; then
-    log_bold "\n--- TIER 5: NAT Simulation ---"
+    TOTAL_TESTS_IN_TIER=3
+    log_bold "\n=========================================="
+    log_bold "  TIER 5: NAT Simulation ($TOTAL_TESTS_IN_TIER tests)"
+    log_bold "=========================================="
+    tier_start=$(date +%s)
     run_test T25 "Cone NAT"                      test_t25_cone_nat
     run_test T26 "Symmetric NAT"                 test_t26_symmetric_nat
     run_test T27 "Mixed NAT topology"            test_t27_mixed_nat
+    log_bold "  Tier 5 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
 if should_run_tier 6; then
-    log_bold "\n--- TIER 6: Chaos Monkey ---"
+    TOTAL_TESTS_IN_TIER=11
+    log_bold "\n=========================================="
+    log_bold "  TIER 6: Chaos Monkey ($TOTAL_TESTS_IN_TIER tests)"
+    log_bold "=========================================="
+    tier_start=$(date +%s)
     run_test T28 "Rapid peer cycling"            test_t28_rapid_cycling
     run_test T29 "Rolling restart"               test_t29_rolling_restart
     run_test T30 "Simultaneous restart"          test_t30_simultaneous_restart
@@ -1069,13 +1098,19 @@ if should_run_tier 6; then
     run_test T36 "Clock skew +15min (isolation)" test_t36_clock_skew_15min
     run_test T37 "GOODBYE forgery resistance"    test_t37_goodbye_forgery
     run_test T38 "Stale cache resurrection"      test_t38_stale_cache
+    log_bold "  Tier 6 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
 if should_run_tier 7; then
-    log_bold "\n--- TIER 7: Stability Soak ---"
+    TOTAL_TESTS_IN_TIER=3
+    log_bold "\n=========================================="
+    log_bold "  TIER 7: Stability Soak ($TOTAL_TESTS_IN_TIER tests)"
+    log_bold "=========================================="
+    tier_start=$(date +%s)
     run_test T39 "5-min clean soak"              test_t39_clean_soak
     run_test T40 "10-min chaos soak"             test_t40_chaos_soak
     run_test T41 "15-min long soak with churn"   test_t41_long_soak
+    log_bold "  Tier 7 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
 finish_tests
