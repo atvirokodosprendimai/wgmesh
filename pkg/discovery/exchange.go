@@ -11,6 +11,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -68,8 +69,9 @@ type PeerExchange struct {
 	localNode *LocalNode
 	peerStore *daemon.PeerStore
 
-	conn *net.UDPConn
-	port int
+	conn    *net.UDPConn
+	port    int
+	limiter *ratelimit.IPRateLimiter
 
 	mu      sync.RWMutex
 	running bool
@@ -95,6 +97,7 @@ func NewPeerExchange(config *daemon.Config, localNode *LocalNode, peerStore *dae
 		config:             config,
 		localNode:          localNode,
 		peerStore:          peerStore,
+		limiter:            ratelimit.NewDefault(),
 		stopCh:             make(chan struct{}),
 		pendingReplies:     make(map[string]chan *daemon.PeerInfo),
 		rendezvousSessions: make(map[string]*rendezvousState),
@@ -186,6 +189,11 @@ func (pe *PeerExchange) listenLoop() {
 			if pe.running {
 				log.Printf("[Exchange] Read error: %v", err)
 			}
+			continue
+		}
+
+		// Rate-limit per source IP before dispatching
+		if !pe.limiter.Allow(remoteAddr.IP.String()) {
 			continue
 		}
 
