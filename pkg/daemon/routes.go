@@ -3,7 +3,6 @@ package daemon
 import (
 	"fmt"
 	"log"
-	"os/exec"
 	"runtime"
 	"strings"
 
@@ -65,7 +64,7 @@ func (d *Daemon) currentRelayRoutesSnapshot() map[string]string {
 }
 
 func getCurrentRoutes(iface string) ([]routes.Entry, error) {
-	cmd := exec.Command("ip", "route", "show", "dev", iface)
+	cmd := cmdExecutor.Command("ip", "route", "show", "dev", iface)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read routes: %w", err)
@@ -104,18 +103,18 @@ func getCurrentRoutes(iface string) ([]routes.Entry, error) {
 
 func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) error {
 	for _, route := range toRemove {
-		cmd := exec.Command("ip", "route", "del", route.Network, "via", route.Gateway, "dev", iface)
+		cmd := cmdExecutor.Command("ip", "route", "del", route.Network, "via", route.Gateway, "dev", iface)
 		_ = cmd.Run()
 	}
 
 	for _, route := range toAdd {
-		cmd := exec.Command("ip", "route", "replace", route.Network, "via", route.Gateway, "dev", iface)
+		cmd := cmdExecutor.Command("ip", "route", "replace", route.Network, "via", route.Gateway, "dev", iface)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return fmt.Errorf("failed to add route %s via %s: %s: %w", route.Network, route.Gateway, string(output), err)
 		}
 	}
 
-	cmd := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
+	cmd := cmdExecutor.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
 	_ = cmd.Run()
 
 	ensureWGForwardingRule(iface)
@@ -126,12 +125,12 @@ func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) error {
 func ensureWGForwardingRule(iface string) {
 	// Best-effort: allow forwarding between WG peers on this interface.
 	// This is required for relay mode when traffic must pass through a public node.
-	check := exec.Command("iptables", "-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
+	check := cmdExecutor.Command("iptables", "-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
 	if err := check.Run(); err == nil {
 		return
 	}
 
-	add := exec.Command("iptables", "-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
+	add := cmdExecutor.Command("iptables", "-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
 	if out, err := add.CombinedOutput(); err != nil {
 		log.Printf("Failed to install relay FORWARD rule for %s: %s: %v", iface, strings.TrimSpace(string(out)), err)
 	}
