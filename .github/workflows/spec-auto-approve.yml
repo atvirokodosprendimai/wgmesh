@@ -13,7 +13,7 @@ name: Spec Auto-Approve
 
 on:
   pull_request_target:
-    types: [opened]
+    types: [opened, ready_for_review, edited]
     branches: [main]
 
 permissions:
