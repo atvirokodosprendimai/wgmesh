@@ -110,6 +110,8 @@ jobs:
                 const relevant = checkRuns.check_runs.filter(
                   cr => cr.name !== 'auto-merge' &&
                         cr.name !== 'Auto-merge on CI pass' &&
+                        cr.name !== 'Integration Tests' &&
+                        cr.name !== 'Cleanup Orphaned VMs' &&
                         cr.name !== 'sync'
                 );
 
