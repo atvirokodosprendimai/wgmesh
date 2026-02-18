@@ -6,19 +6,16 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
-)
 
-type routeEntry struct {
-	Network string
-	Gateway string
-}
+	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
+)
 
 func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 	if runtime.GOOS != "linux" {
 		return nil
 	}
 
-	desired := make([]routeEntry, 0)
+	desired := make([]routes.Entry, 0)
 	relayRoutes := d.currentRelayRoutesSnapshot()
 	meshIPByPubKey := make(map[string]string, len(peers))
 	for _, p := range peers {
@@ -44,7 +41,7 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 			if network == "" {
 				continue
 			}
-			desired = append(desired, routeEntry{Network: network, Gateway: gateway})
+			desired = append(desired, routes.Entry{Network: network, Gateway: gateway})
 		}
 	}
 
@@ -53,7 +50,7 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 		return err
 	}
 
-	toAdd, toRemove := calculateRouteDiff(current, desired)
+	toAdd, toRemove := routes.CalculateDiff(current, desired)
 	return applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
 }
 
@@ -67,14 +64,14 @@ func (d *Daemon) currentRelayRoutesSnapshot() map[string]string {
 	return out
 }
 
-func getCurrentRoutes(iface string) ([]routeEntry, error) {
+func getCurrentRoutes(iface string) ([]routes.Entry, error) {
 	cmd := exec.Command("ip", "route", "show", "dev", iface)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to read routes: %w", err)
 	}
 
-	routes := make([]routeEntry, 0)
+	result := make([]routes.Entry, 0)
 	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -86,7 +83,7 @@ func getCurrentRoutes(iface string) ([]routeEntry, error) {
 			continue
 		}
 
-		network := normalizeNetwork(parts[0])
+		network := routes.NormalizeNetwork(parts[0])
 		gateway := ""
 		for i, part := range parts {
 			if part == "via" && i+1 < len(parts) {
@@ -99,69 +96,13 @@ func getCurrentRoutes(iface string) ([]routeEntry, error) {
 			continue
 		}
 
-		routes = append(routes, routeEntry{Network: network, Gateway: gateway})
+		result = append(result, routes.Entry{Network: network, Gateway: gateway})
 	}
 
-	return routes, nil
+	return result, nil
 }
 
-func calculateRouteDiff(current, desired []routeEntry) (toAdd, toRemove []routeEntry) {
-	currentMap := make(map[string]routeEntry)
-	desiredMap := make(map[string]routeEntry)
-	currentByNetwork := make(map[string]routeEntry)
-	desiredByNetwork := make(map[string]routeEntry)
-
-	for _, r := range current {
-		key := makeRouteKey(r.Network, r.Gateway)
-		currentMap[key] = r
-		currentByNetwork[r.Network] = r
-	}
-
-	for _, r := range desired {
-		key := makeRouteKey(r.Network, r.Gateway)
-		desiredMap[key] = r
-		desiredByNetwork[r.Network] = r
-	}
-
-	for key, route := range desiredMap {
-		if _, exists := currentMap[key]; !exists {
-			if currentRoute, networkExists := currentByNetwork[route.Network]; networkExists {
-				if currentRoute.Gateway != route.Gateway {
-					toRemove = append(toRemove, currentRoute)
-				}
-			}
-			toAdd = append(toAdd, route)
-		}
-	}
-
-	for key, route := range currentMap {
-		if _, exactMatch := desiredMap[key]; !exactMatch {
-			if _, stillNeeded := desiredByNetwork[route.Network]; !stillNeeded {
-				toRemove = append(toRemove, route)
-			}
-		}
-	}
-
-	return toAdd, toRemove
-}
-
-func makeRouteKey(network, gateway string) string {
-	return fmt.Sprintf("%s|%s", network, gateway)
-}
-
-func normalizeNetwork(network string) string {
-	if !strings.Contains(network, "/") {
-		if strings.Count(network, ".") == 3 {
-			return network + "/32"
-		}
-		if strings.Contains(network, ":") {
-			return network + "/128"
-		}
-	}
-	return network
-}
-
-func applyRouteDiff(iface string, toAdd, toRemove []routeEntry) error {
+func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) error {
 	for _, route := range toRemove {
 		cmd := exec.Command("ip", "route", "del", route.Network, "via", route.Gateway, "dev", iface)
 		_ = cmd.Run()
