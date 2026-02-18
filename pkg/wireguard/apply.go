@@ -9,6 +9,16 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
 
+// wgPath is the absolute path to the wg binary, resolved once at package init.
+// Falls back to "wg" (PATH lookup at exec time) if LookPath fails.
+var wgPath = "wg"
+
+func init() {
+	if p, err := exec.LookPath("wg"); err == nil {
+		wgPath = p
+	}
+}
+
 // shortKey safely truncates a key for logging (avoids panic on short/empty keys).
 func shortKey(key string) string {
 	if len(key) > 16 {
@@ -123,7 +133,7 @@ func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) er
 	// Add persistent keepalive for NAT traversal
 	args = append(args, "persistent-keepalive", "25")
 
-	cmd := exec.Command("wg", args...)
+	cmd := exec.Command(wgPath, args...)
 	if hasStdin {
 		cmd.Stdin = &stdin
 	}
@@ -136,7 +146,7 @@ func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) er
 
 // RemovePeer removes a peer from the local WireGuard interface
 func RemovePeer(iface, pubKey string) error {
-	cmd := exec.Command("wg", "set", iface, "peer", pubKey, "remove")
+	cmd := exec.Command(wgPath, "set", iface, "peer", pubKey, "remove")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("wg set peer remove failed: %s: %w", string(output), err)
 	}
@@ -145,7 +155,7 @@ func RemovePeer(iface, pubKey string) error {
 
 // GetPeers returns the list of peers on the local WireGuard interface
 func GetPeers(iface string) ([]WGPeer, error) {
-	cmd := exec.Command("wg", "show", iface, "peers")
+	cmd := exec.Command(wgPath, "show", iface, "peers")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("wg show peers failed: %w", err)
@@ -165,7 +175,7 @@ func GetPeers(iface string) ([]WGPeer, error) {
 // GetLatestHandshakes returns the most recent handshake time for each WG peer.
 // Returns a map of public key → Unix timestamp (0 means no handshake yet).
 func GetLatestHandshakes(iface string) (map[string]int64, error) {
-	cmd := exec.Command("wg", "show", iface, "latest-handshakes")
+	cmd := exec.Command(wgPath, "show", iface, "latest-handshakes")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("wg show latest-handshakes failed: %w", err)
@@ -193,7 +203,7 @@ func GetLatestHandshakes(iface string) (map[string]int64, error) {
 // GetPeerTransfers returns per-peer transfer counters from WireGuard.
 // Map key is peer public key and values are cumulative rx/tx bytes.
 func GetPeerTransfers(iface string) (map[string]PeerTransfer, error) {
-	cmd := exec.Command("wg", "show", iface, "transfer")
+	cmd := exec.Command(wgPath, "show", iface, "transfer")
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("wg show transfer failed: %w", err)
