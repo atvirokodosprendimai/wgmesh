@@ -27,7 +27,7 @@ variable "server_type" {
 # Alternative server types to try if primary fails
 variable "fallback_server_types" {
   type        = list(string)
-  default     = ["cpx32", "cax11", "cax21", "cx22", "cx32", "ccx13", "ccx23"]
+  default     = ["cpx32", "cax11", "cax21", "cx23", "cx33", "ccx13", "ccx23"]
   description = "Fallback server types if primary is unavailable"
 }
 
