@@ -40,7 +40,7 @@ jobs:
             const issueMatch = pr.title.match(/Issue #(\d+)/);
             const issueNumber = issueMatch ? parseInt(issueMatch[1], 10) : null;
 
-            // Add the approved-for-build label (triggers goose-build.yml)
+            // Add the approved-for-build label for tracking
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -76,7 +76,24 @@ jobs:
               });
             }
 
-            console.log(`Spec PR #${prNumber} approved by @${reviewer}, labeled for Goose build`);
+            // Directly trigger Goose implementation via workflow_dispatch.
+            // Labels added by workflows don't fire pull_request events (GitHub limitation),
+            // so we invoke goose-build.yml explicitly.
+            if (issueNumber) {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                workflow_id: 'goose-build.yml',
+                ref: 'main',
+                inputs: {
+                  issue_number: String(issueNumber),
+                  spec_pr_number: String(prNumber),
+                },
+              });
+              console.log(`Triggered Goose implementation for issue #${issueNumber}`);
+            }
+
+            console.log(`Spec PR #${prNumber} approved by @${reviewer}, Goose triggered`);
 
   # ──────────────────────────────────────────────────────
   # Non-spec PR: Issue creator approval → auto-merge
