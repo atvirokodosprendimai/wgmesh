@@ -10,7 +10,7 @@ name: Auto-merge on CI pass
 on:
   # Fires when CI workflows complete on PRs
   workflow_run:
-    workflows: ["Build and Push Docker Images"]
+    workflows: ["Build and Push Docker Images", "CodeQL"]
     types: [completed]
   # Also fires when a draft PR is marked ready for review
   pull_request:
