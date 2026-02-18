@@ -3,6 +3,9 @@ name: Auto-merge on CI pass
 # Auto-approves and squash-merges non-draft PRs to main when all CI checks pass.
 # Uses a GitHub App (wgmesh-bot) so the approval comes from a distinct identity,
 # bypassing the "cannot approve your own PR" restriction.
+#
+# When a PR branch is behind main, the workflow updates it automatically.
+# After a branch update, CI re-runs and the next cycle merges the PR.
 
 on:
   # Fires when CI workflows complete on PRs
@@ -38,6 +41,9 @@ jobs:
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
             // Collect candidate PRs based on event type
             let candidates = [];
 
@@ -59,10 +65,9 @@ jobs:
                 return;
               }
               candidates = [pr.number];
-            } else if (context.eventName === 'schedule') {
+            } else if (context.eventName === 'schedule' || context.eventName === 'workflow_dispatch') {
               const { data: openPRs } = await github.rest.pulls.list({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
+                owner, repo,
                 state: 'open',
                 base: 'main',
                 per_page: 50,
@@ -72,14 +77,14 @@ jobs:
                 core.info('No open non-draft PRs targeting main');
                 return;
               }
-              core.info(`Schedule: checking ${candidates.length} open PRs`);
+              core.info(`${context.eventName}: checking ${candidates.length} open PRs`);
             }
 
+            // Process PRs sequentially — merging one PR into main can affect others
             for (const prNumber of candidates) {
               try {
                 const { data: pr } = await github.rest.pulls.get({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
+                  owner, repo,
                   pull_number: prNumber,
                 });
 
@@ -88,18 +93,54 @@ jobs:
                   continue;
                 }
 
+                // --- Branch freshness check ---
+                // GitHub may return mergeable=null if it hasn't computed yet.
+                // The mergeable_state tells us if the branch is behind main.
+                if (pr.mergeable === false) {
+                  core.info(`PR #${prNumber}: has conflicts, attempting branch update`);
+                  try {
+                    await github.rest.pulls.updateBranch({
+                      owner, repo,
+                      pull_number: prNumber,
+                    });
+                    core.info(`PR #${prNumber}: branch updated with latest main — CI will re-run`);
+                  } catch (updateErr) {
+                    // If update fails, there's a real conflict that needs manual resolution
+                    core.warning(`PR #${prNumber}: branch update failed (conflicts): ${updateErr.message}`);
+
+                    // Add 'conflict' label if not already present
+                    const labels = pr.labels.map(l => l.name);
+                    if (!labels.includes('conflict')) {
+                      try {
+                        await github.rest.issues.addLabels({
+                          owner, repo,
+                          issue_number: prNumber,
+                          labels: ['conflict'],
+                        });
+                      } catch (labelErr) {
+                        core.info(`PR #${prNumber}: could not add 'conflict' label: ${labelErr.message}`);
+                      }
+                    }
+                  }
+                  continue; // Skip merge attempt — wait for CI to re-run after update
+                }
+
+                // mergeable=null means GitHub hasn't computed it yet — skip for now
+                if (pr.mergeable === null) {
+                  core.info(`PR #${prNumber}: mergeable state not yet computed, will retry next cycle`);
+                  continue;
+                }
+
                 // Check if already approved
                 const { data: reviews } = await github.rest.pulls.listReviews({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
+                  owner, repo,
                   pull_number: prNumber,
                 });
                 const hasApproval = reviews.some(r => r.state === 'APPROVED');
 
                 // Verify ALL check runs passed
                 const { data: checkRuns } = await github.rest.checks.listForRef({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
+                  owner, repo,
                   ref: pr.head.sha,
                 });
 
@@ -134,11 +175,25 @@ jobs:
 
                 core.info(`PR #${prNumber}: all ${relevant.length} checks passed`);
 
+                // Remove 'conflict' label if present (branch is now clean)
+                const labels = pr.labels.map(l => l.name);
+                if (labels.includes('conflict')) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner, repo,
+                      issue_number: prNumber,
+                      name: 'conflict',
+                    });
+                    core.info(`PR #${prNumber}: removed 'conflict' label`);
+                  } catch (rmErr) {
+                    // Label may already be removed
+                  }
+                }
+
                 // Approve if needed
                 if (!hasApproval) {
                   await github.rest.pulls.createReview({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
+                    owner, repo,
                     pull_number: prNumber,
                     event: 'APPROVE',
                     body: 'Auto-approved: all CI checks passed.',
@@ -150,8 +205,7 @@ jobs:
                 // when the PR is already in 'clean' (immediately mergeable) state.
                 try {
                   await github.rest.pulls.merge({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
+                    owner, repo,
                     pull_number: prNumber,
                     merge_method: 'squash',
                   });
