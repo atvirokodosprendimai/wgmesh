@@ -1495,6 +1495,11 @@ func (d *Daemon) SetRPCServer(server RPCServer) {
 
 // GetUptime returns the daemon uptime
 func (d *Daemon) GetUptime() time.Duration {
+	if d.startTime.IsZero() {
+		// Lazily initialize startTime to avoid incorrect uptime when it was not set on startup
+		d.startTime = time.Now()
+		return 0
+	}
 	return time.Since(d.startTime)
 }
 
