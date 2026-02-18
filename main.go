@@ -262,7 +262,7 @@ func joinCmd() {
 	secret := fs.String("secret", "", "Mesh secret (required)")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated list of routes to advertise")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
-	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun0 on macOS)")
+	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on Linux, utun20 on macOS)")
 	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
@@ -458,7 +458,7 @@ func testPeerCmd() {
 func statusCmd() {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
-	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun0 on macOS)")
+	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on Linux, utun20 on macOS)")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -570,7 +570,7 @@ func formatIPv6Prefix(prefix [8]byte) string {
 func installServiceCmd() {
 	fs := flag.NewFlagSet("install-service", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
-	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun0 on macOS)")
+	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on Linux, utun20 on macOS)")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
