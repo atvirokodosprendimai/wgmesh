@@ -333,7 +333,7 @@ func joinCmd() {
 		fmt.Fprintf(os.Stderr, "Warning: failed to create RPC server: %v\n", err)
 	} else {
 		d.SetRPCServer(rpcServer)
-		fmt.Printf("RPC socket: %s\n", rpcSocketPath)
+		fmt.Printf("RPC socket configured: %s (will start after DHT discovery)\n", rpcSocketPath)
 	}
 
 	fmt.Println("Initializing mesh node with DHT discovery...")
