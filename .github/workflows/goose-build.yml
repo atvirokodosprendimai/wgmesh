@@ -35,7 +35,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.label.name == 'approved-for-build'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     concurrency:
       group: >-
         goose-implement-${{
@@ -117,6 +117,44 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           # Verify installation
           $HOME/.local/bin/goose --version
+
+      # ── Memory: setup and restore cache ─────────────────
+      - name: Setup Python (for mem0)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install mem0 dependencies
+        run: |
+          # Pin versions to prevent supply-chain attacks and ensure reproducible builds
+          pip install --quiet \
+            'mem0ai==1.0.4' \
+            'litellm==1.81.13' \
+            'sentence-transformers==5.2.3' \
+            2>&1 || echo "::warning::mem0 pip install failed (non-fatal, memory features disabled)"
+          echo "mem0 dependencies installed"
+
+      # Restore mem0 vector DB cache.
+      # NOTE: We use cache/restore here and cache/save at end of job (if: always())
+      # because actions/cache@v4 does NOT support save-always. This ensures memories
+      # are persisted even when the job fails.
+      # The cache key is stable (not tied to go.sum) so dependency updates don't
+      # evict accumulated memories.
+      # Race condition on shared Qdrant DB is mitigated by the concurrency group
+      # above (cancel-in-progress: false) which serializes runs per issue.
+      - name: Restore mem0 memory cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/mem0-qdrant
+          key: mem0-db-${{ github.repository }}-v1
+          restore-keys: |
+            mem0-db-${{ github.repository }}-
+
+      - name: Restore HuggingFace model cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-embeddings-multi-qa-MiniLM-L6-cos-v1
 
       # ── Extract spec details ───────────────────────────
       - name: Extract issue number and spec metadata
@@ -263,6 +301,21 @@ jobs:
 
           echo "Context file: $(wc -l < /tmp/codebase-context.md) lines"
 
+      - name: Retrieve memories from past runs
+        run: |
+          python .github/scripts/mem0-retrieve.py \
+            "${{ steps.spec.outputs.issue_number }}" \
+            /tmp/memory-context.md \
+            || echo "Memory retrieval failed (non-fatal), continuing..."
+          if [ -s /tmp/memory-context.md ]; then
+            echo "=== Memory context ==="
+            cat /tmp/memory-context.md
+            echo "=== End memory context ==="
+          else
+            echo "No memories found for this issue"
+            touch /tmp/memory-context.md
+          fi
+
       - name: Build Goose instructions
         run: |
           ISSUE_NUM="${{ steps.spec.outputs.issue_number }}"
@@ -300,6 +353,13 @@ jobs:
           echo "" >> /tmp/goose-task.md
           cat /tmp/codebase-context.md >> /tmp/goose-task.md
           echo "" >> /tmp/goose-task.md
+
+          # Append memory context from past runs
+          if [ -s /tmp/memory-context.md ]; then
+            echo "" >> /tmp/goose-task.md
+            cat /tmp/memory-context.md >> /tmp/goose-task.md
+            echo "" >> /tmp/goose-task.md
+          fi
 
           # Append AGENTS.md for coding conventions
           if [ -f AGENTS.md ]; then
@@ -486,6 +546,37 @@ jobs:
             tail -50 /tmp/goose-output.log
             exit 1
           fi
+
+      # ── Memory: save learnings from this run ────────────
+      - name: Save memories from this run
+        if: always()
+        run: |
+          # Determine outcome: success requires changes AND passing build+test+vet
+          if git diff --quiet && git diff --cached --quiet; then
+            OUTCOME="failure"
+            echo "No code changes produced"
+          elif go build ./... 2>/dev/null && go test ./... 2>/dev/null && go vet ./... 2>/dev/null; then
+            OUTCOME="success"
+          else
+            OUTCOME="failure"
+            echo "Code changes present but build/test/vet failed"
+          fi
+          echo "Run outcome: $OUTCOME"
+
+          python .github/scripts/mem0-save.py \
+            "${{ steps.spec.outputs.issue_number }}" \
+            /tmp/goose-output.log \
+            "$OUTCOME" \
+            || echo "Memory save failed (non-fatal)"
+
+      # Save mem0 cache unconditionally so memories persist even on failure.
+      # This pairs with the cache/restore step earlier in the job.
+      - name: Save mem0 memory cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/mem0-qdrant
+          key: mem0-db-${{ github.repository }}-v1
 
       # ── Validate implementation ───────────────────────
       - name: Validate implementation
