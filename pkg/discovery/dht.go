@@ -57,7 +57,7 @@ var DHTBootstrapNodes = []string{
 // DHTDiscovery handles peer discovery via BitTorrent Mainline DHT
 type DHTDiscovery struct {
 	config    *daemon.Config
-	localNode *LocalNode
+	localNode *daemon.LocalNode
 	peerStore *daemon.PeerStore
 	exchange  *PeerExchange
 	gossip    *MeshGossip
@@ -74,39 +74,10 @@ type DHTDiscovery struct {
 	rendezvousBackoff map[string]backoffEntry // peer pubkey -> backoff state
 }
 
-// LocalNode represents our local node information
-type LocalNode struct {
-	WGPubKey         string
-	Hostname         string
-	WGPrivateKey     string
-	MeshIP           string
-	MeshIPv6         string
-	RoutableNetworks []string
-	Introducer       bool
-	NATType          NATType // Detected NAT behavior (cone/symmetric/unknown)
-
-	endpointMu sync.RWMutex
-	wgEndpoint string
-}
-
-// GetEndpoint returns the current WG endpoint (thread-safe).
-func (n *LocalNode) GetEndpoint() string {
-	n.endpointMu.RLock()
-	defer n.endpointMu.RUnlock()
-	return n.wgEndpoint
-}
-
-// SetEndpoint updates the WG endpoint (thread-safe).
-func (n *LocalNode) SetEndpoint(ep string) {
-	n.endpointMu.Lock()
-	defer n.endpointMu.Unlock()
-	n.wgEndpoint = ep
-}
-
 // NewDHTDiscovery creates a new DHT discovery instance.
 // parentCtx should be the daemon's context so that discovery goroutines are
 // cancelled when the daemon shuts down.
-func NewDHTDiscovery(parentCtx context.Context, config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) (*DHTDiscovery, error) {
+func NewDHTDiscovery(parentCtx context.Context, config *daemon.Config, localNode *daemon.LocalNode, peerStore *daemon.PeerStore) (*DHTDiscovery, error) {
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	d := &DHTDiscovery{
@@ -279,7 +250,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
 			log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
 			d.localNode.SetEndpoint(ipv6Endpoint)
-			d.localNode.NATType = NATUnknown // IPv6 has no NAT
+			d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
 			return
 		}
 	}
@@ -295,7 +266,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 		log.Printf("[STUN] External endpoint discovered: %s (NAT type unknown — need 2 servers)", endpoint)
 		d.localNode.SetEndpoint(endpoint)
-		d.localNode.NATType = NATUnknown
+		d.localNode.NATType = string(NATUnknown)
 		return
 	}
 
@@ -308,7 +279,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 	endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 	log.Printf("[STUN] External endpoint: %s, NAT type: %s", endpoint, natType)
 	d.localNode.SetEndpoint(endpoint)
-	d.localNode.NATType = natType
+	d.localNode.NATType = string(natType)
 }
 
 func (d *DHTDiscovery) discoverIPv6Endpoint() string {
@@ -445,7 +416,7 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
 						d.localNode.SetEndpoint(ipv6Endpoint)
 					}
-					d.localNode.NATType = NATUnknown // IPv6 has no NAT
+					d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
 					continue
 				}
 			}
@@ -465,10 +436,10 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
 					d.localNode.SetEndpoint(newEndpoint)
 				}
-				if natType != oldNAT {
+				if string(natType) != oldNAT {
 					log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
 				}
-				d.localNode.NATType = natType
+				d.localNode.NATType = string(natType)
 			} else {
 				// Fallback: single-server IP-only refresh
 				ip, _, err := DiscoverExternalEndpoint(0)

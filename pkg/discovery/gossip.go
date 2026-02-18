@@ -23,7 +23,7 @@ const (
 // MeshGossip handles in-mesh gossip for peer discovery over WireGuard tunnels
 type MeshGossip struct {
 	config    *daemon.Config
-	localNode *LocalNode
+	localNode *daemon.LocalNode
 	peerStore *daemon.PeerStore
 	gossipKey [32]byte
 	port      uint16
@@ -38,7 +38,7 @@ type MeshGossip struct {
 }
 
 // NewMeshGossip creates a new in-mesh gossip instance
-func NewMeshGossip(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) (*MeshGossip, error) {
+func NewMeshGossip(config *daemon.Config, localNode *daemon.LocalNode, peerStore *daemon.PeerStore) (*MeshGossip, error) {
 	return &MeshGossip{
 		config:    config,
 		localNode: localNode,
@@ -51,7 +51,7 @@ func NewMeshGossip(config *daemon.Config, localNode *LocalNode, peerStore *daemo
 }
 
 // NewMeshGossipWithExchange creates a new in-mesh gossip instance that reuses the peer exchange socket.
-func NewMeshGossipWithExchange(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore, exchange *PeerExchange) (*MeshGossip, error) {
+func NewMeshGossipWithExchange(config *daemon.Config, localNode *daemon.LocalNode, peerStore *daemon.PeerStore, exchange *PeerExchange) (*MeshGossip, error) {
 	return &MeshGossip{
 		config:    config,
 		localNode: localNode,
