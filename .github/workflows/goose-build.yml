@@ -233,6 +233,36 @@ jobs:
           echo "Created branch: $BRANCH"
 
       # ── Build Goose instructions ─────────────────────────
+      - name: Build codebase context
+        run: |
+          # Generate type signatures for all packages so Goose knows the real API.
+          # This prevents "undefined: Foo" errors from guessing type names.
+          echo "=== Generating codebase context ==="
+
+          {
+            echo "# Codebase Type Reference"
+            echo ""
+            echo "These are the ACTUAL exported types, functions, and constants in each package."
+            echo "You MUST use these exact names — do NOT invent types that don't exist here."
+            echo ""
+
+            for pkg in pkg/*/; do
+              pkg_name=$(basename "$pkg")
+              echo "## Package: $pkg_name ($pkg)"
+              echo '```go'
+              # Extract exported type/func/const/var declarations
+              grep -rn '^type \|^func \|^const \|^var ' "$pkg"*.go 2>/dev/null \
+                | grep -v '_test.go' \
+                | grep -v '//' \
+                | sed 's|^.*/||' \
+                || echo "// no exported symbols"
+              echo '```'
+              echo ""
+            done
+          } > /tmp/codebase-context.md
+
+          echo "Context file: $(wc -l < /tmp/codebase-context.md) lines"
+
       - name: Build Goose instructions
         run: |
           ISSUE_NUM="${{ steps.spec.outputs.issue_number }}"
@@ -247,39 +277,65 @@ jobs:
           ## Project Rules
 
           - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
-          - Build: `go build` (must succeed)
+          - Build: `go build ./...` (must succeed)
           - Test: `go test ./...` (must pass)
           - Lint: `go vet ./...` (must be clean)
           - Format: code must be `gofmt` formatted
-          - Always handle errors with context wrapping
+          - Always handle errors with context wrapping: `if err != nil { return fmt.Errorf("context: %w", err) }`
           - Use standard library where possible
           - Do NOT modify files outside the scope of the specification below
 
-          ## Specification
+          ## CRITICAL: Use Real Types
+
+          Before writing ANY code, you MUST read the existing source files to understand:
+          - What types already exist (do NOT guess or invent type names)
+          - What fields structs have (do NOT assume fields exist)
+          - What function signatures look like (do NOT change existing signatures)
+
+          The codebase context below shows every exported symbol. Use ONLY these types.
 
           TASK_HEADER
 
+          # Append codebase context
+          echo "" >> /tmp/goose-task.md
+          cat /tmp/codebase-context.md >> /tmp/goose-task.md
+          echo "" >> /tmp/goose-task.md
+
+          # Append AGENTS.md for coding conventions
+          if [ -f AGENTS.md ]; then
+            echo "## Coding Conventions (from AGENTS.md)" >> /tmp/goose-task.md
+            echo "" >> /tmp/goose-task.md
+            cat AGENTS.md >> /tmp/goose-task.md
+            echo "" >> /tmp/goose-task.md
+          fi
+
           # Append the actual spec content
+          echo "## Specification" >> /tmp/goose-task.md
+          echo "" >> /tmp/goose-task.md
           cat "$SPEC_FILE" >> /tmp/goose-task.md
 
           cat >> /tmp/goose-task.md << 'TASK_FOOTER'
 
           ## Implementation Checklist
 
-          Follow these steps in order:
+          Follow these steps IN ORDER. Do not skip steps.
 
           1. Read the specification above thoroughly
-          2. Explore the relevant source files mentioned in "Affected Files"
-          3. Implement the changes described in "Proposed Approach"
-          4. Write or update unit tests for your changes
-          5. Run `go build` and fix any compilation errors
-          6. Run `go test ./...` and fix any test failures
+          2. Read EVERY file listed in "Affected Files" using `cat` — understand the real types and signatures
+          3. Read existing test files in the same packages to understand test patterns used
+          4. Implement the changes described in "Proposed Approach" using ONLY types that exist
+          5. Run `go build ./...` — if it fails, read the error, fix it, repeat until clean
+          6. Run `go test ./...` — if tests fail, read the error, fix it, repeat until clean
           7. Run `go vet ./...` and fix any issues
-          8. Run `gofmt -l .` to verify formatting (fix with `gofmt -w .` if needed)
-          9. Keep changes minimal and focused - do not refactor unrelated code
+          8. Run `gofmt -w .` to fix formatting
+          9. Run `go build ./... && go test ./... && go vet ./...` one final time to confirm everything passes
 
-          IMPORTANT: If the spec classification is "wont-do" or "needs-info",
-          do NOT implement anything. Just create a brief note explaining why.
+          IMPORTANT RULES:
+          - NEVER reference a type, field, or function that you haven't verified exists by reading the source
+          - If the spec suggests code that doesn't match the real codebase, adapt to match reality
+          - Test error messages must match EXACTLY what your code produces — use the same format strings
+          - If the spec classification is "wont-do" or "needs-info", do NOT implement anything
+
           TASK_FOOTER
 
           echo "Goose instructions written to /tmp/goose-task.md"
@@ -296,18 +352,49 @@ jobs:
           for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
             echo "=== Goose attempt $ATTEMPT/$MAX_ATTEMPTS ==="
 
-            # Reset working tree to clean state for retries
             if [ "$ATTEMPT" -gt 1 ]; then
-              echo "Restoring clean state for retry..."
-              git checkout -- . 2>/dev/null || true
-              git clean -fd 2>/dev/null || true
+              # On retry: keep Goose's changes but add error context.
+              # This lets Goose fix its own mistakes instead of starting over.
+              echo "Building fix instructions from previous failure..."
+
+              ERRORS=$({
+                echo "Your previous attempt had errors. Fix them:"
+                echo ""
+                echo "=== go build errors ==="
+                go build ./... 2>&1 || true
+                echo ""
+                echo "=== go test errors ==="
+                go test ./... 2>&1 | grep -E "^(---|FAIL|#|.*undefined|.*error)" | head -40 || true
+                echo ""
+                echo "=== go vet errors ==="
+                go vet ./... 2>&1 || true
+                echo ""
+                echo "Fix ALL errors above. Run go build, go test, go vet until clean."
+              })
+
+              cat > /tmp/goose-fix.md << FIXEOF
+          # Fix Implementation Errors (Attempt $ATTEMPT)
+
+          $ERRORS
+
+          Read the error messages carefully. Common mistakes:
+          - Using types/fields that don't exist — read the actual source file first
+          - Test expected strings not matching actual error format — use the same fmt.Errorf pattern
+          - Missing imports
+
+          Fix the code, then run: go build ./... && go test ./... && go vet ./... && gofmt -w .
+          FIXEOF
+
+              TASK_FILE="/tmp/goose-fix.md"
+            else
+              TASK_FILE="/tmp/goose-task.md"
             fi
 
             set +e
             goose run \
               --no-session \
               --with-builtin "developer" \
-              -i /tmp/goose-task.md \
+              -i "$TASK_FILE" \
               --max-turns 50 \
               2>&1 | tee /tmp/goose-output.log
             GOOSE_EXIT=$?
