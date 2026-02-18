@@ -75,6 +75,9 @@ type Daemon struct {
 	// wg tracks background goroutines for graceful shutdown
 	wg sync.WaitGroup
 
+	// startTime is recorded when the daemon starts, used for uptime reporting.
+	startTime time.Time
+
 	ctx    context.Context
 	cancel context.CancelFunc
 }
@@ -128,6 +131,7 @@ func (d *Daemon) SetDHTDiscovery(dht DiscoveryLayer) {
 
 // Run starts the daemon and blocks until stopped
 func (d *Daemon) Run() error {
+	d.startTime = time.Now()
 	log.Printf("Starting wgmesh daemon...")
 
 	// Load or create local node
@@ -1424,4 +1428,85 @@ func (d *Daemon) getPrivacyPeers() []privacy.PeerInfo {
 		}
 	}
 	return result
+}
+
+// GetPeers returns all peers as RPC-friendly PeerData slices.
+func (d *Daemon) GetPeers() []*PeerRPCData {
+	all := d.peerStore.GetAll()
+	out := make([]*PeerRPCData, 0, len(all))
+	for _, p := range all {
+		out = append(out, &PeerRPCData{
+			WGPubKey:         p.WGPubKey,
+			MeshIP:           p.MeshIP,
+			Endpoint:         p.Endpoint,
+			LastSeen:         p.LastSeen,
+			DiscoveredVia:    p.DiscoveredVia,
+			RoutableNetworks: p.RoutableNetworks,
+		})
+	}
+	return out
+}
+
+// GetPeer returns a single peer by public key.
+func (d *Daemon) GetPeer(pubKey string) (*PeerRPCData, bool) {
+	p, ok := d.peerStore.Get(pubKey)
+	if !ok {
+		return nil, false
+	}
+	return &PeerRPCData{
+		WGPubKey:         p.WGPubKey,
+		MeshIP:           p.MeshIP,
+		Endpoint:         p.Endpoint,
+		LastSeen:         p.LastSeen,
+		DiscoveredVia:    p.DiscoveredVia,
+		RoutableNetworks: p.RoutableNetworks,
+	}, true
+}
+
+// GetPeerCounts returns active, total, and dead peer counts.
+func (d *Daemon) GetPeerCounts() (active, total, dead int) {
+	all := d.peerStore.GetAll()
+	total = len(all)
+	for _, p := range all {
+		if d.peerStore.IsDead(p.WGPubKey) {
+			dead++
+		} else {
+			active++
+		}
+	}
+	return
+}
+
+// GetDaemonStatus returns daemon status for RPC.
+func (d *Daemon) GetDaemonStatus() *DaemonRPCStatus {
+	meshIP := ""
+	pubKey := ""
+	if d.localNode != nil {
+		meshIP = d.localNode.MeshIP
+		pubKey = d.localNode.WGPubKey
+	}
+	return &DaemonRPCStatus{
+		MeshIP:    meshIP,
+		PubKey:    pubKey,
+		Uptime:    time.Since(d.startTime),
+		Interface: d.config.InterfaceName,
+	}
+}
+
+// PeerRPCData holds peer data for RPC responses.
+type PeerRPCData struct {
+	WGPubKey         string
+	MeshIP           string
+	Endpoint         string
+	LastSeen         time.Time
+	DiscoveredVia    []string
+	RoutableNetworks []string
+}
+
+// DaemonRPCStatus holds daemon status for RPC responses.
+type DaemonRPCStatus struct {
+	MeshIP    string
+	PubKey    string
+	Uptime    time.Duration
+	Interface string
 }
