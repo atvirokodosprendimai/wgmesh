@@ -8,6 +8,8 @@ code
 
 ## Problem Analysis
 
+**Note on Component Classification**: The original issue is labeled as "Centralized mode (SSH deploy)" in the Component field. However, this feature request actually applies to **decentralized mode only**, as centralized mode does not have a running daemon with periodic status output or RPC interface. The features being enhanced (daemon status logs and `wgmesh peers list` RPC command) are specific to decentralized mode where the daemon runs continuously.
+
 Currently, the daemon's periodic status output (decentralized mode) and the `wgmesh peers list` RPC command output are not very informative. 
 
 ### Current Status Output (Decentralized Mode)
@@ -20,8 +22,7 @@ In `pkg/daemon/daemon.go` (lines 1324-1347), the daemon prints:
 ```
 
 While this shows some useful information, it lacks:
-- **Public key** (truncated format only shown when hostname is missing)
-- **External IP** (only the endpoint is shown, which may be a local IP)
+- **Public key** (always truncated to identify the peer, even when hostname is present)
 - **Structured table format** (easier to scan and parse)
 
 ### Current RPC Response (`peers.list`)
@@ -35,15 +36,14 @@ abc123def456...                          10.42.0.2       192.168.1.5:51820      
 
 This is better formatted but still missing:
 - **Hostname** (not included in RPC PeerInfo struct in `pkg/rpc/protocol.go:40-48`)
-- **External IP** distinction from endpoint
 
 ### Issue Request
 
 The user wants a more informative table format that includes:
 1. **Hostname** - human-readable identifier
-2. **Public key** - WireGuard public key (maybe truncated)
+2. **Public key** - WireGuard public key (truncated)
 3. **VPN IP** (Mesh IP) - the IP within the mesh network
-4. **External IP** - the public endpoint
+4. **Endpoint** - the peer's endpoint (IP:port)
 5. **Discovery info** - how the peer was discovered
 
 This should be:
@@ -80,17 +80,17 @@ Modify `main.go` `handlePeersList()` function (lines 835-899) to:
    HOSTNAME         PUBLIC KEY (truncated)    MESH IP         ENDPOINT            LAST SEEN   DISCOVERED VIA
    ```
 3. **Improve formatting**:
-   - Keep public key truncated (first 8-12 chars + "...")
-   - Add hostname with fallback to pubkey if hostname is empty
-   - Maintain endpoint display as-is (external IP:port)
+   - Public keys truncated to 16 characters (matching existing `shortKey()` function in `pkg/daemon/helpers.go:38-43`)
+   - Add hostname with fallback to truncated pubkey (using `shortKey(p.WGPubKey) + "..."`) when hostname is empty, matching existing daemon behavior
+   - Maintain endpoint display as-is (IP:port)
 
 Example output:
 ```
-HOSTNAME         PUBKEY           MESH IP         ENDPOINT                  LAST SEEN   DISCOVERED VIA
-----------------------------------------------------------------------------------------------------------
-node-1           abc123de...      10.42.0.2       192.168.1.5:51820        2m ago      lan,dht
-server-prod      def456ab...      10.42.0.3       203.0.113.10:51820       5m ago      gossip
-(unknown)        789xyz01...      10.42.0.4       198.51.100.20:51820      1h ago      dht
+HOSTNAME            PUBLIC KEY (truncated)    MESH IP         ENDPOINT                  LAST SEEN   DISCOVERED VIA
+----------------------------------------------------------------------------------------------------------------------
+node-1              abc123def456789A...       10.42.0.2       192.168.1.5:51820        2m ago      lan,dht
+server-prod         def456abc123789B...       10.42.0.3       203.0.113.10:51820       5m ago      gossip
+789xyz01234567CD... 789xyz01234567CD...       10.42.0.4       198.51.100.20:51820      1h ago      dht
 ```
 
 ### Phase 3: Enhance Daemon Status Output
@@ -100,24 +100,26 @@ Modify `pkg/daemon/daemon.go` `printStatus()` function (lines 1313-1348) to prin
 1. **Add table header** before the peer loop
 2. **Format each peer as a table row** with consistent column widths
 3. **Include all requested fields**: hostname, pubkey (truncated), mesh IP, endpoint, discovery methods
+4. **Note on column differences**: The daemon status output includes a ROUTE column (showing direct/direct-lan/relay) instead of LAST SEEN, as routing information is more relevant for real-time mesh status monitoring. The RPC output keeps LAST SEEN for client consumption.
 
 Example output:
 ```
 [Status] Active peers: 7
 
-HOSTNAME         PUBKEY           MESH IP         ENDPOINT                  ROUTE          DISCOVERED VIA
-----------------------------------------------------------------------------------------------------------
-node-1           abc123de...      10.42.0.2       192.168.1.5:51820        direct-lan     lan,dht
-server-prod      def456ab...      10.42.0.3       203.0.113.10:51820       relay:node-1   gossip
-(unknown)        789xyz01...      10.42.0.4       198.51.100.20:51820      direct         dht
+HOSTNAME            PUBLIC KEY (truncated)    MESH IP         ENDPOINT                  ROUTE          DISCOVERED VIA
+----------------------------------------------------------------------------------------------------------------------
+node-1              abc123def456789A...       10.42.0.2       192.168.1.5:51820        direct-lan     lan,dht
+server-prod         def456abc123789B...       10.42.0.3       203.0.113.10:51820       relay:node-1   gossip
+789xyz01234567CD... 789xyz01234567CD...       10.42.0.4       198.51.100.20:51820      direct         dht
 ```
 
 ### Implementation Details
 
 #### Truncation Strategy
-- Public keys: Show first 8 characters + "..." (total 11 chars)
-- Hostname fallback: Use "(unknown)" or truncated pubkey if hostname is empty
-- Column widths: Use fixed widths with `Printf` format strings
+- Public keys: Show first 16 characters + "..." (using existing `shortKey()` function from `pkg/daemon/helpers.go`)
+- Hostname fallback: Use truncated pubkey (e.g., `shortKey(p.WGPubKey) + "..."`) when hostname is empty, matching existing daemon behavior at `pkg/daemon/daemon.go:1328`
+- Long hostnames: Truncate or use fixed column widths with `Printf` format strings to prevent breaking table alignment
+- Column widths: Use fixed widths with `Printf` format strings for consistent alignment
 
 #### Backward Compatibility
 - RPC: Adding `hostname` field to JSON response is backward compatible (clients ignoring unknown fields will continue to work)
@@ -130,8 +132,8 @@ server-prod      def456ab...      10.42.0.3       203.0.113.10:51820       relay
 1. **`pkg/rpc/protocol.go`** (line 41):
    - Add `Hostname string` field to `PeerInfo` struct
 
-2. **`pkg/rpc/server.go`** (lines 270-277):
-   - Populate `Hostname` field in `handlePeersList()` when creating PeerInfo
+2. **`pkg/rpc/server.go`** (lines 270-277, ~301-308):
+   - Populate `Hostname` field in both `handlePeersList()` and `handlePeersGet()` when creating `PeerInfo` instances, to keep all RPC methods that return peer information consistent
 
 3. **`main.go`** (lines 859-898):
    - Reorder and enhance table columns in `handlePeersList()`
@@ -143,15 +145,14 @@ server-prod      def456ab...      10.42.0.3       203.0.113.10:51820       relay
    - Add table header
    - Format peer rows with consistent columns
 
-### No Test Changes Required
+### Test Changes
 
-The existing test infrastructure:
-- `pkg/rpc/integration_test.go` tests RPC `peers.list` functionality
-- Tests verify response structure but don't enforce specific fields
-- Adding `hostname` field to JSON response is backward compatible
-- Table formatting is presentation layer and doesn't require unit tests
+We will extend the existing test infrastructure to cover the new behavior:
+- Update `pkg/rpc/integration_test.go` to assert that the `hostname` field is present in `peers.list` responses and correctly populated when available
+- Add test cases to cover scenarios where hostname is missing or empty, ensuring the fallback identifier (e.g., truncated pubkey) is still correctly handled in display logic
+- Where practical, add unit tests for any new helper logic used in `main.go` and `pkg/daemon/daemon.go` to select and render the hostname/identifier, without overfitting to exact table formatting
 
-Manual testing will verify the enhanced output format.
+Manual testing will additionally verify the enhanced output format and table alignment in real terminal environments.
 
 ## Test Strategy
 
@@ -195,7 +196,7 @@ Manual testing will verify the enhanced output format.
 
 1. **Empty peer list**: Verify graceful handling when no peers are active
 2. **Mix of hostname/no-hostname**: Verify fallback logic works correctly
-3. **Long hostnames**: Verify truncation or wrapping doesn't break table alignment
+3. **Long hostnames**: Verify long hostnames don't break table alignment
 4. **Various discovery methods**: Verify comma-separated display of multiple discovery layers
 
 ## Estimated Complexity
