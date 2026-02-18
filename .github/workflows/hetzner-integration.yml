@@ -38,13 +38,21 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Build binary (linux/arm64)
+      - name: Build binaries (linux/arm64 + linux/amd64)
         run: |
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v \
             -ldflags="-s -w -X main.version=ci-${GITHUB_SHA::8}" \
             -o wgmesh-linux-arm64 .
           chmod +x wgmesh-linux-arm64
-          echo "BINARY_PATH=$PWD/wgmesh-linux-arm64" >> "$GITHUB_ENV"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v \
+            -ldflags="-s -w -X main.version=ci-${GITHUB_SHA::8}" \
+            -o wgmesh-linux-amd64 .
+          chmod +x wgmesh-linux-amd64
+
+          # Default to arm64; provision.sh will select the correct binary
+          echo "BINARY_ARM64=$PWD/wgmesh-linux-arm64" >> "$GITHUB_ENV"
+          echo "BINARY_AMD64=$PWD/wgmesh-linux-amd64" >> "$GITHUB_ENV"
 
       - name: Install OpenTofu
         uses: opentofu/setup-opentofu@v1
@@ -75,11 +83,12 @@ jobs:
         run: |
           chmod +x testlab/cloud/*.sh
           ./testlab/cloud/test-cloud.sh \
-            --binary "$BINARY_PATH" \
             --vms "${{ inputs.vm_count || '5' }}" \
             --tiers "${{ inputs.tiers || '1,2,3,4,5,6,7' }}"
         env:
           SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
+          BINARY_ARM64: ${{ env.BINARY_ARM64 }}
+          BINARY_AMD64: ${{ env.BINARY_AMD64 }}
           OTEL_EXPORTER_OTLP_ENDPOINT: ${{ secrets.DASH0_AUTH_TOKEN && 'https://ingress.europe-west4.gcp.dash0.com:4317' || '' }}
           OTEL_EXPORTER_OTLP_HEADERS: ${{ secrets.DASH0_AUTH_TOKEN && format('Authorization=Bearer {0}', secrets.DASH0_AUTH_TOKEN) || '' }}
 

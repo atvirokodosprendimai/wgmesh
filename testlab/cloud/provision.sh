@@ -65,6 +65,8 @@ provision_infra() {
                 -var="server_type=${server_type}"; then
 
                 provisioned=true
+                PROVISIONED_SERVER_TYPE="$server_type"
+                export PROVISIONED_SERVER_TYPE
                 log_info "Successfully provisioned with server type: $server_type"
                 break 2
             else
@@ -223,6 +225,8 @@ provision_vms() {
                     --label "created=$(date +%s)" \
                     >/dev/null 2>&1; then
                     created=true
+                    PROVISIONED_SERVER_TYPE="$try_type"
+                    export PROVISIONED_SERVER_TYPE
                     log_info "Created $name in $try_loc with type $try_type"
                     break 2
                 else

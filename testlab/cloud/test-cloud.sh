@@ -6,6 +6,8 @@
 # Usage:
 #   # Full run (provision → test → teardown):
 #   export HCLOUD_TOKEN="..." BINARY_PATH="./wgmesh-linux-arm64"
+#   # Or with dual-arch support (CI mode):
+#   export BINARY_ARM64="./wgmesh-linux-arm64" BINARY_AMD64="./wgmesh-linux-amd64"
 #   ./test-cloud.sh
 #
 #   # Run specific tiers only:
@@ -93,6 +95,29 @@ if [ "$SKIP_PROVISION" = "true" ]; then
     else
         populate_node_info
     fi
+fi
+
+# ---------------------------------------------------------------------------
+# Select correct binary for the provisioned server architecture.
+# Hetzner cax* types are ARM64; everything else is x86_64 (amd64).
+# ---------------------------------------------------------------------------
+
+if [ -z "${BINARY_PATH:-}" ] && [ -n "${BINARY_ARM64:-}" ] && [ -n "${BINARY_AMD64:-}" ]; then
+    # Determine architecture from provisioned server type
+    local_arch="amd64"
+    if [[ "${PROVISIONED_SERVER_TYPE:-}" == cax* ]]; then
+        local_arch="arm64"
+    fi
+
+    if [ "$local_arch" = "arm64" ]; then
+        BINARY_PATH="$BINARY_ARM64"
+    else
+        BINARY_PATH="$BINARY_AMD64"
+    fi
+    log_info "Selected $local_arch binary for server type ${PROVISIONED_SERVER_TYPE:-unknown}: $BINARY_PATH"
+elif [ -z "${BINARY_PATH:-}" ]; then
+    log_error "No binary specified. Set BINARY_PATH or both BINARY_ARM64 and BINARY_AMD64"
+    exit 1
 fi
 
 if [ -z "$MESH_SECRET" ]; then
