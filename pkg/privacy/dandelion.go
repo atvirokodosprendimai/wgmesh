@@ -1,6 +1,7 @@
 package privacy
 
 import (
+	"context"
 	"crypto/hmac"
 	cryptorand "crypto/rand"
 	"crypto/sha256"
@@ -239,8 +240,9 @@ func truncateKey(key string) string {
 	return key
 }
 
-// EpochRotationLoop runs the epoch rotation in a background goroutine
-func (d *DandelionRouter) EpochRotationLoop(stopCh <-chan struct{}, getPeers func() []PeerInfo) {
+// EpochRotationLoop runs the epoch rotation in a background goroutine until
+// ctx is cancelled.
+func (d *DandelionRouter) EpochRotationLoop(ctx context.Context, getPeers func() []PeerInfo) {
 	ticker := time.NewTicker(DefaultEpochDuration)
 	defer ticker.Stop()
 
@@ -249,7 +251,7 @@ func (d *DandelionRouter) EpochRotationLoop(stopCh <-chan struct{}, getPeers fun
 
 	for {
 		select {
-		case <-stopCh:
+		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			d.RotateEpoch(getPeers())

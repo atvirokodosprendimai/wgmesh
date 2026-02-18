@@ -69,9 +69,6 @@ type Daemon struct {
 	// Epoch manager for Dandelion++ privacy
 	epochManager *EpochManager
 
-	// Cache stop channel
-	cacheStopCh chan struct{}
-
 	// wg tracks background goroutines for graceful shutdown
 	wg sync.WaitGroup
 
@@ -1308,15 +1305,18 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Restore peers from cache for faster startup
 	RestoreFromCache(d.config.InterfaceName, d.peerStore)
 
-	// Start peer cache saver
-	d.cacheStopCh = make(chan struct{})
-	go StartCacheSaver(d.config.InterfaceName, d.peerStore, d.cacheStopCh)
+	// Start peer cache saver (cancelled via daemon context)
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		StartCacheSaver(d.ctx, d.config.InterfaceName, d.peerStore)
+	}()
 
 	// Now create DHT discovery with the initialized local node
 	// Import is handled via interface to avoid circular dependency
 	dhtFactory := GetDHTDiscoveryFactory()
 	if dhtFactory != nil {
-		dht, err := dhtFactory(d.config, d.localNode, d.peerStore)
+		dht, err := dhtFactory(d.ctx, d.config, d.localNode, d.peerStore)
 		if err != nil {
 			return fmt.Errorf("failed to create DHT discovery: %w", err)
 		}
@@ -1333,7 +1333,7 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Start epoch manager for privacy features
 	if d.config.Privacy {
 		d.epochManager = NewEpochManager(d.config.Keys.EpochSeed)
-		d.epochManager.Start(d.getPrivacyPeers)
+		d.epochManager.Start(d.ctx, d.getPrivacyPeers)
 		defer d.epochManager.Stop()
 		log.Printf("Privacy mode enabled (Dandelion++ relay)")
 	}
@@ -1377,22 +1377,15 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	d.cancel()
 
-	// Stop cache saver first so its final save completes before we return.
-	// Must happen before wg.Wait() since cache saver is not tracked by wg.
-	select {
-	case <-d.cacheStopCh:
-		// Already closed
-	default:
-		close(d.cacheStopCh)
-	}
-
 	log.Printf("Waiting for background tasks to complete...")
 	d.wg.Wait()
 	return nil
 }
 
-// DHTDiscoveryFactory is a function type for creating DHT discovery instances
-type DHTDiscoveryFactory func(config *Config, localNode *LocalNode, peerStore *PeerStore) (DiscoveryLayer, error)
+// DHTDiscoveryFactory is a function type for creating DHT discovery instances.
+// The ctx parameter should be the daemon's context so that DHT goroutines are
+// cancelled when the daemon shuts down.
+type DHTDiscoveryFactory func(ctx context.Context, config *Config, localNode *LocalNode, peerStore *PeerStore) (DiscoveryLayer, error)
 
 var dhtDiscoveryFactory DHTDiscoveryFactory
 
