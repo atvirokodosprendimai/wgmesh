@@ -22,12 +22,12 @@ WireGuard public keys are base64-encoded 32-byte values, resulting in 44-charact
 ```
 $ wgmesh peers list
 PUBLIC KEY                               MESH IP         ENDPOINT                  LAST SEEN  DISCOVERED VIA
-VXD7qLbBvKgPTpBhUEcYHJ4nGBNKdLlvv...     10.99.1.5      192.168.1.100:51820       2m         lan,dht
+VXD7qLbBvKgPTpBhUEcYHJ4nGBNKdLlvvNZYs...     10.99.1.5      192.168.1.100:51820       2m         lan,dht
 ```
 
-The truncated key "VXD7qLbBvKgPTpBhUEcYHJ4nGBNKdLlvv..." cannot be used with:
+The truncated key "VXD7qLbBvKgPTpBhUEcYHJ4nGBNKdLlvvNZYs..." cannot be used with:
 ```
-$ wgmesh peers get VXD7qLbBvKgPTpBhUEcYHJ4nGBNKdLlvv...
+$ wgmesh peers get VXD7qLbBvKgPTpBhUEcYHJ4nGBNKdLlvvNZYs...
 RPC error: peer not found
 ```
 
@@ -148,7 +148,7 @@ Consider adding integration test in `main_test.go` or RPC integration tests:
 - Ensure other fields (mesh IP, endpoint, etc.) display correctly
 
 ## Estimated Complexity
-**Low**
+low
 
 **Reasoning:**
 - Single function modification
@@ -164,7 +164,7 @@ Consider adding integration test in `main_test.go` or RPC integration tests:
 
 ### WireGuard Key Format
 - WireGuard public keys are base64-encoded 32-byte (256-bit) values
-- Base64 encoding of 32 bytes = 44 characters (43 + padding)
+- Base64 encoding of 32 bytes = 44 characters total (43 data characters + 1 '=' padding character)
 - Example: `VXD7qLbBvKgPTpBhUEcYHJ4nGBNKdLlvvNZYs6q1WXo=`
 
 ### Current Column Widths (from line 859)
