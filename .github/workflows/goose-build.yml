@@ -35,7 +35,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       github.event.label.name == 'approved-for-build'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     concurrency:
       group: >-
         goose-implement-${{
@@ -117,6 +117,34 @@ jobs:
           echo "$HOME/.local/bin" >> $GITHUB_PATH
           # Verify installation
           $HOME/.local/bin/goose --version
+
+      # ── Memory: setup and restore cache ─────────────────
+      - name: Setup Python (for mem0)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install mem0 dependencies
+        run: |
+          pip install --quiet mem0ai litellm sentence-transformers 2>&1 | tail -5
+          echo "mem0 dependencies installed"
+
+      - name: Restore mem0 memory cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            /tmp/mem0-qdrant
+            ~/.mem0
+          key: mem0-db-${{ github.repository }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            mem0-db-${{ github.repository }}-
+          save-always: true
+
+      - name: Restore HuggingFace model cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-embeddings-multi-qa-MiniLM-L6-cos-v1
 
       # ── Extract spec details ───────────────────────────
       - name: Extract issue number and spec metadata
@@ -263,6 +291,21 @@ jobs:
 
           echo "Context file: $(wc -l < /tmp/codebase-context.md) lines"
 
+      - name: Retrieve memories from past runs
+        run: |
+          python .github/scripts/mem0-retrieve.py \
+            "${{ steps.spec.outputs.issue_number }}" \
+            /tmp/memory-context.md \
+            || echo "Memory retrieval failed (non-fatal), continuing..."
+          if [ -s /tmp/memory-context.md ]; then
+            echo "=== Memory context ==="
+            cat /tmp/memory-context.md
+            echo "=== End memory context ==="
+          else
+            echo "No memories found for this issue"
+            touch /tmp/memory-context.md
+          fi
+
       - name: Build Goose instructions
         run: |
           ISSUE_NUM="${{ steps.spec.outputs.issue_number }}"
@@ -300,6 +343,13 @@ jobs:
           echo "" >> /tmp/goose-task.md
           cat /tmp/codebase-context.md >> /tmp/goose-task.md
           echo "" >> /tmp/goose-task.md
+
+          # Append memory context from past runs
+          if [ -s /tmp/memory-context.md ]; then
+            echo "" >> /tmp/goose-task.md
+            cat /tmp/memory-context.md >> /tmp/goose-task.md
+            echo "" >> /tmp/goose-task.md
+          fi
 
           # Append AGENTS.md for coding conventions
           if [ -f AGENTS.md ]; then
@@ -486,6 +536,29 @@ jobs:
             tail -50 /tmp/goose-output.log
             exit 1
           fi
+
+      # ── Memory: save learnings from this run ────────────
+      - name: Save memories from this run
+        if: always()
+        run: |
+          # Determine outcome based on whether Goose produced changes
+          if git diff --quiet && git diff --cached --quiet; then
+            OUTCOME="failure"
+          else
+            # Quick check: does the code compile?
+            if go build ./... 2>/dev/null; then
+              OUTCOME="success"
+            else
+              OUTCOME="failure"
+            fi
+          fi
+          echo "Run outcome: $OUTCOME"
+
+          python .github/scripts/mem0-save.py \
+            "${{ steps.spec.outputs.issue_number }}" \
+            /tmp/goose-output.log \
+            "$OUTCOME" \
+            || echo "Memory save failed (non-fatal)"
 
       # ── Validate implementation ───────────────────────
       - name: Validate implementation
