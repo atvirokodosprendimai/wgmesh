@@ -11,6 +11,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
 const (
@@ -29,6 +30,7 @@ type MeshGossip struct {
 
 	conn     *net.UDPConn
 	exchange *PeerExchange
+	limiter  *ratelimit.IPRateLimiter
 
 	mu      sync.RWMutex
 	running bool
@@ -43,6 +45,7 @@ func NewMeshGossip(config *daemon.Config, localNode *LocalNode, peerStore *daemo
 		peerStore: peerStore,
 		gossipKey: config.Keys.GossipKey,
 		port:      config.Keys.GossipPort,
+		limiter:   ratelimit.NewDefault(),
 		stopCh:    make(chan struct{}),
 	}, nil
 }
@@ -56,6 +59,7 @@ func NewMeshGossipWithExchange(config *daemon.Config, localNode *LocalNode, peer
 		gossipKey: config.Keys.GossipKey,
 		port:      config.Keys.GossipPort,
 		exchange:  exchange,
+		limiter:   ratelimit.NewDefault(),
 		stopCh:    make(chan struct{}),
 	}, nil
 }
@@ -243,6 +247,11 @@ func (g *MeshGossip) listenLoop() {
 			if running {
 				log.Printf("[Gossip] Read error: %v", err)
 			}
+			continue
+		}
+
+		// Rate-limit per source IP before decrypting
+		if !g.limiter.Allow(remoteAddr.IP.String()) {
 			continue
 		}
 
