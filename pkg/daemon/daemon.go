@@ -64,6 +64,11 @@ type Daemon struct {
 	offlineMu              sync.Mutex
 	temporaryOffline       map[string]time.Time
 
+	// configMu guards the hot-reloadable fields in config and localNode.
+	// Callers that read AdvertiseRoutes or LogLevel at runtime must hold at
+	// least a read lock; SIGHUP reload holds the write lock.
+	configMu sync.RWMutex
+
 	// Discovery layer (DHT discovery will be attached)
 	dhtDiscovery DiscoveryLayer
 
@@ -87,17 +92,35 @@ type RPCServer interface {
 	Stop() error
 }
 
-// LocalNode represents our local WireGuard node
+// LocalNode represents our local WireGuard node.
+// The WG endpoint is accessed via GetEndpoint/SetEndpoint to allow
+// concurrent updates from discovery goroutines.
 type LocalNode struct {
 	WGPubKey         string
 	WGPrivateKey     string
 	MeshIP           string
 	MeshIPv6         string
-	WGEndpoint       string
 	RoutableNetworks []string
 	Introducer       bool
 	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
 	Hostname         string
+
+	endpointMu sync.RWMutex
+	wgEndpoint string
+}
+
+// GetEndpoint returns the current WireGuard endpoint (thread-safe).
+func (n *LocalNode) GetEndpoint() string {
+	n.endpointMu.RLock()
+	defer n.endpointMu.RUnlock()
+	return n.wgEndpoint
+}
+
+// SetEndpoint updates the WireGuard endpoint (thread-safe).
+func (n *LocalNode) SetEndpoint(ep string) {
+	n.endpointMu.Lock()
+	defer n.endpointMu.Unlock()
+	n.wgEndpoint = ep
 }
 
 // DiscoveryLayer is the interface for discovery implementations
@@ -218,7 +241,7 @@ func (d *Daemon) Run() error {
 
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	// Start reconciliation loop
 	d.wg.Add(1)
@@ -246,11 +269,19 @@ func (d *Daemon) Run() error {
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
-	select {
-	case sig := <-sigCh:
-		log.Printf("Received signal %v, shutting down...", sig)
-	case <-d.ctx.Done():
-		log.Printf("Context cancelled, shutting down...")
+	for {
+		select {
+		case sig := <-sigCh:
+			if sig == syscall.SIGHUP {
+				log.Printf("Received SIGHUP, reloading configuration...")
+				d.handleSIGHUP()
+				continue
+			}
+			log.Printf("Received signal %v, shutting down...", sig)
+		case <-d.ctx.Done():
+			log.Printf("Context cancelled, shutting down...")
+		}
+		break
 	}
 
 	d.cancel()
@@ -1405,7 +1436,7 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	// Setup signal handling
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP)
 
 	// Start reconciliation loop
 	d.wg.Add(1)
@@ -1433,11 +1464,19 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
-	select {
-	case sig := <-sigCh:
-		log.Printf("Received signal %v, shutting down...", sig)
-	case <-d.ctx.Done():
-		log.Printf("Context cancelled, shutting down...")
+	for {
+		select {
+		case sig := <-sigCh:
+			if sig == syscall.SIGHUP {
+				log.Printf("Received SIGHUP, reloading configuration...")
+				d.handleSIGHUP()
+				continue
+			}
+			log.Printf("Received signal %v, shutting down...", sig)
+		case <-d.ctx.Done():
+			log.Printf("Context cancelled, shutting down...")
+		}
+		break
 	}
 
 	d.cancel()
@@ -1465,11 +1504,88 @@ func GetDHTDiscoveryFactory() DHTDiscoveryFactory {
 	return dhtDiscoveryFactory
 }
 
+// handleSIGHUP reads the reload file for the current interface and applies
+// any changed reloadable options, then triggers an immediate reconcile.
+// If no reload file exists the call is a no-op (warning is logged).
+func (d *Daemon) handleSIGHUP() {
+	path := ReloadConfigPath(d.config.InterfaceName)
+	opts, err := LoadReloadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes or log-level)", path)
+		} else {
+			log.Printf("[Reload] Failed to load reload file %s: %v", path, err)
+		}
+		return
+	}
+	d.reloadConfig(opts)
+	d.reconcile()
+}
+
+// GetAdvertiseRoutes returns the current advertised routes (thread-safe).
+func (d *Daemon) GetAdvertiseRoutes() []string {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
+	out := make([]string, len(d.config.AdvertiseRoutes))
+	copy(out, d.config.AdvertiseRoutes)
+	return out
+}
+
+// GetLogLevel returns the current log level (thread-safe).
+func (d *Daemon) GetLogLevel() string {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
+	return d.config.LogLevel
+}
+
+// reloadConfig applies a new set of reloadable options without restarting
+// the WireGuard interface or DHT connections.  It updates:
+//   - AdvertiseRoutes (triggers immediate reconcile on next tick)
+//   - LogLevel
+//
+// Non-reloadable fields (Secret, InterfaceName, WGListenPort, Privacy, Gossip)
+// are silently ignored.
+func (d *Daemon) reloadConfig(opts DaemonOpts) {
+	d.configMu.Lock()
+	defer d.configMu.Unlock()
+
+	if d.config.LogLevel != opts.LogLevel && opts.LogLevel != "" {
+		log.Printf("[Reload] LogLevel: %q → %q", d.config.LogLevel, opts.LogLevel)
+		d.config.LogLevel = opts.LogLevel
+	}
+
+	if opts.AdvertiseRoutes != nil && !routeSlicesEqual(d.config.AdvertiseRoutes, opts.AdvertiseRoutes) {
+		log.Printf("[Reload] AdvertiseRoutes: %v → %v", d.config.AdvertiseRoutes, opts.AdvertiseRoutes)
+		d.config.AdvertiseRoutes = opts.AdvertiseRoutes
+		if d.localNode != nil {
+			d.localNode.RoutableNetworks = opts.AdvertiseRoutes
+		}
+	}
+}
+
+// routeSlicesEqual reports whether two route slices have identical contents,
+// ignoring order.
+func routeSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	set := make(map[string]struct{}, len(a))
+	for _, r := range a {
+		set[r] = struct{}{}
+	}
+	for _, r := range b {
+		if _, ok := set[r]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func (d *Daemon) setLocalWGEndpoint() {
 	if d.localNode == nil {
 		return
 	}
-	d.localNode.WGEndpoint = net.JoinHostPort("0.0.0.0", strconv.Itoa(d.config.WGListenPort))
+	d.localNode.SetEndpoint(net.JoinHostPort("0.0.0.0", strconv.Itoa(d.config.WGListenPort)))
 }
 
 // getPrivacyPeers returns current peers formatted for the privacy layer

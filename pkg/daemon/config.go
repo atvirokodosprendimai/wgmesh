@@ -1,9 +1,11 @@
 package daemon
 
 import (
+	"bufio"
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 
@@ -116,6 +118,63 @@ func GenerateSecret() (string, error) {
 // FormatSecretURI formats a secret as a wgmesh:// URI
 func FormatSecretURI(secret string) string {
 	return fmt.Sprintf("%s%s/%s", URIPrefix, URIVersion, secret)
+}
+
+// ReloadConfigPath returns the path of the reload config file for the given
+// interface name.  The file is written by the operator (or systemd service)
+// and contains lines of the form KEY=VALUE.  Currently supported keys:
+//
+//	advertise-routes   comma-separated CIDR list
+//	log-level          debug|info|warn|error
+func ReloadConfigPath(ifaceName string) string {
+	return fmt.Sprintf("/var/lib/wgmesh/%s.reload", ifaceName)
+}
+
+// LoadReloadFile parses a reload config file and returns a DaemonOpts with
+// only the reloadable fields populated.  Missing or malformed keys are
+// silently skipped so that a partial file is still useful.
+func LoadReloadFile(path string) (DaemonOpts, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return DaemonOpts{}, fmt.Errorf("open reload file: %w", err)
+	}
+	defer f.Close()
+
+	var opts DaemonOpts
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, val, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(strings.ToLower(key))
+		val = strings.TrimSpace(val)
+		switch key {
+		case "advertise-routes":
+			if val == "" {
+				opts.AdvertiseRoutes = []string{}
+			} else {
+				parts := strings.Split(val, ",")
+				routes := make([]string, 0, len(parts))
+				for _, p := range parts {
+					if r := strings.TrimSpace(p); r != "" {
+						routes = append(routes, r)
+					}
+				}
+				opts.AdvertiseRoutes = routes
+			}
+		case "log-level":
+			opts.LogLevel = val
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return DaemonOpts{}, fmt.Errorf("read reload file: %w", err)
+	}
+	return opts, nil
 }
 
 // parseSecret extracts the raw secret from various input formats

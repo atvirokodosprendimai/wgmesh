@@ -14,18 +14,5 @@ func init() {
 // createDHTDiscovery creates a new DHT discovery instance
 // This is called by the daemon when starting with DHT discovery enabled
 func createDHTDiscovery(ctx context.Context, config *daemon.Config, localNode *daemon.LocalNode, peerStore *daemon.PeerStore) (daemon.DiscoveryLayer, error) {
-	// Convert daemon.LocalNode to discovery.LocalNode
-	discoveryLocalNode := &LocalNode{
-		WGPubKey:         localNode.WGPubKey,
-		Hostname:         localNode.Hostname,
-		WGPrivateKey:     localNode.WGPrivateKey,
-		MeshIP:           localNode.MeshIP,
-		MeshIPv6:         localNode.MeshIPv6,
-		RoutableNetworks: localNode.RoutableNetworks,
-		Introducer:       localNode.Introducer,
-		NATType:          NATType(localNode.NATType),
-	}
-	discoveryLocalNode.SetEndpoint(localNode.WGEndpoint)
-
-	return NewDHTDiscovery(ctx, config, discoveryLocalNode, peerStore)
+	return NewDHTDiscovery(ctx, config, localNode, peerStore)
 }

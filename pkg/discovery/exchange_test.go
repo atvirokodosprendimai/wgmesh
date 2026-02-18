@@ -75,7 +75,7 @@ func TestHandleReply_UpdatesLocalEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &LocalNode{
+	localNode := &daemon.LocalNode{
 		WGPubKey: "local-pubkey",
 		MeshIP:   "10.0.0.1",
 	}
@@ -118,7 +118,7 @@ func TestHandleReply_IgnoresEmptyObservedEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &LocalNode{
+	localNode := &daemon.LocalNode{
 		WGPubKey: "local-pubkey",
 		MeshIP:   "10.0.0.1",
 	}
@@ -157,7 +157,7 @@ func TestHandleReply_SkipsSelfReflection(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &LocalNode{
+	localNode := &daemon.LocalNode{
 		WGPubKey: "local-pubkey",
 		MeshIP:   "10.0.0.1",
 	}
@@ -210,7 +210,7 @@ func TestSendReply_PopulatesObservedEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &LocalNode{
+	localNode := &daemon.LocalNode{
 		WGPubKey: "local-pubkey",
 		MeshIP:   "10.0.0.1",
 	}
@@ -274,7 +274,7 @@ func TestHandleReply_DoesNotDowngradePublicIPv6ToIPv4Observed(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &LocalNode{
+	localNode := &daemon.LocalNode{
 		WGPubKey: "local-pubkey",
 		MeshIP:   "10.0.0.1",
 	}

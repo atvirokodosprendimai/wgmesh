@@ -27,17 +27,21 @@ func shortKey(key string) string {
 	return key
 }
 
+// FullConfig is a complete WireGuard configuration used by the centralized
+// (SSH) deployment path. It pairs one WGInterface with a list of WGPeers.
 type FullConfig struct {
 	Interface WGInterface
 	Peers     []WGPeer
 }
 
+// WGInterface holds the local WireGuard interface parameters for centralized mode.
 type WGInterface struct {
 	PrivateKey string
 	Address    string
 	ListenPort int
 }
 
+// WGPeer holds the per-peer parameters used by centralized configuration apply.
 type WGPeer struct {
 	PublicKey           string
 	Endpoint            string
@@ -45,11 +49,14 @@ type WGPeer struct {
 	PersistentKeepalive int
 }
 
+// PeerTransfer holds the cumulative byte counters for a single WireGuard peer.
 type PeerTransfer struct {
 	RxBytes uint64
 	TxBytes uint64
 }
 
+// ApplyFullConfiguration creates a fresh WireGuard interface on the remote host
+// and applies the given full configuration over SSH.
 func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig) error {
 	fmt.Println("  Creating fresh WireGuard configuration...")
 

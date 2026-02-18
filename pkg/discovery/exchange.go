@@ -66,7 +66,7 @@ type rendezvousState struct {
 // PeerExchange handles the encrypted peer exchange protocol
 type PeerExchange struct {
 	config    *daemon.Config
-	localNode *LocalNode
+	localNode *daemon.LocalNode
 	peerStore *daemon.PeerStore
 
 	conn    *net.UDPConn
@@ -92,7 +92,7 @@ type PeerExchange struct {
 }
 
 // NewPeerExchange creates a new peer exchange handler
-func NewPeerExchange(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) *PeerExchange {
+func NewPeerExchange(config *daemon.Config, localNode *daemon.LocalNode, peerStore *daemon.PeerStore) *PeerExchange {
 	return &PeerExchange{
 		config:             config,
 		localNode:          localNode,
