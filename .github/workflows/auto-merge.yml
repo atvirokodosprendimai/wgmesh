@@ -15,6 +15,8 @@ on:
   # Periodic fallback to catch PRs where timing caused a miss
   schedule:
     - cron: '*/10 * * * *'
+  # Manual trigger for on-demand runs
+  workflow_dispatch:
 
 permissions:
   contents: write
