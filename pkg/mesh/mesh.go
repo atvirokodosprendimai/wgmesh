@@ -158,6 +158,40 @@ func (m *Mesh) List() {
 	fmt.Printf("Mesh Network: %s\n", m.Network)
 	fmt.Printf("Interface: %s\n", m.InterfaceName)
 	fmt.Printf("Listen Port: %d\n\n", m.ListenPort)
+
+	// Show groups if defined
+	if len(m.Groups) > 0 {
+		fmt.Printf("Groups:\n")
+		for name, group := range m.Groups {
+			fmt.Printf("  %s:", name)
+			if group.Description != "" {
+				fmt.Printf(" (%s)", group.Description)
+			}
+			fmt.Printf("\n")
+			for _, member := range group.Members {
+				fmt.Printf("    - %s\n", member)
+			}
+		}
+		fmt.Println()
+	}
+
+	// Show policies if defined
+	if len(m.AccessPolicies) > 0 {
+		fmt.Printf("Access Policies:\n")
+		for _, policy := range m.AccessPolicies {
+			fmt.Printf("  %s:", policy.Name)
+			if policy.Description != "" {
+				fmt.Printf(" (%s)", policy.Description)
+			}
+			fmt.Printf("\n")
+			fmt.Printf("    From: %v\n", policy.FromGroups)
+			fmt.Printf("    To: %v\n", policy.ToGroups)
+			fmt.Printf("    Allow Mesh IPs: %v\n", policy.AllowMeshIPs)
+			fmt.Printf("    Allow Routable Networks: %v\n", policy.AllowRoutableNetworks)
+		}
+		fmt.Println()
+	}
+
 	fmt.Printf("Nodes:\n")
 
 	for hostname, node := range m.Nodes {
@@ -179,6 +213,16 @@ func (m *Mesh) List() {
 		}
 		if len(node.RoutableNetworks) > 0 {
 			fmt.Printf("    Routable Networks: %v\n", node.RoutableNetworks)
+		}
+
+		// Show group memberships
+		if len(m.Groups) > 0 {
+			nodeGroups := m.GetNodeGroups(hostname)
+			if len(nodeGroups) > 0 {
+				fmt.Printf("    Groups: %v\n", nodeGroups)
+			} else {
+				fmt.Printf("    Groups: (none - will have no access)\n")
+			}
 		}
 		fmt.Println()
 	}

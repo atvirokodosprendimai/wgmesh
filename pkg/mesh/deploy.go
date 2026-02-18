@@ -13,6 +13,27 @@ type WGInterface = wireguard.WGInterface
 type WGPeer = wireguard.WGPeer
 
 func (m *Mesh) Deploy() error {
+	// Validate groups and policies if access control is enabled
+	if m.IsAccessControlEnabled() {
+		fmt.Println("Validating access control configuration...")
+
+		if err := m.ValidateGroups(); err != nil {
+			return fmt.Errorf("groups validation failed: %w", err)
+		}
+
+		if err := m.ValidatePolicies(); err != nil {
+			return fmt.Errorf("policies validation failed: %w", err)
+		}
+
+		// Warn if groups exist without policies
+		if m.HasGroups() && !m.HasPolicies() {
+			fmt.Println("Warning: Groups are defined but no access policies exist.")
+			fmt.Println("         Nodes in groups will have no connectivity unless policies are added.")
+		}
+
+		fmt.Println("Access control configuration valid.")
+	}
+
 	if err := m.detectEndpoints(); err != nil {
 		return fmt.Errorf("failed to detect endpoints: %w", err)
 	}
@@ -161,17 +182,34 @@ func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
 		})
 	}
 
-	// Add routes to other nodes' networks (via their mesh IPs)
-	for peerHostname, peer := range m.Nodes {
-		if peerHostname == node.Hostname {
-			continue
+	// Check if access control is enabled
+	if m.IsAccessControlEnabled() {
+		// Use policy-based route collection
+		allowedPeers := m.GetAllowedPeers(node.Hostname)
+		for peerHostname, access := range allowedPeers {
+			peer := m.Nodes[peerHostname]
+			if access.AllowRoutableNetworks {
+				for _, network := range peer.RoutableNetworks {
+					routes = append(routes, ssh.RouteEntry{
+						Network: network,
+						Gateway: peer.MeshIP.String(),
+					})
+				}
+			}
 		}
+	} else {
+		// Default: all nodes' networks (current behavior)
+		for peerHostname, peer := range m.Nodes {
+			if peerHostname == node.Hostname {
+				continue
+			}
 
-		for _, network := range peer.RoutableNetworks {
-			routes = append(routes, ssh.RouteEntry{
-				Network: network,
-				Gateway: peer.MeshIP.String(),
-			})
+			for _, network := range peer.RoutableNetworks {
+				routes = append(routes, ssh.RouteEntry{
+					Network: network,
+					Gateway: peer.MeshIP.String(),
+				})
+			}
 		}
 	}
 
@@ -214,30 +252,70 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 		Peers: make([]WGPeer, 0),
 	}
 
-	for peerHostname, peer := range m.Nodes {
-		if peerHostname == node.Hostname {
-			continue
+	// Check if access control is enabled
+	if m.IsAccessControlEnabled() {
+		// Use policy-based peer selection
+		allowedPeers := m.GetAllowedPeers(node.Hostname)
+		for peerHostname, access := range allowedPeers {
+			peer := m.Nodes[peerHostname]
+			peerConfig := m.buildPeerConfig(peer, access)
+			config.Peers = append(config.Peers, peerConfig)
 		}
-
-		allowedIPs := []string{fmt.Sprintf("%s/32", peer.MeshIP.String())}
-
-		for _, network := range peer.RoutableNetworks {
-			allowedIPs = append(allowedIPs, network)
+	} else {
+		// Default: full mesh (current behavior)
+		for peerHostname, peer := range m.Nodes {
+			if peerHostname == node.Hostname {
+				continue
+			}
+			peerConfig := m.buildPeerConfigFullAccess(peer)
+			config.Peers = append(config.Peers, peerConfig)
 		}
-
-		peerConfig := WGPeer{
-			PublicKey:  peer.PublicKey,
-			AllowedIPs: allowedIPs,
-		}
-
-		if peer.PublicEndpoint != "" {
-			peerConfig.Endpoint = peer.PublicEndpoint
-		}
-
-		peerConfig.PersistentKeepalive = 5
-
-		config.Peers = append(config.Peers, peerConfig)
 	}
 
 	return config
+}
+
+// buildPeerConfig creates a WireGuard peer config with access control
+func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess) WGPeer {
+	allowedIPs := []string{}
+
+	// Always include mesh /32 for handshakes when peer is configured
+	allowedIPs = append(allowedIPs, fmt.Sprintf("%s/32", peer.MeshIP.String()))
+
+	// Add routable networks only if policy permits
+	if access.AllowRoutableNetworks {
+		allowedIPs = append(allowedIPs, peer.RoutableNetworks...)
+	}
+
+	peerConfig := WGPeer{
+		PublicKey:  peer.PublicKey,
+		AllowedIPs: allowedIPs,
+	}
+
+	if peer.PublicEndpoint != "" {
+		peerConfig.Endpoint = peer.PublicEndpoint
+	}
+
+	peerConfig.PersistentKeepalive = 5
+
+	return peerConfig
+}
+
+// buildPeerConfigFullAccess creates a WireGuard peer config with full access (backward compatibility)
+func (m *Mesh) buildPeerConfigFullAccess(peer *Node) WGPeer {
+	allowedIPs := []string{fmt.Sprintf("%s/32", peer.MeshIP.String())}
+	allowedIPs = append(allowedIPs, peer.RoutableNetworks...)
+
+	peerConfig := WGPeer{
+		PublicKey:  peer.PublicKey,
+		AllowedIPs: allowedIPs,
+	}
+
+	if peer.PublicEndpoint != "" {
+		peerConfig.Endpoint = peer.PublicEndpoint
+	}
+
+	peerConfig.PersistentKeepalive = 5
+
+	return peerConfig
 }
