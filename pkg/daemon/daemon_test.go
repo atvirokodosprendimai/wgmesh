@@ -1,6 +1,8 @@
 package daemon
 
 import (
+	"fmt"
+	"log"
 	"log/slog"
 	"sync/atomic"
 	"testing"
@@ -97,7 +99,10 @@ func TestParseLogLevel(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
+		tt := tt
+		name := fmt.Sprintf("input=%q", tt.input)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			got := parseLogLevel(tt.input)
 			if got != tt.want {
 				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.input, got, tt.want)
@@ -107,7 +112,17 @@ func TestParseLogLevel(t *testing.T) {
 }
 
 func TestConfigureLoggingDoesNotPanic(t *testing.T) {
-	// Verify that configuring logging with various levels doesn't panic
+	// Save and restore global log state so test mutations don't leak.
+	origOutput := log.Writer()
+	origFlags := log.Flags()
+	origDefault := slog.Default()
+	t.Cleanup(func() {
+		log.SetOutput(origOutput)
+		log.SetFlags(origFlags)
+		slog.SetDefault(origDefault)
+	})
+
+	// Verify that configuring logging with various levels doesn't panic.
 	for _, level := range []string{"debug", "info", "warn", "error", ""} {
 		configureLogging(level)
 	}

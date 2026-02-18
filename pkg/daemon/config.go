@@ -15,7 +15,7 @@ const (
 	URIVersion             = "v1"
 	DefaultWGPort          = 51820
 	DefaultInterface       = "wg0"
-	DefaultInterfaceDarwin = "utun20"
+	DefaultInterfaceDarwin = "utun0"
 )
 
 // Config holds all derived configuration for the mesh daemon

@@ -113,9 +113,15 @@ func parseLogLevel(level string) slog.Level {
 	}
 }
 
-// configureLogging sets up the global logger with the given level.
-// All existing log.Printf calls are redirected through slog so they
-// respect the configured level (they are treated as INFO).
+// ConfigureLogging sets up the global logger with the given level.
+// All existing log.Printf calls are redirected through slog at the
+// configured level so they are always visible regardless of the filter.
+// This should be called once at program startup (e.g. from main) before
+// creating a Daemon; it must not be called from library code.
+func ConfigureLogging(level string) {
+	configureLogging(level)
+}
+
 func configureLogging(level string) {
 	lvl := parseLogLevel(level)
 	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
@@ -123,10 +129,10 @@ func configureLogging(level string) {
 	})
 	slog.SetDefault(slog.New(handler))
 
-	// Redirect stdlib log.Printf → slog at INFO level.
-	// This makes the 189+ existing log.Printf calls level-aware
-	// without touching every call site.
-	log.SetOutput(&slogWriter{level: slog.LevelInfo})
+	// Redirect stdlib log.Printf → slog at the configured level so that
+	// legacy log.Printf calls are never silenced by a stricter filter.
+	// e.g. --log-level warn: log.Printf emits at WARN, still visible.
+	log.SetOutput(&slogWriter{level: lvl})
 	log.SetFlags(0) // slog adds its own timestamp
 }
 
@@ -143,8 +149,6 @@ func (w *slogWriter) Write(p []byte) (n int, err error) {
 
 // NewDaemon creates a new mesh daemon
 func NewDaemon(config *Config) (*Daemon, error) {
-	configureLogging(config.LogLevel)
-
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
