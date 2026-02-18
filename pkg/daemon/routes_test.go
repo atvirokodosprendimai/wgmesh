@@ -5,6 +5,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
 
 // TestCalculateRouteDiff verifies add/remove logic without any exec calls.
@@ -13,8 +15,8 @@ func TestCalculateRouteDiff(t *testing.T) {
 
 	tests := []struct {
 		name          string
-		current       []routeEntry
-		desired       []routeEntry
+		current       []routes.Entry
+		desired       []routes.Entry
 		wantAddLen    int
 		wantRemoveLen int
 	}{
@@ -28,7 +30,7 @@ func TestCalculateRouteDiff(t *testing.T) {
 		{
 			name:    "add new route",
 			current: nil,
-			desired: []routeEntry{
+			desired: []routes.Entry{
 				{Network: "192.168.1.0/24", Gateway: "10.0.0.1"},
 			},
 			wantAddLen:    1,
@@ -36,7 +38,7 @@ func TestCalculateRouteDiff(t *testing.T) {
 		},
 		{
 			name: "remove stale route",
-			current: []routeEntry{
+			current: []routes.Entry{
 				{Network: "192.168.1.0/24", Gateway: "10.0.0.1"},
 			},
 			desired:       nil,
@@ -45,10 +47,10 @@ func TestCalculateRouteDiff(t *testing.T) {
 		},
 		{
 			name: "no change when identical",
-			current: []routeEntry{
+			current: []routes.Entry{
 				{Network: "192.168.1.0/24", Gateway: "10.0.0.1"},
 			},
-			desired: []routeEntry{
+			desired: []routes.Entry{
 				{Network: "192.168.1.0/24", Gateway: "10.0.0.1"},
 			},
 			wantAddLen:    0,
@@ -56,10 +58,10 @@ func TestCalculateRouteDiff(t *testing.T) {
 		},
 		{
 			name: "gateway change triggers remove and add",
-			current: []routeEntry{
+			current: []routes.Entry{
 				{Network: "192.168.1.0/24", Gateway: "10.0.0.1"},
 			},
-			desired: []routeEntry{
+			desired: []routes.Entry{
 				{Network: "192.168.1.0/24", Gateway: "10.0.0.2"},
 			},
 			wantAddLen:    1,
@@ -67,11 +69,11 @@ func TestCalculateRouteDiff(t *testing.T) {
 		},
 		{
 			name: "mix of add remove and keep",
-			current: []routeEntry{
+			current: []routes.Entry{
 				{Network: "10.0.0.0/8", Gateway: "172.16.0.1"},
 				{Network: "stale.net/24", Gateway: "172.16.0.1"},
 			},
-			desired: []routeEntry{
+			desired: []routes.Entry{
 				{Network: "10.0.0.0/8", Gateway: "172.16.0.1"},
 				{Network: "192.168.0.0/16", Gateway: "172.16.0.1"},
 			},
@@ -83,7 +85,7 @@ func TestCalculateRouteDiff(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			add, remove := calculateRouteDiff(tt.current, tt.desired)
+			add, remove := routes.CalculateDiff(tt.current, tt.desired)
 			if len(add) != tt.wantAddLen {
 				t.Errorf("toAdd: got %d, want %d", len(add), tt.wantAddLen)
 			}
@@ -113,7 +115,7 @@ func TestNormalizeNetwork(t *testing.T) {
 		tt := tt
 		t.Run(tt.input, func(t *testing.T) {
 			t.Parallel()
-			got := normalizeNetwork(tt.input)
+			got := routes.NormalizeNetwork(tt.input)
 			if got != tt.want {
 				t.Errorf("normalizeNetwork(%q) = %q, want %q", tt.input, got, tt.want)
 			}
@@ -203,8 +205,8 @@ func TestApplyRouteDiff_AddAndRemove(t *testing.T) {
 		},
 	}
 
-	toAdd := []routeEntry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}}
-	toRemove := []routeEntry{{Network: "10.0.2.0/24", Gateway: "10.0.0.1"}}
+	toAdd := []routes.Entry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}}
+	toRemove := []routes.Entry{{Network: "10.0.2.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
 		if err := applyRouteDiff("wg0", toAdd, toRemove); err != nil {
@@ -251,7 +253,7 @@ func TestApplyRouteDiff_AddFailure(t *testing.T) {
 		},
 	}
 
-	toAdd := []routeEntry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}}
+	toAdd := []routes.Entry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
 		err := applyRouteDiff("wg0", toAdd, nil)
