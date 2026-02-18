@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net"
@@ -11,6 +12,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
 
 	// Import discovery to register the DHT factory via init()
 	_ "github.com/atvirokodosprendimai/wgmesh/pkg/discovery"
@@ -60,6 +62,9 @@ func main() {
 			return
 		case "mesh":
 			meshCmd()
+			return
+		case "peers":
+			peersCmd()
 			return
 		}
 	}
@@ -254,6 +259,7 @@ func joinCmd() {
 	forceRelay := fs.Bool("force-relay", false, "Prefer relay path for non-LAN peers")
 	noPunching := fs.Bool("no-punching", false, "Disable NAT port punching/rendezvous")
 	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
+	socketPath := fs.String("socket-path", "", "RPC socket path (default: auto-detected)")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -296,6 +302,67 @@ func joinCmd() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create daemon: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Start RPC server for peer/status queries
+	rpcPath := *socketPath
+	if rpcPath == "" {
+		rpcPath = rpc.GetSocketPath()
+	}
+	rpcSrv, rpcErr := rpc.NewServer(rpc.ServerConfig{
+		SocketPath: rpcPath,
+		Version:    version,
+		GetPeers: func() []*rpc.PeerData {
+			peers := d.GetPeers()
+			out := make([]*rpc.PeerData, 0, len(peers))
+			for _, p := range peers {
+				out = append(out, &rpc.PeerData{
+					WGPubKey:         p.WGPubKey,
+					MeshIP:           p.MeshIP,
+					Endpoint:         p.Endpoint,
+					LastSeen:         p.LastSeen,
+					DiscoveredVia:    p.DiscoveredVia,
+					RoutableNetworks: p.RoutableNetworks,
+				})
+			}
+			return out
+		},
+		GetPeer: func(pubKey string) (*rpc.PeerData, bool) {
+			p, ok := d.GetPeer(pubKey)
+			if !ok {
+				return nil, false
+			}
+			return &rpc.PeerData{
+				WGPubKey:         p.WGPubKey,
+				MeshIP:           p.MeshIP,
+				Endpoint:         p.Endpoint,
+				LastSeen:         p.LastSeen,
+				DiscoveredVia:    p.DiscoveredVia,
+				RoutableNetworks: p.RoutableNetworks,
+			}, true
+		},
+		GetPeerCounts: func() (active, total, dead int) {
+			return d.GetPeerCounts()
+		},
+		GetStatus: func() *rpc.StatusData {
+			s := d.GetDaemonStatus()
+			return &rpc.StatusData{
+				MeshIP:    s.MeshIP,
+				PubKey:    s.PubKey,
+				Uptime:    s.Uptime,
+				Interface: s.Interface,
+			}
+		},
+	})
+	if rpcErr != nil {
+		fmt.Fprintf(os.Stderr, "Warning: RPC server unavailable: %v\n", rpcErr)
+	} else {
+		if err := rpcSrv.Start(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: RPC server failed to start: %v\n", err)
+		} else {
+			fmt.Printf("RPC socket: %s\n", rpc.FormatSocketPath(rpcPath))
+			defer rpcSrv.Stop()
+		}
 	}
 
 	fmt.Println("Initializing mesh node with DHT discovery...")
@@ -686,6 +753,64 @@ func meshCmd() {
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action: %s\n", action)
 		fmt.Fprintln(os.Stderr, "Available actions: list")
+		os.Exit(1)
+	}
+}
+
+// peersCmd handles "wgmesh peers {list,count,get}" subcommands, querying
+// a running daemon via its RPC socket.
+func peersCmd() {
+	if len(os.Args) < 3 {
+		fmt.Fprintln(os.Stderr, "Usage: wgmesh peers {list|count|get <pubkey>}")
+		os.Exit(1)
+	}
+
+	socketPath := rpc.GetSocketPath()
+	// Allow override via env var (already handled in GetSocketPath) or explicit arg
+	client, err := rpc.NewClient(socketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot connect to daemon socket %s: %v\n", rpc.FormatSocketPath(socketPath), err)
+		fmt.Fprintln(os.Stderr, "Is the daemon running? Start it with: wgmesh join --secret <SECRET>")
+		os.Exit(1)
+	}
+	defer client.Close()
+
+	sub := os.Args[2]
+	switch sub {
+	case "list":
+		result, err := client.Call("peers.list", nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "peers.list failed: %v\n", err)
+			os.Exit(1)
+		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(data))
+
+	case "count":
+		result, err := client.Call("peers.count", nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "peers.count failed: %v\n", err)
+			os.Exit(1)
+		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(data))
+
+	case "get":
+		if len(os.Args) < 4 {
+			fmt.Fprintln(os.Stderr, "Usage: wgmesh peers get <pubkey>")
+			os.Exit(1)
+		}
+		result, err := client.Call("peers.get", map[string]interface{}{"pubkey": os.Args[3]})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "peers.get failed: %v\n", err)
+			os.Exit(1)
+		}
+		data, _ := json.MarshalIndent(result, "", "  ")
+		fmt.Println(string(data))
+
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown peers subcommand: %s\n", sub)
+		fmt.Fprintln(os.Stderr, "Available: list, count, get <pubkey>")
 		os.Exit(1)
 	}
 }
