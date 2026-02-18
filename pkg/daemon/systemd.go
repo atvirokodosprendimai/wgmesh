@@ -3,7 +3,6 @@ package daemon
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"text/template"
@@ -52,7 +51,7 @@ type SystemdServiceConfig struct {
 func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	if cfg.BinaryPath == "" {
 		// Find wgmesh binary
-		path, err := exec.LookPath("wgmesh")
+		path, err := cmdExecutor.LookPath("wgmesh")
 		if err != nil {
 			path, err = filepath.Abs(os.Args[0])
 			if err != nil {
@@ -144,17 +143,17 @@ func InstallSystemdService(cfg SystemdServiceConfig) error {
 	}
 
 	// Reload systemd
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+	if err := cmdExecutor.Command("systemctl", "daemon-reload").Run(); err != nil {
 		return fmt.Errorf("failed to reload systemd: %w", err)
 	}
 
 	// Enable service
-	if err := exec.Command("systemctl", "enable", "wgmesh.service").Run(); err != nil {
+	if err := cmdExecutor.Command("systemctl", "enable", "wgmesh.service").Run(); err != nil {
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
 
 	// Start service
-	if err := exec.Command("systemctl", "start", "wgmesh.service").Run(); err != nil {
+	if err := cmdExecutor.Command("systemctl", "start", "wgmesh.service").Run(); err != nil {
 		return fmt.Errorf("failed to start service: %w", err)
 	}
 
@@ -164,10 +163,10 @@ func InstallSystemdService(cfg SystemdServiceConfig) error {
 // UninstallSystemdService stops and removes the wgmesh systemd service
 func UninstallSystemdService() error {
 	// Stop service
-	exec.Command("systemctl", "stop", "wgmesh.service").Run()
+	cmdExecutor.Command("systemctl", "stop", "wgmesh.service").Run()
 
 	// Disable service
-	exec.Command("systemctl", "disable", "wgmesh.service").Run()
+	cmdExecutor.Command("systemctl", "disable", "wgmesh.service").Run()
 
 	// Remove unit file
 	unitPath := "/etc/systemd/system/wgmesh.service"
@@ -186,14 +185,14 @@ func UninstallSystemdService() error {
 	_ = os.Remove(secretDir)
 
 	// Reload systemd
-	exec.Command("systemctl", "daemon-reload").Run()
+	cmdExecutor.Command("systemctl", "daemon-reload").Run()
 
 	return nil
 }
 
 // ServiceStatus returns the status of the wgmesh systemd service
 func ServiceStatus() (string, error) {
-	cmd := exec.Command("systemctl", "is-active", "wgmesh.service")
+	cmd := cmdExecutor.Command("systemctl", "is-active", "wgmesh.service")
 	output, err := cmd.Output()
 	if err != nil {
 		return "inactive", nil
