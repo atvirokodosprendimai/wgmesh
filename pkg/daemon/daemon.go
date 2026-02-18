@@ -1302,7 +1302,11 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	RestoreFromCache(d.config.InterfaceName, d.peerStore)
 
 	// Start peer cache saver (cancelled via daemon context)
-	go StartCacheSaver(d.ctx, d.config.InterfaceName, d.peerStore)
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		StartCacheSaver(d.ctx, d.config.InterfaceName, d.peerStore)
+	}()
 
 	// Now create DHT discovery with the initialized local node
 	// Import is handled via interface to avoid circular dependency

@@ -103,7 +103,6 @@ func (n *LocalNode) SetEndpoint(ep string) {
 	n.wgEndpoint = ep
 }
 
-// NewDHTDiscovery creates a new DHT discovery instance
 // NewDHTDiscovery creates a new DHT discovery instance.
 // parentCtx should be the daemon's context so that discovery goroutines are
 // cancelled when the daemon shuts down.
