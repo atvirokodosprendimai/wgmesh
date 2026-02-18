@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"sort"
 	"testing"
 )
 
@@ -143,16 +142,6 @@ func TestCalculateDiff_MultipleRoutes(t *testing.T) {
 	if len(remove) != 1 || remove[0].Network != "172.16.0.0/12" {
 		t.Errorf("expected 1 remove (172.16.0.0/12); got %v", remove)
 	}
-}
-
-// sortEntries is a test helper to make slice comparisons order-independent.
-func sortEntries(s []Entry) {
-	sort.Slice(s, func(i, j int) bool {
-		if s[i].Network != s[j].Network {
-			return s[i].Network < s[j].Network
-		}
-		return s[i].Gateway < s[j].Gateway
-	})
 }
 
 func TestCalculateDiff_Idempotent(t *testing.T) {

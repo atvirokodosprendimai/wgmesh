@@ -15,7 +15,7 @@ type Entry struct {
 	Gateway string // Next-hop IP, empty for directly-connected routes
 }
 
-// NormalizeNetwork canonicalises a network string returned by the kernel.
+// NormalizeNetwork normalizes a network string returned by the kernel.
 // Linux's `ip route` displays host routes without a prefix length
 // (e.g. "192.168.5.5" instead of "192.168.5.5/32").  This function adds
 // the appropriate suffix so that kernel output can be compared to user-
