@@ -463,17 +463,26 @@ jobs:
             echo "Goose finished with exit code: $GOOSE_EXIT"
 
             # ── Check for non-recoverable errors (fail immediately) ──
-            # Use narrow patterns to avoid false positives from code/docs
-            # that Goose reads or writes containing words like "authentication"
-            if grep -qiE "401 unauthorized|authentication failed|invalid.?api.?key|api key is invalid" /tmp/goose-output.log; then
+            # IMPORTANT: Goose reads and writes workflow YAML files, so its
+            # output will contain any grep patterns we define here as literal
+            # text. To avoid self-referential false positives, we filter out
+            # lines that look like source code (containing grep, if, echo,
+            # comments, or indented code) before checking for real errors.
+            AUTH_ERRORS=$(grep -iE "401 unauthorized|authentication failed|invalid.{0,3}api.{0,3}key|api key is invalid" /tmp/goose-output.log \
+              | grep -ivE '^\s*(#|if |grep |echo |//|--|\*|.*\bgrep\b|.*\.yml|.*\.yaml|.*\.sh)' \
+              || true)
+            if [ -n "$AUTH_ERRORS" ]; then
               echo "::error::Goose encountered authentication errors (non-recoverable)"
-              tail -30 /tmp/goose-output.log
+              echo "$AUTH_ERRORS" | tail -5
               exit 1
             fi
 
-            if grep -qi "unexpected argument" /tmp/goose-output.log; then
+            CLI_ERRORS=$(grep -i "unexpected argument" /tmp/goose-output.log \
+              | grep -ivE '^\s*(#|if |grep |echo |//|--|\*)' \
+              || true)
+            if [ -n "$CLI_ERRORS" ]; then
               echo "::error::Goose CLI argument error (non-recoverable)"
-              tail -30 /tmp/goose-output.log
+              echo "$CLI_ERRORS" | tail -5
               exit 1
             fi
 
