@@ -1,23 +1,26 @@
 package rpc
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
 )
 
 func TestClientServerIntegration(t *testing.T) {
-	// Create a temporary socket path in a unique per-test directory
-	tmpDir := t.TempDir()
-	socketPath := filepath.Join(tmpDir, "wgmesh-test.sock")
+	// Unix socket paths are limited to ~104 chars on macOS. Use /tmp directly
+	// with a short unique name rather than t.TempDir() which produces long paths.
+	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("wg-rpc-%d.sock", os.Getpid()))
+	t.Cleanup(func() { os.Remove(socketPath) })
 
 	// Mock peer data
 	mockPeer := &PeerData{
-		WGPubKey:      "test-pubkey-abc123",
-		MeshIP:        "10.42.0.5",
-		Endpoint:      "203.0.113.10:51820",
-		LastSeen:      time.Now(),
-		DiscoveredVia: []string{"dht", "gossip"},
+		WGPubKey:         "test-pubkey-abc123",
+		MeshIP:           "10.42.0.5",
+		Endpoint:         "203.0.113.10:51820",
+		LastSeen:         time.Now(),
+		DiscoveredVia:    []string{"dht", "gossip"},
 		RoutableNetworks: []string{"192.168.1.0/24"},
 	}
 

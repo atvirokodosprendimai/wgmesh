@@ -1,6 +1,8 @@
 package discovery
 
 import (
+	"context"
+
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 )
 
@@ -11,7 +13,7 @@ func init() {
 
 // createDHTDiscovery creates a new DHT discovery instance
 // This is called by the daemon when starting with DHT discovery enabled
-func createDHTDiscovery(config *daemon.Config, localNode *daemon.LocalNode, peerStore *daemon.PeerStore) (daemon.DiscoveryLayer, error) {
+func createDHTDiscovery(ctx context.Context, config *daemon.Config, localNode *daemon.LocalNode, peerStore *daemon.PeerStore) (daemon.DiscoveryLayer, error) {
 	// Convert daemon.LocalNode to discovery.LocalNode
 	discoveryLocalNode := &LocalNode{
 		WGPubKey:         localNode.WGPubKey,
@@ -25,5 +27,5 @@ func createDHTDiscovery(config *daemon.Config, localNode *daemon.LocalNode, peer
 	}
 	discoveryLocalNode.SetEndpoint(localNode.WGEndpoint)
 
-	return NewDHTDiscovery(config, discoveryLocalNode, peerStore)
+	return NewDHTDiscovery(ctx, config, discoveryLocalNode, peerStore)
 }

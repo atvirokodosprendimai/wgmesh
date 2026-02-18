@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"context"
 	"log"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
@@ -9,26 +10,29 @@ import (
 // EpochManager manages relay peer epochs for Dandelion++ privacy
 type EpochManager struct {
 	router *privacy.DandelionRouter
-	stopCh chan struct{}
+	cancel context.CancelFunc
 }
 
 // NewEpochManager creates a new epoch manager
 func NewEpochManager(epochSeed [32]byte) *EpochManager {
 	return &EpochManager{
 		router: privacy.NewDandelionRouter(epochSeed),
-		stopCh: make(chan struct{}),
 	}
 }
 
-// Start begins epoch rotation
-func (em *EpochManager) Start(getPeers func() []privacy.PeerInfo) {
-	go em.router.EpochRotationLoop(em.stopCh, getPeers)
+// Start begins epoch rotation, stopping when ctx is cancelled.
+func (em *EpochManager) Start(ctx context.Context, getPeers func() []privacy.PeerInfo) {
+	epochCtx, cancel := context.WithCancel(ctx)
+	em.cancel = cancel
+	go em.router.EpochRotationLoop(epochCtx, getPeers)
 	log.Printf("[Epoch] Epoch management started (rotation every %v)", privacy.DefaultEpochDuration)
 }
 
-// Stop stops epoch rotation
+// Stop stops epoch rotation.
 func (em *EpochManager) Stop() {
-	close(em.stopCh)
+	if em.cancel != nil {
+		em.cancel()
+	}
 }
 
 // GetRouter returns the Dandelion router

@@ -8,7 +8,7 @@ import (
 )
 
 func GenerateKeyPair() (privateKey, publicKey string, err error) {
-	privCmd := exec.Command("wg", "genkey")
+	privCmd := exec.Command(wgPath, "genkey")
 	var privOut bytes.Buffer
 	privCmd.Stdout = &privOut
 
@@ -18,7 +18,7 @@ func GenerateKeyPair() (privateKey, publicKey string, err error) {
 
 	privateKey = strings.TrimSpace(privOut.String())
 
-	pubCmd := exec.Command("wg", "pubkey")
+	pubCmd := exec.Command(wgPath, "pubkey")
 	pubCmd.Stdin = strings.NewReader(privateKey)
 	var pubOut bytes.Buffer
 	pubCmd.Stdout = &pubOut

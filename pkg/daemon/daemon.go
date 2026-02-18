@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"log/slog"
 	"net"
 	"os"
 	"os/signal"
@@ -69,11 +70,10 @@ type Daemon struct {
 	// Epoch manager for Dandelion++ privacy
 	epochManager *EpochManager
 
-	// Cache stop channel
-	cacheStopCh chan struct{}
-
 	// RPC server
 	rpcServer RPCServer
+
+	// startTime is recorded when the daemon starts, used for uptime reporting.
 	startTime time.Time
 
 	ctx    context.Context
@@ -106,6 +106,54 @@ type DiscoveryLayer interface {
 	Stop() error
 }
 
+// parseLogLevel converts a log level string to slog.Level.
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
+}
+
+// ConfigureLogging sets up the global logger with the given level.
+// All existing log.Printf calls are redirected through slog at the
+// configured level so they are always visible regardless of the filter.
+// This should be called once at program startup (e.g. from main) before
+// creating a Daemon; it must not be called from library code.
+func ConfigureLogging(level string) {
+	configureLogging(level)
+}
+
+func configureLogging(level string) {
+	lvl := parseLogLevel(level)
+	handler := slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: lvl,
+	})
+	slog.SetDefault(slog.New(handler))
+
+	// Redirect stdlib log.Printf → slog at the configured level so that
+	// legacy log.Printf calls are never silenced by a stricter filter.
+	// e.g. --log-level warn: log.Printf emits at WARN, still visible.
+	log.SetOutput(&slogWriter{level: lvl})
+	log.SetFlags(0) // slog adds its own timestamp
+}
+
+// slogWriter adapts log.Printf output to slog at a fixed level.
+type slogWriter struct {
+	level slog.Level
+}
+
+func (w *slogWriter) Write(p []byte) (n int, err error) {
+	msg := strings.TrimRight(string(p), "\n")
+	slog.Log(context.Background(), w.level, msg)
+	return len(p), nil
+}
+
 // NewDaemon creates a new mesh daemon
 func NewDaemon(config *Config) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -136,6 +184,7 @@ func (d *Daemon) SetDHTDiscovery(dht DiscoveryLayer) {
 
 // Run starts the daemon and blocks until stopped
 func (d *Daemon) Run() error {
+	d.startTime = time.Now()
 	log.Printf("Starting wgmesh daemon...")
 
 	// Load or create local node
@@ -1312,15 +1361,18 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Restore peers from cache for faster startup
 	RestoreFromCache(d.config.InterfaceName, d.peerStore)
 
-	// Start peer cache saver
-	d.cacheStopCh = make(chan struct{})
-	go StartCacheSaver(d.config.InterfaceName, d.peerStore, d.cacheStopCh)
+	// Start peer cache saver (cancelled via daemon context)
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		StartCacheSaver(d.ctx, d.config.InterfaceName, d.peerStore)
+	}()
 
 	// Now create DHT discovery with the initialized local node
 	// Import is handled via interface to avoid circular dependency
 	dhtFactory := GetDHTDiscoveryFactory()
 	if dhtFactory != nil {
-		dht, err := dhtFactory(d.config, d.localNode, d.peerStore)
+		dht, err := dhtFactory(d.ctx, d.config, d.localNode, d.peerStore)
 		if err != nil {
 			return fmt.Errorf("failed to create DHT discovery: %w", err)
 		}
@@ -1337,7 +1389,7 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	// Start epoch manager for privacy features
 	if d.config.Privacy {
 		d.epochManager = NewEpochManager(d.config.Keys.EpochSeed)
-		d.epochManager.Start(d.getPrivacyPeers)
+		d.epochManager.Start(d.ctx, d.getPrivacyPeers)
 		defer d.epochManager.Stop()
 		log.Printf("Privacy mode enabled (Dandelion++ relay)")
 	}
@@ -1390,22 +1442,15 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	d.cancel()
 
-	// Stop cache saver first so its final save completes before we return.
-	// Must happen before wg.Wait() since cache saver is not tracked by wg.
-	select {
-	case <-d.cacheStopCh:
-		// Already closed
-	default:
-		close(d.cacheStopCh)
-	}
-
 	log.Printf("Waiting for background tasks to complete...")
 	d.wg.Wait()
 	return nil
 }
 
-// DHTDiscoveryFactory is a function type for creating DHT discovery instances
-type DHTDiscoveryFactory func(config *Config, localNode *LocalNode, peerStore *PeerStore) (DiscoveryLayer, error)
+// DHTDiscoveryFactory is a function type for creating DHT discovery instances.
+// The ctx parameter should be the daemon's context so that DHT goroutines are
+// cancelled when the daemon shuts down.
+type DHTDiscoveryFactory func(ctx context.Context, config *Config, localNode *LocalNode, peerStore *PeerStore) (DiscoveryLayer, error)
 
 var dhtDiscoveryFactory DHTDiscoveryFactory
 

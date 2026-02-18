@@ -6,6 +6,7 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,6 +16,23 @@ import (
 // cmdExecutor is the command executor used by helper functions.
 // It can be replaced with a mock for testing.
 var cmdExecutor CommandExecutor = &RealCommandExecutor{}
+
+// wgBinPath is the absolute path to the wg binary, resolved once at package init.
+// Falls back to "wg" (PATH lookup at exec time) if LookPath fails.
+var wgBinPath = "wg"
+
+// wireguardGoBinPath is the absolute path to wireguard-go, resolved once at package init.
+// Falls back to "wireguard-go" if LookPath fails.
+var wireguardGoBinPath = "wireguard-go"
+
+func init() {
+	if p, err := exec.LookPath("wg"); err == nil {
+		wgBinPath = p
+	}
+	if p, err := exec.LookPath("wireguard-go"); err == nil {
+		wireguardGoBinPath = p
+	}
+}
 
 // shortKey safely truncates a key for logging (avoids panic on short/empty keys).
 func shortKey(key string) string {
@@ -94,11 +112,14 @@ func createInterface(name string) error {
 		}
 		return nil
 	case "darwin":
-		if _, err := cmdExecutor.LookPath("wireguard-go"); err != nil {
-			return fmt.Errorf("wireguard-go not found in PATH (required on macOS): %w", err)
+		if wireguardGoBinPath == "wireguard-go" {
+			// Cached init did not find wireguard-go; try again in case PATH changed.
+			if _, err := cmdExecutor.LookPath("wireguard-go"); err != nil {
+				return fmt.Errorf("wireguard-go not found in PATH (required on macOS): %w", err)
+			}
 		}
 
-		cmd := cmdExecutor.Command("wireguard-go", name)
+		cmd := cmdExecutor.Command(wireguardGoBinPath, name)
 
 		// Capture output for debugging/error messages
 		var outBuf, errBuf strings.Builder
@@ -146,7 +167,7 @@ func configureInterface(name, privateKey string, listenPort int) error {
 	// Configure interface. Pass key via stdin to avoid filesystem permission issues.
 	// NOTE: /dev/stdin is Linux/macOS only; Windows would need a named pipe or temp file.
 	args := []string{"set", name, "private-key", "/dev/stdin", "listen-port", fmt.Sprintf("%d", listenPort)}
-	cmd := cmdExecutor.Command("wg", args...)
+	cmd := cmdExecutor.Command(wgBinPath, args...)
 	cmd.SetStdin(strings.NewReader(privateKey + "\n"))
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to configure interface: %s: %w", string(output), err)
@@ -320,7 +341,7 @@ func resetInterface(name string) error {
 		// Flush all addresses
 		cmdExecutor.Command("ip", "addr", "flush", "dev", name).Run()
 		// Remove all peers
-		cmdExecutor.Command("wg", "set", name, "peer", "remove").Run()
+		cmdExecutor.Command(wgBinPath, "set", name, "peer", "remove").Run()
 		return nil
 	case "darwin":
 		return nil
@@ -352,7 +373,7 @@ func findAvailablePort(startPort int) int {
 
 // getWGInterfacePort gets the listen port of a WireGuard interface (0 if not set)
 func getWGInterfacePort(name string) int {
-	cmd := cmdExecutor.Command("wg", "show", name, "listen-port")
+	cmd := cmdExecutor.Command(wgBinPath, "show", name, "listen-port")
 	output, err := cmd.Output()
 	if err != nil {
 		return 0

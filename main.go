@@ -262,7 +262,7 @@ func joinCmd() {
 	secret := fs.String("secret", "", "Mesh secret (required)")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated list of routes to advertise")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
-	iface := fs.String("interface", "wg0", "WireGuard interface name")
+	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun0 on macOS)")
 	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode (Dandelion++ relay)")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
@@ -309,6 +309,10 @@ func joinCmd() {
 		os.Exit(1)
 	}
 
+	// Configure logging before creating the daemon (must be done in main,
+	// not inside library code like NewDaemon).
+	daemon.ConfigureLogging(cfg.LogLevel)
+
 	// Create and run daemon with DHT discovery
 	d, err := daemon.NewDaemon(cfg)
 	if err != nil {
@@ -322,7 +326,7 @@ func joinCmd() {
 		// Import here to avoid circular dependency
 		rpcSocketPath = getRPCSocketPath()
 	}
-	
+
 	// Create RPC server with callback functions
 	rpcServer, err := createRPCServer(d, rpcSocketPath)
 	if err != nil {
@@ -454,7 +458,7 @@ func testPeerCmd() {
 func statusCmd() {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
-	iface := fs.String("interface", "wg0", "WireGuard interface name")
+	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun0 on macOS)")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -566,7 +570,7 @@ func formatIPv6Prefix(prefix [8]byte) string {
 func installServiceCmd() {
 	fs := flag.NewFlagSet("install-service", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
-	iface := fs.String("interface", "wg0", "WireGuard interface name")
+	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun0 on macOS)")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
@@ -731,7 +735,6 @@ func getRPCSocketPath() string {
 
 // createRPCServer creates an RPC server for the daemon
 func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, error) {
-	// Create server config with callback functions that bridge daemon types to RPC types
 	config := rpc.ServerConfig{
 		SocketPath: socketPath,
 		Version:    version,
@@ -792,14 +795,11 @@ func peersCmd() {
 	}
 
 	action := os.Args[2]
-
-	// Determine socket path
 	socketPath := os.Getenv("WGMESH_SOCKET")
 	if socketPath == "" {
 		socketPath = getRPCSocketPath()
 	}
 
-	// Connect to RPC server
 	client, err := rpc.NewClient(socketPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to connect to daemon: %v\n", err)
@@ -821,8 +821,7 @@ func peersCmd() {
 			fmt.Fprintln(os.Stderr, "Usage: wgmesh peers get <pubkey>")
 			os.Exit(1)
 		}
-		pubkey := os.Args[3]
-		handlePeersGet(client, pubkey)
+		handlePeersGet(client, os.Args[3])
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown action: %s\n", action)
 		fmt.Fprintln(os.Stderr, "Available actions: list, count, get")
@@ -837,7 +836,6 @@ func handlePeersList(client *rpc.Client) {
 		os.Exit(1)
 	}
 
-	// Parse result
 	resultMap, ok := result.(map[string]interface{})
 	if !ok {
 		fmt.Fprintln(os.Stderr, "Invalid response format")
@@ -855,12 +853,9 @@ func handlePeersList(client *rpc.Client) {
 		return
 	}
 
-	// Print header
-	fmt.Printf("%-40s %-15s %-25s %-10s %s\n",
-		"PUBLIC KEY", "MESH IP", "ENDPOINT", "LAST SEEN", "DISCOVERED VIA")
+	fmt.Printf("%-40s %-15s %-25s %-10s %s\n", "PUBLIC KEY", "MESH IP", "ENDPOINT", "LAST SEEN", "DISCOVERED VIA")
 	fmt.Println(strings.Repeat("-", 120))
 
-	// Print peers
 	for _, peerData := range peersData {
 		peer, ok := peerData.(map[string]interface{})
 		if !ok {
@@ -879,13 +874,10 @@ func handlePeersList(client *rpc.Client) {
 		endpoint, _ := peer["endpoint"].(string)
 		lastSeen, _ := peer["last_seen"].(string)
 
-		// Parse last seen time
 		lastSeenTime, err := time.Parse(time.RFC3339, lastSeen)
-		var lastSeenStr string
+		lastSeenStr := "unknown"
 		if err == nil {
 			lastSeenStr = formatDuration(time.Since(lastSeenTime))
-		} else {
-			lastSeenStr = "unknown"
 		}
 
 		var discoveredViaStr []string
@@ -899,8 +891,7 @@ func handlePeersList(client *rpc.Client) {
 			}
 		}
 
-		fmt.Printf("%-40s %-15s %-25s %-10s %s\n",
-			pubkey, meshIP, endpoint, lastSeenStr, strings.Join(discoveredViaStr, ","))
+		fmt.Printf("%-40s %-15s %-25s %-10s %s\n", pubkey, meshIP, endpoint, lastSeenStr, strings.Join(discoveredViaStr, ","))
 	}
 }
 
@@ -911,7 +902,6 @@ func handlePeersCount(client *rpc.Client) {
 		os.Exit(1)
 	}
 
-	// Parse result with type checking
 	resultMap, ok := result.(map[string]interface{})
 	if !ok {
 		fmt.Fprintln(os.Stderr, "Invalid response format")
@@ -921,7 +911,6 @@ func handlePeersCount(client *rpc.Client) {
 	active, ok1 := resultMap["active"].(float64)
 	total, ok2 := resultMap["total"].(float64)
 	dead, ok3 := resultMap["dead"].(float64)
-	
 	if !ok1 || !ok2 || !ok3 {
 		fmt.Fprintln(os.Stderr, "Invalid peer count data")
 		os.Exit(1)
@@ -935,17 +924,12 @@ func handlePeersCount(client *rpc.Client) {
 }
 
 func handlePeersGet(client *rpc.Client, pubkey string) {
-	params := map[string]interface{}{
-		"pubkey": pubkey,
-	}
-
-	result, err := client.Call("peers.get", params)
+	result, err := client.Call("peers.get", map[string]interface{}{"pubkey": pubkey})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "RPC error: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Parse result
 	peer, ok := result.(map[string]interface{})
 	if !ok {
 		fmt.Fprintln(os.Stderr, "Invalid response format")
@@ -1000,8 +984,6 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dm", int(d.Minutes()))
 	} else if d < 24*time.Hour {
 		return fmt.Sprintf("%dh", int(d.Hours()))
-	} else {
-		return fmt.Sprintf("%dd", int(d.Hours()/24))
 	}
+	return fmt.Sprintf("%dd", int(d.Hours()/24))
 }
-

@@ -1,6 +1,9 @@
 package daemon
 
-import "testing"
+import (
+	"runtime"
+	"testing"
+)
 
 const testConfigSecret = "wgmesh-test-secret-long-enough-for-key-derivation"
 
@@ -72,5 +75,35 @@ func TestNewConfigForceRelayAndNoPunching(t *testing.T) {
 	}
 	if !cfg.DisablePunching {
 		t.Fatal("expected DisablePunching to be enabled")
+	}
+}
+
+func TestNewConfigDefaultInterfaceName(t *testing.T) {
+	cfg, err := NewConfig(DaemonOpts{Secret: testConfigSecret})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+
+	expected := DefaultInterface
+	if runtime.GOOS == "darwin" {
+		expected = DefaultInterfaceDarwin
+	}
+
+	if cfg.InterfaceName != expected {
+		t.Errorf("expected interface %s on %s, got %s", expected, runtime.GOOS, cfg.InterfaceName)
+	}
+}
+
+func TestNewConfigExplicitInterfaceName(t *testing.T) {
+	cfg, err := NewConfig(DaemonOpts{
+		Secret:        testConfigSecret,
+		InterfaceName: "custom0",
+	})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+
+	if cfg.InterfaceName != "custom0" {
+		t.Errorf("expected interface custom0, got %s", cfg.InterfaceName)
 	}
 }
