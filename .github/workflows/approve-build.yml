@@ -136,18 +136,18 @@ jobs:
               labels: ['issue-creator-approved']
             });
 
-            // Enable auto-merge
+            // Squash-merge directly — enablePullRequestAutoMerge is rejected
+            // when the PR is already in 'clean' (immediately mergeable) state.
             try {
-              await github.graphql(`
-                mutation($prId: ID!) {
-                  enablePullRequestAutoMerge(input: {pullRequestId: $prId, mergeMethod: SQUASH}) {
-                    clientMutationId
-                  }
-                }
-              `, { prId: pr.node_id });
-              console.log(`Auto-merge enabled for PR #${prNumber}`);
+              await github.rest.pulls.merge({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                merge_method: 'squash',
+              });
+              console.log(`PR #${prNumber} squash-merged`);
             } catch (error) {
-              core.warning(`Could not enable auto-merge: ${error.message}`);
+              core.warning(`Could not merge PR: ${error.message}`);
             }
 
             // Comment on the issue
