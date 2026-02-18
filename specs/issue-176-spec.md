@@ -104,12 +104,18 @@ Extend the mesh state file (`/var/lib/wgmesh/mesh-state.json`) with:
 
 For each node, when generating WireGuard configuration:
 
-1. **Find node's groups**: Collect all groups where this node is a member
-2. **Find allowed target groups**: For each policy where node's group is in `from_groups`, collect all groups in `to_groups`
-3. **Build peer list**: Add peers only if their group is in allowed target groups
-4. **Configure AllowedIPs**: Based on policy settings:
-   - `allow_mesh_ips: true` → Include peer's mesh IP in AllowedIPs
-   - `allow_routable_networks: true` → Include peer's routable networks in AllowedIPs
+1. **Find node's groups**: Collect all groups where this node is a member.
+2. **Determine relevant policies**:
+   - **Outbound policies**: Policies where any of the node's groups appear in `from_groups`.
+   - **Inbound policies**: Policies where any of the node's groups appear in `to_groups`.
+3. **Build symmetric peer list**:
+   - For every policy (outbound or inbound) that links the node's groups to some other groups, add all members of those other groups as WireGuard peers on this node.
+   - This ensures that whenever any policy relates two nodes' groups (in either direction), both nodes have each other configured as peers, satisfying WireGuard's requirement that both sides know each other's public keys.
+4. **Configure AllowedIPs (directional access)** for each peer:
+   - **Baseline for handshakes**: If any policy exists between the node's groups and the peer's groups (in either direction), include the peer's mesh IP (`/32`) in `AllowedIPs` so that WireGuard handshakes and basic packet acceptance work.
+   - **Outbound mesh access**: If there is at least one outbound policy where the node's groups are in `from_groups` and the peer's groups are in `to_groups` with `allow_mesh_ips: true`, include the peer's mesh IP (`/32`) as an allowed destination for application traffic.
+   - **Outbound routable networks**: If there is at least one outbound policy where the node's groups are in `from_groups` and the peer's groups are in `to_groups` with `allow_routable_networks: true`, include the peer's `routable_networks` in `AllowedIPs`.
+5. **Deny-by-default**: If no relevant policies (outbound or inbound) exist between the node's groups and a remote node's groups, do not configure that remote node as a peer and do not add any of its IPs to `AllowedIPs`.
 
 ### Default Behavior
 
@@ -220,10 +226,10 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess) WGPeer {
     allowedIPs := []string{}
     
-    if access.AllowMeshIP {
-        allowedIPs = append(allowedIPs, fmt.Sprintf("%s/32", peer.MeshIP.String()))
-    }
+    // Always include mesh /32 for handshakes when peer is configured
+    allowedIPs = append(allowedIPs, fmt.Sprintf("%s/32", peer.MeshIP.String()))
     
+    // Add routable networks only if policy permits
     if access.AllowRoutableNetworks {
         allowedIPs = append(allowedIPs, peer.RoutableNetworks...)
     }
@@ -269,7 +275,10 @@ Add validation on:
 - `-deploy`: Validate groups and policies before deployment
   - Check: All members exist as nodes
   - Check: All group names in policies exist
-  - Check: No circular references
+  - Check: No duplicate policy names
+  - Check: Policies have at least one from_group and one to_group
+  - Check: Policies match at least one node via their referenced groups
+  - Check: No duplicate member entries within a group
   - Warn: Groups without policies
   - Warn: Nodes not in any group (when groups exist)
 
@@ -614,13 +623,13 @@ If pursuing RPC-based ACL:
    - Add helper functions for group/policy lookups
 
 3. Update `pkg/mesh/mesh.go`:
-   - Call validation functions in `Load()` and `Save()`
-   - Add warning logs for common misconfigurations
+   - Keep `Load()` and `Save()` permissive (no strict validation that would block incremental edits)
+   - Expose hooks/helpers so CLI commands (e.g., `-deploy`, optionally `-list`) can run strict validation and emit warning logs for common misconfigurations
 
 **Deliverables**:
 - Data structures support groups and policies
-- Validation prevents invalid configurations
-- Clear error messages for misconfigurations
+- Validation logic is implemented and used by deploy-time commands to prevent invalid configurations while allowing incremental state edits
+- Clear error and warning messages for misconfigurations when strict validation is invoked
 
 **Tests**:
 - Unit tests for JSON marshaling with groups/policies
