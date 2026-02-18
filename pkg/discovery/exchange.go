@@ -17,7 +17,7 @@ import (
 const (
 	ExchangeTimeout         = 4 * time.Second
 	MaxExchangeSize         = 65536 // 64KB max message size
-	ExchangePort            = 51821 // Default exchange port (can be derived from secret)
+	ExchangePort            = 51821 // Default exchange port (matches crypto.GossipPortBase)
 	PunchInterval           = 100 * time.Millisecond
 	RendezvousSessionTTL    = 20 * time.Second
 	RendezvousStartLeadTime = 1800 * time.Millisecond
