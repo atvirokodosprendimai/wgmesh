@@ -593,6 +593,429 @@ If pursuing RPC-based ACL:
 - Better supports dynamic cloud environments
 - Requires careful design of state synchronization
 
+## Implementation Phases
+
+### Phase 1: Centralized SSH Deployment ACL (MVP)
+
+**Objective**: Add group-based access control to centralized mode using SSH deployment, with policies stored in mesh state file.
+
+#### Phase 1.1: Core Data Model & Validation (3-4 hours)
+
+**Tasks**:
+1. Extend `pkg/mesh/types.go`:
+   - Add `Group` struct with `Description` and `Members` fields
+   - Add `AccessPolicy` struct with all policy fields
+   - Add `Groups` and `AccessPolicies` fields to `Mesh` struct
+   - Ensure JSON marshaling/unmarshaling works correctly
+
+2. Create `pkg/mesh/policy.go`:
+   - Implement `ValidateGroups()` - check for invalid group definitions
+   - Implement `ValidatePolicies()` - verify group references exist
+   - Add helper functions for group/policy lookups
+
+3. Update `pkg/mesh/mesh.go`:
+   - Call validation functions in `Load()` and `Save()`
+   - Add warning logs for common misconfigurations
+
+**Deliverables**:
+- Data structures support groups and policies
+- Validation prevents invalid configurations
+- Clear error messages for misconfigurations
+
+**Tests**:
+- Unit tests for JSON marshaling with groups/policies
+- Validation tests for invalid group names, missing members, etc.
+- Tests for overlapping group memberships (allowed)
+
+#### Phase 1.2: Policy Evaluation Engine (4-5 hours)
+
+**Tasks**:
+1. Implement in `pkg/mesh/policy.go`:
+   - `GetNodeGroups(hostname string) []string` - return groups for a node
+   - `GetAllowedPeers(hostname string) map[string]*PeerAccess` - evaluate policies
+   - `PeerAccess` struct to track allowed access levels per peer
+
+2. Policy evaluation logic:
+   - For given node, find all groups it belongs to
+   - For each policy where node's group is in `from_groups`:
+     - Collect all nodes in `to_groups`
+     - Record access permissions (mesh IPs, routable networks)
+   - Handle nodes in multiple groups (union of permissions)
+   - Handle bidirectional policies correctly
+
+3. Edge cases:
+   - Node in no groups (when groups exist) → no peers
+   - Node in multiple groups → merge permissions
+   - Self-referencing policies (group can talk to itself)
+
+**Deliverables**:
+- Policy engine correctly evaluates allowed peers
+- Handles all edge cases and multi-group scenarios
+- Clear permission model (allow-only, no deny rules in MVP)
+
+**Tests**:
+- Unit tests for policy evaluation with various scenarios
+- Test multi-group memberships
+- Test bidirectional and self-referencing policies
+- Test nodes not in any group
+
+#### Phase 1.3: WireGuard Configuration Integration (3-4 hours)
+
+**Tasks**:
+1. Modify `pkg/mesh/deploy.go`:
+   - Update `generateConfigForNode()` to check for groups/policies
+   - If groups exist, use `GetAllowedPeers()` instead of full mesh
+   - Build peer configs with filtered AllowedIPs based on `PeerAccess`
+   - Maintain backward compatibility (no groups = full mesh)
+
+2. Implement helper functions:
+   - `buildPeerConfig(peer *Node, access *PeerAccess) WGPeer`
+   - `buildPeerConfigFullAccess(peer *Node) WGPeer` (for backward compat)
+
+3. Route configuration:
+   - Update `collectAllRoutesForNode()` to respect policies
+   - Only include routes for networks we have policy access to
+
+**Deliverables**:
+- WireGuard configs reflect ACL policies
+- AllowedIPs correctly filtered per policy
+- Backward compatible with existing meshes
+
+**Tests**:
+- Integration tests generating configs with policies
+- Verify AllowedIPs match policy permissions
+- Test backward compatibility without groups
+
+#### Phase 1.4: CLI Enhancements & Documentation (2-3 hours)
+
+**Tasks**:
+1. Update `-list` command:
+   - Display group memberships for each node
+   - Show access policies summary
+   - Warn if nodes exist without group membership (when groups defined)
+
+2. Add validation to `-deploy`:
+   - Run `ValidateGroups()` and `ValidatePolicies()` before deployment
+   - Show clear error messages for invalid configurations
+   - Provide deployment preview showing ACL changes
+
+3. Documentation:
+   - Add "Access Control" section to README.md
+   - Include example JSON configurations
+   - Document policy evaluation rules
+   - Provide common use case examples (prod/staging isolation, hub-and-spoke)
+
+**Deliverables**:
+- Enhanced CLI shows ACL status clearly
+- Comprehensive documentation with examples
+- User-friendly error messages
+
+**Tests**:
+- Manual testing of CLI output with groups/policies
+- Verify documentation examples work correctly
+
+#### Phase 1.5: Testing & Validation (2-3 hours)
+
+**Tasks**:
+1. Integration testing:
+   - Create 4-node test mesh with 2 groups
+   - Deploy with various policy configurations
+   - Verify actual connectivity matches policies (ping tests)
+   - Test policy changes and redeployment
+
+2. Test scenarios:
+   - Basic isolation (group A cannot reach group B)
+   - Hub-and-spoke (spokes can reach hub, not each other)
+   - Partial network access (mesh IPs yes, routable networks no)
+   - Backward compatibility (no groups/policies)
+
+3. Error handling:
+   - Test with malformed JSON
+   - Test with invalid group references
+   - Test with circular dependencies (if applicable)
+
+**Deliverables**:
+- Comprehensive test suite
+- Real-world validation of network isolation
+- Documented test procedures
+
+**Tests**:
+- Automated integration tests where possible
+- Manual multi-node deployment tests
+- Connectivity verification scripts
+
+**Phase 1 Total Estimate**: 14-19 hours (2-3 days)
+
+### Phase 2: RPC-Based Distributed ACL Management
+
+**Objective**: Enable distributed ACL management via RPC, allowing any node to manage and deploy policies across the mesh.
+
+**Prerequisites**: Phase 1 completed and stable
+
+#### Phase 2.1: ACL State Management (4-5 hours)
+
+**Tasks**:
+1. Create `pkg/acl/state.go`:
+   - `ACLState` struct to hold groups and policies with versioning
+   - Version/timestamp fields for conflict resolution
+   - Methods: `Load()`, `Save()`, `Merge()`, `Validate()`
+
+2. Create `pkg/acl/store.go`:
+   - Persistent storage for ACL state (e.g., `/var/lib/wgmesh/acl-state.json`)
+   - Thread-safe access (mutex protection)
+   - Atomic updates to prevent corruption
+
+3. Versioning strategy:
+   - Use vector clocks or Lamport timestamps
+   - Last-write-wins for simple conflict resolution
+   - Optional: implement CRDT for conflict-free merging
+
+**Deliverables**:
+- ACL state can be stored and loaded persistently
+- Version tracking enables conflict detection
+- Thread-safe state management
+
+**Tests**:
+- Unit tests for state save/load
+- Concurrent access tests (race detector)
+- Version comparison and merge tests
+
+#### Phase 2.2: RPC Protocol Extensions (5-6 hours)
+
+**Tasks**:
+1. Extend `pkg/rpc/protocol.go`:
+   - Add request/response types for ACL operations
+   - Define `ACLGroupInfo`, `ACLPolicyInfo` structs
+   - Add error codes for ACL-specific errors
+
+2. Add RPC handlers in `pkg/rpc/server.go`:
+   - `acl.groups.list` - return all groups
+   - `acl.groups.get` - get group details
+   - `acl.groups.set` - create/update group
+   - `acl.groups.delete` - remove group
+   - `acl.policies.list` - return all policies
+   - `acl.policies.get` - get policy details
+   - `acl.policies.set` - create/update policy
+   - `acl.policies.delete` - remove policy
+   - `acl.apply` - trigger ACL application to WireGuard
+
+3. Implement in `pkg/rpc/acl_handlers.go`:
+   - Handler implementations for each RPC method
+   - Validation of input parameters
+   - Error handling and response formatting
+
+**Deliverables**:
+- RPC methods for ACL management implemented
+- Proper error handling and validation
+- Protocol documentation
+
+**Tests**:
+- Unit tests for each RPC handler
+- Test invalid inputs and error cases
+- Test concurrent RPC calls
+
+#### Phase 2.3: Gossip-Based State Propagation (6-8 hours)
+
+**Tasks**:
+1. Create `pkg/acl/sync.go`:
+   - Implement gossip protocol for ACL state distribution
+   - Use existing `pkg/discovery/gossip.go` as reference
+   - State synchronization on startup and periodic refresh
+
+2. Gossip message types:
+   - `ACLStateAnnouncement` - announce state version
+   - `ACLStateRequest` - request full state from peer
+   - `ACLStateResponse` - send full state to peer
+   - `ACLDelta` - incremental updates (optimization)
+
+3. Synchronization logic:
+   - On startup: request state from all known peers
+   - Periodically: announce state version
+   - On version mismatch: request and merge newer state
+   - Apply merged state to local WireGuard config
+
+**Deliverables**:
+- ACL state propagates across all mesh nodes
+- Eventual consistency achieved via gossip
+- Handles network partitions gracefully
+
+**Tests**:
+- Multi-node gossip simulation tests
+- Network partition and recovery tests
+- State convergence time measurements
+
+#### Phase 2.4: WireGuard Dynamic Reconfiguration (4-5 hours)
+
+**Tasks**:
+1. Create `pkg/acl/apply.go`:
+   - `ApplyACLToWireGuard()` - reconfigure WireGuard based on ACL
+   - Use existing `pkg/wireguard/config.go` for config generation
+   - Calculate diff between current and desired config
+   - Apply changes using `wg set` commands
+
+2. Integration with daemon:
+   - Listen for ACL state changes
+   - Automatically trigger reconfiguration
+   - Rate limiting to prevent flapping
+   - Rollback mechanism on failure
+
+3. Edge cases:
+   - Handle nodes joining/leaving during ACL updates
+   - Preserve existing connections where possible
+   - Log all ACL-driven config changes
+
+**Deliverables**:
+- ACL changes apply to WireGuard automatically
+- Minimal disruption to existing connections
+- Audit trail of ACL-driven changes
+
+**Tests**:
+- Test ACL changes trigger reconfig
+- Verify connections preserved when allowed
+- Test rollback on configuration errors
+
+#### Phase 2.5: CLI Commands for Distributed ACL (3-4 hours)
+
+**Tasks**:
+1. Add new CLI commands to `main.go`:
+   - `wgmesh acl group create <name> --members <node1,node2>`
+   - `wgmesh acl group delete <name>`
+   - `wgmesh acl group list`
+   - `wgmesh acl policy add <name> --from <group1> --to <group2> [--allow-mesh] [--allow-networks]`
+   - `wgmesh acl policy delete <name>`
+   - `wgmesh acl policy list`
+   - `wgmesh acl status` - show current ACL state and sync status
+
+2. Implement `aclCmd()` function:
+   - Parse subcommands and flags
+   - Connect to local RPC socket
+   - Send appropriate RPC requests
+   - Format and display responses
+
+3. User experience:
+   - Clear output formatting (tables for lists)
+   - Progress indicators for state propagation
+   - Confirmation prompts for destructive operations
+
+**Deliverables**:
+- User-friendly CLI for ACL management
+- Works from any node in the mesh
+- Clear feedback on operation status
+
+**Tests**:
+- CLI integration tests
+- Test all commands with various inputs
+- Error message clarity tests
+
+#### Phase 2.6: Security & Authentication (5-6 hours)
+
+**Tasks**:
+1. RPC authentication:
+   - Implement token-based authentication for RPC calls
+   - Use shared secret derived from mesh secret (for decentralized mode)
+   - Or use PKI with node public keys (for centralized mode)
+
+2. Authorization:
+   - Define ACL admin role/capability
+   - Only authorized nodes can modify ACL state
+   - Read-only access for status queries
+
+3. Audit logging:
+   - Log all ACL changes with timestamp and originator
+   - Store audit log persistently
+   - Optional: forward audit logs to central syslog
+
+4. Encryption:
+   - Encrypt ACL state in gossip messages
+   - Use existing crypto primitives from `pkg/crypto/`
+
+**Deliverables**:
+- Secure RPC communication
+- Authorization for ACL modifications
+- Comprehensive audit trail
+
+**Tests**:
+- Test unauthorized access attempts
+- Verify audit logs capture all changes
+- Test encryption of gossip messages
+
+#### Phase 2.7: Integration Testing & Documentation (4-5 hours)
+
+**Tasks**:
+1. End-to-end testing:
+   - Deploy multi-node mesh with RPC-based ACL
+   - Test ACL changes from different nodes
+   - Verify state propagation and convergence
+   - Test network partitions and recovery
+
+2. Performance testing:
+   - Measure ACL state propagation time
+   - Test with 10, 50, 100 nodes
+   - Identify bottlenecks and optimize
+
+3. Documentation:
+   - Add "Distributed ACL Management" section to README
+   - Document RPC protocol for ACL operations
+   - Provide migration guide from Phase 1 to Phase 2
+   - Include troubleshooting guide
+
+4. Migration path:
+   - Tool to convert centralized mesh state to distributed ACL state
+   - Backward compatibility considerations
+   - Rollback procedures
+
+**Deliverables**:
+- Fully tested distributed ACL system
+- Comprehensive documentation
+- Migration tools and guides
+
+**Tests**:
+- Large-scale mesh simulations
+- Performance benchmarks
+- Migration scenario tests
+
+**Phase 2 Total Estimate**: 31-39 hours (5-7 days)
+
+### Combined Implementation Timeline
+
+**Phase 1 (MVP)**: 14-19 hours (2-3 days)
+- Core ACL functionality for centralized mode
+- Manual JSON editing for policies
+- SSH deployment applies policies
+
+**Phase 2 (Distributed)**: 31-39 hours (5-7 days)
+- RPC-based ACL management
+- Gossip-based state synchronization
+- Dynamic WireGuard reconfiguration
+- Full CLI for ACL operations
+
+**Total**: 45-58 hours (7-10 days of development time)
+
+### Development Dependencies
+
+**Phase 1 depends on**:
+- Existing mesh deployment infrastructure
+- WireGuard configuration generation
+
+**Phase 2 depends on**:
+- Phase 1 complete and stable
+- Existing RPC infrastructure (`pkg/rpc/`)
+- Existing gossip protocol (`pkg/discovery/gossip.go`)
+- Existing crypto primitives (`pkg/crypto/`)
+
+### Risk Mitigation
+
+**Phase 1 risks**:
+- Risk: Policy evaluation logic errors → **Mitigation**: Comprehensive unit tests, test scenarios
+- Risk: Breaking backward compatibility → **Mitigation**: Feature flag, extensive testing without groups
+- Risk: User confusion with JSON editing → **Mitigation**: Clear documentation, validation with helpful errors
+
+**Phase 2 risks**:
+- Risk: State synchronization conflicts → **Mitigation**: Vector clocks, last-write-wins, thorough testing
+- Risk: Security vulnerabilities in RPC → **Mitigation**: Authentication, authorization, encryption, audit logging
+- Risk: Network partitions causing divergent state → **Mitigation**: Gossip protocol, eventual consistency, partition detection
+- Risk: Performance degradation with many nodes → **Mitigation**: Performance testing, optimization, rate limiting
+
 ## Notes
 
 - This feature does NOT require changes to the decentralized mode (daemon), only centralized mode
