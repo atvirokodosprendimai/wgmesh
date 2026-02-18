@@ -78,6 +78,7 @@ type Daemon struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // RPCServer interface for the RPC server
@@ -1531,4 +1532,3 @@ type RPCStatusData struct {
 	Uptime    time.Duration
 	Interface string
 }
-
