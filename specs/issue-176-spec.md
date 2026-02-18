@@ -432,6 +432,167 @@ Add validation on:
 7. **Policy inheritance**: Nested groups, policy templates
 8. **Deny rules**: Explicit deny (currently only allow rules)
 
+## Alternative Approach: RPC-Based Distributed ACL Management
+
+### Overview
+
+An alternative to the centralized SSH deployment approach is to leverage the existing RPC infrastructure (currently used in decentralized mode) to enable distributed ACL management. This would allow any node in the mesh to manage and deploy access policies to all other nodes.
+
+### Motivation
+
+The RPC interface (`pkg/rpc/`) currently supports:
+- `peers.list` - List all active peers
+- `peers.get` - Get specific peer information
+- `peers.count` - Get peer statistics
+- `daemon.status` - Get daemon status
+- `daemon.ping` - Health check
+
+This could be extended to support ACL management operations, enabling a more distributed and dynamic approach to access control.
+
+### Proposed RPC Methods for ACL Management
+
+Add new RPC methods to the server:
+
+1. **`acl.groups.list`** - List all defined groups
+2. **`acl.groups.get`** - Get group details (members)
+3. **`acl.groups.set`** - Create/update a group
+4. **`acl.groups.delete`** - Remove a group
+5. **`acl.policies.list`** - List all access policies
+6. **`acl.policies.get`** - Get policy details
+7. **`acl.policies.set`** - Create/update an access policy
+8. **`acl.policies.delete`** - Remove a policy
+9. **`acl.apply`** - Apply current ACL configuration to WireGuard
+
+### Architecture for RPC-Based ACL
+
+```
+┌─────────────────────────────────────────────┐
+│  Node A (any node in mesh)                  │
+│  ┌───────────────────────────────────────┐  │
+│  │  wgmesh acl group add prod node1 node2│  │
+│  │  (CLI command)                         │  │
+│  └───────────────────────────────────────┘  │
+│         │                                    │
+│         ▼                                    │
+│  ┌───────────────────────────────────────┐  │
+│  │  RPC Client                            │  │
+│  │  - Connect to local RPC socket         │  │
+│  │  - Send acl.groups.set request         │  │
+│  └───────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
+         │
+         ▼
+┌─────────────────────────────────────────────┐
+│  Node B, C, D, ... (all nodes)              │
+│  ┌───────────────────────────────────────┐  │
+│  │  RPC Server                            │  │
+│  │  - Receive acl.groups.set              │  │
+│  │  - Update local ACL state              │  │
+│  │  - Propagate to other peers (gossip)   │  │
+│  └───────────────────────────────────────┘  │
+│         │                                    │
+│         ▼                                    │
+│  ┌───────────────────────────────────────┐  │
+│  │  ACL Engine                            │  │
+│  │  - Evaluate policies                   │  │
+│  │  - Reconfigure WireGuard peers         │  │
+│  │  - Update AllowedIPs                   │  │
+│  └───────────────────────────────────────┘  │
+└─────────────────────────────────────────────┘
+```
+
+### Data Synchronization
+
+To ensure ACL consistency across all nodes:
+
+1. **State storage**: Each node stores ACL configuration locally (e.g., `/var/lib/wgmesh/acl-state.json`)
+2. **Gossip protocol**: Use existing gossip layer (`pkg/discovery/gossip.go`) to propagate ACL changes
+3. **Versioning**: Include version numbers/timestamps to resolve conflicts
+4. **Consensus**: Use last-write-wins or implement a simple consensus mechanism
+
+### Example Usage (RPC-Based Approach)
+
+```bash
+# On any node in the mesh
+wgmesh acl group create prod --members node1,node2
+wgmesh acl group create db --members node3
+
+wgmesh acl policy add prod-to-db \
+  --from prod \
+  --to db \
+  --allow-mesh \
+  --allow-networks
+
+# Changes propagate to all nodes via RPC + gossip
+# Each node reconfigures its WireGuard peers
+```
+
+### Advantages of RPC Approach
+
+1. **Distributed management**: Any authorized node can manage ACLs
+2. **Real-time updates**: Changes apply immediately without SSH deployment
+3. **No central controller**: Doesn't require operator workstation to be online
+4. **Consistent with decentralized mode**: Uses same RPC infrastructure
+5. **Better for dynamic environments**: Cloud auto-scaling, ephemeral nodes
+
+### Disadvantages of RPC Approach
+
+1. **Complexity**: Requires distributed state management and synchronization
+2. **Authentication**: Need to secure RPC calls (who can modify ACLs?)
+3. **Conflict resolution**: Multiple simultaneous changes need coordination
+4. **Testing**: More complex to test distributed state consistency
+5. **Debugging**: Harder to troubleshoot when state diverges across nodes
+
+### Hybrid Approach
+
+A practical middle ground:
+
+1. **Initial deployment**: Use centralized SSH deployment (simpler, more reliable)
+2. **Runtime updates**: Add RPC methods for runtime ACL modifications
+3. **State of record**: Centralized state file remains authoritative
+4. **Periodic sync**: Operator can push canonical state via SSH deployment
+
+This combines the simplicity of centralized management with the flexibility of distributed updates.
+
+### Implementation Considerations
+
+If pursuing RPC-based ACL:
+
+1. **Security**: 
+   - Authenticate RPC calls (verify caller is authorized)
+   - Encrypt RPC payloads (use existing crypto layer)
+   - Audit log all ACL changes
+
+2. **State management**:
+   - Use CRDTs or vector clocks for conflict-free state merging
+   - Implement rollback mechanism for bad ACL changes
+   - Version all ACL configurations
+
+3. **Backward compatibility**:
+   - RPC-based ACL should coexist with SSH deployment
+   - Allow reading centralized state file and converting to distributed state
+   - Support migration path from centralized to distributed ACL
+
+4. **New files needed**:
+   - `pkg/acl/state.go` - ACL state management
+   - `pkg/acl/sync.go` - State synchronization via gossip
+   - `pkg/rpc/acl_handlers.go` - RPC handlers for ACL operations
+   - Add RPC methods to `pkg/rpc/server.go`
+
+### Recommendation
+
+**For MVP**: Implement the centralized SSH deployment approach (original proposal)
+- Simpler to implement and test
+- More predictable and debuggable
+- Sufficient for most use cases
+- Can add RPC-based management later as enhancement
+
+**For future**: Consider RPC-based approach as Phase 2
+- Builds on working centralized implementation
+- Adds distributed management capabilities
+- Better supports dynamic cloud environments
+- Requires careful design of state synchronization
+
 ## Notes
 
 - This feature does NOT require changes to the decentralized mode (daemon), only centralized mode
@@ -439,3 +600,4 @@ Add validation on:
 - Policies are statically evaluated at deployment time, not dynamically at runtime
 - Initial implementation focuses on manual JSON editing; CLI commands can be added later
 - Groups can overlap (a node can be in multiple groups) - policies are evaluated independently
+- **RPC-based distributed ACL** is an alternative approach worth considering for future enhancements
