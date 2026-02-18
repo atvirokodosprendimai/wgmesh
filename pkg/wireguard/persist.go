@@ -7,6 +7,8 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
 
+// GenerateWgQuickConfig renders a wg-quick compatible configuration file for
+// the given FullConfig and optional extra routes.
 func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) string {
 	var sb strings.Builder
 
@@ -58,6 +60,8 @@ func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) string {
 	return sb.String()
 }
 
+// ApplyPersistentConfig writes a wg-quick configuration file to the remote
+// host and (re)starts the wg-quick systemd service.
 func ApplyPersistentConfig(client *ssh.Client, iface string, config *FullConfig, routes []ssh.RouteEntry) error {
 	configContent := GenerateWgQuickConfig(config, routes)
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", iface)
@@ -81,6 +85,9 @@ func ApplyPersistentConfig(client *ssh.Client, iface string, config *FullConfig,
 	return nil
 }
 
+// UpdatePersistentConfig applies a diff to a running WireGuard interface and
+// updates the persistent wg-quick config file. Falls back to a full config
+// apply when interface parameters change.
 func UpdatePersistentConfig(client *ssh.Client, iface string, config *FullConfig, routes []ssh.RouteEntry, diff *ConfigDiff) error {
 	if diff.InterfaceChanged || !canUseOnlineUpdate(diff) {
 		fmt.Printf("  Significant changes detected, applying full persistent config\n")
@@ -110,6 +117,8 @@ func canUseOnlineUpdate(diff *ConfigDiff) bool {
 	return !diff.InterfaceChanged
 }
 
+// RemovePersistentConfig stops the wg-quick service and deletes the
+// WireGuard configuration file from the remote host.
 func RemovePersistentConfig(client *ssh.Client, iface string) error {
 	fmt.Printf("  Stopping and disabling wg-quick@%s service\n", iface)
 

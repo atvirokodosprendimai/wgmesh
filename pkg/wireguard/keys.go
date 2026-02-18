@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+// GenerateKeyPair generates a new WireGuard private/public key pair using the
+// `wg genkey` and `wg pubkey` commands.
 func GenerateKeyPair() (privateKey, publicKey string, err error) {
 	privCmd := exec.Command(wgPath, "genkey")
 	var privOut bytes.Buffer
