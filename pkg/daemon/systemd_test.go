@@ -153,3 +153,92 @@ func TestGenerateSystemdUnitWithoutGossip(t *testing.T) {
 		t.Error("Unit should not contain --gossip flag when Gossip is false")
 	}
 }
+
+func TestGenerateSystemdUnitWithNoLANDiscovery(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:              "test-secret-that-is-long-enough",
+		BinaryPath:          "/usr/local/bin/wgmesh",
+		DisableLANDiscovery: true,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--no-lan-discovery") {
+		t.Error("Unit should contain --no-lan-discovery flag when DisableLANDiscovery is true")
+	}
+}
+
+func TestGenerateSystemdUnitWithLANDiscoveryDefault(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:              "test-secret-that-is-long-enough",
+		BinaryPath:          "/usr/local/bin/wgmesh",
+		DisableLANDiscovery: false,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if strings.Contains(unit, "--no-lan-discovery") {
+		t.Error("Unit should not contain --no-lan-discovery when DisableLANDiscovery is false")
+	}
+}
+
+func TestGenerateSystemdUnitWithIntroducer(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:     "test-secret-that-is-long-enough",
+		BinaryPath: "/usr/local/bin/wgmesh",
+		Introducer: true,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--introducer") {
+		t.Error("Unit should contain --introducer flag when Introducer is true")
+	}
+}
+
+func TestGenerateSystemdUnitWithNoIPv6(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:      "test-secret-that-is-long-enough",
+		BinaryPath:  "/usr/local/bin/wgmesh",
+		DisableIPv6: true,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--no-ipv6") {
+		t.Error("Unit should contain --no-ipv6 flag when DisableIPv6 is true")
+	}
+}
+
+func TestGenerateSystemdUnitWithForceRelayAndNoPunching(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:          "test-secret-that-is-long-enough",
+		BinaryPath:      "/usr/local/bin/wgmesh",
+		ForceRelay:      true,
+		DisablePunching: true,
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--force-relay") {
+		t.Error("Unit should contain --force-relay flag when ForceRelay is true")
+	}
+	if !strings.Contains(unit, "--no-punching") {
+		t.Error("Unit should contain --no-punching flag when DisablePunching is true")
+	}
+}

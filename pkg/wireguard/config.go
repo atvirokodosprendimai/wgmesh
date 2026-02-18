@@ -20,6 +20,7 @@ type Interface struct {
 
 type Peer struct {
 	PublicKey           string
+	PresharedKey        string
 	Endpoint            string
 	AllowedIPs          []string
 	PersistentKeepalive int
@@ -64,6 +65,7 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 		}
 
 		publicKey := parts[0]
+		presharedKey := parts[1]
 		endpoint := parts[2]
 		allowedIPs := strings.Split(parts[3], ",")
 		var keepalive int
@@ -73,6 +75,7 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 
 		peer := Peer{
 			PublicKey:           publicKey,
+			PresharedKey:        presharedKey,
 			Endpoint:            endpoint,
 			AllowedIPs:          allowedIPs,
 			PersistentKeepalive: keepalive,
@@ -118,6 +121,10 @@ func (d *ConfigDiff) HasChanges() bool {
 }
 
 func peersEqual(a, b Peer) bool {
+	if a.PresharedKey != b.PresharedKey {
+		return false
+	}
+
 	if a.Endpoint != b.Endpoint {
 		return false
 	}
@@ -154,21 +161,21 @@ func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
 		if _, err := client.Run(cmd); err != nil {
 			return fmt.Errorf("failed to remove peer: %w", err)
 		}
-		fmt.Printf("    Removed peer: %s\n", pubKey[:16])
+		fmt.Printf("    Removed peer: %s\n", shortKey(pubKey))
 	}
 
 	for pubKey, peer := range diff.AddedPeers {
 		if err := addOrUpdatePeer(client, iface, pubKey, peer); err != nil {
 			return err
 		}
-		fmt.Printf("    Added peer: %s\n", pubKey[:16])
+		fmt.Printf("    Added peer: %s\n", shortKey(pubKey))
 	}
 
 	for pubKey, peer := range diff.ModifiedPeers {
 		if err := addOrUpdatePeer(client, iface, pubKey, peer); err != nil {
 			return err
 		}
-		fmt.Printf("    Updated peer: %s\n", pubKey[:16])
+		fmt.Printf("    Updated peer: %s\n", shortKey(pubKey))
 	}
 
 	return nil
@@ -176,6 +183,13 @@ func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
 
 func addOrUpdatePeer(client *ssh.Client, iface string, pubKey string, peer Peer) error {
 	cmd := fmt.Sprintf("wg set %s peer %s", iface, pubKey)
+
+	// Handle PSK if present
+	var stdinContent string
+	if peer.PresharedKey != "" && peer.PresharedKey != "(none)" {
+		cmd += " preshared-key /dev/stdin"
+		stdinContent = peer.PresharedKey + "\n"
+	}
 
 	if peer.Endpoint != "" && peer.Endpoint != "(none)" {
 		cmd += fmt.Sprintf(" endpoint %s", peer.Endpoint)
@@ -189,8 +203,15 @@ func addOrUpdatePeer(client *ssh.Client, iface string, pubKey string, peer Peer)
 		cmd += fmt.Sprintf(" persistent-keepalive %d", peer.PersistentKeepalive)
 	}
 
-	if _, err := client.Run(cmd); err != nil {
-		return fmt.Errorf("failed to configure peer: %w", err)
+	// Execute command with PSK via stdin if needed
+	if stdinContent != "" {
+		if _, err := client.RunWithStdin(cmd, stdinContent); err != nil {
+			return fmt.Errorf("failed to configure peer: %w", err)
+		}
+	} else {
+		if _, err := client.Run(cmd); err != nil {
+			return fmt.Errorf("failed to configure peer: %w", err)
+		}
 	}
 
 	return nil

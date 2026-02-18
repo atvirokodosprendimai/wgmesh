@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"net"
 	"time"
 
 	"golang.org/x/crypto/hkdf"
@@ -19,6 +20,7 @@ type DerivedKeys struct {
 	NetworkID     [20]byte // DHT infohash (20 bytes for BEP 5)
 	GossipKey     [32]byte // Symmetric encryption key for peer exchange
 	MeshSubnet    [2]byte  // Deterministic /16 subnet
+	MeshPrefixV6  [8]byte  // Deterministic ULA /64 prefix (fdxx:...)
 	MulticastID   [4]byte  // Multicast group discriminator
 	PSK           [32]byte // WireGuard PresharedKey
 	GossipPort    uint16   // In-mesh gossip port
@@ -39,22 +41,30 @@ func DeriveKeys(secret string) (*DerivedKeys, error) {
 	hash := sha256.Sum256([]byte(secret))
 	copy(keys.NetworkID[:], hash[:20])
 
-	// gossip_key = HKDF(secret, salt="wgmesh-gossip-v1", 32 bytes)
+	// gossip_key = HKDF(secret, info="wgmesh-gossip-v1", 32 bytes)
 	if err := deriveHKDF(secret, "wgmesh-gossip-v1", keys.GossipKey[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive gossip key: %w", err)
 	}
 
-	// mesh_subnet = HKDF(secret, salt="wgmesh-subnet-v1", 2 bytes)
+	// mesh_subnet = HKDF(secret, info="wgmesh-subnet-v1", 2 bytes)
 	if err := deriveHKDF(secret, "wgmesh-subnet-v1", keys.MeshSubnet[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive mesh subnet: %w", err)
 	}
 
-	// multicast_id = HKDF(secret, salt="wgmesh-mcast-v1", 4 bytes)
+	// mesh_prefix_v6 = fd + HKDF(secret, info="wgmesh-ipv6-prefix-v1", 7 bytes)
+	var prefixTail [7]byte
+	if err := deriveHKDF(secret, "wgmesh-ipv6-prefix-v1", prefixTail[:]); err != nil {
+		return nil, fmt.Errorf("failed to derive mesh ipv6 prefix: %w", err)
+	}
+	keys.MeshPrefixV6[0] = 0xfd
+	copy(keys.MeshPrefixV6[1:], prefixTail[:])
+
+	// multicast_id = HKDF(secret, info="wgmesh-mcast-v1", 4 bytes)
 	if err := deriveHKDF(secret, "wgmesh-mcast-v1", keys.MulticastID[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive multicast ID: %w", err)
 	}
 
-	// psk = HKDF(secret, salt="wgmesh-wg-psk-v1", 32 bytes)
+	// psk = HKDF(secret, info="wgmesh-wg-psk-v1", 32 bytes)
 	if err := deriveHKDF(secret, "wgmesh-wg-psk-v1", keys.PSK[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive PSK: %w", err)
 	}
@@ -70,12 +80,12 @@ func DeriveKeys(secret string) (*DerivedKeys, error) {
 	rvHash := sha256.Sum256([]byte(secret + "rv"))
 	copy(keys.RendezvousID[:], rvHash[:8])
 
-	// membership_key = HKDF(secret, salt="wgmesh-membership-v1", 32 bytes)
+	// membership_key = HKDF(secret, info="wgmesh-membership-v1", 32 bytes)
 	if err := deriveHKDF(secret, "wgmesh-membership-v1", keys.MembershipKey[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive membership key: %w", err)
 	}
 
-	// epoch_seed = HKDF(secret, salt="wgmesh-epoch-v1", 32 bytes)
+	// epoch_seed = HKDF(secret, info="wgmesh-epoch-v1", 32 bytes)
 	if err := deriveHKDF(secret, "wgmesh-epoch-v1", keys.EpochSeed[:]); err != nil {
 		return nil, fmt.Errorf("failed to derive epoch seed: %w", err)
 	}
@@ -116,34 +126,66 @@ func GetCurrentAndPreviousNetworkIDs(secret string) (current, previous [20]byte,
 	return current, previous, nil
 }
 
-// DeriveMeshIP derives a deterministic mesh IP from WG public key and secret
-// mesh_ip = mesh_subnet_base + uint16(SHA256(wg_pubkey || secret)[0:2])
+// DeriveMeshIP derives a deterministic mesh IP from WG public key and secret.
+// Format: 10.<meshSubnet[0]>.<meshSubnet[1] XOR high>.<low>
+// Both subnet bytes are used. The last octet is clamped to [1,254] to avoid
+// network (.0) and broadcast (.255) addresses.
 func DeriveMeshIP(meshSubnet [2]byte, wgPubKey, secret string) string {
 	input := wgPubKey + secret
 	hash := sha256.Sum256([]byte(input))
 
-	// Use first two bytes for IP suffix
-	suffix := binary.BigEndian.Uint16(hash[:2])
+	// Use first two bytes of hash for host part
+	highByte := hash[0] ^ meshSubnet[1] // mix subnet[1] into third octet
+	lowByte := hash[1]
 
-	// Ensure we don't use .0 or .255
-	if suffix == 0 {
-		suffix = 1
-	} else if suffix == 65535 {
-		suffix = 65534
+	// Clamp last octet to [1, 254] — avoid .0 (network) and .255 (broadcast)
+	if lowByte == 0 {
+		lowByte = 1
+	} else if lowByte == 255 {
+		lowByte = 254
 	}
 
-	// Build IP: 10.subnet[0].high(suffix).low(suffix)
-	// We use 10.x.y.z format where x is from meshSubnet[0], y.z are from suffix
 	return fmt.Sprintf("10.%d.%d.%d",
 		meshSubnet[0],
-		(suffix>>8)&0xFF,
-		suffix&0xFF,
+		highByte,
+		lowByte,
 	)
 }
 
-// deriveHKDF derives key material using HKDF-SHA256
-func deriveHKDF(secret, salt string, output []byte) error {
-	reader := hkdf.New(sha256.New, []byte(secret), []byte(salt), nil)
+// DeriveMeshIPv6 derives a deterministic ULA IPv6 address from WG public key and secret.
+// Prefix is a mesh-scoped /64, interface ID is a stable SLAAC-like value from pubkey+secret hash.
+func DeriveMeshIPv6(meshPrefixV6 [8]byte, wgPubKey, secret string) string {
+	input := wgPubKey + "|" + secret + "|ipv6"
+	hash := sha256.Sum256([]byte(input))
+
+	var iid [8]byte
+	copy(iid[:], hash[:8])
+	// SLAAC-like IID flags: locally administered unicast
+	iid[0] = (iid[0] | 0x02) & 0xfe
+
+	allZero := true
+	for _, b := range iid {
+		if b != 0 {
+			allZero = false
+			break
+		}
+	}
+	if allZero {
+		iid[7] = 1
+	}
+
+	ip := make(net.IP, net.IPv6len)
+	copy(ip[:8], meshPrefixV6[:])
+	copy(ip[8:], iid[:])
+
+	return ip.String()
+}
+
+// deriveHKDF derives key material using HKDF-SHA256.
+// The info parameter provides domain separation (e.g. "wgmesh-gossip-v1").
+// Salt is nil (HKDF uses a zero-filled salt internally per RFC 5869).
+func deriveHKDF(secret, info string, output []byte) error {
+	reader := hkdf.New(sha256.New, []byte(secret), nil, []byte(info))
 	_, err := io.ReadFull(reader, output)
 	return err
 }

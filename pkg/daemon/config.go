@@ -26,17 +26,27 @@ type Config struct {
 	LogLevel        string
 	Privacy         bool
 	Gossip          bool
+	LANDiscovery    bool
+	Introducer      bool
+	DisableIPv6     bool
+	ForceRelay      bool
+	DisablePunching bool
 }
 
 // DaemonOpts holds options for the daemon
 type DaemonOpts struct {
-	Secret          string
-	InterfaceName   string
-	WGListenPort    int
-	AdvertiseRoutes []string
-	LogLevel        string
-	Privacy         bool
-	Gossip          bool
+	Secret              string
+	InterfaceName       string
+	WGListenPort        int
+	AdvertiseRoutes     []string
+	LogLevel            string
+	Privacy             bool
+	Gossip              bool
+	DisableLANDiscovery bool
+	Introducer          bool
+	DisableIPv6         bool
+	ForceRelay          bool
+	DisablePunching     bool
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -75,6 +85,11 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		LogLevel:        logLevel,
 		Privacy:         opts.Privacy,
 		Gossip:          opts.Gossip,
+		LANDiscovery:    !opts.DisableLANDiscovery,
+		Introducer:      opts.Introducer,
+		DisableIPv6:     opts.DisableIPv6,
+		ForceRelay:      opts.ForceRelay,
+		DisablePunching: opts.DisablePunching,
 	}, nil
 }
 
