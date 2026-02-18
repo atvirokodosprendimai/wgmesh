@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -257,6 +258,12 @@ func TestCreateInterface_Darwin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			oldWireguardGoBinPath := wireguardGoBinPath
+			wireguardGoBinPath = "wireguard-go"
+			defer func() {
+				wireguardGoBinPath = oldWireguardGoBinPath
+			}()
+
 			mock := &MockCommandExecutor{
 				lookPathFunc: func(file string) (string, error) {
 					if file == "wireguard-go" {
@@ -265,7 +272,7 @@ func TestCreateInterface_Darwin(t *testing.T) {
 					return "", errors.New("command not found")
 				},
 				commandFunc: func(name string, args ...string) Command {
-					if name == "wireguard-go" && len(args) == 1 && args[0] == tt.interfaceName {
+					if filepath.Base(name) == "wireguard-go" && len(args) == 1 && args[0] == tt.interfaceName {
 						return &MockCommand{
 							startFunc: func() error {
 								return tt.wireguardGoErr

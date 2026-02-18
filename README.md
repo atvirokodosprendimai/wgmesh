@@ -143,6 +143,28 @@ Common `join` options:
   --gossip
 ```
 
+**Query Running Daemon:**
+
+Once the daemon is running, you can query it for peer information:
+
+```bash
+# List all active peers
+./wgmesh peers list
+
+# Show peer counts
+./wgmesh peers count
+
+# Get specific peer details
+./wgmesh peers get <pubkey>
+```
+
+The RPC socket is automatically created at:
+- `/var/run/wgmesh.sock` (if running as root)
+- `$XDG_RUNTIME_DIR/wgmesh.sock` (if running as non-root)
+- `/tmp/wgmesh.sock` (fallback)
+
+You can override the socket path with `--socket-path` flag on `join` or `WGMESH_SOCKET` environment variable.
+
 You can also test direct encrypted peer exchange between two nodes:
 
 ```bash
