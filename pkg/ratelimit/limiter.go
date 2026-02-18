@@ -51,6 +51,8 @@ func New(rate, burst float64, maxIPs int) *IPRateLimiter {
 	}
 	if burst <= 0 {
 		burst = DefaultBurst
+	} else if burst < 1 {
+		burst = 1
 	}
 	if maxIPs <= 0 {
 		maxIPs = DefaultMaxIPs
