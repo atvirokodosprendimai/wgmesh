@@ -463,26 +463,22 @@ jobs:
             echo "Goose finished with exit code: $GOOSE_EXIT"
 
             # ── Check for non-recoverable errors (fail immediately) ──
-            # IMPORTANT: Goose reads and writes workflow YAML files, so its
-            # output will contain any grep patterns we define here as literal
-            # text. To avoid self-referential false positives, we filter out
-            # lines that look like source code (containing grep, if, echo,
-            # comments, or indented code) before checking for real errors.
-            AUTH_ERRORS=$(grep -iE "401 unauthorized|authentication failed|invalid.{0,3}api.{0,3}key|api key is invalid" /tmp/goose-output.log \
-              | grep -ivE '^\s*(#|if |grep |echo |//|--|\*|.*\bgrep\b|.*\.yml|.*\.yaml|.*\.sh)' \
-              || true)
-            if [ -n "$AUTH_ERRORS" ]; then
+            # IMPORTANT: Goose reads and writes workflow files, so its output
+            # contains our grep patterns as literal text (with line numbers
+            # like "480: grep -i ..."). We strip ALL lines that contain
+            # "grep" or look like source code to avoid self-referential
+            # false positives.
+            CLEAN_LOG=$(grep -vE 'grep|\.yml|\.yaml|\.sh|^\s*#|^\s*//|^\d+:' /tmp/goose-output.log || true)
+
+            if echo "$CLEAN_LOG" | grep -qiE "401 unauthorized|authentication failed|invalid.{0,3}api.{0,3}key|api key is invalid"; then
               echo "::error::Goose encountered authentication errors (non-recoverable)"
-              echo "$AUTH_ERRORS" | tail -5
+              echo "$CLEAN_LOG" | grep -iE "401|authentication|api.key" | tail -5
               exit 1
             fi
 
-            CLI_ERRORS=$(grep -i "unexpected argument" /tmp/goose-output.log \
-              | grep -ivE '^\s*(#|if |grep |echo |//|--|\*)' \
-              || true)
-            if [ -n "$CLI_ERRORS" ]; then
+            if echo "$CLEAN_LOG" | grep -qi "unexpected argument"; then
               echo "::error::Goose CLI argument error (non-recoverable)"
-              echo "$CLI_ERRORS" | tail -5
+              echo "$CLEAN_LOG" | grep -i "unexpected argument" | tail -5
               exit 1
             fi
 
