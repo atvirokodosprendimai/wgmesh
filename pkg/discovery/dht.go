@@ -104,8 +104,11 @@ func (n *LocalNode) SetEndpoint(ep string) {
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance
-func NewDHTDiscovery(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) (*DHTDiscovery, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+// NewDHTDiscovery creates a new DHT discovery instance.
+// parentCtx should be the daemon's context so that discovery goroutines are
+// cancelled when the daemon shuts down.
+func NewDHTDiscovery(parentCtx context.Context, config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) (*DHTDiscovery, error) {
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	d := &DHTDiscovery{
 		config:            config,
