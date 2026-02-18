@@ -166,6 +166,30 @@ func TestReloadConfig_EmptyLogLevelPreservesExisting(t *testing.T) {
 	}
 }
 
+func TestReloadConfig_NilAdvertiseRoutesPreservesExisting(t *testing.T) {
+	t.Parallel()
+	d := newMinimalDaemon(t)
+	existing := []string{"10.0.0.0/8", "172.16.0.0/12"}
+	d.config.AdvertiseRoutes = existing
+
+	// Reload file contains only log-level — AdvertiseRoutes should be nil and
+	// must NOT overwrite existing routes.
+	path := writeTempReload(t, "log-level=debug\n")
+	opts, err := LoadReloadFile(path)
+	if err != nil {
+		t.Fatalf("LoadReloadFile: %v", err)
+	}
+	if opts.AdvertiseRoutes != nil {
+		t.Fatalf("expected nil AdvertiseRoutes from log-level-only file, got %v", opts.AdvertiseRoutes)
+	}
+	d.reloadConfig(opts)
+
+	got := d.GetAdvertiseRoutes()
+	if len(got) != len(existing) {
+		t.Errorf("AdvertiseRoutes = %v, want %v (nil in opts must not clobber existing)", got, existing)
+	}
+}
+
 // --- handleSIGHUP tests ---
 
 func TestHandleSIGHUP_MissingFileIsNoop(t *testing.T) {

@@ -1511,7 +1511,11 @@ func (d *Daemon) handleSIGHUP() {
 	path := ReloadConfigPath(d.config.InterfaceName)
 	opts, err := LoadReloadFile(path)
 	if err != nil {
-		log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes or log-level): %v", path, err)
+		if os.IsNotExist(err) {
+			log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes or log-level)", path)
+		} else {
+			log.Printf("[Reload] Failed to load reload file %s: %v", path, err)
+		}
 		return
 	}
 	d.reloadConfig(opts)
@@ -1550,7 +1554,7 @@ func (d *Daemon) reloadConfig(opts DaemonOpts) {
 		d.config.LogLevel = opts.LogLevel
 	}
 
-	if !routeSlicesEqual(d.config.AdvertiseRoutes, opts.AdvertiseRoutes) {
+	if opts.AdvertiseRoutes != nil && !routeSlicesEqual(d.config.AdvertiseRoutes, opts.AdvertiseRoutes) {
 		log.Printf("[Reload] AdvertiseRoutes: %v → %v", d.config.AdvertiseRoutes, opts.AdvertiseRoutes)
 		d.config.AdvertiseRoutes = opts.AdvertiseRoutes
 		if d.localNode != nil {
