@@ -383,13 +383,13 @@ func (r *RendezvousRegistry) UpdatePeerListWithAll(peers []*daemon.PeerInfo) err
 
 	jsonData, err := json.Marshal(update)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to marshal update: %w", err)
 	}
 
 	url := fmt.Sprintf("%s/repos/%s/issues/%d", RegistryAPI, RegistryRepo, r.issueNum)
 	req, err := http.NewRequest("PATCH", url, bytes.NewReader(jsonData))
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to create PATCH request: %w", err)
 	}
 	req.Header.Set("Accept", "application/vnd.github.v3+json")
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -398,7 +398,7 @@ func (r *RendezvousRegistry) UpdatePeerListWithAll(peers []*daemon.PeerInfo) err
 
 	resp, err := r.client.Do(req)
 	if err != nil {
-		return err
+		return fmt.Errorf("update request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
