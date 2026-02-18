@@ -770,6 +770,9 @@ func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, err
 		GetPeerCounts: d.GetRPCPeerCounts,
 		GetStatus: func() *rpc.StatusData {
 			status := d.GetRPCStatus()
+			if status == nil {
+				return nil
+			}
 			return &rpc.StatusData{
 				MeshIP:    status.MeshIP,
 				PubKey:    status.PubKey,
