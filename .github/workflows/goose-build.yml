@@ -142,10 +142,36 @@ jobs:
       # evict accumulated memories.
       # Race condition on shared Qdrant DB is mitigated by the concurrency group
       # above (cancel-in-progress: false) which serializes runs per issue.
+      - name: Decrypt mem0 database after restore
+        env:
+          MEM0_ENCRYPTION_KEY: ${{ secrets.MEM0_ENCRYPTION_KEY }}
+        run: |
+          # Only decrypt if encrypted file exists and key is set
+          if [ -f "/tmp/mem0-encrypted.tar.gz.enc" ] && [ -n "$MEM0_ENCRYPTION_KEY" ]; then
+            echo "Decrypting mem0 database..."
+            # Decrypt and extract in one pass
+            openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
+              -pass env:MEM0_ENCRYPTION_KEY \
+              -in /tmp/mem0-encrypted.tar.gz.enc | \
+              tar xzf - -C /
+            
+            if [ -d "/tmp/mem0-qdrant" ]; then
+              echo "Decrypted: $(du -sh /tmp/mem0-qdrant | cut -f1)"
+            else
+              echo "::warning::Decryption failed or produced no output"
+            fi
+          elif [ -f "/tmp/mem0-encrypted.tar.gz.enc" ]; then
+            echo "::warning::Encrypted cache found but MEM0_ENCRYPTION_KEY not set, cannot decrypt"
+          else
+            echo "::notice::No encrypted cache found (using plaintext or first run)"
+          fi
+
       - name: Restore mem0 memory cache
         uses: actions/cache/restore@v4
         with:
-          path: /tmp/mem0-qdrant
+          path: |
+            /tmp/mem0-encrypted.tar.gz.enc
+            /tmp/mem0-qdrant
           key: mem0-db-${{ github.repository }}-v1
           restore-keys: |
             mem0-db-${{ github.repository }}-
@@ -574,13 +600,41 @@ jobs:
             "$OUTCOME" \
             || echo "Memory save failed (non-fatal)"
 
+      - name: Encrypt mem0 database for caching
+        if: always()
+        env:
+          MEM0_ENCRYPTION_KEY: ${{ secrets.MEM0_ENCRYPTION_KEY }}
+        run: |
+          # Only encrypt if the database directory exists and key is set
+          if [ -d "/tmp/mem0-qdrant" ] && [ -n "$MEM0_ENCRYPTION_KEY" ]; then
+            echo "Encrypting mem0 database..."
+            # Create tarball and encrypt in one pass
+            tar czf - /tmp/mem0-qdrant | \
+              openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
+              -pass env:MEM0_ENCRYPTION_KEY \
+              -out /tmp/mem0-encrypted.tar.gz.enc
+            
+            # Verify encrypted file was created
+            if [ -f "/tmp/mem0-encrypted.tar.gz.enc" ]; then
+              echo "Encrypted: $(du -h /tmp/mem0-encrypted.tar.gz.enc | cut -f1)"
+              # Remove plaintext to ensure only encrypted version is cached
+              rm -rf /tmp/mem0-qdrant
+            else
+              echo "::warning::Encryption failed, will cache plaintext as fallback"
+            fi
+          else
+            echo "::notice::Skipping encryption (database not found or key not set)"
+          fi
+
       # Save mem0 cache unconditionally so memories persist even on failure.
       # This pairs with the cache/restore step earlier in the job.
       - name: Save mem0 memory cache
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: /tmp/mem0-qdrant
+          path: |
+            /tmp/mem0-encrypted.tar.gz.enc
+            /tmp/mem0-qdrant
           key: mem0-db-${{ github.repository }}-v1
 
       # ── Validate implementation ───────────────────────
