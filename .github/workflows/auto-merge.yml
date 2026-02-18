@@ -94,12 +94,6 @@ jobs:
                 });
                 const hasApproval = reviews.some(r => r.state === 'APPROVED');
 
-                // Check if auto-merge is already enabled
-                if (pr.auto_merge) {
-                  core.info(`PR #${prNumber}: auto-merge already enabled, skipping`);
-                  continue;
-                }
-
                 // Verify ALL check runs passed
                 const { data: checkRuns } = await github.rest.checks.listForRef({
                   owner: context.repo.owner,
@@ -150,21 +144,18 @@ jobs:
                   core.info(`PR #${prNumber}: approved`);
                 }
 
-                // Enable auto-merge (squash)
+                // Squash-merge directly — GitHub rejects enablePullRequestAutoMerge
+                // when the PR is already in 'clean' (immediately mergeable) state.
                 try {
-                  await github.graphql(`
-                    mutation($prId: ID!) {
-                      enablePullRequestAutoMerge(input: {
-                        pullRequestId: $prId,
-                        mergeMethod: SQUASH
-                      }) {
-                        pullRequest { number }
-                      }
-                    }
-                  `, { prId: pr.node_id });
-                  core.info(`PR #${prNumber}: auto-merge enabled`);
+                  await github.rest.pulls.merge({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: prNumber,
+                    merge_method: 'squash',
+                  });
+                  core.info(`PR #${prNumber}: squash-merged`);
                 } catch (mergeErr) {
-                  core.warning(`PR #${prNumber}: failed to enable auto-merge: ${mergeErr.message}`);
+                  core.warning(`PR #${prNumber}: failed to merge: ${mergeErr.message}`);
                 }
 
               } catch (err) {
