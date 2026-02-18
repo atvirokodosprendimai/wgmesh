@@ -21,7 +21,7 @@ variable "vm_count" {
 
 variable "server_type" {
   type    = string
-  default = "cpx22" # AMD EPYC, 2 vCPU, 4GB, x86_64
+  default = "ccx13" # Dedicated AMD EPYC, 2 vCPU, 8GB - better availability
 }
 
 variable "image" {
