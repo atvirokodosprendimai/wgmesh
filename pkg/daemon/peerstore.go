@@ -121,8 +121,8 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 		if !exists {
 			// Reject new peers when the store is at capacity.
 			if len(ps.peers) >= DefaultMaxPeers {
-				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s via %s",
-					DefaultMaxPeers, info.WGPubKey, discoveryMethod)
+				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
+					DefaultMaxPeers, shortKey(info.WGPubKey), discoveryMethod)
 				return
 			}
 			// New peer
