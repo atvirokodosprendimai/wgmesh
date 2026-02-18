@@ -37,7 +37,12 @@ provision_infra() {
     fi
 
     # Try different server types until one works
-    local server_types=("cpx22" "cpx32" "cx22" "cx32" "ccx13" "ccx23")
+    # Valid Hetzner cloud server types (as of 2025):
+    # - cpx22, cpx32, cpx42, cpx52 (AMD shared vCPU)
+    # - cax11, cax21, cax31, cax41 (ARM64 Ampere)
+    # - cx22, cx32, cx42, cx52 (Intel/AMD cost-optimized Gen 3)
+    # - ccx13, ccx23, ccx33, ccx43, ccx53 (AMD dedicated vCPU)
+    local server_types=("cpx22" "cpx32" "cax11" "cax21" "cx22" "cx32" "ccx13" "ccx23")
     local provisioned=false
 
     for server_type in "${server_types[@]}"; do
@@ -191,7 +196,7 @@ provision_vms() {
 
         local created=false
         # Try different server types and locations
-        local server_types=("$VM_TYPE" "cpx32" "cx22" "cx32" "ccx13" "ccx23")
+        local server_types=("$VM_TYPE" "cpx32" "cax11" "cax21" "cx22" "cx32" "ccx13" "ccx23")
         for try_type in "${server_types[@]}"; do
             for try_loc in "$loc" "${locations[@]}"; do
                 if hcloud server create \
