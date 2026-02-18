@@ -321,22 +321,34 @@ record_test() {
 }
 
 # Run a test function, record timing and result.
+# Output streams in real-time to stdout AND is captured for the record.
 # Usage: run_test <id> <name> <function> [args...]
 run_test() {
     local id="$1" name="$2" func="$3"; shift 3
-    log_test "--- $id: $name ---"
-    local start rc notes=""
-    start=$(date +%s)
+    local total="${TOTAL_TESTS_IN_TIER:-?}"
+    local seq=$(( TESTS_PASSED + TESTS_FAILED + TESTS_SKIPPED + 1 ))
 
+    echo ""
+    log_test "=== [$seq/$total] $id: $name ==="
+
+    local start rc tmpfile
+    start=$(date +%s)
+    tmpfile=$(mktemp)
+
+    # Stream output in real-time while also capturing it
     set +e
-    output=$("$func" "$@" 2>&1)
-    rc=$?
+    "$func" "$@" 2>&1 | tee "$tmpfile"
+    rc=${PIPESTATUS[0]}
     set -e
+
+    local output
+    output=$(cat "$tmpfile")
+    rm -f "$tmpfile"
 
     local duration=$(( $(date +%s) - start ))
 
     if [ $rc -eq 0 ]; then
-        record_test "$id" "$name" "PASS" "$duration" "$output"
+        record_test "$id" "$name" "PASS" "$duration" ""
         log_test "${GREEN}PASS${NC} $id: $name (${duration}s)"
     elif [ $rc -eq 2 ]; then
         record_test "$id" "$name" "SKIP" "$duration" "$output"
@@ -344,8 +356,10 @@ run_test() {
     else
         record_test "$id" "$name" "FAIL" "$duration" "$output"
         log_test "${RED}FAIL${NC} $id: $name (${duration}s)"
-        echo "$output" | tail -10
     fi
+
+    # Running tally after each test
+    log_test "  Progress: ${GREEN}${TESTS_PASSED} passed${NC}, ${RED}${TESTS_FAILED} failed${NC}, ${YELLOW}${TESTS_SKIPPED} skipped${NC} of $total"
 }
 
 # Print test summary table.
@@ -374,11 +388,13 @@ print_summary() {
 }
 
 # Output results as GitHub Actions job summary (markdown).
+# Writes to both GITHUB_STEP_SUMMARY and a local file for artifact upload.
 print_github_summary() {
     local out="${GITHUB_STEP_SUMMARY:-/dev/null}"
-    {
-        echo "## wgmesh Integration Test Results"
-        echo ""
+    local local_summary="${LOG_DIR}/tier-summary.md"
+    mkdir -p "$(dirname "$local_summary")"
+
+    _emit_summary() {
         echo "| ID | Name | Result | Duration | Notes |"
         echo "|---|---|---|---|---|"
         for entry in "${TEST_RESULTS[@]}"; do
@@ -393,7 +409,17 @@ print_github_summary() {
         done
         echo ""
         echo "**Total: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed, ${TESTS_SKIPPED} skipped**"
+    }
+
+    # Write to GitHub step summary
+    {
+        echo "## wgmesh Integration Test Results"
+        echo ""
+        _emit_summary
     } >> "$out"
+
+    # Write to local file (picked up by tier summary step)
+    _emit_summary > "$local_summary"
 }
 
 # Exit with appropriate code.
