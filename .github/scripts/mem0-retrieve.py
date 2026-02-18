@@ -8,7 +8,6 @@ Queries mem0 for past learnings related to the issue, common Go build
 errors, and implementation patterns. Writes formatted context to output_file.
 """
 
-import json
 import os
 import sys
 
@@ -21,6 +20,10 @@ except ImportError:
         with open(sys.argv[2], "w") as f:
             f.write("")
     sys.exit(0)
+
+# Model for mem0 LLM memory extraction — configurable via env var.
+# Defaults to a small/cheap model suitable for memory summarization.
+MEM0_MODEL = os.environ.get("MEM0_MODEL", "anthropic/claude-sonnet-4-20250514")
 
 
 def get_mem0_config():
@@ -49,7 +52,7 @@ def get_mem0_config():
         config["llm"] = {
             "provider": "litellm",
             "config": {
-                "model": "anthropic/claude-sonnet-4-20250514",
+                "model": MEM0_MODEL,
                 "api_key": api_key,
                 "api_base": api_base,
                 "temperature": 0.1,
@@ -65,17 +68,22 @@ def retrieve_memories(issue_number: str) -> list[str]:
     try:
         config = get_mem0_config()
         memory = Memory.from_config(config)
+    except ImportError as e:
+        print(f"mem0 dependency missing: {e}")
+        return []
+    except FileNotFoundError as e:
+        print(f"mem0 database not found (first run?): {e}")
+        return []
     except Exception as e:
-        print(f"Failed to initialize mem0: {e}")
+        print(f"WARNING: Failed to initialize mem0 ({type(e).__name__}): {e}")
         return []
 
     memories = []
+    # Issue-specific query first, then broader patterns
     queries = [
-        f"issue #{issue_number}",
-        "go build errors and fixes in wgmesh",
-        "goose implementation patterns that worked",
-        "common mistakes when implementing wgmesh features",
-        "type names and struct fields in wgmesh packages",
+        f"issue #{issue_number} implementation",
+        "go build undefined type errors in wgmesh",
+        "successful goose implementation patterns for wgmesh",
     ]
 
     for query in queries:
@@ -97,7 +105,7 @@ def retrieve_memories(issue_number: str) -> list[str]:
                 if text and text not in memories:
                     memories.append(text)
         except Exception as e:
-            print(f"mem0 search failed for '{query}': {e}")
+            print(f"mem0 search failed for '{query}' ({type(e).__name__}): {e}")
             continue
 
     return memories

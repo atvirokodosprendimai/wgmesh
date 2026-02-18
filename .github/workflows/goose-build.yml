@@ -126,19 +126,29 @@ jobs:
 
       - name: Install mem0 dependencies
         run: |
-          pip install --quiet mem0ai litellm sentence-transformers 2>&1 | tail -5
+          # Pin versions to prevent supply-chain attacks and ensure reproducible builds
+          pip install --quiet \
+            'mem0ai==1.0.4' \
+            'litellm==1.81.13' \
+            'sentence-transformers==5.2.3' \
+            2>&1 || echo "::warning::mem0 pip install failed (non-fatal, memory features disabled)"
           echo "mem0 dependencies installed"
 
+      # Restore mem0 vector DB cache.
+      # NOTE: We use cache/restore here and cache/save at end of job (if: always())
+      # because actions/cache@v4 does NOT support save-always. This ensures memories
+      # are persisted even when the job fails.
+      # The cache key is stable (not tied to go.sum) so dependency updates don't
+      # evict accumulated memories.
+      # Race condition on shared Qdrant DB is mitigated by the concurrency group
+      # above (cancel-in-progress: false) which serializes runs per issue.
       - name: Restore mem0 memory cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            /tmp/mem0-qdrant
-            ~/.mem0
-          key: mem0-db-${{ github.repository }}-${{ hashFiles('go.sum') }}
+          path: /tmp/mem0-qdrant
+          key: mem0-db-${{ github.repository }}-v1
           restore-keys: |
             mem0-db-${{ github.repository }}-
-          save-always: true
 
       - name: Restore HuggingFace model cache
         uses: actions/cache@v4
@@ -541,16 +551,15 @@ jobs:
       - name: Save memories from this run
         if: always()
         run: |
-          # Determine outcome based on whether Goose produced changes
+          # Determine outcome: success requires changes AND passing build+test+vet
           if git diff --quiet && git diff --cached --quiet; then
             OUTCOME="failure"
+            echo "No code changes produced"
+          elif go build ./... 2>/dev/null && go test ./... 2>/dev/null && go vet ./... 2>/dev/null; then
+            OUTCOME="success"
           else
-            # Quick check: does the code compile?
-            if go build ./... 2>/dev/null; then
-              OUTCOME="success"
-            else
-              OUTCOME="failure"
-            fi
+            OUTCOME="failure"
+            echo "Code changes present but build/test/vet failed"
           fi
           echo "Run outcome: $OUTCOME"
 
@@ -559,6 +568,15 @@ jobs:
             /tmp/goose-output.log \
             "$OUTCOME" \
             || echo "Memory save failed (non-fatal)"
+
+      # Save mem0 cache unconditionally so memories persist even on failure.
+      # This pairs with the cache/restore step earlier in the job.
+      - name: Save mem0 memory cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/mem0-qdrant
+          key: mem0-db-${{ github.repository }}-v1
 
       # ── Validate implementation ───────────────────────
       - name: Validate implementation

@@ -7,6 +7,8 @@ Usage:
 Parses the Goose output log, extracts key learnings (errors encountered,
 patterns that worked, types discovered), and stores them in mem0 for
 future runs to benefit from.
+
+All text is sanitized before storage to prevent leaking secrets.
 """
 
 import os
@@ -18,6 +20,31 @@ try:
 except ImportError:
     print("mem0 not installed, skipping memory save")
     sys.exit(0)
+
+# Model for mem0 LLM memory extraction — configurable via env var.
+MEM0_MODEL = os.environ.get("MEM0_MODEL", "anthropic/claude-sonnet-4-20250514")
+
+# Patterns that look like secrets — stripped before storing memories.
+_SECRET_PATTERNS = [
+    re.compile(r"sk-[A-Za-z0-9_-]{20,}"),          # OpenAI keys
+    re.compile(r"m0-[A-Za-z0-9_-]{20,}"),           # mem0 keys
+    re.compile(r"ghp_[A-Za-z0-9]{36,}"),             # GitHub PATs
+    re.compile(r"ghs_[A-Za-z0-9]{36,}"),             # GitHub App tokens
+    re.compile(r"github_pat_[A-Za-z0-9_]{20,}"),     # Fine-grained PATs
+    re.compile(r"Bearer\s+[A-Za-z0-9._-]{20,}"),     # Bearer tokens
+    re.compile(r"https?://[^@\s]+:[^@\s]+@\S+"),     # URLs with credentials
+    re.compile(r"ANTHROPIC_API_KEY=\S+"),             # Env var leaks
+    re.compile(r"OPENAI_API_KEY=\S+"),
+    re.compile(r"PUSH_TOKEN=\S+"),
+    re.compile(r"GITHUB_TOKEN=\S+"),
+]
+
+
+def sanitize_text(text: str) -> str:
+    """Remove potential secrets and sensitive data from text."""
+    for pattern in _SECRET_PATTERNS:
+        text = pattern.sub("[REDACTED]", text)
+    return text
 
 
 def get_mem0_config():
@@ -44,7 +71,7 @@ def get_mem0_config():
         config["llm"] = {
             "provider": "litellm",
             "config": {
-                "model": "anthropic/claude-sonnet-4-20250514",
+                "model": MEM0_MODEL,
                 "api_key": api_key,
                 "api_base": api_base,
                 "temperature": 0.1,
@@ -59,12 +86,12 @@ def extract_build_errors(log_content: str) -> list[str]:
     """Extract go build/test/vet error patterns from log."""
     errors = []
 
-    # Go build errors: "./pkg/foo/bar.go:42:5: undefined: SomeType"
+    # Go build errors: any .go file with line:col: message
     build_errors = re.findall(
-        r"\./(pkg/\S+\.go:\d+:\d+: .+)", log_content
+        r"(\S+\.go:\d+:\d+: .+)", log_content
     )
     for err in build_errors[:10]:  # cap at 10
-        errors.append(f"Build error: {err}")
+        errors.append(f"Build error: {sanitize_text(err)}")
 
     # Go test failures: "--- FAIL: TestFoo (0.00s)"
     test_failures = re.findall(r"--- FAIL: (\S+ \(.+?\))", log_content)
@@ -74,7 +101,7 @@ def extract_build_errors(log_content: str) -> list[str]:
     # Go vet issues
     vet_issues = re.findall(r"(vet: .+)", log_content)
     for issue in vet_issues[:5]:
-        errors.append(f"Vet issue: {issue}")
+        errors.append(f"Vet issue: {sanitize_text(issue)}")
 
     return errors
 
@@ -83,9 +110,9 @@ def extract_success_patterns(log_content: str) -> list[str]:
     """Extract patterns from successful runs."""
     patterns = []
 
-    # Files that were modified
+    # Files that were modified — match any .go file path
     modified_files = re.findall(
-        r"(?:create|modify|edit|write|update)\w*\s+(pkg/\S+\.go)",
+        r"(?:create|modify|edit|write|update)\w*\s+(\S+\.go)\b",
         log_content,
         re.IGNORECASE,
     )
@@ -95,10 +122,11 @@ def extract_success_patterns(log_content: str) -> list[str]:
             f"Modified files: {', '.join(unique)}"
         )
 
-    # Types/functions referenced
+    # Type/function declarations only (lines starting with keyword)
     type_refs = re.findall(
-        r"(?:type|func|struct)\s+(\w+)",
+        r"^(?:type|func)\s+([A-Z]\w+)",
         log_content,
+        re.MULTILINE,
     )
     if type_refs:
         unique = list(dict.fromkeys(type_refs))[:15]
@@ -120,7 +148,7 @@ def build_memories(
     if outcome == "failure":
         errors = extract_build_errors(log_content)
         if errors:
-            error_text = "; ".join(errors[:5])
+            error_text = sanitize_text("; ".join(errors[:5]))
             memories.append({
                 "messages": [
                     {
@@ -149,7 +177,7 @@ def build_memories(
     elif outcome == "success":
         patterns = extract_success_patterns(log_content)
         if patterns:
-            pattern_text = "; ".join(patterns)
+            pattern_text = sanitize_text("; ".join(patterns))
             memories.append({
                 "messages": [
                     {
@@ -175,9 +203,12 @@ def build_memories(
                 },
             })
 
-    # Always save a run summary
+    # Always save a run summary — count only lines containing ": error"
+    # or "Error:" to avoid false positives from variable names/docs.
     log_size = len(log_content)
-    error_count = log_content.lower().count("error")
+    error_count = len(re.findall(
+        r"(?::\s*error\b|Error:)", log_content
+    ))
     memories.append({
         "messages": [
             {
@@ -235,7 +266,7 @@ def main():
         config = get_mem0_config()
         memory = Memory.from_config(config)
     except Exception as e:
-        print(f"Failed to initialize mem0: {e}")
+        print(f"WARNING: Failed to initialize mem0 ({type(e).__name__}): {e}")
         sys.exit(0)  # non-fatal
 
     # Build and save memories
@@ -251,7 +282,7 @@ def main():
             )
             saved += 1
         except Exception as e:
-            print(f"Failed to save memory: {e}")
+            print(f"Failed to save memory ({type(e).__name__}): {e}")
 
     print(f"Saved {saved}/{len(entries)} memories for issue #{issue_number}")
 
