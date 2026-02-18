@@ -7,17 +7,22 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
 
+// Config represents a complete WireGuard interface configuration, including
+// the interface settings and all configured peers.
 type Config struct {
 	Interface Interface
 	Peers     map[string]Peer
 }
 
+// Interface holds the WireGuard interface parameters parsed from `wg show dump`.
 type Interface struct {
 	PrivateKey string
 	Address    string
 	ListenPort int
 }
 
+// Peer holds the per-peer WireGuard parameters, including optional PSK and
+// endpoint fields that may be "(none)" when not configured.
 type Peer struct {
 	PublicKey           string
 	PresharedKey        string
@@ -26,13 +31,21 @@ type Peer struct {
 	PersistentKeepalive int
 }
 
+// ConfigDiff describes the changes needed to bring a current WireGuard config
+// in line with a desired config.
 type ConfigDiff struct {
+	// InterfaceChanged is true when the listen port differs between current and desired.
 	InterfaceChanged bool
-	AddedPeers       map[string]Peer
-	RemovedPeers     []string
-	ModifiedPeers    map[string]Peer
+	// AddedPeers contains peers present in desired but absent in current.
+	AddedPeers map[string]Peer
+	// RemovedPeers lists public keys of peers present in current but absent in desired.
+	RemovedPeers []string
+	// ModifiedPeers contains peers that exist in both but differ in at least one field.
+	ModifiedPeers map[string]Peer
 }
 
+// GetCurrentConfig retrieves the live WireGuard configuration of the given
+// interface by running `wg show <iface> dump` over the SSH client.
 func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 	output, err := client.Run(fmt.Sprintf("wg show %s dump 2>/dev/null || true", iface))
 	if err != nil {
@@ -87,6 +100,8 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 	return config, nil
 }
 
+// CalculateDiff computes the set of changes required to transition from the
+// current WireGuard configuration to the desired configuration.
 func CalculateDiff(current, desired *Config) *ConfigDiff {
 	diff := &ConfigDiff{
 		AddedPeers:    make(map[string]Peer),
@@ -116,6 +131,7 @@ func CalculateDiff(current, desired *Config) *ConfigDiff {
 	return diff
 }
 
+// HasChanges returns true if the diff contains at least one interface or peer change.
 func (d *ConfigDiff) HasChanges() bool {
 	return d.InterfaceChanged || len(d.AddedPeers) > 0 || len(d.RemovedPeers) > 0 || len(d.ModifiedPeers) > 0
 }
@@ -151,6 +167,8 @@ func peersEqual(a, b Peer) bool {
 	return true
 }
 
+// ApplyDiff applies the given diff to a remote WireGuard interface over SSH,
+// adding, modifying, and removing peers as described by the diff.
 func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
 	if diff.InterfaceChanged {
 		return fmt.Errorf("interface changes require full reconfig")
