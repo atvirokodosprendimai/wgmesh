@@ -21,7 +21,7 @@ variable "vm_count" {
 
 variable "server_type" {
   type    = string
-  default = "cax11" # ARM64 Ampere, 2 vCPU, 4GB
+  default = "cpx22" # AMD EPYC, 2 vCPU, 4GB, x86_64
 }
 
 variable "image" {
