@@ -1,6 +1,9 @@
 package daemon
 
 import (
+	"fmt"
+	"log"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -75,6 +78,53 @@ func TestDaemonWaitsForGoroutinesOnShutdown(t *testing.T) {
 	}
 	if !statusExited.Load() {
 		t.Error("statusLoop did not exit after context cancellation")
+	}
+}
+
+func TestParseLogLevel(t *testing.T) {
+	tests := []struct {
+		input string
+		want  slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"DEBUG", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"INFO", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"warning", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"ERROR", slog.LevelError},
+		{"", slog.LevelInfo},
+		{"invalid", slog.LevelInfo},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		name := fmt.Sprintf("input=%q", tt.input)
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			got := parseLogLevel(tt.input)
+			if got != tt.want {
+				t.Errorf("parseLogLevel(%q) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestConfigureLoggingDoesNotPanic(t *testing.T) {
+	// Save and restore global log state so test mutations don't leak.
+	origOutput := log.Writer()
+	origFlags := log.Flags()
+	origDefault := slog.Default()
+	t.Cleanup(func() {
+		log.SetOutput(origOutput)
+		log.SetFlags(origFlags)
+		slog.SetDefault(origDefault)
+	})
+
+	// Verify that configuring logging with various levels doesn't panic.
+	for _, level := range []string{"debug", "info", "warn", "error", ""} {
+		configureLogging(level)
 	}
 }
 
