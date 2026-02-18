@@ -3,20 +3,23 @@ package ssh
 import (
 	"fmt"
 	"strings"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
 
-type RouteEntry struct {
-	Network string
-	Gateway string
-}
+// RouteEntry is an alias for routes.Entry kept for backward compatibility with
+// callers in the ssh package.
+type RouteEntry = routes.Entry
 
+// GetCurrentRoutes returns the kernel routing table entries for the given
+// interface by running `ip route show dev <iface>` over the SSH client.
 func GetCurrentRoutes(client *Client, iface string) ([]RouteEntry, error) {
 	output, err := client.Run(fmt.Sprintf("ip route show dev %s", iface))
 	if err != nil {
 		return nil, err
 	}
 
-	routes := make([]RouteEntry, 0)
+	result := make([]RouteEntry, 0)
 	lines := strings.Split(strings.TrimSpace(output), "\n")
 
 	for _, line := range lines {
@@ -29,7 +32,7 @@ func GetCurrentRoutes(client *Client, iface string) ([]RouteEntry, error) {
 			continue
 		}
 
-		network := parts[0]
+		network := routes.NormalizeNetwork(parts[0])
 		gateway := ""
 
 		for i, part := range parts {
@@ -39,97 +42,21 @@ func GetCurrentRoutes(client *Client, iface string) ([]RouteEntry, error) {
 			}
 		}
 
-		// Normalize network format: add /32 for host routes if not present
-		network = normalizeNetwork(network)
-
-		routes = append(routes, RouteEntry{
+		result = append(result, RouteEntry{
 			Network: network,
 			Gateway: gateway,
 		})
 	}
 
-	return routes, nil
+	return result, nil
 }
 
+// CalculateRouteDiff delegates to routes.CalculateDiff.
 func CalculateRouteDiff(current, desired []RouteEntry) (toAdd, toRemove []RouteEntry) {
-	// Build maps for exact matching (network+gateway) and network-only lookups
-	currentMap := make(map[string]RouteEntry)       // "network|gateway" -> route
-	desiredMap := make(map[string]RouteEntry)       // "network|gateway" -> route
-	currentByNetwork := make(map[string]RouteEntry) // "network" -> route
-	desiredByNetwork := make(map[string]RouteEntry) // "network" -> route
-
-	for _, r := range current {
-		key := makeRouteKey(r.Network, r.Gateway)
-		currentMap[key] = r
-		currentByNetwork[r.Network] = r
-	}
-
-	for _, r := range desired {
-		key := makeRouteKey(r.Network, r.Gateway)
-		desiredMap[key] = r
-		desiredByNetwork[r.Network] = r
-	}
-
-	// Process desired routes
-	for key, route := range desiredMap {
-		if _, exists := currentMap[key]; !exists {
-			// Route with this exact network+gateway doesn't exist
-
-			// Check if the same network exists with a DIFFERENT gateway (VPN IP change)
-			if currentRoute, networkExists := currentByNetwork[route.Network]; networkExists {
-				if currentRoute.Gateway != route.Gateway && currentRoute.Gateway != "" {
-					// Gateway changed - must remove old route first
-					toRemove = append(toRemove, currentRoute)
-				}
-			}
-
-			// Add the new/updated route
-			toAdd = append(toAdd, route)
-		}
-		// else: exact route already exists, no action needed (this is the optimization!)
-	}
-
-	// Find routes that should be removed (network no longer in desired state)
-	for key, route := range currentMap {
-		if _, exactMatch := desiredMap[key]; !exactMatch {
-			// Check if this network is still needed but with different gateway
-			if _, stillNeeded := desiredByNetwork[route.Network]; !stillNeeded {
-				// Network completely removed from desired state
-				// Only remove gateway routes (routes we manage via mesh)
-				if route.Gateway != "" {
-					toRemove = append(toRemove, route)
-				}
-			}
-			// else: network still needed with different gateway, already handled above
-		}
-	}
-
-	return toAdd, toRemove
+	return routes.CalculateDiff(current, desired)
 }
 
-func makeRouteKey(network, gateway string) string {
-	// Key includes both network and gateway to ensure exact matching
-	// Example: "192.168.10.0/24|10.99.0.1"
-	return fmt.Sprintf("%s|%s", network, gateway)
-}
-
-func normalizeNetwork(network string) string {
-	// If network doesn't contain '/', it's a host route shown by 'ip route'
-	// Linux displays /32 routes as just the IP (e.g., "192.168.5.5" instead of "192.168.5.5/32")
-	// We need to add /32 to match our desired state format
-	if !strings.Contains(network, "/") {
-		// Check if it's an IPv4 address
-		if strings.Count(network, ".") == 3 {
-			return network + "/32"
-		}
-		// For IPv6, add /128
-		if strings.Contains(network, ":") {
-			return network + "/128"
-		}
-	}
-	return network
-}
-
+// ApplyRouteDiff applies the computed route diff over the SSH client.
 func ApplyRouteDiff(client *Client, iface string, toAdd, toRemove []RouteEntry) error {
 	totalChanges := len(toAdd) + len(toRemove)
 	if totalChanges == 0 {
