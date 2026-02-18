@@ -17,7 +17,7 @@ func TestNodesFilePathIncludesNetworkTag(t *testing.T) {
 		t.Fatalf("NewConfig failed: %v", err)
 	}
 
-	d, err := NewDHTDiscovery(context.Background(), cfg, &LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
+	d, err := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
 	if err != nil {
 		t.Fatalf("NewDHTDiscovery failed: %v", err)
 	}
@@ -43,11 +43,11 @@ func TestNodesFilePathDiffersBySecret(t *testing.T) {
 		t.Fatalf("NewConfig B failed: %v", err)
 	}
 
-	dA, err := NewDHTDiscovery(context.Background(), cfgA, &LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
+	dA, err := NewDHTDiscovery(context.Background(), cfgA, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
 	if err != nil {
 		t.Fatalf("NewDHTDiscovery A failed: %v", err)
 	}
-	dB, err := NewDHTDiscovery(context.Background(), cfgB, &LocalNode{WGPubKey: "b"}, daemon.NewPeerStore())
+	dB, err := NewDHTDiscovery(context.Background(), cfgB, &daemon.LocalNode{WGPubKey: "b"}, daemon.NewPeerStore())
 	if err != nil {
 		t.Fatalf("NewDHTDiscovery B failed: %v", err)
 	}
@@ -59,7 +59,7 @@ func TestNodesFilePathDiffersBySecret(t *testing.T) {
 
 func TestCanAttemptRendezvous_NewPeer(t *testing.T) {
 	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "test"})
-	d, _ := NewDHTDiscovery(context.Background(), cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	if !d.canAttemptRendezvous("newpeer") {
 		t.Error("New peer should be allowed to attempt rendezvous")
@@ -68,7 +68,7 @@ func TestCanAttemptRendezvous_NewPeer(t *testing.T) {
 
 func TestCanAttemptRendezvous_BackoffNotExpired(t *testing.T) {
 	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "test"})
-	d, _ := NewDHTDiscovery(context.Background(), cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	d.mu.Lock()
 	d.rendezvousBackoff["peer1"] = backoffEntry{nextAttempt: time.Now().Add(30 * time.Second), duration: 30 * time.Second}
@@ -81,7 +81,7 @@ func TestCanAttemptRendezvous_BackoffNotExpired(t *testing.T) {
 
 func TestCanAttemptRendezvous_BackoffExpired(t *testing.T) {
 	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "test"})
-	d, _ := NewDHTDiscovery(context.Background(), cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	d.mu.Lock()
 	d.rendezvousBackoff["peer1"] = backoffEntry{nextAttempt: time.Now().Add(-1 * time.Second), duration: RendezvousMinBackoff}
@@ -94,7 +94,7 @@ func TestCanAttemptRendezvous_BackoffExpired(t *testing.T) {
 
 func TestRecordRendezvousAttempt_SuccessResetsBackoff(t *testing.T) {
 	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "test"})
-	d, _ := NewDHTDiscovery(context.Background(), cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	d.mu.Lock()
 	d.rendezvousBackoff["peer1"] = backoffEntry{nextAttempt: time.Now().Add(30 * time.Second), duration: 30 * time.Second}
@@ -113,7 +113,7 @@ func TestRecordRendezvousAttempt_SuccessResetsBackoff(t *testing.T) {
 
 func TestRecordRendezvousAttempt_FailureSetsMinBackoff(t *testing.T) {
 	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "test"})
-	d, _ := NewDHTDiscovery(context.Background(), cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	d.recordRendezvousAttempt("peer1", false)
 
@@ -136,7 +136,7 @@ func TestRecordRendezvousAttempt_FailureSetsMinBackoff(t *testing.T) {
 
 func TestRecordRendezvousAttempt_ExponentialBackoff(t *testing.T) {
 	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "test"})
-	d, _ := NewDHTDiscovery(context.Background(), cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	d.recordRendezvousAttempt("peer1", false)
 	d.mu.RLock()
@@ -160,7 +160,7 @@ func TestRecordRendezvousAttempt_ExponentialBackoff(t *testing.T) {
 
 func TestRecordRendezvousAttempt_BackoffCappedAtMax(t *testing.T) {
 	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "test"})
-	d, _ := NewDHTDiscovery(context.Background(), cfg, &LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
 
 	for i := 0; i < 10; i++ {
 		d.recordRendezvousAttempt("peer1", false)

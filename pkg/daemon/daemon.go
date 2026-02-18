@@ -87,17 +87,35 @@ type RPCServer interface {
 	Stop() error
 }
 
-// LocalNode represents our local WireGuard node
+// LocalNode represents our local WireGuard node.
+// The WG endpoint is accessed via GetEndpoint/SetEndpoint to allow
+// concurrent updates from discovery goroutines.
 type LocalNode struct {
 	WGPubKey         string
 	WGPrivateKey     string
 	MeshIP           string
 	MeshIPv6         string
-	WGEndpoint       string
 	RoutableNetworks []string
 	Introducer       bool
 	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
 	Hostname         string
+
+	endpointMu sync.RWMutex
+	wgEndpoint string
+}
+
+// GetEndpoint returns the current WireGuard endpoint (thread-safe).
+func (n *LocalNode) GetEndpoint() string {
+	n.endpointMu.RLock()
+	defer n.endpointMu.RUnlock()
+	return n.wgEndpoint
+}
+
+// SetEndpoint updates the WireGuard endpoint (thread-safe).
+func (n *LocalNode) SetEndpoint(ep string) {
+	n.endpointMu.Lock()
+	defer n.endpointMu.Unlock()
+	n.wgEndpoint = ep
 }
 
 // DiscoveryLayer is the interface for discovery implementations
@@ -1469,7 +1487,7 @@ func (d *Daemon) setLocalWGEndpoint() {
 	if d.localNode == nil {
 		return
 	}
-	d.localNode.WGEndpoint = net.JoinHostPort("0.0.0.0", strconv.Itoa(d.config.WGListenPort))
+	d.localNode.SetEndpoint(net.JoinHostPort("0.0.0.0", strconv.Itoa(d.config.WGListenPort)))
 }
 
 // getPrivacyPeers returns current peers formatted for the privacy layer

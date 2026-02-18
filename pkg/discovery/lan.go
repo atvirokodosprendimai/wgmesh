@@ -23,7 +23,7 @@ const (
 // LANDiscovery handles peer discovery via UDP multicast on the local network
 type LANDiscovery struct {
 	config    *daemon.Config
-	localNode *LocalNode
+	localNode *daemon.LocalNode
 	peerStore *daemon.PeerStore
 	gossipKey [32]byte
 
@@ -36,7 +36,7 @@ type LANDiscovery struct {
 }
 
 // NewLANDiscovery creates a new LAN multicast discovery instance
-func NewLANDiscovery(config *daemon.Config, localNode *LocalNode, peerStore *daemon.PeerStore) (*LANDiscovery, error) {
+func NewLANDiscovery(config *daemon.Config, localNode *daemon.LocalNode, peerStore *daemon.PeerStore) (*LANDiscovery, error) {
 	// Derive multicast address from the multicast ID
 	// Use 239.192.X.Y where X.Y come from MulticastID
 	multicastIP := net.IPv4(239, 192,
