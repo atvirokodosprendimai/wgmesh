@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -376,5 +377,86 @@ func TestPeerStoreMultipleSubscribers(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			t.Errorf("%s: timed out waiting for event", tt.name)
 		}
+	}
+}
+
+func TestPeerStoreMaxPeers(t *testing.T) {
+	t.Parallel()
+	ps := NewPeerStore()
+
+	// Fill store to capacity using direct map manipulation to avoid test runtime
+	ps.mu.Lock()
+	for i := 0; i < DefaultMaxPeers; i++ {
+		key := fmt.Sprintf("peer-%04d", i)
+		ps.peers[key] = &PeerInfo{WGPubKey: key, MeshIP: "10.0.0.1", LastSeen: time.Now()}
+	}
+	ps.mu.Unlock()
+
+	if ps.Count() != DefaultMaxPeers {
+		t.Fatalf("expected %d peers, got %d", DefaultMaxPeers, ps.Count())
+	}
+
+	// Attempting to add a new peer must be silently dropped
+	ps.Update(&PeerInfo{WGPubKey: "overflow-peer", MeshIP: "10.1.0.1"}, "dht")
+	if ps.Count() != DefaultMaxPeers {
+		t.Errorf("expected count to remain %d after cap, got %d", DefaultMaxPeers, ps.Count())
+	}
+	if _, ok := ps.Get("overflow-peer"); ok {
+		t.Error("overflow-peer should not have been inserted")
+	}
+}
+
+func TestPeerStoreMaxPeersAllowsUpdates(t *testing.T) {
+	t.Parallel()
+	ps := NewPeerStore()
+
+	// Fill store to capacity
+	ps.mu.Lock()
+	for i := 0; i < DefaultMaxPeers; i++ {
+		key := fmt.Sprintf("peer-%04d", i)
+		ps.peers[key] = &PeerInfo{WGPubKey: key, MeshIP: "10.0.0.1", LastSeen: time.Now()}
+	}
+	ps.mu.Unlock()
+
+	// Updating an existing peer must still work even when at cap
+	ps.Update(&PeerInfo{WGPubKey: "peer-0000", MeshIP: "10.2.0.1"}, "gossip")
+	peer, ok := ps.Get("peer-0000")
+	if !ok {
+		t.Fatal("peer-0000 should still exist")
+	}
+	if peer.MeshIP != "10.2.0.1" {
+		t.Errorf("expected updated MeshIP 10.2.0.1, got %s", peer.MeshIP)
+	}
+	if ps.Count() != DefaultMaxPeers {
+		t.Errorf("count should remain %d after update, got %d", DefaultMaxPeers, ps.Count())
+	}
+}
+
+func TestPeerStoreMaxPeersAfterCleanup(t *testing.T) {
+	t.Parallel()
+	ps := NewPeerStore()
+
+	// Fill to capacity with stale peers
+	ps.mu.Lock()
+	for i := 0; i < DefaultMaxPeers; i++ {
+		key := fmt.Sprintf("peer-%04d", i)
+		ps.peers[key] = &PeerInfo{
+			WGPubKey: key,
+			MeshIP:   "10.0.0.1",
+			LastSeen: time.Now().Add(-20 * time.Minute), // stale
+		}
+	}
+	ps.mu.Unlock()
+
+	// Cleanup removes stale peers
+	removed := ps.CleanupStale()
+	if len(removed) != DefaultMaxPeers {
+		t.Fatalf("expected %d stale peers removed, got %d", DefaultMaxPeers, len(removed))
+	}
+
+	// Now new peers must be accepted again
+	ps.Update(&PeerInfo{WGPubKey: "fresh-peer", MeshIP: "10.3.0.1"}, "dht")
+	if ps.Count() != 1 {
+		t.Errorf("expected 1 peer after cleanup and insert, got %d", ps.Count())
 	}
 }

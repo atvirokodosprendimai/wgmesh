@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"log"
 	"net"
 	"strings"
 	"sync"
@@ -13,6 +14,13 @@ const (
 	LANMethod         = "lan"
 	RendezvousMethod  = "dht-rendezvous"
 	PeerEventBufSize  = 16
+
+	// DefaultMaxPeers is the maximum number of peers the store will hold.
+	// New peer insertions are rejected once this limit is reached.
+	// Existing peer updates are always allowed through.
+	// A legitimate mesh is unlikely to have more than 1000 nodes; the cap
+	// exists to bound memory use under flood attacks.
+	DefaultMaxPeers = 1000
 )
 
 type PeerEventKind int
@@ -111,6 +119,12 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 
 		existing, exists := ps.peers[info.WGPubKey]
 		if !exists {
+			// Reject new peers when the store is at capacity.
+			if len(ps.peers) >= DefaultMaxPeers {
+				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
+					DefaultMaxPeers, shortKey(info.WGPubKey), discoveryMethod)
+				return
+			}
 			// New peer
 			if info.LastSeen.IsZero() {
 				info.LastSeen = now
