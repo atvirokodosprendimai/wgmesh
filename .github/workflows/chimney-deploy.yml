@@ -1,0 +1,180 @@
+name: Chimney Deploy
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'cmd/chimney/**'
+      - 'deploy/chimney/**'
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: chimney-deploy
+  cancel-in-progress: false
+
+env:
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  GO_VERSION: '1.23'
+
+jobs:
+  deploy:
+    name: Deploy chimney
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Discover chimney servers
+        id: discover
+        run: |
+          set -euo pipefail
+
+          SERVERS=$(hcloud server list -l "service=chimney" -o noheader -o columns=name,ipv4,server_type 2>/dev/null) || true
+
+          if [ -z "$SERVERS" ]; then
+            echo "No chimney servers found — skipping deploy"
+            echo "has_servers=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "has_servers=true" >> "$GITHUB_OUTPUT"
+          echo "$SERVERS"
+
+          # Build list of server specs: name|ip|arch
+          SPECS=""
+          while read -r name ip stype; do
+            [ -z "$name" ] && continue
+            if [[ "$stype" == cax* ]]; then
+              arch="arm64"
+            else
+              arch="amd64"
+            fi
+            SPECS="${SPECS}${name}|${ip}|${arch}\n"
+          done <<< "$SERVERS"
+
+          echo -e "$SPECS" > /tmp/chimney-servers.txt
+          cat /tmp/chimney-servers.txt
+
+      - name: Build binaries
+        if: steps.discover.outputs.has_servers == 'true'
+        run: |
+          set -euo pipefail
+
+          NEED_ARM64=false
+          NEED_AMD64=false
+
+          while IFS='|' read -r name ip arch; do
+            [ -z "$name" ] && continue
+            [[ "$arch" == "arm64" ]] && NEED_ARM64=true
+            [[ "$arch" == "amd64" ]] && NEED_AMD64=true
+          done < /tmp/chimney-servers.txt
+
+          if [ "$NEED_ARM64" = "true" ]; then
+            echo "Building linux/arm64..."
+            CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v \
+              -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8}" \
+              -o chimney-linux-arm64 ./cmd/chimney/
+          fi
+
+          if [ "$NEED_AMD64" = "true" ]; then
+            echo "Building linux/amd64..."
+            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v \
+              -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8}" \
+              -o chimney-linux-amd64 ./cmd/chimney/
+          fi
+
+          ls -lh chimney-linux-* 2>/dev/null || true
+
+      - name: Generate SSH key
+        if: steps.discover.outputs.has_servers == 'true'
+        run: |
+          ssh-keygen -t ed25519 -f ~/.ssh/chimney -N "" -q
+          echo "SSH_KEY_FILE=$HOME/.ssh/chimney" >> "$GITHUB_ENV"
+
+          # Upload to Hetzner
+          KEY_NAME="chimney-deploy-key"
+          hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
+          hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file ~/.ssh/chimney.pub
+
+      - name: Rolling deploy
+        if: steps.discover.outputs.has_servers == 'true'
+        run: |
+          set -euo pipefail
+
+          echo "## Chimney Deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Commit: \`${GITHUB_SHA::8}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          while IFS='|' read -r name ip arch; do
+            [ -z "$name" ] && continue
+
+            echo "=== Deploying to $name ($ip, $arch) ==="
+            BINARY="chimney-linux-${arch}"
+
+            # Copy binary
+            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              "$BINARY" "root@${ip}:/tmp/chimney"
+
+            # Copy deploy scripts and config
+            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              deploy/chimney/setup.sh "root@${ip}:/tmp/setup.sh"
+
+            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              deploy/chimney/Caddyfile "root@${ip}:/tmp/Caddyfile"
+
+            # Copy dashboard
+            scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              docs "root@${ip}:/tmp/docs"
+
+            # Run setup (idempotent)
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              "root@${ip}" "GITHUB_TOKEN='${{ secrets.PUSH_TOKEN }}' ROLE=origin bash /tmp/setup.sh"
+
+            # Health check
+            echo "Verifying health on $name..."
+            HEALTHY=false
+            for i in $(seq 1 12); do
+              if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+                 "root@${ip}" "curl -sf http://localhost:8080/healthz" 2>/dev/null; then
+                echo ""
+                echo "$name: healthy"
+                HEALTHY=true
+                break
+              fi
+              sleep 5
+            done
+
+            if [ "$HEALTHY" = "true" ]; then
+              echo "- **$name** ($ip): deployed successfully" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- **$name** ($ip): HEALTH CHECK FAILED" >> "$GITHUB_STEP_SUMMARY"
+              echo "WARNING: $name health check failed — continuing to next server"
+            fi
+
+            echo ""
+          done < /tmp/chimney-servers.txt
+
+      - name: Cleanup SSH key
+        if: always() && steps.discover.outputs.has_servers == 'true'
+        run: |
+          hcloud ssh-key delete "chimney-deploy-key" 2>/dev/null || true
