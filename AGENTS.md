@@ -190,6 +190,7 @@ const res = await fetch(`${API}/pulls`);
   # 3. Proxy/upstream integration returns real data
   # 4. Caching layer responds
   ```
+- **Always read Copilot review comments after every PR merge** — check with `gh api repos/.../pulls/N/comments` and `gh api repos/.../pulls/N/reviews`. If there are actionable comments, create follow-up fix PRs. Do NOT blindly resolve review threads — read them, evaluate, and fix real bugs before resolving.
 
 ## What NOT to Modify
 
