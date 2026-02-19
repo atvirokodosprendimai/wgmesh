@@ -3,7 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"strings"
 	"time"
@@ -272,6 +275,7 @@ func joinCmd() {
 	forceRelay := fs.Bool("force-relay", false, "Prefer relay path for non-LAN peers")
 	noPunching := fs.Bool("no-punching", false, "Disable NAT port punching/rendezvous")
 	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
+	pprofAddr := fs.String("pprof", "", "Enable pprof HTTP server (e.g. localhost:6060)")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -318,6 +322,16 @@ func joinCmd() {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create daemon: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Start pprof HTTP server if requested (for profiling/flame graphs)
+	if *pprofAddr != "" {
+		go func() {
+			log.Printf("pprof server listening on %s", *pprofAddr)
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				log.Printf("pprof server error: %v", err)
+			}
+		}()
 	}
 
 	// Setup RPC server

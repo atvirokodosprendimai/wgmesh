@@ -267,7 +267,7 @@ _setup_single_vm() {
     run_on "$node" "
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq
-        apt-get install -y -qq wireguard-tools iperf3 jq iproute2 >/dev/null 2>&1
+        apt-get install -y -qq wireguard-tools iperf3 jq iproute2 netcat-openbsd >/dev/null 2>&1
         mkdir -p /usr/local/bin /var/lib/wgmesh
     "
 
@@ -278,6 +278,7 @@ _setup_single_vm() {
     # Create systemd unit
     local extra_flags=""
     [ "$role" = "introducer" ] && extra_flags="--introducer"
+    [ "${WGMESH_PPROF:-0}" = "1" ] && extra_flags="${extra_flags} --pprof localhost:6060"
 
     run_on "$node" "cat > /etc/systemd/system/wgmesh.service << 'UNIT'
 [Unit]
@@ -310,6 +311,7 @@ UNIT
 
 start_mesh() {
     local settle="${1:-30}"
+    emit_event "mesh_start" "start_mesh" "settle=$settle"
 
     # Start introducer first
     for node in "${!NODE_ROLES[@]}"; do
@@ -332,10 +334,12 @@ start_mesh() {
 
     # Discover actual mesh IPs from running WG interfaces
     populate_mesh_ips
+    emit_event "mesh_started" "start_mesh" "nodes=${#NODE_IPS[@]}"
 }
 
 # Stop mesh on all nodes.
 stop_mesh() {
+    emit_event "mesh_stop" "stop_mesh"
     for node in "${!NODE_IPS[@]}"; do
         stop_mesh_node "$node" &
     done
@@ -345,6 +349,7 @@ stop_mesh() {
         run_on_ok "$node" "ip link del $WG_INTERFACE 2>/dev/null"
     done
     log_info "Mesh stopped on all nodes"
+    emit_event "mesh_stopped" "stop_mesh"
 }
 
 # ---------------------------------------------------------------------------

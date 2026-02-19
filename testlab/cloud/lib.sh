@@ -43,6 +43,15 @@ TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_SKIPPED=0
 
+# Observability: timing + tracing
+CURRENT_TIER=""
+SUITE_START_EPOCH=$(date +%s)
+declare -A TIER_START_EPOCH=()
+declare -A TIER_END_EPOCH=()
+declare -a TEST_TIMING_EVENTS=()   # "tier|id|name|start_epoch|end_epoch|result"
+TRACE_FILE="${LOG_DIR}/trace.jsonl"
+mkdir -p "$LOG_DIR"
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -52,6 +61,27 @@ log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $(date +%H:%M:%S) $*"; }
 log_error() { echo -e "${RED}[ERROR]${NC} $(date +%H:%M:%S) $*"; }
 log_test()  { echo -e "${BLUE}[TEST]${NC}  $(date +%H:%M:%S) $*"; }
 log_bold()  { echo -e "${BOLD}$*${NC}"; }
+
+# ---------------------------------------------------------------------------
+# NDJSON event tracing (Phase 2 observability)
+# ---------------------------------------------------------------------------
+
+# Emit a structured event to the trace file.
+# Usage: emit_event <type> <name> [key=value ...]
+emit_event() {
+    local etype="$1" ename="$2"; shift 2
+    local extra=""
+    while [ $# -gt 0 ]; do
+        local k="${1%%=*}" v="${1#*=}"
+        # Escape quotes in values
+        v="${v//\"/\\\"}"
+        extra="${extra},\"${k}\":\"${v}\""
+        shift
+    done
+    printf '{"ts":%.3f,"type":"%s","name":"%s","tier":"%s"%s}\n' \
+        "$(date +%s.%N)" "$etype" "$ename" "${CURRENT_TIER:-0}" "$extra" \
+        >> "$TRACE_FILE" 2>/dev/null || true
+}
 
 # ---------------------------------------------------------------------------
 # SSH helpers
@@ -249,7 +279,9 @@ verify_full_mesh() {
     local n=${#nodes[@]}
     local expected_pairs=$(( n * (n - 1) / 2 ))
 
+    emit_event "mesh_verify_start" "full_mesh" "pairs=$expected_pairs" "timeout=$timeout"
     wait_for "full mesh ($expected_pairs pairs)" "$timeout" _check_all_pairs "${nodes[@]}"
+    emit_event "mesh_verify_end" "full_mesh" "pairs=$expected_pairs"
 }
 
 _check_all_pairs() {
@@ -274,6 +306,254 @@ verify_mesh_without() {
     local expected_pairs=$(( n * (n - 1) / 2 ))
 
     wait_for "mesh without $excluded ($expected_pairs pairs)" "$timeout" _check_all_pairs "${nodes[@]}"
+}
+
+# ---------------------------------------------------------------------------
+# Data plane verification (TCP transfer, throughput, MTU)
+#
+# These go beyond ICMP ping to verify actual data flows through WG tunnels.
+# ---------------------------------------------------------------------------
+
+# Transfer data between two nodes over the mesh and verify integrity.
+# Uses netcat (nc) to send random data over TCP via mesh IPs.
+# Usage: mesh_transfer <from-node> <to-node> [size_mb]
+# Returns: 0 if checksums match, 1 otherwise.
+mesh_transfer() {
+    local from="$1" to="$2" size_mb="${3:-1}"
+    local to_ip="${NODE_MESH_IPS[$to]}"
+    local port=19999
+    local size_bytes=$(( size_mb * 1048576 ))
+
+    # Kill any lingering nc on the port
+    run_on_ok "$to" "pkill -f 'nc.*-l.*$port' 2>/dev/null"
+    sleep 1
+
+    # Start receiver: listen, write to file, compute checksum
+    run_on "$to" "
+        rm -f /tmp/mesh-rx.bin /tmp/mesh-rx.sha256
+        nc -l -p $port > /tmp/mesh-rx.bin 2>/dev/null &
+        echo \$!
+    " > /tmp/_nc_pid 2>/dev/null
+
+    sleep 1
+
+    # Generate random data, compute checksum, send
+    local src_hash
+    src_hash=$(run_on "$from" "
+        dd if=/dev/urandom bs=1M count=$size_mb 2>/dev/null | tee /tmp/mesh-tx.bin | sha256sum | awk '{print \$1}'
+    " 2>/dev/null)
+
+    # Send the data
+    run_on "$from" "nc -w 10 $to_ip $port < /tmp/mesh-tx.bin" 2>/dev/null || true
+    sleep 2
+
+    # Get receiver checksum
+    local dst_hash
+    dst_hash=$(run_on "$to" "sha256sum /tmp/mesh-rx.bin 2>/dev/null | awk '{print \$1}'" 2>/dev/null)
+
+    # Cleanup
+    run_on_ok "$to" "pkill -f 'nc.*-l.*$port' 2>/dev/null; rm -f /tmp/mesh-rx.bin"
+    run_on_ok "$from" "rm -f /tmp/mesh-tx.bin"
+
+    if [ -z "$src_hash" ] || [ -z "$dst_hash" ]; then
+        log_error "mesh_transfer $from->$to: failed to compute checksums (src='$src_hash' dst='$dst_hash')"
+        return 1
+    fi
+
+    if [ "$src_hash" = "$dst_hash" ]; then
+        log_info "mesh_transfer $from->$to: ${size_mb}MB OK (sha256 match)"
+        emit_event "data_transfer" "$from->$to" "size_mb=$size_mb" "result=ok"
+        return 0
+    else
+        log_error "mesh_transfer $from->$to: checksum MISMATCH (src=$src_hash dst=$dst_hash)"
+        emit_event "data_transfer" "$from->$to" "size_mb=$size_mb" "result=mismatch"
+        return 1
+    fi
+}
+
+# Run iperf3 throughput test between two nodes over mesh IPs.
+# Usage: mesh_iperf <from-node> <to-node> [duration_sec]
+# Outputs: throughput in Mbits/sec to stdout, logs result.
+mesh_iperf() {
+    local from="$1" to="$2" duration="${3:-5}"
+    local to_ip="${NODE_MESH_IPS[$to]}"
+
+    # Kill any lingering iperf3 on the receiver
+    run_on_ok "$to" "pkill iperf3 2>/dev/null"
+    sleep 1
+
+    # Start server on receiver (mesh IP)
+    run_on "$to" "iperf3 -s -B $to_ip -D -1 2>/dev/null" || true
+    sleep 1
+
+    # Run client, parse bandwidth
+    local result
+    result=$(run_on "$from" "iperf3 -c $to_ip -t $duration -J 2>/dev/null") || {
+        log_error "mesh_iperf $from->$to: iperf3 client failed"
+        run_on_ok "$to" "pkill iperf3 2>/dev/null"
+        return 1
+    }
+
+    # Extract sender bits_per_second from JSON
+    local bps
+    bps=$(echo "$result" | jq -r '.end.sum_sent.bits_per_second // 0' 2>/dev/null) || bps=0
+    local mbps
+    mbps=$(echo "$bps" | awk '{printf "%.1f", $1/1000000}')
+
+    run_on_ok "$to" "pkill iperf3 2>/dev/null"
+
+    log_info "mesh_iperf $from->$to: ${mbps} Mbits/sec (${duration}s)"
+    emit_event "data_iperf" "$from->$to" "mbps=$mbps" "duration=$duration"
+    echo "$mbps"
+}
+
+# Check MTU path by sending a large ping with DF bit set.
+# Usage: mesh_mtu_check <from-node> <to-node> [payload_size]
+# Default payload 1372 bytes = 1400 byte packet (28 byte ICMP header).
+# WG overhead is ~60 bytes, so 1400 byte mesh packets need MTU >= 1420.
+mesh_mtu_check() {
+    local from="$1" to="$2" payload="${3:-1372}"
+    local to_ip="${NODE_MESH_IPS[$to]}"
+
+    if run_on "$from" "ping -M do -c 3 -W 3 -s $payload $to_ip" >/dev/null 2>&1; then
+        log_info "mesh_mtu $from->$to: ${payload}+28 byte packets OK (DF bit set)"
+        emit_event "data_mtu" "$from->$to" "payload=$payload" "result=ok"
+        return 0
+    else
+        log_error "mesh_mtu $from->$to: ${payload}+28 byte packets FAILED (MTU too low or fragmentation needed)"
+        emit_event "data_mtu" "$from->$to" "payload=$payload" "result=fail"
+        return 1
+    fi
+}
+
+# Verify data plane for all node pairs: 1MB transfer + MTU check.
+# Usage: verify_data_plane
+verify_data_plane() {
+    local nodes=("${!NODE_MESH_IPS[@]}")
+    local n=${#nodes[@]}
+    local failures=0
+
+    emit_event "data_plane_gate_start" "verify_data_plane" "nodes=$n"
+    log_info "Data plane verification: ${n} nodes, $(( n * (n-1) / 2 )) pairs"
+
+    for (( i=0; i<n; i++ )); do
+        for (( j=i+1; j<n; j++ )); do
+            mesh_transfer "${nodes[$i]}" "${nodes[$j]}" 1 || ((failures++)) || true
+            mesh_mtu_check "${nodes[$i]}" "${nodes[$j]}" || ((failures++)) || true
+        done
+    done
+
+    if [ "$failures" -gt 0 ]; then
+        log_error "Data plane: $failures check(s) failed"
+        emit_event "data_plane_gate_end" "verify_data_plane" "result=fail" "failures=$failures"
+        return 1
+    fi
+    log_info "Data plane: all pairs verified (transfer + MTU)"
+    emit_event "data_plane_gate_end" "verify_data_plane" "result=ok"
+}
+
+# Quick data plane check: 1MB transfer on one random pair.
+# Used in _chaos_setup to avoid adding too much time per test.
+# Usage: verify_data_plane_quick
+verify_data_plane_quick() {
+    local nodes=("${!NODE_MESH_IPS[@]}")
+    local n=${#nodes[@]}
+    [ "$n" -lt 2 ] && return 0
+
+    # Pick a random pair
+    local i=$(( RANDOM % n ))
+    local j=$(( (i + 1) % n ))
+    mesh_transfer "${nodes[$i]}" "${nodes[$j]}" 1
+}
+
+# Full data plane benchmark: transfer + MTU + iperf + large transfer.
+# Usage: verify_data_plane_full
+verify_data_plane_full() {
+    local nodes=("${!NODE_MESH_IPS[@]}")
+    local n=${#nodes[@]}
+    local failures=0
+
+    emit_event "data_plane_gate_start" "verify_data_plane_full" "nodes=$n"
+    log_info "Full data plane benchmark: ${n} nodes"
+
+    # 1. All-pairs 1MB transfer + MTU
+    verify_data_plane || ((failures++)) || true
+
+    # 2. iperf3 throughput on one pair
+    local i=$(( RANDOM % n ))
+    local j=$(( (i + 1) % n ))
+    local throughput
+    throughput=$(mesh_iperf "${nodes[$i]}" "${nodes[$j]}" 5) || ((failures++)) || true
+    log_info "Throughput sample: ${throughput} Mbits/sec (${nodes[$i]}->${nodes[$j]})"
+
+    # 3. Large 100MB transfer on one pair
+    local a=$(( RANDOM % n ))
+    local b=$(( (a + 1) % n ))
+    log_info "Large transfer: 100MB ${nodes[$a]}->${nodes[$b]}"
+    mesh_transfer "${nodes[$a]}" "${nodes[$b]}" 100 || ((failures++)) || true
+
+    if [ "$failures" -gt 0 ]; then
+        log_error "Full data plane: $failures check(s) failed"
+        emit_event "data_plane_gate_end" "verify_data_plane_full" "result=fail" "failures=$failures"
+        return 1
+    fi
+    log_info "Full data plane: all checks passed"
+    emit_event "data_plane_gate_end" "verify_data_plane_full" "result=ok"
+}
+
+# ---------------------------------------------------------------------------
+# pprof profile collection (Phase 3 observability)
+# ---------------------------------------------------------------------------
+
+# Collect a CPU profile from a node (requires --pprof flag on wgmesh binary).
+# Usage: collect_pprof_cpu <node> [duration_sec]
+collect_pprof_cpu() {
+    local node="$1" duration="${2:-30}"
+    local outfile="${LOG_DIR}/pprof-cpu-${node}.prof"
+
+    log_info "Collecting ${duration}s CPU profile from $node"
+    emit_event "pprof_collect" "$node" "type=cpu" "duration=$duration"
+    run_on "$node" "curl -sf 'http://localhost:6060/debug/pprof/profile?seconds=$duration'" \
+        > "$outfile" 2>/dev/null || {
+        log_warn "pprof CPU collection failed on $node (pprof not enabled?)"
+        return 1
+    }
+    local size
+    size=$(wc -c < "$outfile")
+    log_info "CPU profile saved: $outfile ($size bytes)"
+}
+
+# Collect goroutine dump from a node.
+collect_pprof_goroutine() {
+    local node="$1"
+    local outfile="${LOG_DIR}/pprof-goroutine-${node}.prof"
+    run_on "$node" "curl -sf 'http://localhost:6060/debug/pprof/goroutine'" \
+        > "$outfile" 2>/dev/null || true
+}
+
+# Collect heap profile from a node.
+collect_pprof_heap() {
+    local node="$1"
+    local outfile="${LOG_DIR}/pprof-heap-${node}.prof"
+    run_on "$node" "curl -sf 'http://localhost:6060/debug/pprof/heap'" \
+        > "$outfile" 2>/dev/null || true
+}
+
+# Collect all profile types from all nodes.
+# Only runs when WGMESH_PPROF=1 is set.
+collect_all_pprof() {
+    [ "${WGMESH_PPROF:-0}" != "1" ] && return 0
+    log_info "Collecting pprof profiles from all nodes..."
+    emit_event "pprof_collect_all_start" "all_nodes"
+    for node in "${!NODE_IPS[@]}"; do
+        collect_pprof_cpu "$node" 30 &
+    done
+    wait
+    for node in "${!NODE_IPS[@]}"; do
+        collect_pprof_goroutine "$node"
+        collect_pprof_heap "$node"
+    done
+    emit_event "pprof_collect_all_end" "all_nodes"
 }
 
 # ---------------------------------------------------------------------------
@@ -334,6 +614,7 @@ run_test() {
     local start rc tmpfile
     start=$(date +%s)
     tmpfile=$(mktemp)
+    emit_event "test_start" "$id" "name=$name"
 
     # Stream output in real-time while also capturing it
     set +e
@@ -345,18 +626,27 @@ run_test() {
     output=$(cat "$tmpfile")
     rm -f "$tmpfile"
 
-    local duration=$(( $(date +%s) - start ))
+    local end_epoch
+    end_epoch=$(date +%s)
+    local duration=$(( end_epoch - start ))
+    local result="FAIL"
 
     if [ $rc -eq 0 ]; then
+        result="PASS"
         record_test "$id" "$name" "PASS" "$duration" ""
         log_test "${GREEN}PASS${NC} $id: $name (${duration}s)"
     elif [ $rc -eq 2 ]; then
+        result="SKIP"
         record_test "$id" "$name" "SKIP" "$duration" "$output"
         log_test "${YELLOW}SKIP${NC} $id: $name (${duration}s) — $output"
     else
         record_test "$id" "$name" "FAIL" "$duration" "$output"
         log_test "${RED}FAIL${NC} $id: $name (${duration}s)"
     fi
+
+    # Record timing for Gantt chart
+    TEST_TIMING_EVENTS+=("${CURRENT_TIER:-0}|${id}|${name}|${start}|${end_epoch}|${result}")
+    emit_event "test_end" "$id" "name=$name" "result=$result" "duration=$duration"
 
     # Running tally after each test
     log_test "  Progress: ${GREEN}${TESTS_PASSED} passed${NC}, ${RED}${TESTS_FAILED} failed${NC}, ${YELLOW}${TESTS_SKIPPED} skipped${NC} of $total"
@@ -411,15 +701,65 @@ print_github_summary() {
         echo "**Total: ${TESTS_PASSED} passed, ${TESTS_FAILED} failed, ${TESTS_SKIPPED} skipped**"
     }
 
+    # Generate Mermaid Gantt chart from timing data.
+    _emit_gantt() {
+        [ "${#TEST_TIMING_EVENTS[@]}" -eq 0 ] && return
+
+        # Find the earliest start time as baseline
+        local first_start=""
+        for event in "${TEST_TIMING_EVENTS[@]}"; do
+            IFS='|' read -r _tier _id _name start _end _result <<< "$event"
+            if [ -z "$first_start" ] || [ "$start" -lt "$first_start" ]; then
+                first_start="$start"
+            fi
+        done
+        [ -z "$first_start" ] && return
+
+        echo ""
+        echo "### Test Timeline"
+        echo ""
+        echo '```mermaid'
+        echo "gantt"
+        echo "    title Test Execution Timeline"
+        echo "    dateFormat X"
+        echo "    axisFormat %M:%S"
+
+        local prev_tier=""
+        for event in "${TEST_TIMING_EVENTS[@]}"; do
+            IFS='|' read -r tier id name start end result <<< "$event"
+            local offset=$(( start - first_start ))
+            local duration=$(( end - start ))
+            [ "$duration" -lt 1 ] && duration=1
+
+            # New section per tier
+            if [ "$tier" != "$prev_tier" ]; then
+                echo "    section Tier $tier"
+                prev_tier="$tier"
+            fi
+
+            # Mermaid task status
+            local status=""
+            [ "$result" = "FAIL" ] && status="crit, "
+            [ "$result" = "SKIP" ] && status="done, "
+
+            echo "    ${id} ${name} :${status}${offset}, ${duration}"
+        done
+        echo '```'
+    }
+
     # Write to GitHub step summary
     {
         echo "## wgmesh Integration Test Results"
         echo ""
         _emit_summary
+        _emit_gantt
     } >> "$out"
 
     # Write to local file (picked up by tier summary step)
-    _emit_summary > "$local_summary"
+    {
+        _emit_summary
+        _emit_gantt
+    } > "$local_summary"
 }
 
 # Exit with appropriate code.
