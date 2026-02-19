@@ -22,6 +22,57 @@ fi
 apt-get update -qq
 apt-get install -y -qq caddy curl jq
 
+# ── Dragonfly (Redis-compatible cache) ──
+# Install Dragonfly as a systemd service for persistent shared caching.
+# Listens on 127.0.0.1:6379 only — not exposed externally.
+if ! command -v dragonfly &>/dev/null; then
+    echo "Installing Dragonfly..."
+    ARCH=$(dpkg --print-architecture)
+    # Dragonfly publishes releases for x86_64 and aarch64
+    if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
+        DF_ARCH="aarch64"
+    else
+        DF_ARCH="x86_64"
+    fi
+    DF_VERSION=$(curl -sf https://api.github.com/repos/dragonflydb/dragonfly/releases/latest | jq -r '.tag_name')
+    DF_URL="https://github.com/dragonflydb/dragonfly/releases/download/${DF_VERSION}/dragonfly-${DF_ARCH}.tar.gz"
+    echo "Downloading Dragonfly ${DF_VERSION} for ${DF_ARCH}..."
+    curl -sfL "$DF_URL" | tar xz -C /usr/local/bin
+    chmod +x /usr/local/bin/dragonfly
+fi
+
+# Dragonfly data directory
+mkdir -p /var/lib/dragonfly
+chown "$CHIMNEY_USER:$CHIMNEY_USER" /var/lib/dragonfly 2>/dev/null || true
+
+# Dragonfly systemd service
+cat > /etc/systemd/system/dragonfly.service <<EOF
+[Unit]
+Description=Dragonfly — Redis-compatible cache for chimney
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/dragonfly --bind 127.0.0.1 --port 6379 --dbdir /var/lib/dragonfly --maxmemory 128mb --proactor_threads 1
+Restart=always
+RestartSec=3
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/dragonfly
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable dragonfly
+systemctl restart dragonfly
+echo "Dragonfly started on 127.0.0.1:6379"
+
 # ── Create service user ──
 if ! id "$CHIMNEY_USER" &>/dev/null; then
     useradd --system --home-dir "$CHIMNEY_DIR" --shell /usr/sbin/nologin "$CHIMNEY_USER"
@@ -56,7 +107,8 @@ fi
 cat > /etc/systemd/system/chimney.service <<EOF
 [Unit]
 Description=chimney origin server (cloudroof.eu dashboard)
-After=network.target
+After=network.target dragonfly.service
+Wants=dragonfly.service
 
 [Service]
 Type=simple
