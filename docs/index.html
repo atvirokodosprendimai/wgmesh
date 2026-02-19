@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>wgmesh — Agent Pipeline Dashboard</title>
+<style>
+:root {
+  --bg: #0d1117; --surface: #161b22; --border: #30363d;
+  --text: #e6edf3; --muted: #8b949e; --accent: #58a6ff;
+  --green: #3fb950; --red: #f85149; --yellow: #d29922; --purple: #bc8cff;
+  --orange: #f0883e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  background: var(--bg); color: var(--text); line-height: 1.5; padding: 1rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+.header { display: flex; align-items: center; gap: 1rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+.header h1 { font-size: 1.5rem; font-weight: 600; }
+.header .subtitle { color: var(--muted); font-size: 0.875rem; }
+.refresh-info { margin-left: auto; color: var(--muted); font-size: 0.75rem; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+.card h2 { font-size: 0.875rem; font-weight: 600; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+
+.stat-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 0.5rem; }
+.stat-label { color: var(--muted); font-size: 0.8125rem; }
+.stat-value { font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.stat-value.green { color: var(--green); }
+.stat-value.red { color: var(--red); }
+.stat-value.yellow { color: var(--yellow); }
+.stat-value.purple { color: var(--purple); }
+.stat-value.accent { color: var(--accent); }
+
+/* Pipeline tracker */
+.pipeline-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.pipeline-table th { text-align: left; color: var(--muted); font-weight: 500;
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+.pipeline-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+.pipeline-table tr:last-child td { border-bottom: none; }
+
+.badge { display: inline-block; padding: 0.125rem 0.5rem; border-radius: 999px;
+  font-size: 0.6875rem; font-weight: 600; white-space: nowrap; }
+.badge-green { background: rgba(63,185,80,0.15); color: var(--green); }
+.badge-red { background: rgba(248,81,73,0.15); color: var(--red); }
+.badge-yellow { background: rgba(210,153,34,0.15); color: var(--yellow); }
+.badge-purple { background: rgba(188,140,255,0.15); color: var(--purple); }
+.badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); }
+.badge-muted { background: rgba(139,148,158,0.15); color: var(--muted); }
+
+.run-list { list-style: none; }
+.run-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0;
+  border-bottom: 1px solid var(--border); font-size: 0.8125rem; }
+.run-item:last-child { border-bottom: none; }
+.run-icon { width: 16px; height: 16px; flex-shrink: 0; }
+
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border);
+  border-top-color: var(--yellow); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.flow-stage { display: flex; align-items: center; gap: 0.25rem; }
+.flow-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.flow-arrow { color: var(--muted); font-size: 0.75rem; }
+
+.empty { color: var(--muted); font-style: italic; padding: 1rem 0; text-align: center; }
+.loading { text-align: center; padding: 2rem; color: var(--muted); }
+
+.full-width { grid-column: 1 / -1; }
+.overflow-x { overflow-x: auto; }
+
+footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2rem 0 1rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>wgmesh Agent Pipeline</h1>
+  <span class="subtitle">Autonomous AI coding pipeline — issue to merge</span>
+  <span class="refresh-info">Auto-refreshes every 30s &middot; <span id="last-update">loading...</span></span>
+</div>
+
+<!-- DORA metrics row -->
+<div class="grid" id="dora-section">
+  <div class="card">
+    <h2>Deployment Frequency</h2>
+    <div class="stat-row">
+      <span class="stat-label">Merged PRs (7d)</span>
+      <span class="stat-value green" id="dora-freq">-</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Lead Time</h2>
+    <div class="stat-row">
+      <span class="stat-label">Avg issue → merge</span>
+      <span class="stat-value accent" id="dora-lead">-</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Pipeline Activity</h2>
+    <div class="stat-row">
+      <span class="stat-label">Active runs</span>
+      <span class="stat-value yellow" id="dora-active">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Open issues</span>
+      <span class="stat-value purple" id="dora-issues">-</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>Success Rate</h2>
+    <div class="stat-row">
+      <span class="stat-label">Goose builds (7d)</span>
+      <span class="stat-value green" id="dora-success">-</span>
+    </div>
+  </div>
+</div>
+
+<!-- Active pipeline items -->
+<div class="grid">
+  <div class="card full-width">
+    <h2>Pipeline Tracker — Active Issues</h2>
+    <div class="overflow-x">
+      <table class="pipeline-table" id="pipeline-tracker">
+        <thead>
+          <tr>
+            <th>Issue</th>
+            <th>Triage</th>
+            <th>Spec PR</th>
+            <th>Goose Build</th>
+            <th>Impl PR</th>
+            <th>Merged</th>
+            <th>Age</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="7" class="loading">Loading pipeline data...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Live workflow runs -->
+<div class="grid">
+  <div class="card">
+    <h2>Active Workflow Runs</h2>
+    <ul class="run-list" id="active-runs">
+      <li class="loading">Loading...</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h2>Recent Completions</h2>
+    <ul class="run-list" id="recent-runs">
+      <li class="loading">Loading...</li>
+    </ul>
+  </div>
+</div>
+
+<!-- Recent merged PRs -->
+<div class="grid">
+  <div class="card full-width">
+    <h2>Recently Merged PRs</h2>
+    <div class="overflow-x">
+      <table class="pipeline-table" id="merged-prs">
+        <thead>
+          <tr><th>PR</th><th>Title</th><th>Author</th><th>Merged</th><th>Review Comments</th></tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="5" class="loading">Loading...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<footer>
+  wgmesh Agent Pipeline Dashboard &middot;
+  <a href="https://github.com/atvirokodosprendimai/wgmesh">Repository</a> &middot;
+  Data from GitHub REST API (unauthenticated, 60 req/hr)
+</footer>
+
+<script>
+const OWNER = 'atvirokodosprendimai';
+const REPO = 'wgmesh';
+const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
+
+// Simple fetch wrapper with cache-busting
+async function ghFetch(path) {
+  const res = await fetch(`${API}${path}`, {
+    headers: { 'Accept': 'application/vnd.github+json' }
+  });
+  if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+function timeAgo(dateStr) {
+  const seconds = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (seconds < 60) return `${seconds}s ago`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
+}
+
+function duration(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+  return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
+}
+
+function badge(text, cls) {
+  return `<span class="badge badge-${cls}">${text}</span>`;
+}
+
+function runIcon(status, conclusion) {
+  if (status === 'in_progress' || status === 'queued' || status === 'pending')
+    return '<span class="spinner"></span>';
+  if (conclusion === 'success') return '<svg class="run-icon" viewBox="0 0 16 16" fill="#3fb950"><path d="M8 16A8 8 0 108 0a8 8 0 000 16zm3.78-9.72a.75.75 0 00-1.06-1.06L6.75 9.19 5.28 7.72a.75.75 0 00-1.06 1.06l2 2a.75.75 0 001.06 0l4.5-4.5z"/></svg>';
+  if (conclusion === 'failure') return '<svg class="run-icon" viewBox="0 0 16 16" fill="#f85149"><path d="M2.343 13.657A8 8 0 1113.657 2.343 8 8 0 012.343 13.657zM6.03 4.97a.75.75 0 00-1.06 1.06L6.94 8 4.97 9.97a.75.75 0 101.06 1.06L8 9.06l1.97 1.97a.75.75 0 101.06-1.06L9.06 8l1.97-1.97a.75.75 0 10-1.06-1.06L8 6.94 6.03 4.97z"/></svg>';
+  if (conclusion === 'action_required') return '<svg class="run-icon" viewBox="0 0 16 16" fill="#d29922"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0114.082 15H1.918a1.75 1.75 0 01-1.543-2.575L6.457 1.047zM8 5a.75.75 0 00-.75.75v2.5a.75.75 0 001.5 0v-2.5A.75.75 0 008 5zm1 6a1 1 0 11-2 0 1 1 0 012 0z"/></svg>';
+  return '<svg class="run-icon" viewBox="0 0 16 16" fill="#8b949e"><circle cx="8" cy="8" r="6" stroke="#8b949e" stroke-width="1.5" fill="none"/></svg>';
+}
+
+function stageStatus(done, active, label) {
+  if (done) return badge(label || 'Done', 'green');
+  if (active) return `<span class="flow-stage"><span class="spinner"></span> ${label || 'Running'}</span>`;
+  return badge(label || 'Pending', 'muted');
+}
+
+// ── Data fetching ──
+
+async function fetchAll() {
+  try {
+    const [issues, openPRs, closedPRs, runs] = await Promise.all([
+      ghFetch('/issues?state=open&per_page=30&labels=copilot-triaging'),
+      ghFetch('/pulls?state=open&per_page=30'),
+      ghFetch('/pulls?state=closed&per_page=20&sort=updated&direction=desc'),
+      ghFetch('/actions/runs?per_page=40'),
+    ]);
+
+    // Also fetch issues that completed pipeline (label removed)
+    const allOpenIssues = await ghFetch('/issues?state=open&per_page=50');
+    const pipelineIssues = allOpenIssues.filter(i =>
+      !i.pull_request &&
+      (i.labels.some(l => l.name === 'copilot-triaging' || l.name === 'needs-triage') ||
+       i.assignees.some(a => a.login === 'Copilot'))
+    );
+
+    renderDORA(closedPRs, runs);
+    renderPipeline(pipelineIssues, openPRs, closedPRs, runs);
+    renderActiveRuns(runs);
+    renderRecentRuns(runs);
+    renderMergedPRs(closedPRs);
+
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
+  } catch (err) {
+    console.error('Fetch error:', err);
+    document.getElementById('last-update').textContent = `Error: ${err.message}`;
+  }
+}
+
+function renderDORA(closedPRs, runs) {
+  const weekAgo = Date.now() - 7 * 86400000;
+  const mergedThisWeek = closedPRs.filter(pr =>
+    pr.merged_at && new Date(pr.merged_at).getTime() > weekAgo
+  );
+
+  // Lead time: avg time from PR creation to merge
+  const leadTimes = mergedThisWeek
+    .filter(pr => pr.merged_at)
+    .map(pr => (new Date(pr.merged_at) - new Date(pr.created_at)) / 1000);
+  const avgLead = leadTimes.length > 0
+    ? Math.round(leadTimes.reduce((a, b) => a + b, 0) / leadTimes.length)
+    : 0;
+
+  // Active runs
+  const activeRuns = runs.workflow_runs.filter(r =>
+    r.status === 'in_progress' || r.status === 'queued'
+  );
+
+  // Goose success rate
+  const gooseRuns = runs.workflow_runs.filter(r =>
+    r.name === 'Goose Implementation' &&
+    r.status === 'completed' &&
+    new Date(r.created_at).getTime() > weekAgo
+  );
+  const gooseSuccess = gooseRuns.filter(r => r.conclusion === 'success').length;
+  const gooseTotal = gooseRuns.length;
+
+  document.getElementById('dora-freq').textContent = mergedThisWeek.length;
+  document.getElementById('dora-lead').textContent = avgLead > 0 ? duration(avgLead) : 'N/A';
+  document.getElementById('dora-active').textContent = activeRuns.length;
+  document.getElementById('dora-issues').textContent =
+    document.getElementById('dora-issues').textContent; // updated in pipeline
+  document.getElementById('dora-success').textContent =
+    gooseTotal > 0 ? `${gooseSuccess}/${gooseTotal}` : 'N/A';
+}
+
+function renderPipeline(issues, openPRs, closedPRs, runs) {
+  const tbody = document.querySelector('#pipeline-tracker tbody');
+  document.getElementById('dora-issues').textContent = issues.length;
+
+  if (issues.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="7" class="empty">No active pipeline issues</td></tr>';
+    return;
+  }
+
+  const allPRs = [...openPRs, ...closedPRs];
+  const allRuns = runs.workflow_runs;
+
+  const rows = issues.map(issue => {
+    const num = issue.number;
+    const isCopilotTriaging = issue.labels.some(l => l.name === 'copilot-triaging');
+
+    // Find spec PR (title contains issue number)
+    const specPR = allPRs.find(pr =>
+      pr.title.includes(`Issue #${num}`) && pr.title.startsWith('spec:')
+    );
+
+    // Find impl PR (created by goose/github-actions, references issue)
+    const implPR = allPRs.find(pr =>
+      !pr.title.startsWith('spec:') &&
+      (pr.title.includes(`#${num}`) || pr.body?.includes(`#${num}`)) &&
+      pr.user.login !== 'app/copilot-swe-agent'
+    );
+
+    // Find Goose runs for this issue
+    const gooseRuns = allRuns.filter(r =>
+      r.name === 'Goose Implementation' &&
+      (r.head_branch?.includes(specPR?.head?.ref || `issue-${num}`) ||
+       r.display_title?.includes(`#${num}`))
+    );
+    const gooseActive = gooseRuns.some(r => r.status === 'in_progress' || r.status === 'queued');
+    const gooseDone = gooseRuns.some(r => r.conclusion === 'success');
+    const gooseFailed = gooseRuns.some(r => r.conclusion === 'failure') && !gooseDone;
+
+    // Stages
+    const triaged = isCopilotTriaging || !!specPR;
+    const specDone = specPR?.merged_at || (specPR && specPR.state === 'open');
+    const specMerged = !!specPR?.merged_at;
+    const merged = !!implPR?.merged_at;
+
+    // Age
+    const age = timeAgo(issue.created_at);
+
+    // Spec status
+    let specBadge;
+    if (!specPR) specBadge = badge('Pending', 'muted');
+    else if (specPR.merged_at) specBadge = badge('Merged', 'green');
+    else if (specPR.state === 'open') specBadge = `<a href="${specPR.html_url}">${badge(`#${specPR.number} Open`, 'blue')}</a>`;
+    else specBadge = badge('Closed', 'red');
+
+    // Goose status
+    let gooseBadge;
+    if (gooseActive) gooseBadge = `<span class="flow-stage"><span class="spinner"></span> Building</span>`;
+    else if (gooseDone) gooseBadge = badge('Success', 'green');
+    else if (gooseFailed) gooseBadge = badge('Failed', 'red');
+    else if (specPR) gooseBadge = badge('Queued', 'yellow');
+    else gooseBadge = badge('Waiting', 'muted');
+
+    // Impl PR
+    let implBadge;
+    if (!implPR) implBadge = gooseActive ? badge('Building...', 'yellow') : badge('-', 'muted');
+    else if (implPR.merged_at) implBadge = `<a href="${implPR.html_url}">${badge(`#${implPR.number} Merged`, 'green')}</a>`;
+    else implBadge = `<a href="${implPR.html_url}">${badge(`#${implPR.number} Open`, 'blue')}</a>`;
+
+    const mergedBadge = merged ? badge('Done', 'green') : badge('-', 'muted');
+
+    return `<tr>
+      <td><a href="${issue.html_url}">#${num}</a> ${escHtml(issue.title.substring(0, 60))}</td>
+      <td>${triaged ? badge('Done', 'green') : badge('Pending', 'yellow')}</td>
+      <td>${specBadge}</td>
+      <td>${gooseBadge}</td>
+      <td>${implBadge}</td>
+      <td>${mergedBadge}</td>
+      <td style="color:var(--muted)">${age}</td>
+    </tr>`;
+  });
+
+  tbody.innerHTML = rows.join('');
+}
+
+function renderActiveRuns(runs) {
+  const el = document.getElementById('active-runs');
+  const active = runs.workflow_runs.filter(r =>
+    r.status === 'in_progress' || r.status === 'queued' || r.status === 'pending'
+  ).slice(0, 12);
+
+  if (active.length === 0) {
+    el.innerHTML = '<li class="empty">No active runs</li>';
+    return;
+  }
+
+  el.innerHTML = active.map(r => `
+    <li class="run-item">
+      ${runIcon(r.status, r.conclusion)}
+      <a href="${r.html_url}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${escHtml(r.display_title)}">${escHtml(r.name)}</a>
+      <span style="color:var(--muted);font-size:0.75rem;white-space:nowrap">${timeAgo(r.created_at)}</span>
+    </li>
+  `).join('');
+}
+
+function renderRecentRuns(runs) {
+  const el = document.getElementById('recent-runs');
+  const recent = runs.workflow_runs.filter(r =>
+    r.status === 'completed' &&
+    // Only show interesting workflows
+    ['Goose Implementation', 'Spec Auto-Approve', 'Auto-merge on CI pass', 'Copilot Issue Triage'].includes(r.name)
+  ).slice(0, 10);
+
+  if (recent.length === 0) {
+    el.innerHTML = '<li class="empty">No recent runs</li>';
+    return;
+  }
+
+  el.innerHTML = recent.map(r => `
+    <li class="run-item">
+      ${runIcon(r.status, r.conclusion)}
+      <a href="${r.html_url}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${escHtml(r.display_title)}">${escHtml(r.name)}</a>
+      <span style="color:var(--muted);font-size:0.75rem;white-space:nowrap">${timeAgo(r.updated_at)}</span>
+    </li>
+  `).join('');
+}
+
+function renderMergedPRs(closedPRs) {
+  const tbody = document.querySelector('#merged-prs tbody');
+  const merged = closedPRs.filter(pr => pr.merged_at).slice(0, 10);
+
+  if (merged.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="5" class="empty">No recently merged PRs</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = merged.map(pr => {
+    const author = pr.user.login;
+    const authorBadge = author.includes('copilot') || author.includes('bot')
+      ? badge(author, 'purple')
+      : author === 'nycterent'
+        ? badge(author, 'blue')
+        : badge(author, 'muted');
+
+    return `<tr>
+      <td><a href="${pr.html_url}">#${pr.number}</a></td>
+      <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(pr.title)}</td>
+      <td>${authorBadge}</td>
+      <td style="color:var(--muted)">${timeAgo(pr.merged_at)}</td>
+      <td>${pr.review_comments > 0 ? badge(`${pr.review_comments} comments`, 'yellow') : badge('0', 'muted')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// ── Init ──
+fetchAll();
+setInterval(fetchAll, 30000);
+</script>
+</body>
+</html>
