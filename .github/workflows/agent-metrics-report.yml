@@ -1,0 +1,233 @@
+name: Agent Metrics Report
+
+# Aggregates agent pipeline metrics from recent workflow artifacts
+# and generates a weekly DORA-for-Agents dashboard in GHA step summary.
+#
+# Metrics collected from:
+#   - agent-metrics-triage-*    (copilot-triage.yml)
+#   - agent-metrics-spec-*      (spec-auto-approve.yml)
+#   - agent-metrics-goose-*     (goose-build.yml)
+#   - agent-metrics-merge-*     (auto-merge.yml)
+
+on:
+  schedule:
+    - cron: '0 8 * * 1'   # Every Monday at 08:00 UTC
+  workflow_dispatch:
+
+permissions:
+  actions: read
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download recent agent metrics artifacts
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const metricsDir = '/tmp/agent-metrics';
+            fs.mkdirSync(metricsDir, { recursive: true });
+
+            // Fetch artifacts from the last 7 days
+            const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+            core.info(`Fetching artifacts since ${since}`);
+
+            let page = 1;
+            let downloaded = 0;
+
+            while (page <= 10) {
+              const { data } = await github.rest.actions.listArtifactsForRepo({
+                owner, repo,
+                per_page: 100,
+                page: page,
+              });
+
+              if (data.artifacts.length === 0) break;
+
+              for (const artifact of data.artifacts) {
+                if (!artifact.name.startsWith('agent-metrics-')) continue;
+                if (new Date(artifact.created_at) < new Date(since)) continue;
+                if (artifact.expired) continue;
+
+                try {
+                  const { data: zip } = await github.rest.actions.downloadArtifact({
+                    owner, repo,
+                    artifact_id: artifact.id,
+                    archive_format: 'zip',
+                  });
+
+                  const zipPath = path.join(metricsDir, `${artifact.name}.zip`);
+                  fs.writeFileSync(zipPath, Buffer.from(zip));
+                  downloaded++;
+                } catch (e) {
+                  core.warning(`Failed to download ${artifact.name}: ${e.message}`);
+                }
+              }
+
+              page++;
+              if (data.artifacts.length < 100) break;
+            }
+
+            core.info(`Downloaded ${downloaded} agent metrics artifacts`);
+            core.exportVariable('METRICS_DIR', metricsDir);
+            core.exportVariable('METRICS_COUNT', downloaded.toString());
+
+      - name: Extract metrics
+        run: |
+          cd "$METRICS_DIR"
+          for zipfile in *.zip; do
+            [ -f "$zipfile" ] || continue
+            unzip -o -q "$zipfile" -d . 2>/dev/null || true
+            rm -f "$zipfile"
+          done
+          echo "Extracted JSON files:"
+          ls -la *.json 2>/dev/null || echo "No JSON files found"
+
+      - name: Generate DORA report
+        run: |
+          cd "$METRICS_DIR"
+
+          # Collect all JSON into arrays by stage
+          TRIAGE=$(cat agent-metrics-triage-*.json 2>/dev/null | jq -s '.' || echo '[]')
+          SPEC=$(cat agent-metrics-spec-*.json 2>/dev/null | jq -s '.' || echo '[]')
+          GOOSE=$(cat agent-metrics-goose-*.json 2>/dev/null | jq -s '.' || echo '[]')
+          # Merge files contain arrays of PRs; flatten them
+          MERGE=$(cat agent-metrics-merge*.json 2>/dev/null | jq -s 'flatten' || echo '[]')
+
+          # Calculate DORA metrics
+          TOTAL_ISSUES=$(echo "$TRIAGE" | jq 'length')
+          TOTAL_SPECS=$(echo "$SPEC" | jq 'length')
+          TOTAL_BUILDS=$(echo "$GOOSE" | jq 'length')
+          TOTAL_MERGES=$(echo "$MERGE" | jq '[.[] | select(.merge.succeeded == true)] | length')
+          TOTAL_MERGE_FAILURES=$(echo "$MERGE" | jq '[.[] | select(.merge.succeeded != true)] | length')
+
+          # Lead time: average Goose build duration (seconds)
+          AVG_GOOSE_DURATION=$(echo "$GOOSE" | jq 'if length > 0 then [.[].goose.duration_seconds] | add / length | round else 0 end')
+
+          # Change failure rate: Goose builds that failed validation
+          GOOSE_SUCCESSES=$(echo "$GOOSE" | jq '[.[] | select(.goose.succeeded == true)] | length')
+          GOOSE_FAILURES=$(echo "$GOOSE" | jq '[.[] | select(.goose.succeeded != true)] | length')
+          if [ "$TOTAL_BUILDS" -gt 0 ]; then
+            CHANGE_FAILURE_RATE=$(echo "scale=1; $GOOSE_FAILURES * 100 / $TOTAL_BUILDS" | bc 2>/dev/null || echo "0")
+          else
+            CHANGE_FAILURE_RATE="N/A"
+          fi
+
+          # Goose attempt distribution
+          AVG_ATTEMPTS=$(echo "$GOOSE" | jq 'if length > 0 then [.[].goose.total_attempts] | add / length | . * 10 | round / 10 else 0 end')
+          RATE_LIMITED=$(echo "$GOOSE" | jq '[.[].goose.attempts[]? | select(.rate_limited == true)] | length')
+
+          # Spec validation pass rate
+          SPECS_VALID=$(echo "$SPEC" | jq '[.[] | select(.spec.valid == true)] | length')
+          if [ "$TOTAL_SPECS" -gt 0 ]; then
+            SPEC_PASS_RATE=$(echo "scale=1; $SPECS_VALID * 100 / $TOTAL_SPECS" | bc 2>/dev/null || echo "0")
+          else
+            SPEC_PASS_RATE="N/A"
+          fi
+
+          # Review burden
+          AVG_COPILOT_COMMENTS=$(echo "$MERGE" | jq 'if length > 0 then [.[].review_burden.copilot_comments // 0] | add / length | . * 10 | round / 10 else 0 end')
+
+          # Triage latency
+          AVG_TRIAGE_LATENCY=$(echo "$TRIAGE" | jq 'if length > 0 then [.[].issue.time_to_triage_seconds] | add / length | round else 0 end')
+
+          # Average PR age at merge (seconds)
+          AVG_PR_AGE=$(echo "$MERGE" | jq 'if length > 0 then [.[].pr.pr_age_seconds // 0 | select(. > 0)] | if length > 0 then add / length | round else 0 end else 0 end')
+
+          # Build validation durations
+          AVG_BUILD_DUR=$(echo "$GOOSE" | jq 'if length > 0 then [.[].validation.build_duration_seconds // 0] | add / length | round else 0 end')
+          AVG_TEST_DUR=$(echo "$GOOSE" | jq 'if length > 0 then [.[].validation.test_duration_seconds // 0] | add / length | round else 0 end')
+
+          # Diff stats
+          AVG_INSERTIONS=$(echo "$GOOSE" | jq 'if length > 0 then [.[].diff.insertions // 0] | add / length | round else 0 end')
+          AVG_DELETIONS=$(echo "$GOOSE" | jq 'if length > 0 then [.[].diff.deletions // 0] | add / length | round else 0 end')
+          AVG_FILES=$(echo "$GOOSE" | jq 'if length > 0 then [.[].diff.files_changed // 0] | add / length | . * 10 | round / 10 else 0 end')
+
+          # Write step summary
+          cat >> $GITHUB_STEP_SUMMARY << REPORT
+          # Agent Pipeline — DORA Metrics Report
+
+          **Period:** $(date -u -d '7 days ago' +%Y-%m-%d 2>/dev/null || date -u -v-7d +%Y-%m-%d) — $(date -u +%Y-%m-%d)
+
+          ## DORA for Agents
+
+          | Metric | Value | Target |
+          |--------|-------|--------|
+          | **Deployment Frequency** | ${TOTAL_MERGES} merged PRs / week | > 5 |
+          | **Lead Time (Goose build)** | ${AVG_GOOSE_DURATION}s avg | < 600s |
+          | **Change Failure Rate** | ${CHANGE_FAILURE_RATE}% | < 20% |
+          | **PR Cycle Time** | ${AVG_PR_AGE}s avg (PR create → merge) | < 1800s |
+
+          ## Pipeline Volume
+
+          | Stage | Count |
+          |-------|-------|
+          | Issues triaged | ${TOTAL_ISSUES} |
+          | Specs validated | ${TOTAL_SPECS} (${SPEC_PASS_RATE}% pass rate) |
+          | Goose builds | ${TOTAL_BUILDS} (${GOOSE_SUCCESSES} success, ${GOOSE_FAILURES} failed) |
+          | PRs merged | ${TOTAL_MERGES} |
+          | Merge failures | ${TOTAL_MERGE_FAILURES} |
+
+          ## Agent Quality
+
+          | Metric | Value |
+          |--------|-------|
+          | Avg Goose attempts | ${AVG_ATTEMPTS} |
+          | Rate limit hits | ${RATE_LIMITED} |
+          | Avg triage latency | ${AVG_TRIAGE_LATENCY}s |
+          | Avg Copilot review comments / PR | ${AVG_COPILOT_COMMENTS} |
+
+          ## Code Output
+
+          | Metric | Value |
+          |--------|-------|
+          | Avg files changed | ${AVG_FILES} |
+          | Avg insertions | ${AVG_INSERTIONS} |
+          | Avg deletions | ${AVG_DELETIONS} |
+          | Avg build time | ${AVG_BUILD_DUR}s |
+          | Avg test time | ${AVG_TEST_DUR}s |
+
+          ## Model
+
+          | Model | Builds |
+          |-------|--------|
+          $(echo "$GOOSE" | jq -r 'group_by(.goose.model) | .[] | "| \(.[0].goose.model) | \(length) |"' 2>/dev/null || echo "| N/A | 0 |")
+
+          ---
+          *Generated by agent-metrics-report.yml on $(date -u +%Y-%m-%dT%H:%M:%SZ)*
+          REPORT
+
+          echo "DORA report written to step summary"
+
+      - name: Save aggregated report
+        run: |
+          cd "$METRICS_DIR"
+
+          # Create an aggregated JSON for historical tracking
+          jq -n \
+            --arg period_start "$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-7d +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg period_end "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson triage "$(cat agent-metrics-triage-*.json 2>/dev/null | jq -s '.' || echo '[]')" \
+            --argjson spec "$(cat agent-metrics-spec-*.json 2>/dev/null | jq -s '.' || echo '[]')" \
+            --argjson goose "$(cat agent-metrics-goose-*.json 2>/dev/null | jq -s '.' || echo '[]')" \
+            --argjson merge "$(cat agent-metrics-merge*.json 2>/dev/null | jq -s 'flatten' || echo '[]')" \
+            '{
+              period: { start: $period_start, end: $period_end },
+              triage: $triage,
+              spec: $spec,
+              goose: $goose,
+              merge: $merge
+            }' > /tmp/agent-dora-report.json || true
+
+      - name: Upload aggregated report
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-dora-report-${{ github.run_id }}
+          path: /tmp/agent-dora-report.json
+          retention-days: 365
+          if-no-files-found: ignore

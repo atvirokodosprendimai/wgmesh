@@ -59,55 +59,85 @@ jobs:
           SPEC_FILE="specs/issue-${ISSUE_NUM}-spec.md"
           REASONS=""
 
+          # Agent metrics: track per-check results
+          CHECK_SPEC_EXISTS=false
+          CHECK_NO_CODE=false
+          CHECK_CLASSIFICATION=false
+          CHECK_PROBLEM=false
+          CHECK_APPROACH=false
+          CHECK_ACTIONABLE=false
+          CLASSIFICATION_VALUE=""
+          NON_SPEC_COUNT=0
+
           # Check 1: Spec file exists
           if [ ! -f "$SPEC_FILE" ]; then
             REASONS="${REASONS}- Spec file not found: $SPEC_FILE\n"
+          else
+            CHECK_SPEC_EXISTS=true
           fi
 
           # Check 2: No code changes (only spec file should be modified)
           CHANGED_FILES=$(git diff --name-only origin/main...HEAD)
           CODE_FILES=$(echo "$CHANGED_FILES" | grep -v "^specs/" | grep -v "^\.github/workflows/" || true)
           if [ -n "$CODE_FILES" ]; then
+            NON_SPEC_COUNT=$(echo "$CODE_FILES" | grep -c . || echo 0)
             REASONS="${REASONS}- PR contains non-spec file changes:\n$CODE_FILES\n"
+          else
+            CHECK_NO_CODE=true
           fi
 
           # Check 3: Required sections present
           if [ -f "$SPEC_FILE" ]; then
             CONTENT=$(cat "$SPEC_FILE")
             
-            # Check for Classification section
-            if ! echo "$CONTENT" | grep -q "## Classification"; then
+            if echo "$CONTENT" | grep -q "## Classification"; then
+              CHECK_CLASSIFICATION=true
+            else
               REASONS="${REASONS}- Missing required section: ## Classification\n"
             fi
             
-            # Check for Problem Analysis section
-            if ! echo "$CONTENT" | grep -q "## Problem Analysis"; then
+            if echo "$CONTENT" | grep -q "## Problem Analysis"; then
+              CHECK_PROBLEM=true
+            else
               REASONS="${REASONS}- Missing required section: ## Problem Analysis\n"
             fi
             
-            # Check for Proposed Approach section
-            if ! echo "$CONTENT" | grep -q "## Proposed Approach"; then
+            if echo "$CONTENT" | grep -q "## Proposed Approach"; then
+              CHECK_APPROACH=true
+            else
               REASONS="${REASONS}- Missing required section: ## Proposed Approach\n"
             fi
 
             # Check 4: Classification is actionable (not wont-do or needs-info)
-            CLASSIFICATION=$(echo "$CONTENT" | grep -A1 "## Classification" | tail -1 | tr '[:upper:]' '[:lower:]' || true)
-            if echo "$CLASSIFICATION" | grep -qiE "wont-do|wont do|needs-info|needs info"; then
-              REASONS="${REASONS}- Classification requires human review: $(echo "$CLASSIFICATION" | xargs)\n"
+            CLASSIFICATION_VALUE=$(echo "$CONTENT" | grep -A1 "## Classification" | tail -1 | tr '[:upper:]' '[:lower:]' | xargs || true)
+            if echo "$CLASSIFICATION_VALUE" | grep -qiE "wont-do|wont do|needs-info|needs info"; then
+              REASONS="${REASONS}- Classification requires human review: $CLASSIFICATION_VALUE\n"
+            else
+              CHECK_ACTIONABLE=true
             fi
           fi
+
+          # Export check results for metrics
+          echo "check_spec_exists=$CHECK_SPEC_EXISTS" >> $GITHUB_OUTPUT
+          echo "check_no_code=$CHECK_NO_CODE" >> $GITHUB_OUTPUT
+          echo "check_classification=$CHECK_CLASSIFICATION" >> $GITHUB_OUTPUT
+          echo "check_problem=$CHECK_PROBLEM" >> $GITHUB_OUTPUT
+          echo "check_approach=$CHECK_APPROACH" >> $GITHUB_OUTPUT
+          echo "check_actionable=$CHECK_ACTIONABLE" >> $GITHUB_OUTPUT
+          echo "classification=$CLASSIFICATION_VALUE" >> $GITHUB_OUTPUT
+          echo "non_spec_count=$NON_SPEC_COUNT" >> $GITHUB_OUTPUT
 
           # Result
           if [ -z "$REASONS" ]; then
             echo "valid=true" >> $GITHUB_OUTPUT
             echo "reason=" >> $GITHUB_OUTPUT
-            echo "✅ All validation checks passed"
+            echo "All validation checks passed"
           else
             echo "valid=false" >> $GITHUB_OUTPUT
             echo "reason<<EOF" >> $GITHUB_OUTPUT
             echo -e "$REASONS" >> $GITHUB_OUTPUT
             echo "EOF" >> $GITHUB_OUTPUT
-            echo "❌ Validation failed"
+            echo "Validation failed"
             echo -e "$REASONS"
           fi
 
@@ -146,6 +176,68 @@ jobs:
             -f spec_pr_number="${PR_NUM}"
           
           echo "Goose implementation triggered"
+
+      # ── Agent metrics: spec validation ────────────────
+      - name: Collect agent metrics
+        if: always()
+        env:
+          ISSUE_NUM: ${{ steps.issue.outputs.number }}
+        run: |
+          METRICS_FILE="/tmp/agent-metrics-spec-${ISSUE_NUM}.json"
+          PR_CREATED="${{ github.event.pull_request.created_at }}"
+
+          jq -n \
+            --argjson schema_version 1 \
+            --arg stage "spec_validate" \
+            --arg issue_number "$ISSUE_NUM" \
+            --arg spec_pr_number "${{ github.event.pull_request.number }}" \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg pr_created_at "$PR_CREATED" \
+            --arg valid "${{ steps.validate.outputs.valid }}" \
+            --arg classification "${{ steps.validate.outputs.classification }}" \
+            --arg check_spec "${{ steps.validate.outputs.check_spec_exists }}" \
+            --arg check_code "${{ steps.validate.outputs.check_no_code }}" \
+            --arg check_class "${{ steps.validate.outputs.check_classification }}" \
+            --arg check_prob "${{ steps.validate.outputs.check_problem }}" \
+            --arg check_appr "${{ steps.validate.outputs.check_approach }}" \
+            --arg check_act "${{ steps.validate.outputs.check_actionable }}" \
+            --arg non_spec "${{ steps.validate.outputs.non_spec_count }}" \
+            '{
+              schema_version: $schema_version,
+              stage: $stage,
+              issue_number: ($issue_number | tonumber? // 0),
+              spec_pr_number: ($spec_pr_number | tonumber? // 0),
+              timestamp: $timestamp,
+              spec: {
+                valid: ($valid == "true"),
+                classification: $classification,
+                checks: {
+                  spec_exists: ($check_spec == "true"),
+                  no_code_changes: ($check_code == "true"),
+                  has_classification: ($check_class == "true"),
+                  has_problem_analysis: ($check_prob == "true"),
+                  has_approach: ($check_appr == "true"),
+                  is_actionable: ($check_act == "true")
+                },
+                non_spec_file_count: ($non_spec | tonumber? // 0)
+              },
+              timing: {
+                pr_created_at: $pr_created_at,
+                validated_at: $timestamp
+              }
+            }' > "$METRICS_FILE" || true
+
+          echo "=== Agent Metrics (Spec Validate) ==="
+          cat "$METRICS_FILE" 2>/dev/null || echo "Failed to generate metrics"
+
+      - name: Upload agent metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-metrics-spec-${{ steps.issue.outputs.number }}
+          path: /tmp/agent-metrics-spec-*.json
+          retention-days: 90
+          if-no-files-found: ignore
 
       - name: Comment on validation failure
         if: steps.validate.outputs.valid == 'false'

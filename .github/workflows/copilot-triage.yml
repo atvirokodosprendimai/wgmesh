@@ -130,3 +130,36 @@ jobs:
             });
 
             console.log(`Triggered Copilot triage for issue #${issueNumber}`);
+
+            // ── Agent metrics: triage event ──
+            const fs = require('fs');
+            const metricsPath = `/tmp/agent-metrics-triage-${issueNumber}.json`;
+            const issueCreated = new Date(issue.created_at);
+            const now = new Date();
+            const triageLatency = Math.round((now - issueCreated) / 1000);
+
+            const metrics = {
+              schema_version: 1,
+              stage: 'triage',
+              issue_number: issueNumber,
+              timestamp: now.toISOString(),
+              issue: {
+                created_at: issue.created_at,
+                title_length: (issue.title || '').length,
+                body_length: (issue.body || '').length,
+                time_to_triage_seconds: triageLatency,
+              },
+              copilot_assigned: true,
+            };
+
+            fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2));
+            core.info(`Agent metrics: triage latency ${triageLatency}s for issue #${issueNumber}`);
+
+      - name: Upload agent metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-metrics-triage-${{ github.event.issue.number }}
+          path: /tmp/agent-metrics-triage-*.json
+          retention-days: 90
+          if-no-files-found: ignore
