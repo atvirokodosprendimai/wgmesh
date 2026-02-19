@@ -350,6 +350,7 @@ mesh_transfer() {
     if [ "$listener_ready" -ne 1 ]; then
         log_error "mesh_transfer $from->$to: listener on $to_ip:$port not reachable after $attempt attempts"
         run_on_ok "$to" "pkill -f 'nc.*-l.*$port' 2>/dev/null; rm -f /tmp/mesh-rx.bin"
+        rm -f "/tmp/_nc_pid_$$"
         return 1
     fi
 
@@ -370,6 +371,7 @@ mesh_transfer() {
     # Cleanup
     run_on_ok "$to" "pkill -f 'nc.*-l.*$port' 2>/dev/null; rm -f /tmp/mesh-rx.bin"
     run_on_ok "$from" "rm -f /tmp/mesh-tx.bin"
+    rm -f "/tmp/_nc_pid_$$"
 
     if [ -z "$src_hash" ] || [ -z "$dst_hash" ]; then
         log_error "mesh_transfer $from->$to: failed to compute checksums (src='$src_hash' dst='$dst_hash')"
