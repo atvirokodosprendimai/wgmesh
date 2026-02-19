@@ -3,13 +3,16 @@ package lighthouse
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
+
+// ErrNotFound is returned when a requested entity does not exist.
+var ErrNotFound = fmt.Errorf("not found")
 
 const (
 	keyPrefixOrg  = "lh:org:"
@@ -160,7 +163,7 @@ func (s *Store) StoreAPIKey(ctx context.Context, key *APIKey) error {
 func (s *Store) LookupAPIKey(ctx context.Context, prefix string) (*APIKey, error) {
 	data, err := s.rdb.Get(ctx, keyPrefixKey+prefix).Bytes()
 	if err == redis.Nil {
-		return nil, fmt.Errorf("key not found")
+		return nil, fmt.Errorf("key %w", ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get key: %w", err)
@@ -186,10 +189,15 @@ func (s *Store) TouchAPIKey(ctx context.Context, prefix string) error {
 }
 
 func (s *Store) DeleteAPIKey(ctx context.Context, prefix, orgID string) error {
+	// Look up the key first to get the ID (index stores key.ID, not prefix)
+	key, err := s.LookupAPIKey(ctx, prefix)
+	if err != nil {
+		return err
+	}
 	pipe := s.rdb.Pipeline()
 	pipe.Del(ctx, keyPrefixKey+prefix)
-	pipe.SRem(ctx, keyIndexKeys+orgID, prefix)
-	_, err := pipe.Exec(ctx)
+	pipe.SRem(ctx, keyIndexKeys+orgID, key.ID)
+	_, err = pipe.Exec(ctx)
 	return err
 }
 
@@ -207,12 +215,12 @@ func (s *Store) CreateSite(ctx context.Context, site *Site) error {
 		return fmt.Errorf("marshal site: %w", err)
 	}
 
-	// Check domain uniqueness
-	exists, err := s.rdb.Exists(ctx, keyDomainMap+site.Domain).Result()
+	// Atomic domain uniqueness check using SetNX (set-if-not-exists)
+	set, err := s.rdb.SetNX(ctx, keyDomainMap+site.Domain, site.ID, 0).Result()
 	if err != nil {
 		return fmt.Errorf("check domain: %w", err)
 	}
-	if exists > 0 {
+	if !set {
 		return fmt.Errorf("domain already registered: %s", site.Domain)
 	}
 
@@ -220,7 +228,6 @@ func (s *Store) CreateSite(ctx context.Context, site *Site) error {
 	pipe.Set(ctx, keyPrefixSite+site.ID, data, 0)
 	pipe.SAdd(ctx, keyIndexSites+site.OrgID, site.ID)
 	pipe.SAdd(ctx, keyIndexAll, site.ID)
-	pipe.Set(ctx, keyDomainMap+site.Domain, site.ID, 0)
 	if _, err := pipe.Exec(ctx); err != nil {
 		return fmt.Errorf("store site: %w", err)
 	}
@@ -493,7 +500,7 @@ func (s *Store) applySyncKey(ctx context.Context, msg SyncMessage) (bool, error)
 
 	// Keys are append-only — if we don't have it, accept it
 	_, err := s.LookupAPIKey(ctx, remote.Prefix)
-	if err != nil && strings.Contains(err.Error(), "not found") {
+	if err != nil && errors.Is(err, ErrNotFound) {
 		data, _ := json.Marshal(remote)
 		pipe := s.rdb.Pipeline()
 		pipe.Set(ctx, keyPrefixKey+remote.Prefix, data, 0)

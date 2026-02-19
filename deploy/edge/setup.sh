@@ -47,7 +47,7 @@ CADDY_CONFIG_TMP="/etc/caddy/Caddyfile.new"
 
 # Pull config from lighthouse
 HTTP_CODE=$(curl -s -o "$CADDY_CONFIG_TMP" -w "%{http_code}" \
-    "${LIGHTHOUSE_URL}/v1/xds/caddy" 2>/dev/null || echo "000")
+    "${LIGHTHOUSE_URL}/v1/xds/caddyfile" 2>/dev/null || echo "000")
 
 if [ "$HTTP_CODE" != "200" ]; then
     echo "$(date -Is) Config pull failed: HTTP $HTTP_CODE"
@@ -62,7 +62,7 @@ if [ -f "$CADDY_CONFIG" ] && diff -q "$CADDY_CONFIG" "$CADDY_CONFIG_TMP" &>/dev/
 fi
 
 # Validate new config
-if ! caddy validate --config "$CADDY_CONFIG_TMP" 2>/dev/null; then
+if ! caddy validate --config "$CADDY_CONFIG_TMP" --adapter caddyfile 2>/dev/null; then
     echo "$(date -Is) Invalid config from lighthouse, keeping current"
     rm -f "$CADDY_CONFIG_TMP"
     exit 0
@@ -70,7 +70,7 @@ fi
 
 # Apply
 mv "$CADDY_CONFIG_TMP" "$CADDY_CONFIG"
-caddy reload --config "$CADDY_CONFIG" 2>/dev/null || true
+caddy reload --config "$CADDY_CONFIG" --adapter caddyfile 2>/dev/null || true
 echo "$(date -Is) Config updated and reloaded"
 SCRIPT
 chmod +x /usr/local/bin/edge-config-pull

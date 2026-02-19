@@ -18,7 +18,9 @@ const (
 	SyncInterval = 15 * time.Second
 
 	// SyncMaxMessageSize is the max UDP datagram for sync messages.
-	SyncMaxMessageSize = 65536
+	// Must be below the UDP maximum (65535 - 8 byte header - 20 byte IP header = 65507).
+	// Use 65000 for safety with WireGuard MTU overhead.
+	SyncMaxMessageSize = 65000
 )
 
 // Sync handles federated state replication between lighthouse instances.
@@ -200,7 +202,7 @@ func (s *Sync) listenLoop() {
 	}
 }
 
-// pushLoop periodically pushes full state to a random peer.
+// pushLoop periodically pushes full state to all peers.
 // This ensures convergence even if individual push messages were lost.
 func (s *Sync) pushLoop() {
 	ticker := time.NewTicker(SyncInterval)
@@ -222,7 +224,7 @@ func (s *Sync) pushFullState() {
 		s.mu.RUnlock()
 		return
 	}
-	// Pick a random peer
+	// Copy peer list for thread-safe iteration
 	peers := make([]string, len(s.peers))
 	copy(peers, s.peers)
 	s.mu.RUnlock()

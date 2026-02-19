@@ -29,7 +29,7 @@ type Org struct {
 type APIKey struct {
 	ID         string    `json:"id"`
 	OrgID      string    `json:"org_id"`
-	KeyHash    string    `json:"-"`      // bcrypt hash, never exposed
+	KeyHash    string    `json:"-"`      // SHA-256 hash, never exposed
 	Prefix     string    `json:"prefix"` // first 8 chars for identification
 	CreatedAt  time.Time `json:"created_at"`
 	LastUsedAt time.Time `json:"last_used_at,omitempty"`
