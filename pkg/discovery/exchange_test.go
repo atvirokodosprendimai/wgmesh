@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
@@ -343,5 +344,275 @@ func TestFilterCandidatesForConfig(t *testing.T) {
 	got := filterCandidatesForConfig(in, true)
 	if len(got) != 1 || got[0] != "203.0.113.10:51820" {
 		t.Fatalf("unexpected filtered candidates: %v", got)
+	}
+}
+
+// TestHandleGoodbye_RejectsStaleMessage verifies that GOODBYE messages
+// with timestamps older than 60 seconds are rejected to prevent replay attacks.
+func TestHandleGoodbye_RejectsStaleMessage(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-goodbye-stale-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+	localNode := &daemon.LocalNode{
+		WGPubKey: "local-pubkey",
+		MeshIP:   "10.0.0.1",
+	}
+
+	pe := NewPeerExchange(cfg, localNode, peerStore)
+
+	// Add a peer to the store
+	testPubKey := "peer-pubkey-stale"
+	peerStore.Update(&daemon.PeerInfo{
+		WGPubKey: testPubKey,
+		MeshIP:   "10.0.0.2",
+	}, "test")
+
+	// Verify peer exists
+	if _, ok := peerStore.Get(testPubKey); !ok {
+		t.Fatal("test peer not in store before test")
+	}
+
+	// Create a GOODBYE message with timestamp 120 seconds in the past
+	bye := goodbyeMessage{
+		Protocol:  crypto.ProtocolVersion,
+		Timestamp: time.Now().Add(-120 * time.Second).Unix(),
+		WGPubKey:  testPubKey,
+	}
+
+	// Encrypt as an envelope (SealEnvelope handles marshaling)
+	envelope, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, bye, cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatalf("seal envelope: %v", err)
+	}
+
+	// Simulate receiving the message
+	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
+	pe.handleMessage(envelope, remoteAddr)
+
+	// Verify peer is still in the store (was NOT removed)
+	if _, ok := peerStore.Get(testPubKey); !ok {
+		t.Error("peer was removed despite stale GOODBYE timestamp")
+	}
+}
+
+// TestHandleGoodbye_AcceptsFreshMessage verifies that GOODBYE messages
+// with current timestamps are processed normally.
+func TestHandleGoodbye_AcceptsFreshMessage(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-goodbye-fresh-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+	localNode := &daemon.LocalNode{
+		WGPubKey: "local-pubkey",
+		MeshIP:   "10.0.0.1",
+	}
+
+	pe := NewPeerExchange(cfg, localNode, peerStore)
+
+	// Add a peer to the store
+	testPubKey := "peer-pubkey-fresh"
+	peerStore.Update(&daemon.PeerInfo{
+		WGPubKey: testPubKey,
+		MeshIP:   "10.0.0.2",
+	}, "test")
+
+	// Verify peer exists
+	if _, ok := peerStore.Get(testPubKey); !ok {
+		t.Fatal("test peer not in store before test")
+	}
+
+	// Create a GOODBYE message with current timestamp
+	bye := goodbyeMessage{
+		Protocol:  crypto.ProtocolVersion,
+		Timestamp: time.Now().Unix(),
+		WGPubKey:  testPubKey,
+	}
+
+	// Encrypt as an envelope (SealEnvelope handles marshaling)
+	envelope, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, bye, cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatalf("seal envelope: %v", err)
+	}
+
+	// Simulate receiving the message
+	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
+	pe.handleMessage(envelope, remoteAddr)
+
+	// Verify peer was removed from the store
+	if _, ok := peerStore.Get(testPubKey); ok {
+		t.Error("peer was not removed despite fresh GOODBYE")
+	}
+}
+
+// TestHandleGoodbye_RejectsFutureTimestamp verifies that GOODBYE messages
+// with future timestamps are rejected (clock skew protection).
+func TestHandleGoodbye_RejectsFutureTimestamp(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-goodbye-future-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+	localNode := &daemon.LocalNode{
+		WGPubKey: "local-pubkey",
+		MeshIP:   "10.0.0.1",
+	}
+
+	pe := NewPeerExchange(cfg, localNode, peerStore)
+
+	// Add a peer to the store
+	testPubKey := "peer-pubkey-future"
+	peerStore.Update(&daemon.PeerInfo{
+		WGPubKey: testPubKey,
+		MeshIP:   "10.0.0.2",
+	}, "test")
+
+	// Verify peer exists
+	if _, ok := peerStore.Get(testPubKey); !ok {
+		t.Fatal("test peer not in store before test")
+	}
+
+	// Create a GOODBYE message with timestamp 120 seconds in the future
+	bye := goodbyeMessage{
+		Protocol:  crypto.ProtocolVersion,
+		Timestamp: time.Now().Add(120 * time.Second).Unix(),
+		WGPubKey:  testPubKey,
+	}
+
+	// Encrypt as an envelope (SealEnvelope handles marshaling)
+	envelope, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, bye, cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatalf("seal envelope: %v", err)
+	}
+
+	// Simulate receiving the message
+	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
+	pe.handleMessage(envelope, remoteAddr)
+
+	// Verify peer is still in the store (was NOT removed)
+	if _, ok := peerStore.Get(testPubKey); !ok {
+		t.Error("peer was removed despite future GOODBYE timestamp")
+	}
+}
+
+// TestHandleGoodbye_BoundaryConditions tests edge cases at the 60-second boundary.
+func TestHandleGoodbye_BoundaryConditions(t *testing.T) {
+	tests := []struct {
+		name         string
+		offset       time.Duration
+		shouldRemove bool
+	}{
+		// Use 59s instead of 60s to account for test execution time
+		{"59s_old", -59 * time.Second, true},
+		{"30s_old", -30 * time.Second, true},
+		{"10s_old", -10 * time.Second, true},
+		{"1s_old", -1 * time.Second, true},
+		{"0s_old", 0, true},
+		{"59s_future", 59 * time.Second, true},
+		{"30s_future", 30 * time.Second, true},
+		{"10s_future", 10 * time.Second, true},
+		{"1s_future", 1 * time.Second, true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-goodbye-boundary-" + tt.name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			peerStore := daemon.NewPeerStore()
+			localNode := &daemon.LocalNode{
+				WGPubKey: "local-pubkey",
+				MeshIP:   "10.0.0.1",
+			}
+
+			pe := NewPeerExchange(cfg, localNode, peerStore)
+
+			testPubKey := "peer-pubkey-boundary"
+			peerStore.Update(&daemon.PeerInfo{
+				WGPubKey: testPubKey,
+				MeshIP:   "10.0.0.2",
+			}, "test")
+
+			bye := goodbyeMessage{
+				Protocol:  crypto.ProtocolVersion,
+				Timestamp: time.Now().Add(tt.offset).Unix(),
+				WGPubKey:  testPubKey,
+			}
+
+			// Encrypt as an envelope (SealEnvelope handles marshaling)
+			envelope, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, bye, cfg.Keys.GossipKey)
+			if err != nil {
+				t.Fatalf("seal envelope: %v", err)
+			}
+
+			remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
+			pe.handleMessage(envelope, remoteAddr)
+
+			_, exists := peerStore.Get(testPubKey)
+			if tt.shouldRemove && exists {
+				t.Error("peer should have been removed but still exists")
+			}
+			if !tt.shouldRemove && !exists {
+				t.Error("peer should NOT have been removed but was removed")
+			}
+		})
+	}
+}
+
+// TestHandleGoodbye_BoundaryRejection tests the exact rejection boundaries.
+func TestHandleGoodbye_BoundaryRejection(t *testing.T) {
+	tests := []struct {
+		name   string
+		offset time.Duration
+	}{
+		{"61s_old", -61 * time.Second},
+		{"120s_old", -120 * time.Second},
+		{"61s_future", 61 * time.Second},
+		{"120s_future", 120 * time.Second},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-goodbye-boundary-reject-" + tt.name})
+			if err != nil {
+				t.Fatal(err)
+			}
+			peerStore := daemon.NewPeerStore()
+			localNode := &daemon.LocalNode{
+				WGPubKey: "local-pubkey",
+				MeshIP:   "10.0.0.1",
+			}
+
+			pe := NewPeerExchange(cfg, localNode, peerStore)
+
+			testPubKey := "peer-pubkey-boundary"
+			peerStore.Update(&daemon.PeerInfo{
+				WGPubKey: testPubKey,
+				MeshIP:   "10.0.0.2",
+			}, "test")
+
+			bye := goodbyeMessage{
+				Protocol:  crypto.ProtocolVersion,
+				Timestamp: time.Now().Add(tt.offset).Unix(),
+				WGPubKey:  testPubKey,
+			}
+
+			// Encrypt as an envelope (SealEnvelope handles marshaling)
+			envelope, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, bye, cfg.Keys.GossipKey)
+			if err != nil {
+				t.Fatalf("seal envelope: %v", err)
+			}
+
+			remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
+			pe.handleMessage(envelope, remoteAddr)
+
+			_, exists := peerStore.Get(testPubKey)
+			if !exists {
+				t.Error("peer was removed but should have been rejected due to timestamp")
+			}
+		})
 	}
 }
