@@ -228,15 +228,40 @@ jobs:
           curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
             | tar xz -C /usr/local/bin hcloud
 
+      - name: Auto-recover labels on chimney servers
+        run: |
+          set -euo pipefail
+
+          IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
+
+          for loc in "${LOCATIONS[@]}"; do
+            loc=$(echo "$loc" | xargs)
+            name="chimney-${loc}"
+
+            if hcloud server describe "$name" >/dev/null 2>&1; then
+              # Check if service=chimney label exists
+              LABELS=$(hcloud server describe "$name" -o json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('labels',{}).get('service',''))")
+              if [ "$LABELS" != "chimney" ]; then
+                echo "Adding missing service=chimney label to $name"
+                hcloud server add-label "$name" "service=chimney"
+                hcloud server add-label "$name" "location=$loc" 2>/dev/null || true
+              else
+                echo "$name: labels OK"
+              fi
+            else
+              echo "$name: server not found"
+            fi
+          done
+
       - name: List chimney servers
         run: |
           echo "## Chimney Servers" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          hcloud server list -l "service=chimney" -o columns=name,status,ipv4,datacenter,server_type >> "$GITHUB_STEP_SUMMARY"
+          hcloud server list -l "service=chimney" -o columns=name,status,ipv4,datacenter >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-          hcloud server list -l "service=chimney" -o columns=name,status,ipv4,datacenter,server_type
+          hcloud server list -l "service=chimney" -o columns=name,status,ipv4,datacenter
 
   teardown:
     name: "Chimney: teardown"
