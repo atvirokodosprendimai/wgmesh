@@ -161,6 +161,13 @@ func TestDeriveKey(t *testing.T) {
 - Encryption: AES-256-GCM with unique nonces (`pkg/crypto/envelope.go`)
 - Authentication: HMAC (`pkg/crypto/membership.go`)
 
+## Frontend & API Conventions
+
+- **All external API calls MUST go through a local proxy** — never call external APIs (GitHub, etc.) directly from browser JavaScript. Use relative URLs (`/api/...`), not absolute external URLs.
+- Backend proxies provide authenticated tokens, server-side caching, and rate limit protection. Bypassing them defeats the entire caching architecture.
+- chimney proxy: `/api/github/{path}` → GitHub REST API (authenticated, 5,000 req/hr, cached)
+- lighthouse API: `/v1/...` → CDN control plane
+
 ## What NOT to Modify
 
 - `.git*` files or Git configuration
