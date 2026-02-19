@@ -204,7 +204,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   <span class="subtitle">Autonomous AI coding pipeline — issue to merge</span>
   <div style="margin-left:auto;text-align:right">
     <span class="refresh-info">Auto-refreshes every 5m &middot; <span id="last-update">loading...</span></span>
-    <div class="rate-info">GitHub API: <span id="rate-remaining">?</span>/60 remaining &middot; Cache hits: <span id="cache-stats">0/0</span></div>
+    <div class="rate-info">API: <span id="rate-remaining">?</span> remaining (<span id="api-mode">proxy</span>) &middot; Cache hits: <span id="cache-stats">0/0</span></div>
   </div>
 </div>
 
@@ -624,13 +624,18 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   wgmesh Agent Pipeline Dashboard &middot;
   <a href="https://github.com/atvirokodosprendimai/wgmesh">Repository</a> &middot;
   <a href="https://cloudroof.eu">cloudroof.eu</a> &middot;
-  Data from GitHub REST API (unauthenticated, 60 req/hr)
+   Data via chimney proxy (authenticated, 5,000 req/hr)
 </footer>
 
 <script>
 const OWNER = 'atvirokodosprendimai';
 const REPO = 'wgmesh';
-const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
+// Use chimney proxy for GitHub API — server-side caching with authenticated token (5,000 req/hr).
+// Falls back to direct GitHub API if proxy is unreachable (e.g., local development).
+const CHIMNEY_PROXY = `${window.location.origin}/api/github`;
+const DIRECT_API = `https://api.github.com/repos/${OWNER}/${REPO}`;
+let API = CHIMNEY_PROXY;
+let usingProxy = true;
 
 let rateLimitRemaining = null;
 let rateLimitReset = null;
@@ -639,8 +644,8 @@ let cacheHits = 0;
 let cacheMisses = 0;
 
 // ── ETag cache with localStorage persistence ──
-// GitHub returns 304 Not Modified for conditional requests — these do NOT
-// count against the 60 req/hr unauthenticated rate limit.
+// Chimney proxy (and GitHub) returns 304 Not Modified for conditional
+// requests — these do NOT count against the rate limit.
 const CACHE_KEY = 'wgmesh-dash-cache';
 const CACHE_VERSION = 1;
 let etagCache = {};
@@ -670,7 +675,8 @@ function saveCache() {
 
 loadCache();
 
-// Fetch with conditional requests (ETag/304), rate limit tracking, and 403 backoff
+// Fetch with conditional requests (ETag/304), rate limit tracking, and 403 backoff.
+// Uses chimney proxy (authenticated, server-cached) with fallback to direct GitHub API.
 async function ghFetch(path) {
   if (paused) throw new Error('Rate limited — waiting for reset');
   const url = `${API}${path}`;
@@ -682,7 +688,21 @@ async function ghFetch(path) {
     headers['If-None-Match'] = cached.etag;
   }
 
-  const res = await fetch(url, { headers, cache: 'no-store' });
+  let res;
+  try {
+    res = await fetch(url, { headers, cache: 'no-store' });
+  } catch (err) {
+    // Proxy unreachable — fall back to direct GitHub API (local dev)
+    if (usingProxy) {
+      console.warn('Chimney proxy unreachable, falling back to direct GitHub API');
+      API = DIRECT_API;
+      usingProxy = false;
+      const fallbackUrl = `${API}${path}`;
+      res = await fetch(fallbackUrl, { headers, cache: 'no-store' });
+    } else {
+      throw err;
+    }
+  }
 
   // Track rate limit
   const remaining = res.headers.get('x-ratelimit-remaining');
@@ -693,6 +713,8 @@ async function ghFetch(path) {
     if (el) el.textContent = rateLimitRemaining;
   }
   if (reset) rateLimitReset = parseInt(reset, 10) * 1000;
+  const modeEl = document.getElementById('api-mode');
+  if (modeEl) modeEl.textContent = usingProxy ? 'proxy 5k/hr' : 'direct 60/hr';
 
   // Update cache stats display
   const statsEl = document.getElementById('cache-stats');
