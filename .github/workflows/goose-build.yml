@@ -692,6 +692,7 @@ jobs:
 
           VALIDATE_START=$(date +%s)
           BUILD_PASSED=false; TEST_PASSED=false; VET_PASSED=false; FMT_PASSED=false
+          VALIDATION_FAILED=false
 
           echo "=== Running go build ==="
           BUILD_START=$(date +%s)
@@ -699,44 +700,57 @@ jobs:
             BUILD_PASSED=true
           else
             echo "::error::go build failed on Goose's changes"
+            VALIDATION_FAILED=true
           fi
           BUILD_DUR=$(( $(date +%s) - BUILD_START ))
           echo "validate_build_passed=$BUILD_PASSED" >> $GITHUB_OUTPUT
           echo "validate_build_duration=$BUILD_DUR" >> $GITHUB_OUTPUT
 
-          echo "=== Running go test ==="
-          TEST_START=$(date +%s)
-          if go test ./...; then
-            TEST_PASSED=true
+          # Fail-fast: skip remaining checks if build failed (tests can't run)
+          if [ "$BUILD_PASSED" != "true" ]; then
+            echo "::error::Skipping test/vet/fmt — build failed"
+            echo "validate_test_passed=false" >> $GITHUB_OUTPUT
+            echo "validate_test_duration=0" >> $GITHUB_OUTPUT
+            echo "validate_vet_passed=false" >> $GITHUB_OUTPUT
+            echo "validate_fmt_passed=false" >> $GITHUB_OUTPUT
           else
-            echo "::error::go test failed on Goose's changes"
-          fi
-          TEST_DUR=$(( $(date +%s) - TEST_START ))
-          echo "validate_test_passed=$TEST_PASSED" >> $GITHUB_OUTPUT
-          echo "validate_test_duration=$TEST_DUR" >> $GITHUB_OUTPUT
+            echo "=== Running go test ==="
+            TEST_START=$(date +%s)
+            if go test ./...; then
+              TEST_PASSED=true
+            else
+              echo "::error::go test failed on Goose's changes"
+              VALIDATION_FAILED=true
+            fi
+            TEST_DUR=$(( $(date +%s) - TEST_START ))
+            echo "validate_test_passed=$TEST_PASSED" >> $GITHUB_OUTPUT
+            echo "validate_test_duration=$TEST_DUR" >> $GITHUB_OUTPUT
 
-          echo "=== Running go vet ==="
-          if go vet ./...; then
-            VET_PASSED=true
-          else
-            echo "::error::go vet failed on Goose's changes"
-          fi
-          echo "validate_vet_passed=$VET_PASSED" >> $GITHUB_OUTPUT
+            echo "=== Running go vet ==="
+            if go vet ./...; then
+              VET_PASSED=true
+            else
+              echo "::error::go vet failed on Goose's changes"
+              VALIDATION_FAILED=true
+            fi
+            echo "validate_vet_passed=$VET_PASSED" >> $GITHUB_OUTPUT
 
-          echo "=== Checking gofmt ==="
-          UNFORMATTED=$(gofmt -l .)
-          if [ -z "$UNFORMATTED" ]; then
-            FMT_PASSED=true
-          else
-            echo "::error::gofmt found unformatted files: $UNFORMATTED"
+            echo "=== Checking gofmt ==="
+            UNFORMATTED=$(gofmt -l .)
+            if [ -z "$UNFORMATTED" ]; then
+              FMT_PASSED=true
+            else
+              echo "::error::gofmt found unformatted files: $UNFORMATTED"
+              VALIDATION_FAILED=true
+            fi
+            echo "validate_fmt_passed=$FMT_PASSED" >> $GITHUB_OUTPUT
           fi
-          echo "validate_fmt_passed=$FMT_PASSED" >> $GITHUB_OUTPUT
 
           VALIDATE_DUR=$(( $(date +%s) - VALIDATE_START ))
           echo "validate_duration=$VALIDATE_DUR" >> $GITHUB_OUTPUT
 
-          # Collect diff stats for metrics
-          DIFF_STAT=$(git diff --numstat HEAD 2>/dev/null || true)
+          # Collect diff stats for metrics (compare working tree against main)
+          DIFF_STAT=$(git diff --numstat origin/main 2>/dev/null || true)
           FILES_CHANGED=$(echo "$DIFF_STAT" | grep -c . 2>/dev/null || echo 0)
           INSERTIONS=$(echo "$DIFF_STAT" | awk '{s+=$1}END{print s+0}' 2>/dev/null || echo 0)
           DELETIONS=$(echo "$DIFF_STAT" | awk '{s+=$2}END{print s+0}' 2>/dev/null || echo 0)
@@ -748,8 +762,7 @@ jobs:
           echo "diff_test_files=$TEST_FILES" >> $GITHUB_OUTPUT
           echo "diff_test_insertions=$TEST_INSERTIONS" >> $GITHUB_OUTPUT
 
-          if [ "$BUILD_PASSED" != "true" ] || [ "$TEST_PASSED" != "true" ] || \
-             [ "$VET_PASSED" != "true" ] || [ "$FMT_PASSED" != "true" ]; then
+          if [ "$VALIDATION_FAILED" = "true" ]; then
             echo "::error::Validation failed"
             exit 1
           fi
