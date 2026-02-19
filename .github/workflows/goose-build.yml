@@ -751,11 +751,15 @@ jobs:
 
           # Collect diff stats for metrics (compare working tree against main)
           DIFF_STAT=$(git diff --numstat origin/main 2>/dev/null || true)
-          FILES_CHANGED=$(echo "$DIFF_STAT" | grep -c . 2>/dev/null || echo 0)
-          INSERTIONS=$(echo "$DIFF_STAT" | awk '{s+=$1}END{print s+0}' 2>/dev/null || echo 0)
-          DELETIONS=$(echo "$DIFF_STAT" | awk '{s+=$2}END{print s+0}' 2>/dev/null || echo 0)
-          TEST_INSERTIONS=$(echo "$DIFF_STAT" | grep '_test\.go' | awk '{s+=$1}END{print s+0}' 2>/dev/null || echo 0)
-          TEST_FILES=$(echo "$DIFF_STAT" | grep -c '_test\.go' 2>/dev/null || echo 0)
+          if [ -n "$DIFF_STAT" ]; then
+            FILES_CHANGED=$(echo "$DIFF_STAT" | wc -l | tr -d ' ')
+            INSERTIONS=$(echo "$DIFF_STAT" | awk '{s+=$1}END{print s+0}')
+            DELETIONS=$(echo "$DIFF_STAT" | awk '{s+=$2}END{print s+0}')
+            TEST_INSERTIONS=$(echo "$DIFF_STAT" | grep '_test\.go' | awk '{s+=$1}END{print s+0}')
+            TEST_FILES=$(echo "$DIFF_STAT" | grep -c '_test\.go' || true)
+          else
+            FILES_CHANGED=0; INSERTIONS=0; DELETIONS=0; TEST_INSERTIONS=0; TEST_FILES=0
+          fi
           echo "diff_files=$FILES_CHANGED" >> $GITHUB_OUTPUT
           echo "diff_insertions=$INSERTIONS" >> $GITHUB_OUTPUT
           echo "diff_deletions=$DELETIONS" >> $GITHUB_OUTPUT
