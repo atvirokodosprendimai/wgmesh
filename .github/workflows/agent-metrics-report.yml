@@ -105,17 +105,24 @@ jobs:
           cd "$METRICS_DIR"
 
           # Collect all JSON into arrays by stage
-          # Pass file paths directly to jq -s (avoids cat concat breaking on files without trailing newlines)
+          # Use bash arrays to safely handle file paths (avoids word-splitting issues)
+          # and pass them directly to jq -s (avoids cat concat breaking on files without trailing newlines).
           # In GHA bash (-e -o pipefail) a non-matching glob with plain cat would exit non-zero and fail the step.
-          triage_files=$(find . -maxdepth 1 -name 'agent-metrics-triage-*.json' -print 2>/dev/null)
-          spec_files=$(find . -maxdepth 1 -name 'agent-metrics-spec-*.json' -print 2>/dev/null)
-          goose_files=$(find . -maxdepth 1 -name 'agent-metrics-goose-*.json' -print 2>/dev/null)
-          merge_files=$(find . -maxdepth 1 -name 'agent-metrics-merge-*.json' -print 2>/dev/null)
+          safe_jq_slurp() {
+            local pattern="$1" filter="${2:-.}"
+            local files=()
+            while IFS= read -r f; do files+=("$f"); done < <(find . -maxdepth 1 -name "$pattern" -print 2>/dev/null)
+            if [ ${#files[@]} -gt 0 ]; then
+              jq -s "$filter" "${files[@]}"
+            else
+              echo '[]'
+            fi
+          }
 
-          TRIAGE=$([ -n "$triage_files" ] && jq -s '.' $triage_files || echo '[]')
-          SPEC=$([ -n "$spec_files" ] && jq -s '.' $spec_files || echo '[]')
-          GOOSE=$([ -n "$goose_files" ] && jq -s '.' $goose_files || echo '[]')
-          MERGE=$([ -n "$merge_files" ] && jq -s 'flatten' $merge_files || echo '[]')
+          TRIAGE=$(safe_jq_slurp 'agent-metrics-triage-*.json')
+          SPEC=$(safe_jq_slurp 'agent-metrics-spec-*.json')
+          GOOSE=$(safe_jq_slurp 'agent-metrics-goose-*.json')
+          MERGE=$(safe_jq_slurp 'agent-metrics-merge-*.json' 'flatten')
 
           # Calculate DORA metrics
           TOTAL_ISSUES=$(echo "$TRIAGE" | jq 'length')
@@ -227,19 +234,25 @@ jobs:
           cd "$METRICS_DIR"
 
           # Create an aggregated JSON for historical tracking
-          # Reuse the same safe file-list pattern from the report step
-          triage_files=$(find . -maxdepth 1 -name 'agent-metrics-triage-*.json' -print 2>/dev/null)
-          spec_files=$(find . -maxdepth 1 -name 'agent-metrics-spec-*.json' -print 2>/dev/null)
-          goose_files=$(find . -maxdepth 1 -name 'agent-metrics-goose-*.json' -print 2>/dev/null)
-          merge_files=$(find . -maxdepth 1 -name 'agent-metrics-merge-*.json' -print 2>/dev/null)
+          # Reuse the same safe_jq_slurp helper from the report step
+          safe_jq_slurp() {
+            local pattern="$1" filter="${2:-.}"
+            local files=()
+            while IFS= read -r f; do files+=("$f"); done < <(find . -maxdepth 1 -name "$pattern" -print 2>/dev/null)
+            if [ ${#files[@]} -gt 0 ]; then
+              jq -s "$filter" "${files[@]}"
+            else
+              echo '[]'
+            fi
+          }
 
           jq -n \
             --arg period_start "$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-7d +%Y-%m-%dT%H:%M:%SZ)" \
             --arg period_end "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --argjson triage "$([ -n "$triage_files" ] && jq -s '.' $triage_files || echo '[]')" \
-            --argjson spec "$([ -n "$spec_files" ] && jq -s '.' $spec_files || echo '[]')" \
-            --argjson goose "$([ -n "$goose_files" ] && jq -s '.' $goose_files || echo '[]')" \
-            --argjson merge "$([ -n "$merge_files" ] && jq -s 'flatten' $merge_files || echo '[]')" \
+            --argjson triage "$(safe_jq_slurp 'agent-metrics-triage-*.json')" \
+            --argjson spec "$(safe_jq_slurp 'agent-metrics-spec-*.json')" \
+            --argjson goose "$(safe_jq_slurp 'agent-metrics-goose-*.json')" \
+            --argjson merge "$(safe_jq_slurp 'agent-metrics-merge-*.json' 'flatten')" \
             '{
               period: { start: $period_start, end: $period_end },
               triage: $triage,
