@@ -203,11 +203,11 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
       <span class="stat-value" id="mem0-status" style="font-size:0.875rem">-</span>
     </div>
     <div class="stat-row">
-      <span class="stat-label">Memories retrieved (last run)</span>
+      <span class="stat-label">Retrieve step (last run)</span>
       <span class="stat-value accent" id="mem0-retrieved">-</span>
     </div>
     <div class="stat-row">
-      <span class="stat-label">Memories saved (last run)</span>
+      <span class="stat-label">Save step (last run)</span>
       <span class="stat-value green" id="mem0-saved">-</span>
     </div>
     <div class="stat-row">
@@ -497,9 +497,8 @@ function renderDORA(closedPRs, runs) {
 
   document.getElementById('dora-freq').textContent = mergedThisWeek.length;
   document.getElementById('dora-lead').textContent = avgLead > 0 ? duration(avgLead) : 'N/A';
-  document.getElementById('dora-active').textContent = `${activeRuns.length} / ${
-    document.getElementById('dora-active').textContent.split('/').pop()?.trim() || '?'
-  }`;
+  // Active runs count — issue count is set by renderPipeline()
+  document.getElementById('dora-active').textContent = `${activeRuns.length} active`;
   document.getElementById('dora-success').textContent =
     gooseTotal > 0 ? `${gooseSuccess}/${gooseTotal}` : 'N/A';
 }
@@ -521,7 +520,7 @@ async function renderImpact(closedPRs) {
   // Limit concurrent fetches to conserve rate limit
   for (const pr of needsFetch.slice(0, 4)) {
     try {
-      prFilesCache[pr.number] = await ghFetch(`/pulls/${pr.number}/files?per_page=30`);
+      prFilesCache[pr.number] = await ghFetch(`/pulls/${pr.number}/files?per_page=100`);
     } catch {
       prFilesCache[pr.number] = [];
     }
@@ -865,7 +864,18 @@ async function fetchMem0Stats(runs) {
     if (mem0Cache[run.id] || fetched >= 2) continue;
     try {
       const jobsData = await ghFetch(`/actions/runs/${run.id}/jobs`);
-      const job = (jobsData.jobs || [])[0];
+      const jobs = jobsData.jobs || [];
+      const job = jobs.find(j =>
+        Array.isArray(j.steps) &&
+        j.steps.some(s =>
+          s.name &&
+          (s.name.includes('Retrieve memories') ||
+           s.name.includes('Save memories') ||
+           s.name.includes('Encrypt mem0') ||
+           s.name.includes('Save mem0 memory cache') ||
+           s.name.includes('Restore mem0 memory cache'))
+        )
+      ) || jobs[0];
       if (!job) continue;
 
       // Extract mem0 stats from step names and conclusions
@@ -982,7 +992,7 @@ function renderMem0(gooseRuns) {
 
 // ── Init ──
 fetchAll();
-setInterval(fetchAll, REFRESH_MS); // 5 minutes — stays within 60 req/hr
+setInterval(fetchAll, REFRESH_MS); // 5 min — reduces API call volume to stay within unauthenticated rate limits
 </script>
 </body>
 </html>
