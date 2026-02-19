@@ -239,14 +239,24 @@ jobs:
             name="chimney-${loc}"
 
             if hcloud server describe "$name" >/dev/null 2>&1; then
-              # Check if service=chimney label exists
-              LABELS=$(hcloud server describe "$name" -o json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('labels',{}).get('service',''))")
-              if [ "$LABELS" != "chimney" ]; then
+              # Check service label
+              SERVICE_LABEL=$(hcloud server describe "$name" -o json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('labels',{}).get('service',''))")
+              if [ "$SERVICE_LABEL" != "chimney" ]; then
                 echo "Adding missing service=chimney label to $name"
                 hcloud server add-label "$name" "service=chimney"
-                hcloud server add-label "$name" "location=$loc" 2>/dev/null || true
               else
-                echo "$name: labels OK"
+                echo "$name: service label OK"
+              fi
+
+              # Check location label separately
+              LOCATION_LABEL=$(hcloud server describe "$name" -o json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('labels',{}).get('location',''))")
+              if [ -z "$LOCATION_LABEL" ]; then
+                echo "Adding missing location=$loc label to $name"
+                hcloud server add-label "$name" "location=$loc"
+              elif [ "$LOCATION_LABEL" != "$loc" ]; then
+                echo "Warning: $name has location label '$LOCATION_LABEL' (expected '$loc'), not changing it"
+              else
+                echo "$name: location label OK"
               fi
             else
               echo "$name: server not found"
