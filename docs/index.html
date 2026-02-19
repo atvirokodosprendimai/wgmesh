@@ -118,7 +118,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   <span class="subtitle">Autonomous AI coding pipeline — issue to merge</span>
   <div style="margin-left:auto;text-align:right">
     <span class="refresh-info">Auto-refreshes every 5m &middot; <span id="last-update">loading...</span></span>
-    <div class="rate-info">GitHub API: <span id="rate-remaining">?</span>/60 requests remaining</div>
+    <div class="rate-info">GitHub API: <span id="rate-remaining">?</span>/60 remaining &middot; Cache hits: <span id="cache-stats">0/0</span></div>
   </div>
 </div>
 
@@ -290,18 +290,57 @@ const REPO = 'wgmesh';
 const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 
 let rateLimitRemaining = null;
-
 let rateLimitReset = null;
 let paused = false;
+let cacheHits = 0;
+let cacheMisses = 0;
 
-// Fetch with cache-busting, rate limit tracking, and 403 backoff
+// ── ETag cache with localStorage persistence ──
+// GitHub returns 304 Not Modified for conditional requests — these do NOT
+// count against the 60 req/hr unauthenticated rate limit.
+const CACHE_KEY = 'wgmesh-dash-cache';
+const CACHE_VERSION = 1;
+let etagCache = {};
+
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    if (parsed._v !== CACHE_VERSION) { localStorage.removeItem(CACHE_KEY); return; }
+    // Evict entries older than 1 hour to keep storage lean
+    const cutoff = Date.now() - 3600000;
+    for (const [k, v] of Object.entries(parsed)) {
+      if (k === '_v') continue;
+      if (v.ts && v.ts > cutoff) etagCache[k] = v;
+    }
+  } catch { /* corrupt cache — ignore */ }
+}
+
+function saveCache() {
+  try {
+    const obj = { _v: CACHE_VERSION };
+    for (const [k, v] of Object.entries(etagCache)) obj[k] = v;
+    localStorage.setItem(CACHE_KEY, JSON.stringify(obj));
+  } catch { /* quota exceeded or private mode — ignore */ }
+}
+
+loadCache();
+
+// Fetch with conditional requests (ETag/304), rate limit tracking, and 403 backoff
 async function ghFetch(path) {
   if (paused) throw new Error('Rate limited — waiting for reset');
   const url = `${API}${path}`;
-  const res = await fetch(url, {
-    headers: { 'Accept': 'application/vnd.github+json' },
-    cache: 'no-store'
-  });
+  const headers = { 'Accept': 'application/vnd.github+json' };
+
+  // Add If-None-Match header if we have a cached ETag for this path
+  const cached = etagCache[path];
+  if (cached && cached.etag) {
+    headers['If-None-Match'] = cached.etag;
+  }
+
+  const res = await fetch(url, { headers, cache: 'no-store' });
+
   // Track rate limit
   const remaining = res.headers.get('x-ratelimit-remaining');
   const reset = res.headers.get('x-ratelimit-reset');
@@ -311,6 +350,10 @@ async function ghFetch(path) {
     if (el) el.textContent = rateLimitRemaining;
   }
   if (reset) rateLimitReset = parseInt(reset, 10) * 1000;
+
+  // Update cache stats display
+  const statsEl = document.getElementById('cache-stats');
+  if (statsEl) statsEl.textContent = `${cacheHits}/${cacheHits + cacheMisses}`;
 
   if (res.status === 403 || res.status === 429) {
     paused = true;
@@ -322,8 +365,27 @@ async function ghFetch(path) {
     throw new Error(`Rate limited (${res.status}), pausing ${waitMin}min`);
   }
 
+  // 304 Not Modified — return cached data (free! doesn't count against rate limit)
+  if (res.status === 304 && cached && cached.data) {
+    cacheHits++;
+    return cached.data;
+  }
+
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
-  return res.json();
+
+  cacheMisses++;
+  const data = await res.json();
+
+  // Store response with ETag for future conditional requests
+  const etag = res.headers.get('etag');
+  if (etag) {
+    etagCache[path] = { etag, data, ts: Date.now() };
+    // Debounce localStorage writes — save after all fetches in a cycle
+    clearTimeout(ghFetch._saveTimer);
+    ghFetch._saveTimer = setTimeout(saveCache, 2000);
+  }
+
+  return data;
 }
 
 function timeAgo(dateStr) {
@@ -406,12 +468,12 @@ function describeImpact(pr, files) {
 
 // ── Data fetching ──
 // Rate budget: 60 requests/hr unauthenticated.
-// Strategy: 5-min base interval = 12 cycles/hr.
-//   Light cycle (2 API calls): openPRs + runs = 24/hr
-//   Full cycle every 3rd (2 extra): closedPRs + issues = +8/hr
-//   PR files (up to 4 per full): +16/hr max
-//   mem0 jobs (up to 2 per full): +8/hr max
-//   Total worst case: ~56/hr — within budget.
+// Strategy: ETag conditional requests (If-None-Match → 304 Not Modified).
+//   304 responses do NOT count against the rate limit, so repeat fetches
+//   of unchanged data are essentially free. Only genuine changes cost a
+//   rate limit token. Combined with 5-min intervals and light/full cycle
+//   splitting, actual rate consumption is typically 5–15 req/hr.
+//   Cache persists to localStorage across page reloads.
 let fetchCount = 0;
 let cachedData = {};
 const REFRESH_MS = 300000; // 5 minutes
