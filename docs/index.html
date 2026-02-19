@@ -109,6 +109,92 @@ a:hover { text-decoration: underline; }
 .biz-warn { color: var(--yellow); font-weight: 600; }
 
 footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2rem 0 1rem; }
+
+/* ── Traction Roadmap ── */
+.section-divider { margin: 2rem 0 1.25rem; padding-bottom: 0.5rem; border-bottom: 1px solid var(--border); }
+.section-divider h2 { font-size: 1rem; font-weight: 600; color: var(--accent); margin: 0; }
+.section-divider p { font-size: 0.75rem; color: var(--muted); margin-top: 0.25rem; }
+
+/* MSC Progress */
+.msc-bar { position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 6px; padding: 1.25rem 1rem 1rem; }
+.msc-bar h3 { font-size: 0.8125rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.04em; margin-bottom: 0.75rem; }
+.msc-track { position: relative; height: 28px; background: rgba(139,148,158,0.1);
+  border-radius: 14px; overflow: visible; margin-bottom: 0.75rem; }
+.msc-fill { position: absolute; left: 0; top: 0; height: 100%; border-radius: 14px;
+  background: linear-gradient(90deg, var(--accent), var(--green));
+  transition: width 0.5s ease; min-width: 2px; }
+.msc-markers { display: flex; justify-content: space-between; font-size: 0.6875rem; color: var(--muted); }
+.msc-marker { text-align: center; flex: 1; }
+.msc-marker strong { display: block; font-size: 0.8125rem; color: var(--text); }
+.msc-current { font-size: 1.5rem; font-weight: 700; color: var(--accent); }
+
+/* Customer Factory funnel */
+.funnel { display: flex; gap: 0; margin-bottom: 0.5rem; }
+.funnel-stage { flex: 1; padding: 0.75rem 0.5rem; text-align: center; position: relative;
+  border-right: 1px solid var(--bg); }
+.funnel-stage:last-child { border-right: none; }
+.funnel-stage .stage-name { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.04em; margin-bottom: 0.25rem; }
+.funnel-stage .stage-metric { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.25rem; }
+.funnel-stage .stage-status { font-size: 0.6875rem; font-weight: 600; }
+.funnel-stage.blocked { background: rgba(248,81,73,0.08); }
+.funnel-stage.blocked .stage-name { color: var(--red); }
+.funnel-stage.ready { background: rgba(63,185,80,0.08); }
+.funnel-stage.ready .stage-name { color: var(--green); }
+.funnel-stage.waiting { background: rgba(139,148,158,0.06); }
+.funnel-stage.waiting .stage-name { color: var(--muted); }
+.constraint-arrow { display: block; text-align: center; font-size: 0.6875rem; color: var(--red);
+  font-weight: 600; margin-top: 0.25rem; }
+
+/* Horizon cards */
+.horizon-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1rem; }
+@media (max-width: 768px) { .horizon-grid { grid-template-columns: 1fr; } }
+.horizon-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 1rem; }
+.horizon-card h3 { font-size: 0.8125rem; font-weight: 600; margin-bottom: 0.5rem; }
+.horizon-card.now { border-left: 3px solid var(--green); }
+.horizon-card.now h3 { color: var(--green); }
+.horizon-card.next { border-left: 3px solid var(--yellow); }
+.horizon-card.next h3 { color: var(--yellow); }
+.horizon-card.later { border-left: 3px solid var(--muted); }
+.horizon-card.later h3 { color: var(--muted); }
+.horizon-card ul { list-style: none; font-size: 0.8125rem; }
+.horizon-card li { padding: 0.25rem 0; padding-left: 1rem; position: relative; }
+.horizon-card li::before { content: ''; position: absolute; left: 0; top: 0.6rem;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--border); }
+.horizon-card.now li::before { background: var(--green); }
+.horizon-card.next li::before { background: var(--yellow); }
+.horizon-card.later li::before { background: var(--muted); }
+
+/* Sponsor section */
+.sponsor-card { background: linear-gradient(135deg, rgba(188,140,255,0.06), rgba(88,166,255,0.06));
+  border: 1px solid var(--border); border-radius: 6px; padding: 1.25rem; }
+.sponsor-card h2 { font-size: 0.875rem; font-weight: 600; color: var(--purple); text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 0.75rem; }
+.tier-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+.tier { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
+.tier h3 { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.125rem; }
+.tier .tier-price { font-size: 1.25rem; font-weight: 700; color: var(--accent); margin-bottom: 0.5rem; }
+.tier ul { list-style: none; font-size: 0.8125rem; }
+.tier li { padding: 0.25rem 0; padding-left: 1.25rem; position: relative; color: var(--text); }
+.tier li::before { content: '\2713'; position: absolute; left: 0; color: var(--green); font-weight: 700; }
+.tier.featured { border-color: var(--purple); }
+.tier.featured h3 { color: var(--purple); }
+.sponsor-note { font-size: 0.75rem; color: var(--muted); margin-top: 1rem; line-height: 1.5; }
+.sponsor-note a { color: var(--accent); }
+
+/* Capability table */
+.cap-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
+.cap-table th { text-align: left; color: var(--muted); font-weight: 500;
+  padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+.cap-table td { padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
+.cap-table tr:last-child td { border-bottom: none; }
+.cap-done { color: var(--green); }
+.cap-blocked { color: var(--red); font-weight: 600; }
+.cap-partial { color: var(--yellow); }
+.cap-later { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -120,6 +206,164 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
     <span class="refresh-info">Auto-refreshes every 5m &middot; <span id="last-update">loading...</span></span>
     <div class="rate-info">GitHub API: <span id="rate-remaining">?</span>/60 remaining &middot; Cache hits: <span id="cache-stats">0/0</span></div>
   </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     TRACTION ROADMAP — outcomes, not outputs
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="section-divider">
+  <h2>Traction Roadmap &mdash; cloudroof.eu</h2>
+  <p>Zero-infrastructure anycast CDN built on WireGuard mesh. Measuring outcomes, not outputs.</p>
+</div>
+
+<!-- MSC Progress -->
+<div class="msc-bar" style="margin-bottom:1.25rem">
+  <h3>Minimum Success Criteria &mdash; 3-Year Target: $100K ARR</h3>
+  <div style="display:flex;align-items:baseline;gap:0.75rem;margin-bottom:0.75rem">
+    <span class="msc-current">0</span>
+    <span style="color:var(--muted);font-size:0.875rem">of 1 customer (90-day target)</span>
+  </div>
+  <div class="msc-track">
+    <div class="msc-fill" style="width:1%"></div>
+  </div>
+  <div class="msc-markers">
+    <div class="msc-marker"><strong>0</strong>NOW</div>
+    <div class="msc-marker"><strong>1</strong>90d</div>
+    <div class="msc-marker"><strong>4</strong>Year 1</div>
+    <div class="msc-marker"><strong>42</strong>Year 2</div>
+    <div class="msc-marker"><strong>420</strong>Year 3 (MSC)</div>
+  </div>
+</div>
+
+<!-- Customer Factory -->
+<div class="card full-width" style="margin-bottom:1.25rem">
+  <h2>Customer Factory</h2>
+  <div class="funnel">
+    <div class="funnel-stage waiting">
+      <div class="stage-name">Acquisition</div>
+      <div class="stage-metric">Visit cloudroof.eu</div>
+      <div class="stage-status" style="color:var(--muted)">No analytics yet</div>
+    </div>
+    <div class="funnel-stage blocked">
+      <div class="stage-name">Activation</div>
+      <div class="stage-metric">Deploy mesh + serve HTTP</div>
+      <div class="stage-status" style="color:var(--red)">BLOCKED</div>
+      <span class="constraint-arrow">&#9650; #1 CONSTRAINT</span>
+    </div>
+    <div class="funnel-stage waiting">
+      <div class="stage-name">Revenue</div>
+      <div class="stage-metric">Paid subscriber</div>
+      <div class="stage-status" style="color:var(--muted)">0</div>
+    </div>
+    <div class="funnel-stage waiting">
+      <div class="stage-name">Retention</div>
+      <div class="stage-metric">Running after 30d</div>
+      <div class="stage-status" style="color:var(--muted)">N/A</div>
+    </div>
+    <div class="funnel-stage waiting">
+      <div class="stage-name">Referral</div>
+      <div class="stage-metric">Invites another user</div>
+      <div class="stage-status" style="color:var(--muted)">N/A</div>
+    </div>
+  </div>
+  <div style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem">
+    80% of effort goes to the single biggest constraint. Currently: <strong style="color:var(--red)">Edge Proxy</strong> &mdash; no way to serve HTTP through the mesh.
+  </div>
+</div>
+
+<!-- NOW / NEXT / LATER -->
+<div class="horizon-grid" style="margin-bottom:1.25rem">
+  <div class="horizon-card now">
+    <h3>NOW &mdash; 90 days</h3>
+    <ul>
+      <li>Build edge proxy config generation</li>
+      <li>End-to-end: <code>wgmesh init</code> &rarr; serving HTTP in &lt;5 min</li>
+      <li>1 real user deploys mesh + serves traffic</li>
+      <li>Origin lockdown enforcement (iptables)</li>
+      <li><a href="https://rentahuman.ai">RentAHuman.ai</a>: hire beta tester for field validation</li>
+    </ul>
+  </div>
+  <div class="horizon-card next">
+    <h3>NEXT &mdash; 6 months</h3>
+    <ul>
+      <li>4 paying customers ($20/mo)</li>
+      <li>GeoDNS routing (simpler than BGP, ships faster)</li>
+      <li>Automated PoP deployment scripts</li>
+      <li>Monitoring dashboard for mesh operators</li>
+      <li>RentAHuman: humans deploy PoP nodes in datacenters</li>
+    </ul>
+  </div>
+  <div class="horizon-card later">
+    <h3>LATER &mdash; 18 months</h3>
+    <ul>
+      <li>42 customers &rarr; $10K ARR</li>
+      <li>BGP anycast for real multi-region routing</li>
+      <li>Self-serve signup + billing</li>
+      <li>RentAHuman marketplace for managed PoP operators</li>
+      <li>LLM Agent Evaluation System (DORA-inspired)</li>
+    </ul>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     SPONSOR BENEFITS
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="sponsor-card" style="margin-bottom:1.5rem">
+  <h2>Sponsor Benefits</h2>
+  <div class="tier-grid">
+    <div class="tier">
+      <h3>Contributor</h3>
+      <div class="tier-price">$5/mo</div>
+      <ul>
+        <li>Name in SPONSORS.md</li>
+        <li>Sponsor badge on GitHub profile</li>
+        <li>Early access to releases</li>
+        <li>Priority issue triage</li>
+      </ul>
+    </div>
+    <div class="tier featured">
+      <h3>Edge Node</h3>
+      <div class="tier-price">$20/mo</div>
+      <ul>
+        <li>Everything in Contributor</li>
+        <li>1 free cloudroof.eu CDN node (when launched)</li>
+        <li>Private Discord/Matrix channel</li>
+        <li>Vote on roadmap priorities</li>
+        <li>Logo on project README</li>
+      </ul>
+    </div>
+    <div class="tier">
+      <h3>Mesh Operator</h3>
+      <div class="tier-price">$100/mo</div>
+      <ul>
+        <li>Everything in Edge Node</li>
+        <li>5 free CDN nodes</li>
+        <li>Direct Slack/email support</li>
+        <li>Custom feature requests</li>
+        <li>Quarterly architecture review call</li>
+      </ul>
+    </div>
+  </div>
+  <div class="sponsor-note">
+    Sponsorship is verified automatically via
+    <a href="https://github.com/sponsors">GitHub Sponsors</a>.
+    Sponsor benefits activate within minutes of your first payment via the
+    <a href="https://docs.github.com/en/sponsors/integrating-with-github-sponsors/getting-started-with-the-sponsors-graphql-api">Sponsors GraphQL API</a>.
+    <br>
+    Not on GitHub? Any verifiable recurring payment (Open Collective, Patreon, direct transfer)
+    qualifies &mdash; <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/new?title=Sponsor+verification&labels=sponsor">open an issue</a> with your receipt.
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════
+     PIPELINE OPERATIONS — live data from GitHub API
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="section-divider">
+  <h2>Pipeline Operations</h2>
+  <p>Live metrics from the autonomous AI coding pipeline (issue &rarr; Copilot spec &rarr; Goose impl &rarr; auto-merge).</p>
 </div>
 
 <!-- DORA metrics row -->
@@ -278,9 +522,108 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   </div>
 </div>
 
+<!-- ══════════════════════════════════════════════════════════════════
+     TECHNICAL STATUS — capability readiness
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="section-divider">
+  <h2>Technical Capability Status</h2>
+  <p>What's built, what's missing, and what blocks traction.</p>
+</div>
+
+<div class="card full-width" style="margin-bottom:1.5rem">
+  <div class="overflow-x">
+    <table class="cap-table">
+      <thead>
+        <tr>
+          <th>Capability</th>
+          <th>Status</th>
+          <th>Package</th>
+          <th>Blocks Traction?</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Mesh Networking</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/daemon</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>Node Deployment (SSH)</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/mesh, pkg/ssh</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>NAT Traversal</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/daemon</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>Route Advertising</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/daemon/routes</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>Auto-discovery (4 layers)</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/discovery</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>Security (AES-256-GCM, HKDF, Dandelion++)</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/crypto, pkg/privacy</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>CLI UX</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>main.go</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>Multi-platform binaries</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>.github/workflows</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr style="background:rgba(248,81,73,0.05)">
+          <td><strong>Edge Proxy</strong></td>
+          <td class="cap-blocked">&#10007; Not Started</td>
+          <td>&mdash;</td>
+          <td class="cap-blocked">YES &mdash; #1 blocker (NOW)</td>
+        </tr>
+        <tr>
+          <td>Origin Lockdown</td>
+          <td class="cap-partial">&#9888; Partial</td>
+          <td><code>pkg/daemon</code></td>
+          <td class="cap-partial">Yes (NOW)</td>
+        </tr>
+        <tr>
+          <td>BGP / GeoDNS Routing</td>
+          <td class="cap-blocked">&#10007; Not Started</td>
+          <td>&mdash;</td>
+          <td class="cap-later">Yes (NEXT phase)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div style="font-size:0.75rem;color:var(--muted);margin-top:0.75rem">
+    <span class="cap-done">&#10003;</span> = ready &nbsp;&nbsp;
+    <span class="cap-partial">&#9888;</span> = partial &nbsp;&nbsp;
+    <span class="cap-blocked">&#10007;</span> = missing &nbsp;&nbsp;
+    Red background = blocks current traction target
+  </div>
+</div>
+
 <footer>
   wgmesh Agent Pipeline Dashboard &middot;
   <a href="https://github.com/atvirokodosprendimai/wgmesh">Repository</a> &middot;
+  <a href="https://cloudroof.eu">cloudroof.eu</a> &middot;
   Data from GitHub REST API (unauthenticated, 60 req/hr)
 </footer>
 
