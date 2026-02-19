@@ -338,13 +338,20 @@ mesh_transfer() {
     " > "/tmp/_nc_pid_$$" 2>/dev/null
 
     # Wait for listener to be ready by probing from the sender side.
-    local attempt
+    local attempt listener_ready=0
     for attempt in {1..20}; do
         if run_on "$from" "nc -z -w 1 $to_ip $port" 2>/dev/null; then
+            listener_ready=1
             break
         fi
         sleep 0.25
     done
+
+    if [ "$listener_ready" -ne 1 ]; then
+        log_error "mesh_transfer $from->$to: listener on $to_ip:$port not reachable after $attempt attempts"
+        run_on_ok "$to" "pkill -f 'nc.*-l.*$port' 2>/dev/null; rm -f /tmp/mesh-rx.bin"
+        return 1
+    fi
 
     # Generate random data, compute checksum, send
     local src_hash
