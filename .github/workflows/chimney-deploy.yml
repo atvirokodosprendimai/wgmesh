@@ -216,7 +216,8 @@ jobs:
           echo "**$PASS passed, $FAIL failed**" >> "$GITHUB_STEP_SUMMARY"
 
           if [ "$FAIL" -gt 0 ]; then
-            echo "::warning::$FAIL smoke test(s) failed"
+            echo "::error::$FAIL smoke test(s) failed — blocking deploy"
+            exit 1
           fi
 
       - name: Cleanup SSH key
