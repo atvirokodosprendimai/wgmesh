@@ -267,7 +267,7 @@ _setup_single_vm() {
     run_on "$node" "
         export DEBIAN_FRONTEND=noninteractive
         apt-get update -qq
-        apt-get install -y -qq wireguard-tools iperf3 jq iproute2 >/dev/null 2>&1
+        apt-get install -y -qq wireguard-tools iperf3 jq iproute2 netcat-openbsd >/dev/null 2>&1
         mkdir -p /usr/local/bin /var/lib/wgmesh
     "
 

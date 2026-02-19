@@ -277,6 +277,188 @@ verify_mesh_without() {
 }
 
 # ---------------------------------------------------------------------------
+# Data plane verification (TCP transfer, throughput, MTU)
+#
+# These go beyond ICMP ping to verify actual data flows through WG tunnels.
+# ---------------------------------------------------------------------------
+
+# Transfer data between two nodes over the mesh and verify integrity.
+# Uses netcat (nc) to send random data over TCP via mesh IPs.
+# Usage: mesh_transfer <from-node> <to-node> [size_mb]
+# Returns: 0 if checksums match, 1 otherwise.
+mesh_transfer() {
+    local from="$1" to="$2" size_mb="${3:-1}"
+    local to_ip="${NODE_MESH_IPS[$to]}"
+    local port=19999
+    local size_bytes=$(( size_mb * 1048576 ))
+
+    # Kill any lingering nc on the port
+    run_on_ok "$to" "pkill -f 'nc.*-l.*$port' 2>/dev/null"
+    sleep 1
+
+    # Start receiver: listen, write to file, compute checksum
+    run_on "$to" "
+        rm -f /tmp/mesh-rx.bin /tmp/mesh-rx.sha256
+        nc -l -p $port > /tmp/mesh-rx.bin 2>/dev/null &
+        echo \$!
+    " > /tmp/_nc_pid 2>/dev/null
+
+    sleep 1
+
+    # Generate random data, compute checksum, send
+    local src_hash
+    src_hash=$(run_on "$from" "
+        dd if=/dev/urandom bs=1M count=$size_mb 2>/dev/null | tee /tmp/mesh-tx.bin | sha256sum | awk '{print \$1}'
+    " 2>/dev/null)
+
+    # Send the data
+    run_on "$from" "nc -w 10 $to_ip $port < /tmp/mesh-tx.bin" 2>/dev/null || true
+    sleep 2
+
+    # Get receiver checksum
+    local dst_hash
+    dst_hash=$(run_on "$to" "sha256sum /tmp/mesh-rx.bin 2>/dev/null | awk '{print \$1}'" 2>/dev/null)
+
+    # Cleanup
+    run_on_ok "$to" "pkill -f 'nc.*-l.*$port' 2>/dev/null; rm -f /tmp/mesh-rx.bin"
+    run_on_ok "$from" "rm -f /tmp/mesh-tx.bin"
+
+    if [ -z "$src_hash" ] || [ -z "$dst_hash" ]; then
+        log_error "mesh_transfer $from->$to: failed to compute checksums (src='$src_hash' dst='$dst_hash')"
+        return 1
+    fi
+
+    if [ "$src_hash" = "$dst_hash" ]; then
+        log_info "mesh_transfer $from->$to: ${size_mb}MB OK (sha256 match)"
+        return 0
+    else
+        log_error "mesh_transfer $from->$to: checksum MISMATCH (src=$src_hash dst=$dst_hash)"
+        return 1
+    fi
+}
+
+# Run iperf3 throughput test between two nodes over mesh IPs.
+# Usage: mesh_iperf <from-node> <to-node> [duration_sec]
+# Outputs: throughput in Mbits/sec to stdout, logs result.
+mesh_iperf() {
+    local from="$1" to="$2" duration="${3:-5}"
+    local to_ip="${NODE_MESH_IPS[$to]}"
+
+    # Kill any lingering iperf3 on the receiver
+    run_on_ok "$to" "pkill iperf3 2>/dev/null"
+    sleep 1
+
+    # Start server on receiver (mesh IP)
+    run_on "$to" "iperf3 -s -B $to_ip -D -1 2>/dev/null" || true
+    sleep 1
+
+    # Run client, parse bandwidth
+    local result
+    result=$(run_on "$from" "iperf3 -c $to_ip -t $duration -J 2>/dev/null") || {
+        log_error "mesh_iperf $from->$to: iperf3 client failed"
+        run_on_ok "$to" "pkill iperf3 2>/dev/null"
+        return 1
+    }
+
+    # Extract sender bits_per_second from JSON
+    local bps
+    bps=$(echo "$result" | jq -r '.end.sum_sent.bits_per_second // 0' 2>/dev/null) || bps=0
+    local mbps
+    mbps=$(echo "$bps" | awk '{printf "%.1f", $1/1000000}')
+
+    run_on_ok "$to" "pkill iperf3 2>/dev/null"
+
+    log_info "mesh_iperf $from->$to: ${mbps} Mbits/sec (${duration}s)"
+    echo "$mbps"
+}
+
+# Check MTU path by sending a large ping with DF bit set.
+# Usage: mesh_mtu_check <from-node> <to-node> [payload_size]
+# Default payload 1372 bytes = 1400 byte packet (28 byte ICMP header).
+# WG overhead is ~60 bytes, so 1400 byte mesh packets need MTU >= 1420.
+mesh_mtu_check() {
+    local from="$1" to="$2" payload="${3:-1372}"
+    local to_ip="${NODE_MESH_IPS[$to]}"
+
+    if run_on "$from" "ping -M do -c 3 -W 3 -s $payload $to_ip" >/dev/null 2>&1; then
+        log_info "mesh_mtu $from->$to: ${payload}+28 byte packets OK (DF bit set)"
+        return 0
+    else
+        log_error "mesh_mtu $from->$to: ${payload}+28 byte packets FAILED (MTU too low or fragmentation needed)"
+        return 1
+    fi
+}
+
+# Verify data plane for all node pairs: 1MB transfer + MTU check.
+# Usage: verify_data_plane
+verify_data_plane() {
+    local nodes=("${!NODE_MESH_IPS[@]}")
+    local n=${#nodes[@]}
+    local failures=0
+
+    log_info "Data plane verification: ${n} nodes, $(( n * (n-1) / 2 )) pairs"
+
+    for (( i=0; i<n; i++ )); do
+        for (( j=i+1; j<n; j++ )); do
+            mesh_transfer "${nodes[$i]}" "${nodes[$j]}" 1 || ((failures++)) || true
+            mesh_mtu_check "${nodes[$i]}" "${nodes[$j]}" || ((failures++)) || true
+        done
+    done
+
+    if [ "$failures" -gt 0 ]; then
+        log_error "Data plane: $failures check(s) failed"
+        return 1
+    fi
+    log_info "Data plane: all pairs verified (transfer + MTU)"
+}
+
+# Quick data plane check: 1MB transfer on one random pair.
+# Used in _chaos_setup to avoid adding too much time per test.
+# Usage: verify_data_plane_quick
+verify_data_plane_quick() {
+    local nodes=("${!NODE_MESH_IPS[@]}")
+    local n=${#nodes[@]}
+    [ "$n" -lt 2 ] && return 0
+
+    # Pick a random pair
+    local i=$(( RANDOM % n ))
+    local j=$(( (i + 1) % n ))
+    mesh_transfer "${nodes[$i]}" "${nodes[$j]}" 1
+}
+
+# Full data plane benchmark: transfer + MTU + iperf + large transfer.
+# Usage: verify_data_plane_full
+verify_data_plane_full() {
+    local nodes=("${!NODE_MESH_IPS[@]}")
+    local n=${#nodes[@]}
+    local failures=0
+
+    log_info "Full data plane benchmark: ${n} nodes"
+
+    # 1. All-pairs 1MB transfer + MTU
+    verify_data_plane || ((failures++)) || true
+
+    # 2. iperf3 throughput on one pair
+    local i=$(( RANDOM % n ))
+    local j=$(( (i + 1) % n ))
+    local throughput
+    throughput=$(mesh_iperf "${nodes[$i]}" "${nodes[$j]}" 5) || ((failures++)) || true
+    log_info "Throughput sample: ${throughput} Mbits/sec (${nodes[$i]}->${nodes[$j]})"
+
+    # 3. Large 100MB transfer on one pair
+    local a=$(( RANDOM % n ))
+    local b=$(( (a + 1) % n ))
+    log_info "Large transfer: 100MB ${nodes[$a]}->${nodes[$b]}"
+    mesh_transfer "${nodes[$a]}" "${nodes[$b]}" 100 || ((failures++)) || true
+
+    if [ "$failures" -gt 0 ]; then
+        log_error "Full data plane: $failures check(s) failed"
+        return 1
+    fi
+    log_info "Full data plane: all checks passed"
+}
+
+# ---------------------------------------------------------------------------
 # Log collection and analysis
 # ---------------------------------------------------------------------------
 

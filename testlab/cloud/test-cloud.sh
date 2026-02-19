@@ -148,6 +148,7 @@ test_t2_full_mesh() {
     sleep 2
     start_mesh 30
     verify_full_mesh 90
+    verify_data_plane_full   # all-pairs transfer + MTU + iperf + 100MB
     scan_logs_for_errors
 }
 
@@ -405,6 +406,7 @@ _chaos_setup() {
     sleep 2
     start_mesh 30
     verify_full_mesh 60
+    verify_data_plane_quick   # 1MB TCP transfer on 1 random pair
 }
 
 # --- T11: 10% packet loss on 2 nodes ---
@@ -1153,6 +1155,8 @@ if should_run_tier 1; then
     run_test T2  "Full mesh (${#NODE_IPS[@]} nodes)" test_t2_full_mesh
     run_test T3  "IPv6 mesh connectivity"        test_t3_ipv6
     run_test T4  "Cross-DC latency sanity"       test_t4_cross_dc_latency
+    log_info "Tier 1 data plane gate..."
+    verify_data_plane
     log_bold "  Tier 1 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
@@ -1168,6 +1172,8 @@ if should_run_tier 2; then
     run_test T8  "Peer rejoin after crash"       test_t8_rejoin
     run_test T9  "Introducer crash"              test_t9_introducer_crash
     run_test T10 "Introducer rejoin"             test_t10_introducer_rejoin
+    log_info "Tier 2 data plane gate..."
+    verify_data_plane
     log_bold "  Tier 2 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
@@ -1186,6 +1192,8 @@ if should_run_tier 3; then
     run_test T17 "Bandwidth throttle 100kbit"    test_t17_throttle
     run_test T18 "Packet reordering 25%"         test_t18_reorder
     run_test T19 "Packet duplication 30%"        test_t19_duplicate
+    log_info "Tier 3 data plane gate..."
+    verify_data_plane
     log_bold "  Tier 3 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
@@ -1200,6 +1208,8 @@ if should_run_tier 4; then
     run_test T22 "Split brain"                   test_t22_split_brain
     run_test T23 "Introducer partition"          test_t23_introducer_partition
     run_test T24 "Asymmetric partition"          test_t24_asymmetric
+    log_info "Tier 4 data plane gate..."
+    verify_data_plane
     log_bold "  Tier 4 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
@@ -1212,6 +1222,8 @@ if should_run_tier 5; then
     run_test T25 "Cone NAT"                      test_t25_cone_nat
     run_test T26 "Symmetric NAT"                 test_t26_symmetric_nat
     run_test T27 "Mixed NAT topology"            test_t27_mixed_nat
+    log_info "Tier 5 data plane gate..."
+    verify_data_plane
     log_bold "  Tier 5 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
@@ -1232,6 +1244,8 @@ if should_run_tier 6; then
     run_test T36 "Clock skew +15min (isolation)" test_t36_clock_skew_15min
     run_test T37 "GOODBYE forgery resistance"    test_t37_goodbye_forgery
     run_test T38 "Stale cache resurrection"      test_t38_stale_cache
+    log_info "Tier 6 data plane gate..."
+    verify_data_plane
     log_bold "  Tier 6 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
@@ -1244,6 +1258,8 @@ if should_run_tier 7; then
     run_test T39 "5-min clean soak"              test_t39_clean_soak
     run_test T40 "10-min chaos soak"             test_t40_chaos_soak
     run_test T41 "15-min long soak with churn"   test_t41_long_soak
+    log_info "Tier 7 data plane gate..."
+    verify_data_plane_full   # final comprehensive benchmark
     log_bold "  Tier 7 complete in $(( $(date +%s) - tier_start ))s"
 fi
 
