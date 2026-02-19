@@ -93,11 +93,12 @@ jobs:
           cd "$METRICS_DIR"
 
           # Collect all JSON into arrays by stage
-          TRIAGE=$(cat agent-metrics-triage-*.json 2>/dev/null | jq -s '.' || echo '[]')
-          SPEC=$(cat agent-metrics-spec-*.json 2>/dev/null | jq -s '.' || echo '[]')
-          GOOSE=$(cat agent-metrics-goose-*.json 2>/dev/null | jq -s '.' || echo '[]')
+          # Use find + cat to handle missing files gracefully (cat with glob fails silently)
+          TRIAGE=$(find . -maxdepth 1 -name 'agent-metrics-triage-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')
+          SPEC=$(find . -maxdepth 1 -name 'agent-metrics-spec-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')
+          GOOSE=$(find . -maxdepth 1 -name 'agent-metrics-goose-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')
           # Merge files contain arrays of PRs; flatten them
-          MERGE=$(cat agent-metrics-merge*.json 2>/dev/null | jq -s 'flatten' || echo '[]')
+          MERGE=$(find . -maxdepth 1 -name 'agent-metrics-merge*.json' -exec cat {} + 2>/dev/null | jq -s 'flatten' 2>/dev/null || echo '[]')
 
           # Calculate DORA metrics
           TOTAL_ISSUES=$(echo "$TRIAGE" | jq 'length')
@@ -212,10 +213,10 @@ jobs:
           jq -n \
             --arg period_start "$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-7d +%Y-%m-%dT%H:%M:%SZ)" \
             --arg period_end "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --argjson triage "$(cat agent-metrics-triage-*.json 2>/dev/null | jq -s '.' || echo '[]')" \
-            --argjson spec "$(cat agent-metrics-spec-*.json 2>/dev/null | jq -s '.' || echo '[]')" \
-            --argjson goose "$(cat agent-metrics-goose-*.json 2>/dev/null | jq -s '.' || echo '[]')" \
-            --argjson merge "$(cat agent-metrics-merge*.json 2>/dev/null | jq -s 'flatten' || echo '[]')" \
+            --argjson triage "$(find . -maxdepth 1 -name 'agent-metrics-triage-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')" \
+            --argjson spec "$(find . -maxdepth 1 -name 'agent-metrics-spec-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')" \
+            --argjson goose "$(find . -maxdepth 1 -name 'agent-metrics-goose-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')" \
+            --argjson merge "$(find . -maxdepth 1 -name 'agent-metrics-merge*.json' -exec cat {} + 2>/dev/null | jq -s 'flatten' 2>/dev/null || echo '[]')" \
             '{
               period: { start: $period_start, end: $period_end },
               triage: $triage,
