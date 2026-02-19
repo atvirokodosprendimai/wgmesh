@@ -48,9 +48,9 @@ func (m *Mesh) Deploy() error {
 		if err != nil {
 			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
 		}
-		defer client.Close()
 
 		if err := ssh.EnsureWireGuardInstalled(client); err != nil {
+			client.Close()
 			return fmt.Errorf("failed to ensure WireGuard on %s: %w", hostname, err)
 		}
 
@@ -61,6 +61,7 @@ func (m *Mesh) Deploy() error {
 		if err != nil {
 			fmt.Printf("  No existing config, applying fresh persistent configuration\n")
 			if err := wireguard.ApplyPersistentConfig(client, m.InterfaceName, config, desiredRoutes); err != nil {
+				client.Close()
 				return fmt.Errorf("failed to apply config to %s: %w", hostname, err)
 			}
 		} else {
@@ -68,6 +69,7 @@ func (m *Mesh) Deploy() error {
 			if diff.HasChanges() {
 				fmt.Printf("  Applying changes with persistent configuration\n")
 				if err := wireguard.UpdatePersistentConfig(client, m.InterfaceName, config, desiredRoutes, diff); err != nil {
+					client.Close()
 					return fmt.Errorf("failed to update config on %s: %w", hostname, err)
 				}
 			} else {
@@ -76,6 +78,7 @@ func (m *Mesh) Deploy() error {
 
 			// Always check and sync routes
 			if err := m.syncRoutesForNode(client, node, desiredRoutes); err != nil {
+				client.Close()
 				return fmt.Errorf("failed to sync routes on %s: %w", hostname, err)
 			}
 
@@ -87,6 +90,7 @@ func (m *Mesh) Deploy() error {
 			}
 		}
 
+		client.Close()
 		fmt.Printf("  ✓ Deployed successfully\n\n")
 	}
 
