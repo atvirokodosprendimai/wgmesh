@@ -826,11 +826,14 @@ async function fetchAll() {
     fetchCount++;
     const isFull = fetchCount === 1 || fetchCount % 3 === 0; // Full fetch every ~15min
 
-    // Always fetch these (2 calls)
-    const [openPRs, runs] = await Promise.all([
+    // Always fetch these (3 calls)
+    let gooseRuns = [];
+    const [openPRs, runs, gooseRunData] = await Promise.all([
       ghFetch('/pulls?state=open&per_page=30'),
       ghFetch('/actions/runs?per_page=40'),
+      ghFetch('/actions/runs?workflow_id=goose-build.yml&per_page=10&status=completed'),
     ]);
+    gooseRuns = gooseRunData.workflow_runs || [];
 
     let closedPRs, allOpenIssues;
     if (isFull) {
@@ -862,7 +865,7 @@ async function fetchAll() {
     renderRecentRuns(runs);
     if (isFull) {
       renderImpact(closedPRs);
-      fetchMem0Stats(runs);
+      fetchMem0Stats(gooseRuns);
     }
 
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
@@ -1266,7 +1269,7 @@ async function fetchMem0Stats(runs) {
   // Fetch jobs for runs we haven't cached yet (max 2 new fetches per cycle)
   let fetched = 0;
   for (const run of gooseRuns) {
-    if (mem0Cache[run.id] || fetched >= 2) continue;
+    if (mem0Cache[run.id] || fetched >= 5) continue;
     try {
       const jobsData = await ghFetch(`/actions/runs/${run.id}/jobs`);
       const jobs = jobsData.jobs || [];
