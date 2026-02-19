@@ -41,6 +41,11 @@ services:
   #   cap_add:
   #     - NET_ADMIN
   #     - SYS_MODULE
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-file: "5"   # number of files or file count
+  #       max-size: "10m" # file size
 
   # wgmesh-node3:
   #   image: ghcr.io/atvirokodosprendimai/wgmesh:latest
@@ -58,6 +63,11 @@ services:
   #   cap_add:
   #     - NET_ADMIN
   #     - SYS_MODULE
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-file: "5"   # number of files or file count
+  #       max-size: "10m" # file size
 
   # Advanced options: Node with privacy mode and advertised routes
   # wgmesh-node-advanced:
@@ -79,3 +89,8 @@ services:
   #   cap_add:
   #     - NET_ADMIN
   #     - SYS_MODULE
+  #   logging:
+  #     driver: "json-file"
+  #     options:
+  #       max-file: "5"   # number of files or file count
+  #       max-size: "10m" # file size
