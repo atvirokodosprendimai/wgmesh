@@ -78,7 +78,8 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   username: sender.login
-                });
+            });
+
                 if (!['admin', 'write'].includes(perm.permission)) {
                   core.setFailed(`Label applied by @${sender.login} who lacks write access (has: ${perm.permission})`);
                   return;
@@ -435,8 +436,15 @@ jobs:
           BACKOFF=30  # initial delay in seconds
           SUCCEEDED=false
 
+          # ── Agent metrics: initialize ──
+          GOOSE_JOB_START=$(date +%s)
+          METRICS_FILE="/tmp/agent-metrics-goose.json"
+          ATTEMPTS_JSON="[]"
+          TOTAL_ATTEMPTS=0
+
           for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
             echo "=== Goose attempt $ATTEMPT/$MAX_ATTEMPTS ==="
+            ATTEMPT_START=$(date +%s)
 
             if [ "$ATTEMPT" -gt 1 ]; then
               # On retry: keep Goose's changes but add error context.
@@ -531,6 +539,11 @@ jobs:
 
             if [ "$TOO_SHORT" = "false" ] && [ "$HAS_SUCCESS_SIGNALS" = "true" ]; then
               echo "Goose completed on attempt $ATTEMPT (exit=$GOOSE_EXIT, success signals detected)"
+              ATTEMPT_END=$(date +%s)
+              ATTEMPTS_JSON=$(echo "$ATTEMPTS_JSON" | jq --argjson n "$ATTEMPT" --argjson d "$((ATTEMPT_END - ATTEMPT_START))" \
+                --argjson ec "$GOOSE_EXIT" --argjson ol "$LINES" --argjson rl "false" --arg oc "success" \
+                '. + [{"number":$n,"duration_seconds":$d,"exit_code":$ec,"output_lines":$ol,"rate_limited":$rl,"outcome":$oc}]') || true
+              TOTAL_ATTEMPTS=$ATTEMPT
               SUCCEEDED=true
               break
             fi
@@ -547,6 +560,11 @@ jobs:
             # ── If no success signals and no rate limit, still accept long output ──
             if [ "$TOO_SHORT" = "false" ] && [ "$RATE_LIMITED" = "false" ]; then
               echo "Goose completed on attempt $ATTEMPT (exit=$GOOSE_EXIT, no errors detected)"
+              ATTEMPT_END=$(date +%s)
+              ATTEMPTS_JSON=$(echo "$ATTEMPTS_JSON" | jq --argjson n "$ATTEMPT" --argjson d "$((ATTEMPT_END - ATTEMPT_START))" \
+                --argjson ec "$GOOSE_EXIT" --argjson ol "$LINES" --argjson rl "false" --arg oc "success_no_signals" \
+                '. + [{"number":$n,"duration_seconds":$d,"exit_code":$ec,"output_lines":$ol,"rate_limited":$rl,"outcome":$oc}]') || true
+              TOTAL_ATTEMPTS=$ATTEMPT
               SUCCEEDED=true
               break
             fi
@@ -560,21 +578,44 @@ jobs:
             fi
 
             # ── Log and sleep ──
+            # Determine attempt outcome for metrics
             if [ "$RATE_LIMITED" = "true" ]; then
+              ATTEMPT_OUTCOME="rate_limited"
               echo "::warning::Rate limited on attempt $ATTEMPT. Waiting ${WAIT}s before retry..."
             elif [ "$TOO_SHORT" = "true" ]; then
+              ATTEMPT_OUTCOME="short_output"
               echo "::warning::Suspiciously short output ($LINES lines) on attempt $ATTEMPT. Waiting ${WAIT}s..."
             else
+              ATTEMPT_OUTCOME="error"
               echo "::warning::Goose failed (exit=$GOOSE_EXIT) on attempt $ATTEMPT. Waiting ${WAIT}s..."
             fi
+
+            # Record failed attempt metrics
+            ATTEMPT_END=$(date +%s)
+            ATTEMPTS_JSON=$(echo "$ATTEMPTS_JSON" | jq --argjson n "$ATTEMPT" --argjson d "$((ATTEMPT_END - ATTEMPT_START))" \
+              --argjson ec "$GOOSE_EXIT" --argjson ol "$LINES" --arg rl "$RATE_LIMITED" --arg oc "$ATTEMPT_OUTCOME" \
+              '. + [{"number":$n,"duration_seconds":$d,"exit_code":$ec,"output_lines":$ol,"rate_limited":($rl == "true"),"outcome":$oc}]') || true
+            TOTAL_ATTEMPTS=$ATTEMPT
+
             sleep "$WAIT"
             BACKOFF=$((BACKOFF * 2))
           done
 
           if [ "$SUCCEEDED" != "true" ]; then
+            TOTAL_ATTEMPTS=$MAX_ATTEMPTS
             echo "::error::Goose failed after $MAX_ATTEMPTS attempts"
             echo "--- Last 50 lines of Goose output ---"
             tail -50 /tmp/goose-output.log
+          fi
+
+          # ── Agent metrics: export Goose run data ──
+          GOOSE_JOB_END=$(date +%s)
+          echo "goose_succeeded=$SUCCEEDED" >> $GITHUB_OUTPUT
+          echo "goose_total_attempts=$TOTAL_ATTEMPTS" >> $GITHUB_OUTPUT
+          echo "goose_duration=$((GOOSE_JOB_END - GOOSE_JOB_START))" >> $GITHUB_OUTPUT
+          echo "$ATTEMPTS_JSON" > /tmp/goose-attempts.json
+
+          if [ "$SUCCEEDED" != "true" ]; then
             exit 1
           fi
 
@@ -649,28 +690,67 @@ jobs:
           fi
           echo "has_changes=true" >> $GITHUB_OUTPUT
 
+          VALIDATE_START=$(date +%s)
+          BUILD_PASSED=false; TEST_PASSED=false; VET_PASSED=false; FMT_PASSED=false
+
           echo "=== Running go build ==="
-          if ! go build ./...; then
+          BUILD_START=$(date +%s)
+          if go build ./...; then
+            BUILD_PASSED=true
+          else
             echo "::error::go build failed on Goose's changes"
-            exit 1
           fi
+          BUILD_DUR=$(( $(date +%s) - BUILD_START ))
+          echo "validate_build_passed=$BUILD_PASSED" >> $GITHUB_OUTPUT
+          echo "validate_build_duration=$BUILD_DUR" >> $GITHUB_OUTPUT
 
           echo "=== Running go test ==="
-          if ! go test ./...; then
+          TEST_START=$(date +%s)
+          if go test ./...; then
+            TEST_PASSED=true
+          else
             echo "::error::go test failed on Goose's changes"
-            exit 1
           fi
+          TEST_DUR=$(( $(date +%s) - TEST_START ))
+          echo "validate_test_passed=$TEST_PASSED" >> $GITHUB_OUTPUT
+          echo "validate_test_duration=$TEST_DUR" >> $GITHUB_OUTPUT
 
           echo "=== Running go vet ==="
-          if ! go vet ./...; then
+          if go vet ./...; then
+            VET_PASSED=true
+          else
             echo "::error::go vet failed on Goose's changes"
-            exit 1
           fi
+          echo "validate_vet_passed=$VET_PASSED" >> $GITHUB_OUTPUT
 
           echo "=== Checking gofmt ==="
           UNFORMATTED=$(gofmt -l .)
-          if [ -n "$UNFORMATTED" ]; then
+          if [ -z "$UNFORMATTED" ]; then
+            FMT_PASSED=true
+          else
             echo "::error::gofmt found unformatted files: $UNFORMATTED"
+          fi
+          echo "validate_fmt_passed=$FMT_PASSED" >> $GITHUB_OUTPUT
+
+          VALIDATE_DUR=$(( $(date +%s) - VALIDATE_START ))
+          echo "validate_duration=$VALIDATE_DUR" >> $GITHUB_OUTPUT
+
+          # Collect diff stats for metrics
+          DIFF_STAT=$(git diff --numstat HEAD 2>/dev/null || true)
+          FILES_CHANGED=$(echo "$DIFF_STAT" | grep -c . 2>/dev/null || echo 0)
+          INSERTIONS=$(echo "$DIFF_STAT" | awk '{s+=$1}END{print s+0}' 2>/dev/null || echo 0)
+          DELETIONS=$(echo "$DIFF_STAT" | awk '{s+=$2}END{print s+0}' 2>/dev/null || echo 0)
+          TEST_INSERTIONS=$(echo "$DIFF_STAT" | grep '_test\.go' | awk '{s+=$1}END{print s+0}' 2>/dev/null || echo 0)
+          TEST_FILES=$(echo "$DIFF_STAT" | grep -c '_test\.go' 2>/dev/null || echo 0)
+          echo "diff_files=$FILES_CHANGED" >> $GITHUB_OUTPUT
+          echo "diff_insertions=$INSERTIONS" >> $GITHUB_OUTPUT
+          echo "diff_deletions=$DELETIONS" >> $GITHUB_OUTPUT
+          echo "diff_test_files=$TEST_FILES" >> $GITHUB_OUTPUT
+          echo "diff_test_insertions=$TEST_INSERTIONS" >> $GITHUB_OUTPUT
+
+          if [ "$BUILD_PASSED" != "true" ] || [ "$TEST_PASSED" != "true" ] || \
+             [ "$VET_PASSED" != "true" ] || [ "$FMT_PASSED" != "true" ]; then
+            echo "::error::Validation failed"
             exit 1
           fi
 
@@ -830,3 +910,87 @@ jobs:
                 `Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.`,
               ].join('\n')
             });
+
+      # ── Agent metrics: write and upload ─────────────────
+      - name: Collect agent metrics
+        if: always()
+        run: |
+          ISSUE_NUM="${{ steps.spec.outputs.issue_number }}"
+          SPEC_PR="${{ steps.spec.outputs.spec_pr_number }}"
+          METRICS_FILE="/tmp/agent-metrics-goose-${ISSUE_NUM}.json"
+
+          # Read attempts JSON (may not exist if job failed early)
+          if [ -f /tmp/goose-attempts.json ]; then
+            ATTEMPTS=$(cat /tmp/goose-attempts.json)
+          else
+            ATTEMPTS="[]"
+          fi
+
+          # Build metrics JSON
+          jq -n \
+            --argjson schema_version 1 \
+            --arg stage "goose_build" \
+            --arg issue_number "$ISSUE_NUM" \
+            --arg spec_pr_number "$SPEC_PR" \
+            --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg model "${{ env.GOOSE_MODEL }}" \
+            --arg goose_succeeded "${{ steps.goose.outputs.goose_succeeded }}" \
+            --arg total_attempts "${{ steps.goose.outputs.goose_total_attempts }}" \
+            --arg goose_duration "${{ steps.goose.outputs.goose_duration }}" \
+            --argjson attempts "$ATTEMPTS" \
+            --arg has_changes "${{ steps.validate.outputs.has_changes }}" \
+            --arg build_passed "${{ steps.validate.outputs.validate_build_passed }}" \
+            --arg test_passed "${{ steps.validate.outputs.validate_test_passed }}" \
+            --arg vet_passed "${{ steps.validate.outputs.validate_vet_passed }}" \
+            --arg fmt_passed "${{ steps.validate.outputs.validate_fmt_passed }}" \
+            --arg build_dur "${{ steps.validate.outputs.validate_build_duration }}" \
+            --arg test_dur "${{ steps.validate.outputs.validate_test_duration }}" \
+            --arg validate_dur "${{ steps.validate.outputs.validate_duration }}" \
+            --arg diff_files "${{ steps.validate.outputs.diff_files }}" \
+            --arg diff_ins "${{ steps.validate.outputs.diff_insertions }}" \
+            --arg diff_del "${{ steps.validate.outputs.diff_deletions }}" \
+            --arg diff_test_files "${{ steps.validate.outputs.diff_test_files }}" \
+            --arg diff_test_ins "${{ steps.validate.outputs.diff_test_insertions }}" \
+            '{
+              schema_version: $schema_version,
+              stage: $stage,
+              issue_number: ($issue_number | tonumber? // 0),
+              spec_pr_number: ($spec_pr_number | tonumber? // 0),
+              timestamp: $timestamp,
+              goose: {
+                model: $model,
+                total_attempts: ($total_attempts | tonumber? // 0),
+                succeeded: ($goose_succeeded == "true"),
+                duration_seconds: ($goose_duration | tonumber? // 0),
+                attempts: $attempts
+              },
+              validation: {
+                has_changes: ($has_changes == "true"),
+                build_passed: ($build_passed == "true"),
+                test_passed: ($test_passed == "true"),
+                vet_passed: ($vet_passed == "true"),
+                fmt_passed: ($fmt_passed == "true"),
+                build_duration_seconds: ($build_dur | tonumber? // 0),
+                test_duration_seconds: ($test_dur | tonumber? // 0),
+                total_duration_seconds: ($validate_dur | tonumber? // 0)
+              },
+              diff: {
+                files_changed: ($diff_files | tonumber? // 0),
+                insertions: ($diff_ins | tonumber? // 0),
+                deletions: ($diff_del | tonumber? // 0),
+                test_files_changed: ($diff_test_files | tonumber? // 0),
+                test_insertions: ($diff_test_ins | tonumber? // 0)
+              }
+            }' > "$METRICS_FILE" || true
+
+          echo "=== Agent Metrics (Goose Build) ==="
+          cat "$METRICS_FILE" 2>/dev/null || echo "Failed to generate metrics"
+
+      - name: Upload agent metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-metrics-goose-${{ steps.spec.outputs.issue_number }}
+          path: /tmp/agent-metrics-goose-*.json
+          retention-days: 90
+          if-no-files-found: ignore
