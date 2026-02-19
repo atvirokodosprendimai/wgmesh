@@ -1,0 +1,276 @@
+name: Chimney Provision
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        type: choice
+        options:
+          - provision
+          - teardown
+          - status
+      locations:
+        description: 'Comma-separated Hetzner locations (e.g. nbg1,ash)'
+        required: false
+        default: 'nbg1'
+
+concurrency:
+  group: chimney-infra
+  cancel-in-progress: false
+
+env:
+  HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+  GO_VERSION: '1.23.x'
+
+jobs:
+  provision:
+    name: "Chimney: ${{ inputs.action }}"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: inputs.action == 'provision'
+    outputs:
+      server_ips: ${{ steps.provision.outputs.server_ips }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Build chimney binary (linux/arm64)
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v \
+            -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8}" \
+            -o chimney-linux-arm64 ./cmd/chimney/
+          ls -lh chimney-linux-arm64
+
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Generate SSH key
+        run: |
+          ssh-keygen -t ed25519 -f ~/.ssh/chimney -N "" -q
+          echo "SSH_KEY_FILE=$HOME/.ssh/chimney" >> "$GITHUB_ENV"
+
+      - name: Provision servers
+        id: provision
+        run: |
+          set -euo pipefail
+
+          KEY_NAME="chimney-deploy-key"
+
+          # Upload SSH key (replace if exists)
+          hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
+          hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file "${SSH_KEY_FILE}.pub"
+
+          IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
+          SERVER_IPS=""
+
+          for loc in "${LOCATIONS[@]}"; do
+            loc=$(echo "$loc" | xargs)  # trim whitespace
+            name="chimney-${loc}"
+
+            # Choose server type based on location
+            # cax11 (Arm64) for EU locations, cpx11 (x86) for US
+            if [[ "$loc" == ash* ]]; then
+              VM_TYPE="cpx11"
+              ARCH="amd64"
+            else
+              VM_TYPE="cax11"
+              ARCH="arm64"
+            fi
+
+            # Check if server already exists
+            if hcloud server describe "$name" >/dev/null 2>&1; then
+              echo "Server $name already exists — skipping creation"
+              IP=$(hcloud server ip "$name")
+            else
+              echo "Creating $name ($VM_TYPE) in $loc..."
+              hcloud server create \
+                --name "$name" \
+                --type "$VM_TYPE" \
+                --image "ubuntu-24.04" \
+                --location "$loc" \
+                --ssh-key "$KEY_NAME" \
+                --label "service=chimney" \
+                --label "location=$loc"
+
+              IP=$(hcloud server ip "$name")
+              echo "Created $name: $IP"
+
+              # Wait for SSH with failure detection
+              echo "Waiting for SSH on $name ($IP)..."
+              ssh_ready=false
+              for i in $(seq 1 30); do
+                if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                   -o ConnectTimeout=5 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+                   "root@${IP}" "true" 2>/dev/null; then
+                  echo "SSH ready on $name after ${i}0s"
+                  ssh_ready=true
+                  break
+                fi
+                sleep 10
+              done
+              if [ "$ssh_ready" = "false" ]; then
+                echo "ERROR: SSH did not become ready on $name ($IP) after 300s" >&2
+                exit 1
+              fi
+            fi
+
+            SERVER_IPS="${SERVER_IPS}${name}=${IP} "
+          done
+
+          echo "server_ips=${SERVER_IPS}" >> "$GITHUB_OUTPUT"
+          echo "## Provisioned Servers" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "$SERVER_IPS" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy chimney to servers
+        run: |
+          set -euo pipefail
+
+          IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
+
+          for loc in "${LOCATIONS[@]}"; do
+            loc=$(echo "$loc" | xargs)
+            name="chimney-${loc}"
+            IP=$(hcloud server ip "$name")
+
+            # Determine architecture
+            if [[ "$loc" == ash* ]]; then
+              ARCH="amd64"
+              # Need to build amd64 binary too
+              echo "Building amd64 binary for $name..."
+              CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v \
+                -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8}" \
+                -o chimney-linux-amd64 ./cmd/chimney/
+              BINARY="chimney-linux-amd64"
+            else
+              ARCH="arm64"
+              BINARY="chimney-linux-arm64"
+            fi
+
+            echo "Deploying to $name ($IP, $ARCH)..."
+
+            # Copy files to server
+            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              "$BINARY" "root@${IP}:/tmp/chimney"
+
+            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              deploy/chimney/setup.sh "root@${IP}:/tmp/setup.sh"
+
+            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              deploy/chimney/Caddyfile "root@${IP}:/tmp/Caddyfile"
+
+            # Copy dashboard files
+            scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              docs "root@${IP}:/tmp/docs"
+
+            # Run setup — pass token via stdin to avoid exposing in process list
+            echo '${{ secrets.PUSH_TOKEN }}' | ssh -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              "root@${IP}" 'read -r GITHUB_TOKEN; export GITHUB_TOKEN; ROLE=origin bash /tmp/setup.sh'
+
+            echo "$name deployed successfully"
+          done
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Deployment Complete" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Dashboard should be available at https://chimney.cloudroof.eu once DNS is configured." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify health
+        run: |
+          set -euo pipefail
+
+          IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
+
+          for loc in "${LOCATIONS[@]}"; do
+            loc=$(echo "$loc" | xargs)
+            name="chimney-${loc}"
+            IP=$(hcloud server ip "$name")
+
+            echo "Checking health on $name ($IP)..."
+
+            # Check chimney health endpoint (via IP, not domain)
+            for i in $(seq 1 12); do
+              if curl -sf "http://${IP}:8080/healthz" 2>/dev/null; then
+                echo ""
+                echo "$name: chimney healthy"
+                break
+              fi
+              echo "Waiting for chimney on $name... (attempt $i)"
+              sleep 5
+            done
+          done
+
+  status:
+    name: "Chimney: status"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    if: inputs.action == 'status'
+    steps:
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+
+      - name: List chimney servers
+        run: |
+          echo "## Chimney Servers" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          hcloud server list -l "service=chimney" -o columns=name,status,ipv4,datacenter,server_type >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+          hcloud server list -l "service=chimney" -o columns=name,status,ipv4,datacenter,server_type
+
+  teardown:
+    name: "Chimney: teardown"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: inputs.action == 'teardown'
+    steps:
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+
+      - name: Teardown chimney servers
+        run: |
+          set -euo pipefail
+
+          echo "## Chimney Teardown" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          SERVERS=$(hcloud server list -l "service=chimney" -o noheader -o columns=name 2>/dev/null) || true
+
+          if [ -z "$SERVERS" ]; then
+            echo "No chimney servers found." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          for name in $SERVERS; do
+            echo "Deleting $name..."
+            hcloud server delete "$name"
+            echo "- Deleted $name" >> "$GITHUB_STEP_SUMMARY"
+          done
+
+          # Clean up SSH key
+          hcloud ssh-key delete "chimney-deploy-key" 2>/dev/null || true
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "All chimney servers removed." >> "$GITHUB_STEP_SUMMARY"
