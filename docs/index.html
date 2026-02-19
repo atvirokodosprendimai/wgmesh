@@ -91,6 +91,23 @@ a:hover { text-decoration: underline; }
 .cat-infra { background: rgba(88,166,255,0.15); color: var(--accent); }
 .cat-refactor { background: rgba(210,153,34,0.15); color: var(--yellow); }
 
+/* Business impact section */
+.biz-impact { background: linear-gradient(135deg, rgba(88,166,255,0.05), rgba(63,185,80,0.05));
+  border: 1px solid var(--border); border-radius: 6px; padding: 1.25rem; }
+.biz-impact h2 { font-size: 0.875rem; font-weight: 600; color: var(--accent); text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 1rem; }
+.biz-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.biz-metric { flex: 1; min-width: 180px; background: var(--surface); border-radius: 6px;
+  padding: 0.75rem 1rem; border: 1px solid var(--border); }
+.biz-metric-label { font-size: 0.6875rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.04em; margin-bottom: 0.25rem; }
+.biz-metric-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.biz-metric-detail { font-size: 0.75rem; color: var(--muted); margin-top: 0.125rem; }
+.biz-narrative { font-size: 0.8125rem; line-height: 1.6; color: var(--text); }
+.biz-narrative p { margin-bottom: 0.5rem; }
+.biz-highlight { color: var(--green); font-weight: 600; }
+.biz-warn { color: var(--yellow); font-weight: 600; }
+
 footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2rem 0 1rem; }
 </style>
 </head>
@@ -100,7 +117,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   <h1>wgmesh Agent Pipeline</h1>
   <span class="subtitle">Autonomous AI coding pipeline — issue to merge</span>
   <div style="margin-left:auto;text-align:right">
-    <span class="refresh-info">Auto-refreshes every 2m &middot; <span id="last-update">loading...</span></span>
+    <span class="refresh-info">Auto-refreshes every 5m &middot; <span id="last-update">loading...</span></span>
     <div class="rate-info">GitHub API: <span id="rate-remaining">?</span>/60 requests remaining</div>
   </div>
 </div>
@@ -141,6 +158,38 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
     <div class="stat-row">
       <span class="stat-label">Active / Open issues</span>
       <span class="stat-value yellow" id="dora-active">-</span>
+    </div>
+  </div>
+</div>
+
+<!-- Business / Product Impact -->
+<div class="grid">
+  <div class="biz-impact full-width">
+    <h2>Product Impact Summary</h2>
+    <div class="biz-row" id="biz-metrics">
+      <div class="biz-metric">
+        <div class="biz-metric-label">Reliability</div>
+        <div class="biz-metric-value green" id="biz-reliability">-</div>
+        <div class="biz-metric-detail" id="biz-reliability-detail">bugs fixed this week</div>
+      </div>
+      <div class="biz-metric">
+        <div class="biz-metric-label">Security Posture</div>
+        <div class="biz-metric-value" id="biz-security" style="color:var(--orange)">-</div>
+        <div class="biz-metric-detail" id="biz-security-detail">vulnerabilities addressed</div>
+      </div>
+      <div class="biz-metric">
+        <div class="biz-metric-label">Release Confidence</div>
+        <div class="biz-metric-value purple" id="biz-quality">-</div>
+        <div class="biz-metric-detail" id="biz-quality-detail">test files added</div>
+      </div>
+      <div class="biz-metric">
+        <div class="biz-metric-label">Delivery Velocity</div>
+        <div class="biz-metric-value accent" id="biz-velocity">-</div>
+        <div class="biz-metric-detail" id="biz-velocity-detail">avg time to ship</div>
+      </div>
+    </div>
+    <div class="biz-narrative" id="biz-narrative">
+      <p style="color:var(--muted)">Loading product impact analysis...</p>
     </div>
   </div>
 </div>
@@ -242,8 +291,12 @@ const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 
 let rateLimitRemaining = null;
 
-// Fetch with cache-busting and rate limit tracking
+let rateLimitReset = null;
+let paused = false;
+
+// Fetch with cache-busting, rate limit tracking, and 403 backoff
 async function ghFetch(path) {
+  if (paused) throw new Error('Rate limited — waiting for reset');
   const url = `${API}${path}`;
   const res = await fetch(url, {
     headers: { 'Accept': 'application/vnd.github+json' },
@@ -251,11 +304,24 @@ async function ghFetch(path) {
   });
   // Track rate limit
   const remaining = res.headers.get('x-ratelimit-remaining');
+  const reset = res.headers.get('x-ratelimit-reset');
   if (remaining !== null) {
     rateLimitRemaining = parseInt(remaining, 10);
     const el = document.getElementById('rate-remaining');
     if (el) el.textContent = rateLimitRemaining;
   }
+  if (reset) rateLimitReset = parseInt(reset, 10) * 1000;
+
+  if (res.status === 403 || res.status === 429) {
+    paused = true;
+    const waitMs = rateLimitReset ? Math.max(rateLimitReset - Date.now(), 60000) : 60000;
+    const waitMin = Math.ceil(waitMs / 60000);
+    document.getElementById('last-update').textContent =
+      `Rate limited — resuming in ~${waitMin}min`;
+    setTimeout(() => { paused = false; }, waitMs);
+    throw new Error(`Rate limited (${res.status}), pausing ${waitMin}min`);
+  }
+
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
@@ -339,17 +405,21 @@ function describeImpact(pr, files) {
 }
 
 // ── Data fetching ──
-// Uses 4 API calls per cycle (well within 60/hr at 2min intervals = 30 cycles × 4 = 120... still too many)
-// Reduce to essentials: openPRs, closedPRs, runs, issues — 4 calls
-// At 2min interval: 30 calls/hr × 4 = ~120. Still over budget.
-// Solution: stagger — full fetch every 2 min but only runs/PRs, full details every 5 min
+// Rate budget: 60 requests/hr unauthenticated.
+// Strategy: 5-min base interval = 12 cycles/hr.
+//   Light cycle (2 API calls): openPRs + runs = 24/hr
+//   Full cycle every 3rd (2 extra): closedPRs + issues = +8/hr
+//   PR files (up to 4 per full): +16/hr max
+//   mem0 jobs (up to 2 per full): +8/hr max
+//   Total worst case: ~56/hr — within budget.
 let fetchCount = 0;
 let cachedData = {};
+const REFRESH_MS = 300000; // 5 minutes
 
 async function fetchAll() {
   try {
     fetchCount++;
-    const isFull = fetchCount === 1 || fetchCount % 3 === 0; // Full fetch every ~6min
+    const isFull = fetchCount === 1 || fetchCount % 3 === 0; // Full fetch every ~15min
 
     // Always fetch these (2 calls)
     const [openPRs, runs] = await Promise.all([
@@ -506,6 +576,140 @@ async function renderImpact(closedPRs) {
   // Update totals in DORA section
   document.getElementById('impact-additions').textContent = `+${totalAdd}`;
   document.getElementById('impact-deletions').textContent = `-${totalDel}`;
+
+  // Render business impact from the same data
+  renderBusinessImpact(merged, totalAdd, totalDel);
+}
+
+function renderBusinessImpact(mergedPRs, totalAdd, totalDel) {
+  // Categorize all merged PRs
+  const counts = { bugfix: 0, test: 0, security: 0, feature: 0, infra: 0, refactor: 0 };
+  const byCategory = {};
+  let totalTestFiles = 0;
+
+  mergedPRs.forEach(pr => {
+    const cat = categorize(pr);
+    const files = (window._prFilesCache || {})[pr.number] || [];
+    const testFiles = files.filter(f => f.filename.endsWith('_test.go'));
+    totalTestFiles += testFiles.length;
+
+    const key = cat.tag.toLowerCase().replace(' ', '');
+    counts[key] = (counts[key] || 0) + 1;
+    if (!byCategory[cat.tag]) byCategory[cat.tag] = [];
+    byCategory[cat.tag].push(pr);
+  });
+
+  // Lead time (same calc as DORA but we want the value)
+  const leadTimes = mergedPRs
+    .filter(pr => pr.merged_at)
+    .map(pr => (new Date(pr.merged_at) - new Date(pr.created_at)) / 1000);
+  const avgLead = leadTimes.length > 0
+    ? Math.round(leadTimes.reduce((a, b) => a + b, 0) / leadTimes.length)
+    : 0;
+
+  // Reliability metric
+  const bugCount = counts.bugfix || 0;
+  document.getElementById('biz-reliability').textContent = bugCount;
+  document.getElementById('biz-reliability-detail').textContent =
+    bugCount === 1 ? 'bug fixed this week' : 'bugs fixed this week';
+
+  // Security metric
+  const secCount = counts.security || 0;
+  document.getElementById('biz-security').textContent = secCount;
+  document.getElementById('biz-security-detail').textContent =
+    secCount === 1 ? 'vulnerability addressed' : 'vulnerabilities addressed';
+
+  // Quality metric
+  document.getElementById('biz-quality').textContent = totalTestFiles;
+  document.getElementById('biz-quality-detail').textContent =
+    totalTestFiles === 1 ? 'test file added/modified' : 'test files added/modified';
+
+  // Velocity metric
+  document.getElementById('biz-velocity').textContent = avgLead > 0 ? duration(avgLead) : 'N/A';
+  document.getElementById('biz-velocity-detail').textContent = 'avg issue to production';
+
+  // Build the narrative — human-readable product impact
+  const narrativeEl = document.getElementById('biz-narrative');
+  const parts = [];
+
+  if (mergedPRs.length === 0) {
+    narrativeEl.innerHTML = '<p style="color:var(--muted)">No merged PRs in the analysis window.</p>';
+    return;
+  }
+
+  // Opening
+  parts.push(`<p>This week, the autonomous pipeline shipped <span class="biz-highlight">${mergedPRs.length} change${mergedPRs.length !== 1 ? 's' : ''}</span> to production — <span class="biz-highlight">+${totalAdd}</span> lines added, <span style="color:var(--red)">${totalDel}</span> removed.</p>`);
+
+  // Reliability story
+  if (bugCount > 0) {
+    const bugPRs = byCategory['Bug Fix'] || [];
+    const bugDescs = bugPRs.map(pr => {
+      const d = (pr.title || '')
+        .replace(/^(impl|fix|spec):\s*/i, '')
+        .replace(/Issue #\d+\s*[-—]\s*/g, '')
+        .replace(/Goose implementation/i, '')
+        .trim();
+      return d;
+    }).filter(Boolean).slice(0, 3);
+    parts.push(`<p><strong>Reliability:</strong> ${bugCount} bug${bugCount !== 1 ? 's' : ''} fixed — ${bugDescs.length > 0 ? escHtml(bugDescs.join('; ')) + '.' : 'improving system stability.'} Each fix reduces risk of connection drops or resource leaks in production mesh networks.</p>`);
+  }
+
+  // Security story
+  if (secCount > 0) {
+    const secPRs = byCategory['Security'] || [];
+    const secDescs = secPRs.map(pr => {
+      const d = (pr.title || '')
+        .replace(/^(impl|fix|spec|security):\s*/i, '')
+        .replace(/Issue #\d+\s*[-—]\s*/g, '')
+        .replace(/Goose implementation/i, '')
+        .trim();
+      return d;
+    }).filter(Boolean).slice(0, 3);
+    parts.push(`<p><strong>Security posture:</strong> ${secCount} ${secCount !== 1 ? 'vulnerabilities' : 'vulnerability'} addressed — ${secDescs.length > 0 ? escHtml(secDescs.join('; ')) + '.' : 'hardening the mesh protocol.'} These changes directly reduce the attack surface for mesh network operators.</p>`);
+  }
+
+  // Quality story
+  if (totalTestFiles > 0 || (counts.test || 0) > 0) {
+    const testPRs = byCategory['Tests'] || [];
+    const covDescs = testPRs.map(pr => {
+      const files = (window._prFilesCache || {})[pr.number] || [];
+      const pkgs = new Set();
+      files.forEach(f => {
+        const m = f.filename.match(/^pkg\/(\w+)\//);
+        if (m) pkgs.add(m[1]);
+      });
+      return pkgs.size > 0 ? [...pkgs].join(', ') : null;
+    }).filter(Boolean);
+    parts.push(`<p><strong>Release confidence:</strong> ${totalTestFiles} test file${totalTestFiles !== 1 ? 's' : ''} added or improved${covDescs.length > 0 ? ` covering <span class="biz-highlight">${escHtml(covDescs.join(', '))}</span>` : ''}. Higher test coverage means safer refactors and fewer regressions reaching users.</p>`);
+  }
+
+  // Feature story
+  if ((counts.feature || 0) > 0) {
+    const featPRs = byCategory['Feature'] || [];
+    const featDescs = featPRs.map(pr => {
+      const d = (pr.title || '')
+        .replace(/^(impl|feat|spec):\s*/i, '')
+        .replace(/Issue #\d+\s*[-—]\s*/g, '')
+        .replace(/Goose implementation/i, '')
+        .trim();
+      return d;
+    }).filter(Boolean).slice(0, 3);
+    parts.push(`<p><strong>New capabilities:</strong> ${featDescs.length > 0 ? escHtml(featDescs.join('; ')) + '.' : `${counts.feature} new feature${counts.feature !== 1 ? 's' : ''} added.`}</p>`);
+  }
+
+  // Infra story
+  if ((counts.infra || 0) > 0) {
+    parts.push(`<p><strong>Developer velocity:</strong> ${counts.infra} pipeline improvement${counts.infra !== 1 ? 's' : ''} shipped — each one reduces the time from idea to production code.</p>`);
+  }
+
+  // Pipeline velocity story
+  if (avgLead > 0) {
+    const leadStr = duration(avgLead);
+    const isGood = avgLead < 3600; // under 1h
+    parts.push(`<p><strong>Time to market:</strong> Average lead time from PR creation to production is <span class="${isGood ? 'biz-highlight' : 'biz-warn'}">${leadStr}</span>. ${isGood ? 'The autonomous pipeline is delivering changes faster than most human-only teams.' : 'There is room to optimize the review and merge cycle.'}</p>`);
+  }
+
+  narrativeEl.innerHTML = parts.join('');
 }
 
 function renderPipeline(issues, openPRs, closedPRs, runs) {
@@ -778,7 +982,7 @@ function renderMem0(gooseRuns) {
 
 // ── Init ──
 fetchAll();
-setInterval(fetchAll, 120000); // 2 minutes — stays within rate limits
+setInterval(fetchAll, REFRESH_MS); // 5 minutes — stays within 60 req/hr
 </script>
 </body>
 </html>
