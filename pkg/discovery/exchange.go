@@ -266,6 +266,18 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		if bye.WGPubKey == "" || bye.WGPubKey == pe.localNode.WGPubKey {
 			return
 		}
+		// Validate timestamp to prevent replay attacks
+		msgTime := time.Unix(bye.Timestamp, 0)
+		now := time.Now()
+		age := now.Sub(msgTime)
+		if age >= 60*time.Second {
+			log.Printf("[Exchange] Rejected stale GOODBYE from %s (age: %v)", remoteAddr.String(), age)
+			return
+		}
+		if !msgTime.Before(now.Add(60 * time.Second)) {
+			log.Printf("[Exchange] Rejected GOODBYE with future timestamp from %s", remoteAddr.String())
+			return
+		}
 		pe.peerStore.Remove(bye.WGPubKey)
 		name := bye.WGPubKey
 		if len(name) > 8 {
