@@ -16,6 +16,11 @@ services:
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
+    logging:
+      driver: "json-file"
+      options:
+        max-file: "5"   # number of files or file count
+        max-size: "10m" # file size
 
   # Example: Multiple nodes in the same mesh (for local testing)
   # Uncomment and configure additional nodes as needed
