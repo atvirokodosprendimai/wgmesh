@@ -321,21 +321,30 @@ verify_mesh_without() {
 mesh_transfer() {
     local from="$1" to="$2" size_mb="${3:-1}"
     local to_ip="${NODE_MESH_IPS[$to]}"
+    [ -z "$to_ip" ] && { log_error "mesh_transfer: no mesh IP for node '$to'"; return 1; }
+
+    # Use a high ephemeral port; note: concurrent mesh_transfer calls may collide.
     local port=19999
-    local size_bytes=$(( size_mb * 1048576 ))
 
     # Kill any lingering nc on the port
     run_on_ok "$to" "pkill -f 'nc.*-l.*$port' 2>/dev/null"
     sleep 1
 
-    # Start receiver: listen, write to file, compute checksum
+    # Start receiver: listen, write to file
     run_on "$to" "
         rm -f /tmp/mesh-rx.bin /tmp/mesh-rx.sha256
-        nc -l -p $port > /tmp/mesh-rx.bin 2>/dev/null &
+        nc -l $port > /tmp/mesh-rx.bin 2>/dev/null &
         echo \$!
-    " > /tmp/_nc_pid 2>/dev/null
+    " > "/tmp/_nc_pid_$$" 2>/dev/null
 
-    sleep 1
+    # Wait for listener to be ready by probing from the sender side.
+    local attempt
+    for attempt in {1..20}; do
+        if run_on "$from" "nc -z -w 1 $to_ip $port" 2>/dev/null; then
+            break
+        fi
+        sleep 0.25
+    done
 
     # Generate random data, compute checksum, send
     local src_hash
@@ -376,7 +385,8 @@ mesh_transfer() {
 # Outputs: throughput in Mbits/sec to stdout, logs result.
 mesh_iperf() {
     local from="$1" to="$2" duration="${3:-5}"
-    local to_ip="${NODE_MESH_IPS[$to]}"
+    local to_ip="${NODE_MESH_IPS[$to]:-}"
+    [ -z "$to_ip" ] && { log_error "mesh_iperf: no mesh IP for node '$to'"; return 1; }
 
     # Kill any lingering iperf3 on the receiver
     run_on_ok "$to" "pkill iperf3 2>/dev/null"
@@ -413,7 +423,8 @@ mesh_iperf() {
 # WG overhead is ~60 bytes, so 1400 byte mesh packets need MTU >= 1420.
 mesh_mtu_check() {
     local from="$1" to="$2" payload="${3:-1372}"
-    local to_ip="${NODE_MESH_IPS[$to]}"
+    local to_ip="${NODE_MESH_IPS[$to]:-}"
+    [ -z "$to_ip" ] && { log_error "mesh_mtu_check: no mesh IP for node '$to'"; return 1; }
 
     if run_on "$from" "ping -M do -c 3 -W 3 -s $payload $to_ip" >/dev/null 2>&1; then
         log_info "mesh_mtu $from->$to: ${payload}+28 byte packets OK (DF bit set)"
@@ -431,6 +442,12 @@ mesh_mtu_check() {
 verify_data_plane() {
     local nodes=("${!NODE_MESH_IPS[@]}")
     local n=${#nodes[@]}
+
+    if [ "$n" -eq 0 ]; then
+        log_error "verify_data_plane: no mesh IPs available (NODE_MESH_IPS empty)"
+        return 1
+    fi
+
     local failures=0
 
     emit_event "data_plane_gate_start" "verify_data_plane" "nodes=$n"
@@ -458,9 +475,10 @@ verify_data_plane() {
 verify_data_plane_quick() {
     local nodes=("${!NODE_MESH_IPS[@]}")
     local n=${#nodes[@]}
-    [ "$n" -lt 2 ] && return 0
+    [ "$n" -lt 2 ] && { log_error "verify_data_plane_quick: need at least 2 nodes, have $n"; return 1; }
 
-    # Pick a random pair
+    # Pick a random pair; j wraps around to 0 when i is the last index,
+    # intentionally testing bidirectional reachability across the ring.
     local i=$(( RANDOM % n ))
     local j=$(( (i + 1) % n ))
     mesh_transfer "${nodes[$i]}" "${nodes[$j]}" 1
@@ -471,6 +489,12 @@ verify_data_plane_quick() {
 verify_data_plane_full() {
     local nodes=("${!NODE_MESH_IPS[@]}")
     local n=${#nodes[@]}
+
+    if [ "$n" -eq 0 ]; then
+        log_error "verify_data_plane_full: no mesh IPs available (NODE_MESH_IPS empty)"
+        return 1
+    fi
+
     local failures=0
 
     emit_event "data_plane_gate_start" "verify_data_plane_full" "nodes=$n"
@@ -479,14 +503,14 @@ verify_data_plane_full() {
     # 1. All-pairs 1MB transfer + MTU
     verify_data_plane || ((failures++)) || true
 
-    # 2. iperf3 throughput on one pair
+    # 2. iperf3 throughput on one pair (wraps around for bidirectional coverage)
     local i=$(( RANDOM % n ))
     local j=$(( (i + 1) % n ))
     local throughput
     throughput=$(mesh_iperf "${nodes[$i]}" "${nodes[$j]}" 5) || ((failures++)) || true
     log_info "Throughput sample: ${throughput} Mbits/sec (${nodes[$i]}->${nodes[$j]})"
 
-    # 3. Large 100MB transfer on one pair
+    # 3. Large 100MB transfer on one pair (wraps around for bidirectional coverage)
     local a=$(( RANDOM % n ))
     local b=$(( (a + 1) % n ))
     log_info "Large transfer: 100MB ${nodes[$a]}->${nodes[$b]}"
