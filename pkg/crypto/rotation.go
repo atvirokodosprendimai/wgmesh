@@ -96,14 +96,45 @@ func (rs *RotationState) ShouldComplete() bool {
 	return !rs.Completed && time.Since(rs.StartedAt) >= rs.GracePeriod
 }
 
-// MarshalJSON implements json.Marshaler
+// MarshalJSON implements json.Marshaler with explicit struct to avoid duplicate keys
 func (rs *RotationState) MarshalJSON() ([]byte, error) {
-	type Alias RotationState
 	return json.Marshal(&struct {
+		OldSecret   string    `json:"old_secret"`
+		NewSecret   string    `json:"new_secret"`
+		GracePeriod string    `json:"grace_period"`
+		StartedAt   time.Time `json:"started_at"`
+		Completed   bool      `json:"completed"`
+	}{
+		OldSecret:   rs.OldSecret,
+		NewSecret:   rs.NewSecret,
+		GracePeriod: rs.GracePeriod.String(),
+		StartedAt:   rs.StartedAt,
+		Completed:   rs.Completed,
+	})
+}
+
+// UnmarshalJSON implements json.Unmarshaler
+func (rs *RotationState) UnmarshalJSON(data []byte) error {
+	type Alias RotationState
+	aux := &struct {
 		GracePeriod string `json:"grace_period"`
 		*Alias
 	}{
-		GracePeriod: rs.GracePeriod.String(),
-		Alias:       (*Alias)(rs),
-	})
+		Alias: (*Alias)(rs),
+	}
+
+	if err := json.Unmarshal(data, aux); err != nil {
+		return fmt.Errorf("failed to unmarshal rotation state: %w", err)
+	}
+
+	// Parse the human-readable duration string if present
+	if aux.GracePeriod != "" {
+		duration, err := time.ParseDuration(aux.GracePeriod)
+		if err != nil {
+			return fmt.Errorf("invalid grace_period duration: %w", err)
+		}
+		rs.GracePeriod = duration
+	}
+
+	return nil
 }
