@@ -181,6 +181,45 @@ jobs:
 
                 core.info(`PR #${prNumber}: all ${relevant.length} checks passed`);
 
+                // --- Review quality gate ---
+                // Block merge if there are unresolved review threads or CHANGES_REQUESTED
+                const hasChangesRequested = reviews.some(
+                  r => r.state === 'CHANGES_REQUESTED'
+                );
+                if (hasChangesRequested) {
+                  core.info(`PR #${prNumber}: has CHANGES_REQUESTED review, skipping until resolved`);
+                  continue;
+                }
+
+                // Check for unresolved review threads via GraphQL
+                const prGql = await github.graphql(`
+                  query($owner: String!, $repo: String!, $number: Int!) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $number) {
+                        reviewThreads(first: 100) {
+                          nodes {
+                            isResolved
+                            comments(first: 1) {
+                              nodes { body author { login } }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                `, { owner, repo, number: prNumber });
+
+                const threads = prGql.repository.pullRequest.reviewThreads.nodes;
+                const unresolvedThreads = threads.filter(t => !t.isResolved);
+                if (unresolvedThreads.length > 0) {
+                  const authors = unresolvedThreads
+                    .map(t => t.comments.nodes[0]?.author?.login || 'unknown')
+                    .filter((v, i, a) => a.indexOf(v) === i);
+                  core.info(`PR #${prNumber}: ${unresolvedThreads.length} unresolved review thread(s) from ${authors.join(', ')}, skipping`);
+                  continue;
+                }
+                core.info(`PR #${prNumber}: all review threads resolved`);
+
                 // Remove 'conflict' label if present (branch is now clean)
                 const labels = pr.labels.map(l => l.name);
                 if (labels.includes('conflict')) {
