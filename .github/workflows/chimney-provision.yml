@@ -22,7 +22,7 @@ concurrency:
 
 env:
   HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.23.x'
 
 jobs:
   provision:
@@ -105,17 +105,23 @@ jobs:
               IP=$(hcloud server ip "$name")
               echo "Created $name: $IP"
 
-              # Wait for SSH
+              # Wait for SSH with failure detection
               echo "Waiting for SSH on $name ($IP)..."
+              ssh_ready=false
               for i in $(seq 1 30); do
                 if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                    -o ConnectTimeout=5 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
                    "root@${IP}" "true" 2>/dev/null; then
                   echo "SSH ready on $name after ${i}0s"
+                  ssh_ready=true
                   break
                 fi
                 sleep 10
               done
+              if [ "$ssh_ready" = "false" ]; then
+                echo "ERROR: SSH did not become ready on $name ($IP) after 300s" >&2
+                exit 1
+              fi
             fi
 
             SERVER_IPS="${SERVER_IPS}${name}=${IP} "
@@ -173,10 +179,10 @@ jobs:
               -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
               docs "root@${IP}:/tmp/docs"
 
-            # Run setup
-            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              "root@${IP}" "GITHUB_TOKEN='${{ secrets.PUSH_TOKEN }}' ROLE=origin bash /tmp/setup.sh"
+            # Run setup — pass token via stdin to avoid exposing in process list
+            echo '${{ secrets.PUSH_TOKEN }}' | ssh -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+              "root@${IP}" 'read -r GITHUB_TOKEN; export GITHUB_TOKEN; ROLE=origin bash /tmp/setup.sh'
 
             echo "$name deployed successfully"
           done

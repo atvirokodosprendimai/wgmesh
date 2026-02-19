@@ -5,10 +5,10 @@ chimney is the origin server for the wgmesh pipeline dashboard at `chimney.cloud
 ## Architecture
 
 ```
-                    ┌─────────────────┐
-                    │ chimney.cloud    │
-         ┌────────►│  roof.eu (DNS)   │◄────────┐
-         │         └─────────────────┘         │
+                    ┌──────────────────────┐
+         ┌────────►│ chimney.cloudroof.eu  │◄────────┐
+         │         │       (DNS)           │         │
+         │         └──────────────────────┘         │
          │                                      │
     ┌────┴────┐                           ┌────┴────┐
     │ edge-eu │  Nuremberg (nbg1)         │ edge-us │  Ashburn (ash)

@@ -2,13 +2,10 @@
 # Caddy handles TLS automatically via Let's Encrypt / ZeroSSL
 #
 # Architecture:
-#   Client → chimney.cloudroof.eu → Caddy (edge) → chimney origin (:8080)
+#   Client → chimney.cloudroof.eu → Caddy (TLS termination) → chimney origin (:8080)
 #
-# Cache strategy:
-#   /api/github/* responses cached at edge for 30s (hot) to 5m (cold)
-#   Static assets cached for 1h
-#   Caddy's cache module provides request coalescing (only one upstream
-#   fetch per cache miss, all other clients wait for the result)
+# Caching is handled by the chimney origin server (in-memory with tiered TTLs),
+# not at the Caddy layer. Caddy acts purely as a TLS-terminating reverse proxy.
 
 chimney.cloudroof.eu {
 	# Reverse proxy to chimney origin server
@@ -22,15 +19,11 @@ chimney.cloudroof.eu {
 	# Response headers
 	header {
 		X-Served-By {system.hostname}
-		X-Cache-Status {http.reverse_proxy.upstream.latency}
 		-Server
 	}
 
-	# Logging
+	# Logging to stdout (captured by systemd journald)
 	log {
-		output file /var/log/caddy/chimney.log {
-			roll_size 50mb
-			roll_keep 3
-		}
+		output stdout
 	}
 }
