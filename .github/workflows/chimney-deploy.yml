@@ -42,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          SERVERS=$(hcloud server list -l "service=chimney" -o noheader -o columns=name,ipv4,server_type 2>/dev/null) || true
+          SERVERS=$(hcloud server list -l "service=chimney" -o noheader -o columns=name,ipv4,type 2>/dev/null) || true
 
           if [ -z "$SERVERS" ]; then
             echo "No chimney servers found — skipping deploy"
