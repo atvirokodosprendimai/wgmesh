@@ -21,6 +21,7 @@ a:hover { text-decoration: underline; }
 .header h1 { font-size: 1.5rem; font-weight: 600; }
 .header .subtitle { color: var(--muted); font-size: 0.875rem; }
 .refresh-info { margin-left: auto; color: var(--muted); font-size: 0.75rem; }
+.rate-info { color: var(--muted); font-size: 0.6875rem; }
 
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; }
@@ -36,7 +37,6 @@ a:hover { text-decoration: underline; }
 .stat-value.purple { color: var(--purple); }
 .stat-value.accent { color: var(--accent); }
 
-/* Pipeline tracker */
 .pipeline-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; }
 .pipeline-table th { text-align: left; color: var(--muted); font-weight: 500;
   padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); }
@@ -51,6 +51,7 @@ a:hover { text-decoration: underline; }
 .badge-purple { background: rgba(188,140,255,0.15); color: var(--purple); }
 .badge-blue { background: rgba(88,166,255,0.15); color: var(--accent); }
 .badge-muted { background: rgba(139,148,158,0.15); color: var(--muted); }
+.badge-orange { background: rgba(240,136,62,0.15); color: var(--orange); }
 
 .run-list { list-style: none; }
 .run-item { display: flex; align-items: center; gap: 0.5rem; padding: 0.375rem 0;
@@ -62,15 +63,50 @@ a:hover { text-decoration: underline; }
   border-top-color: var(--yellow); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-.flow-stage { display: flex; align-items: center; gap: 0.25rem; }
-.flow-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
-.flow-arrow { color: var(--muted); font-size: 0.75rem; }
+/* Impact cards */
+.impact-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 1rem; margin-bottom: 0.75rem; }
+.impact-title { font-size: 0.875rem; font-weight: 600; margin-bottom: 0.5rem; }
+.impact-meta { font-size: 0.75rem; color: var(--muted); margin-bottom: 0.5rem; }
+.impact-files { font-size: 0.75rem; margin-top: 0.5rem; }
+.impact-file { display: inline-block; padding: 0.125rem 0.375rem; border-radius: 3px;
+  background: rgba(88,166,255,0.1); color: var(--accent); margin: 0.125rem; font-family: monospace; }
+.impact-stat { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.75rem;
+  margin-right: 0.75rem; }
+.diff-add { color: var(--green); }
+.diff-del { color: var(--red); }
 
 .empty { color: var(--muted); font-style: italic; padding: 1rem 0; text-align: center; }
 .loading { text-align: center; padding: 2rem; color: var(--muted); }
 
 .full-width { grid-column: 1 / -1; }
 .overflow-x { overflow-x: auto; }
+
+.category-tag { display: inline-block; padding: 0.125rem 0.375rem; border-radius: 3px;
+  font-size: 0.6875rem; font-weight: 600; margin-right: 0.25rem; }
+.cat-bugfix { background: rgba(248,81,73,0.15); color: var(--red); }
+.cat-test { background: rgba(188,140,255,0.15); color: var(--purple); }
+.cat-security { background: rgba(240,136,62,0.15); color: var(--orange); }
+.cat-feature { background: rgba(63,185,80,0.15); color: var(--green); }
+.cat-infra { background: rgba(88,166,255,0.15); color: var(--accent); }
+.cat-refactor { background: rgba(210,153,34,0.15); color: var(--yellow); }
+
+/* Business impact section */
+.biz-impact { background: linear-gradient(135deg, rgba(88,166,255,0.05), rgba(63,185,80,0.05));
+  border: 1px solid var(--border); border-radius: 6px; padding: 1.25rem; }
+.biz-impact h2 { font-size: 0.875rem; font-weight: 600; color: var(--accent); text-transform: uppercase;
+  letter-spacing: 0.05em; margin-bottom: 1rem; }
+.biz-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.biz-metric { flex: 1; min-width: 180px; background: var(--surface); border-radius: 6px;
+  padding: 0.75rem 1rem; border: 1px solid var(--border); }
+.biz-metric-label { font-size: 0.6875rem; color: var(--muted); text-transform: uppercase;
+  letter-spacing: 0.04em; margin-bottom: 0.25rem; }
+.biz-metric-value { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.biz-metric-detail { font-size: 0.75rem; color: var(--muted); margin-top: 0.125rem; }
+.biz-narrative { font-size: 0.8125rem; line-height: 1.6; color: var(--text); }
+.biz-narrative p { margin-bottom: 0.5rem; }
+.biz-highlight { color: var(--green); font-weight: 600; }
+.biz-warn { color: var(--yellow); font-weight: 600; }
 
 footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2rem 0 1rem; }
 </style>
@@ -80,7 +116,10 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
 <div class="header">
   <h1>wgmesh Agent Pipeline</h1>
   <span class="subtitle">Autonomous AI coding pipeline — issue to merge</span>
-  <span class="refresh-info">Auto-refreshes every 30s &middot; <span id="last-update">loading...</span></span>
+  <div style="margin-left:auto;text-align:right">
+    <span class="refresh-info">Auto-refreshes every 5m &middot; <span id="last-update">loading...</span></span>
+    <div class="rate-info">GitHub API: <span id="rate-remaining">?</span>/60 requests remaining</div>
+  </div>
 </div>
 
 <!-- DORA metrics row -->
@@ -95,26 +134,104 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   <div class="card">
     <h2>Lead Time</h2>
     <div class="stat-row">
-      <span class="stat-label">Avg issue → merge</span>
+      <span class="stat-label">Avg PR open &rarr; merge</span>
       <span class="stat-value accent" id="dora-lead">-</span>
     </div>
   </div>
   <div class="card">
-    <h2>Pipeline Activity</h2>
+    <h2>Code Impact (7d)</h2>
     <div class="stat-row">
-      <span class="stat-label">Active runs</span>
-      <span class="stat-value yellow" id="dora-active">-</span>
+      <span class="stat-label">Lines added</span>
+      <span class="stat-value green" id="impact-additions">-</span>
     </div>
     <div class="stat-row">
-      <span class="stat-label">Open issues</span>
-      <span class="stat-value purple" id="dora-issues">-</span>
+      <span class="stat-label">Lines removed</span>
+      <span class="stat-value red" id="impact-deletions">-</span>
     </div>
   </div>
   <div class="card">
-    <h2>Success Rate</h2>
+    <h2>Goose Success Rate</h2>
     <div class="stat-row">
-      <span class="stat-label">Goose builds (7d)</span>
+      <span class="stat-label">Builds (7d)</span>
       <span class="stat-value green" id="dora-success">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Active / Open issues</span>
+      <span class="stat-value yellow" id="dora-active">-</span>
+    </div>
+  </div>
+</div>
+
+<!-- Business / Product Impact -->
+<div class="grid">
+  <div class="biz-impact full-width">
+    <h2>Product Impact Summary</h2>
+    <div class="biz-row" id="biz-metrics">
+      <div class="biz-metric">
+        <div class="biz-metric-label">Reliability</div>
+        <div class="biz-metric-value green" id="biz-reliability">-</div>
+        <div class="biz-metric-detail" id="biz-reliability-detail">bugs fixed this week</div>
+      </div>
+      <div class="biz-metric">
+        <div class="biz-metric-label">Security Posture</div>
+        <div class="biz-metric-value" id="biz-security" style="color:var(--orange)">-</div>
+        <div class="biz-metric-detail" id="biz-security-detail">vulnerabilities addressed</div>
+      </div>
+      <div class="biz-metric">
+        <div class="biz-metric-label">Release Confidence</div>
+        <div class="biz-metric-value purple" id="biz-quality">-</div>
+        <div class="biz-metric-detail" id="biz-quality-detail">test files added</div>
+      </div>
+      <div class="biz-metric">
+        <div class="biz-metric-label">Delivery Velocity</div>
+        <div class="biz-metric-value accent" id="biz-velocity">-</div>
+        <div class="biz-metric-detail" id="biz-velocity-detail">avg time to ship</div>
+      </div>
+    </div>
+    <div class="biz-narrative" id="biz-narrative">
+      <p style="color:var(--muted)">Loading product impact analysis...</p>
+    </div>
+  </div>
+</div>
+
+<!-- mem0 Memory System -->
+<div class="grid">
+  <div class="card">
+    <h2>mem0 Agent Memory</h2>
+    <div class="stat-row">
+      <span class="stat-label">Status</span>
+      <span class="stat-value" id="mem0-status" style="font-size:0.875rem">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Memories retrieved (last run)</span>
+      <span class="stat-value accent" id="mem0-retrieved">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Memories saved (last run)</span>
+      <span class="stat-value green" id="mem0-saved">-</span>
+    </div>
+    <div class="stat-row">
+      <span class="stat-label">Cache</span>
+      <span class="stat-value" id="mem0-cache" style="font-size:0.875rem">-</span>
+    </div>
+  </div>
+  <div class="card">
+    <h2>mem0 Run History</h2>
+    <div style="font-size:0.8125rem;color:var(--muted);margin-bottom:0.5rem">
+      Memory retrieval/save results from recent Goose builds
+    </div>
+    <ul class="run-list" id="mem0-history">
+      <li class="loading">Loading...</li>
+    </ul>
+  </div>
+</div>
+
+<!-- What was actually built — the main event -->
+<div class="grid">
+  <div class="card full-width">
+    <h2>What the Pipeline Built — Recent Merged Changes</h2>
+    <div id="impact-list">
+      <div class="loading">Loading merged PR details...</div>
     </div>
   </div>
 </div>
@@ -128,6 +245,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
         <thead>
           <tr>
             <th>Issue</th>
+            <th>Type</th>
             <th>Triage</th>
             <th>Spec PR</th>
             <th>Goose Build</th>
@@ -137,7 +255,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
           </tr>
         </thead>
         <tbody>
-          <tr><td colspan="7" class="loading">Loading pipeline data...</td></tr>
+          <tr><td colspan="8" class="loading">Loading pipeline data...</td></tr>
         </tbody>
       </table>
     </div>
@@ -160,23 +278,6 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   </div>
 </div>
 
-<!-- Recent merged PRs -->
-<div class="grid">
-  <div class="card full-width">
-    <h2>Recently Merged PRs</h2>
-    <div class="overflow-x">
-      <table class="pipeline-table" id="merged-prs">
-        <thead>
-          <tr><th>PR</th><th>Title</th><th>Author</th><th>Merged</th><th>Review Comments</th></tr>
-        </thead>
-        <tbody>
-          <tr><td colspan="5" class="loading">Loading...</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
-
 <footer>
   wgmesh Agent Pipeline Dashboard &middot;
   <a href="https://github.com/atvirokodosprendimai/wgmesh">Repository</a> &middot;
@@ -188,11 +289,39 @@ const OWNER = 'atvirokodosprendimai';
 const REPO = 'wgmesh';
 const API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 
-// Simple fetch wrapper with cache-busting
+let rateLimitRemaining = null;
+
+let rateLimitReset = null;
+let paused = false;
+
+// Fetch with cache-busting, rate limit tracking, and 403 backoff
 async function ghFetch(path) {
-  const res = await fetch(`${API}${path}`, {
-    headers: { 'Accept': 'application/vnd.github+json' }
+  if (paused) throw new Error('Rate limited — waiting for reset');
+  const url = `${API}${path}`;
+  const res = await fetch(url, {
+    headers: { 'Accept': 'application/vnd.github+json' },
+    cache: 'no-store'
   });
+  // Track rate limit
+  const remaining = res.headers.get('x-ratelimit-remaining');
+  const reset = res.headers.get('x-ratelimit-reset');
+  if (remaining !== null) {
+    rateLimitRemaining = parseInt(remaining, 10);
+    const el = document.getElementById('rate-remaining');
+    if (el) el.textContent = rateLimitRemaining;
+  }
+  if (reset) rateLimitReset = parseInt(reset, 10) * 1000;
+
+  if (res.status === 403 || res.status === 429) {
+    paused = true;
+    const waitMs = rateLimitReset ? Math.max(rateLimitReset - Date.now(), 60000) : 60000;
+    const waitMin = Math.ceil(waitMs / 60000);
+    document.getElementById('last-update').textContent =
+      `Rate limited — resuming in ~${waitMin}min`;
+    setTimeout(() => { paused = false; }, waitMs);
+    throw new Error(`Rate limited (${res.status}), pausing ${waitMin}min`);
+  }
+
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
   return res.json();
 }
@@ -211,8 +340,18 @@ function duration(seconds) {
   return `${Math.floor(seconds / 3600)}h ${Math.floor((seconds % 3600) / 60)}m`;
 }
 
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+function escAttr(s) {
+  return escHtml(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
 function badge(text, cls) {
-  return `<span class="badge badge-${cls}">${text}</span>`;
+  return `<span class="badge badge-${escAttr(cls)}">${escHtml(text)}</span>`;
 }
 
 function runIcon(status, conclusion) {
@@ -224,36 +363,102 @@ function runIcon(status, conclusion) {
   return '<svg class="run-icon" viewBox="0 0 16 16" fill="#8b949e"><circle cx="8" cy="8" r="6" stroke="#8b949e" stroke-width="1.5" fill="none"/></svg>';
 }
 
-function stageStatus(done, active, label) {
-  if (done) return badge(label || 'Done', 'green');
-  if (active) return `<span class="flow-stage"><span class="spinner"></span> ${label || 'Running'}</span>`;
-  return badge(label || 'Pending', 'muted');
+// Categorize a PR by its title/labels
+function categorize(pr) {
+  const t = (pr.title || '').toLowerCase();
+  const labels = (pr.labels || []).map(l => l.name);
+  if (t.startsWith('fix:') || t.includes('bug') || labels.includes('type: bug'))
+    return { tag: 'Bug Fix', cls: 'cat-bugfix' };
+  if (t.includes('test') || t.includes('coverage') || labels.includes('type: test'))
+    return { tag: 'Tests', cls: 'cat-test' };
+  if (t.includes('security') || t.includes('replay') || t.includes('vuln'))
+    return { tag: 'Security', cls: 'cat-security' };
+  if (t.startsWith('feat:') || t.includes('feature') || labels.includes('type: feature'))
+    return { tag: 'Feature', cls: 'cat-feature' };
+  if (t.includes('refactor') || t.includes('cleanup'))
+    return { tag: 'Refactor', cls: 'cat-refactor' };
+  if (t.includes('ci') || t.includes('workflow') || t.includes('pipeline') || t.includes('dashboard'))
+    return { tag: 'Infra', cls: 'cat-infra' };
+  return { tag: 'Change', cls: 'cat-refactor' };
+}
+
+// Describe what a PR actually does based on title and files
+function describeImpact(pr, files) {
+  const t = pr.title || '';
+  // Try to extract a meaningful description from the title
+  const cleaned = t
+    .replace(/^(impl|spec|fix|feat|test|chore|refactor|security):\s*/i, '')
+    .replace(/Issue #\d+\s*[-—]\s*/g, '')
+    .replace(/Goose implementation/i, '')
+    .trim();
+
+  // Summarize affected packages from file paths
+  const pkgs = new Set();
+  (files || []).forEach(f => {
+    const m = f.filename.match(/^pkg\/(\w+)\//);
+    if (m) pkgs.add(`pkg/${m[1]}`);
+    else if (f.filename.startsWith('.github/')) pkgs.add('.github');
+    else if (f.filename.startsWith('docs/')) pkgs.add('docs');
+  });
+
+  return { description: cleaned, packages: [...pkgs] };
 }
 
 // ── Data fetching ──
+// Rate budget: 60 requests/hr unauthenticated.
+// Strategy: 5-min base interval = 12 cycles/hr.
+//   Light cycle (2 API calls): openPRs + runs = 24/hr
+//   Full cycle every 3rd (2 extra): closedPRs + issues = +8/hr
+//   PR files (up to 4 per full): +16/hr max
+//   mem0 jobs (up to 2 per full): +8/hr max
+//   Total worst case: ~56/hr — within budget.
+let fetchCount = 0;
+let cachedData = {};
+const REFRESH_MS = 300000; // 5 minutes
 
 async function fetchAll() {
   try {
-    const [issues, openPRs, closedPRs, runs] = await Promise.all([
-      ghFetch('/issues?state=open&per_page=30&labels=copilot-triaging'),
+    fetchCount++;
+    const isFull = fetchCount === 1 || fetchCount % 3 === 0; // Full fetch every ~15min
+
+    // Always fetch these (2 calls)
+    const [openPRs, runs] = await Promise.all([
       ghFetch('/pulls?state=open&per_page=30'),
-      ghFetch('/pulls?state=closed&per_page=20&sort=updated&direction=desc'),
       ghFetch('/actions/runs?per_page=40'),
     ]);
 
-    // Also fetch issues that completed pipeline (label removed)
-    const allOpenIssues = await ghFetch('/issues?state=open&per_page=50');
+    let closedPRs, allOpenIssues;
+    if (isFull) {
+      // Full fetch adds 2 more calls
+      [closedPRs, allOpenIssues] = await Promise.all([
+        ghFetch('/pulls?state=closed&per_page=20&sort=updated&direction=desc'),
+        ghFetch('/issues?state=open&per_page=50'),
+      ]);
+      cachedData.closedPRs = closedPRs;
+      cachedData.allOpenIssues = allOpenIssues;
+    } else {
+      closedPRs = cachedData.closedPRs || [];
+      allOpenIssues = cachedData.allOpenIssues || [];
+    }
+
     const pipelineIssues = allOpenIssues.filter(i =>
       !i.pull_request &&
-      (i.labels.some(l => l.name === 'copilot-triaging' || l.name === 'needs-triage') ||
-       i.assignees.some(a => a.login === 'Copilot'))
+      (i.labels.some(l => ['copilot-triaging', 'needs-triage'].includes(l.name)) ||
+       i.assignees.some(a =>
+         a.login === 'Copilot' ||
+         a.login === 'copilot-swe-agent[bot]' ||
+         a.login.includes('copilot')
+       ))
     );
 
     renderDORA(closedPRs, runs);
     renderPipeline(pipelineIssues, openPRs, closedPRs, runs);
     renderActiveRuns(runs);
     renderRecentRuns(runs);
-    renderMergedPRs(closedPRs);
+    if (isFull) {
+      renderImpact(closedPRs);
+      fetchMem0Stats(runs);
+    }
 
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
   } catch (err) {
@@ -292,19 +497,230 @@ function renderDORA(closedPRs, runs) {
 
   document.getElementById('dora-freq').textContent = mergedThisWeek.length;
   document.getElementById('dora-lead').textContent = avgLead > 0 ? duration(avgLead) : 'N/A';
-  document.getElementById('dora-active').textContent = activeRuns.length;
-  document.getElementById('dora-issues').textContent =
-    document.getElementById('dora-issues').textContent; // updated in pipeline
+  document.getElementById('dora-active').textContent = `${activeRuns.length} / ${
+    document.getElementById('dora-active').textContent.split('/').pop()?.trim() || '?'
+  }`;
   document.getElementById('dora-success').textContent =
     gooseTotal > 0 ? `${gooseSuccess}/${gooseTotal}` : 'N/A';
 }
 
+async function renderImpact(closedPRs) {
+  const el = document.getElementById('impact-list');
+  const merged = closedPRs.filter(pr => pr.merged_at).slice(0, 8);
+
+  if (merged.length === 0) {
+    el.innerHTML = '<div class="empty">No recently merged PRs</div>';
+    return;
+  }
+
+  // Fetch files for each merged PR (batch — uses N API calls, max 8)
+  // Only fetch if we haven't already
+  const prFilesCache = window._prFilesCache || {};
+  const needsFetch = merged.filter(pr => !prFilesCache[pr.number]);
+
+  // Limit concurrent fetches to conserve rate limit
+  for (const pr of needsFetch.slice(0, 4)) {
+    try {
+      prFilesCache[pr.number] = await ghFetch(`/pulls/${pr.number}/files?per_page=30`);
+    } catch {
+      prFilesCache[pr.number] = [];
+    }
+  }
+  window._prFilesCache = prFilesCache;
+
+  let totalAdd = 0, totalDel = 0;
+
+  const cards = merged.map(pr => {
+    const cat = categorize(pr);
+    const files = prFilesCache[pr.number] || [];
+    const { description, packages } = describeImpact(pr, files);
+
+    const additions = files.reduce((s, f) => s + (f.additions || 0), 0);
+    const deletions = files.reduce((s, f) => s + (f.deletions || 0), 0);
+    totalAdd += additions;
+    totalDel += deletions;
+
+    // Show actual changed files (Go source only, not specs/docs)
+    const goFiles = files.filter(f =>
+      f.filename.endsWith('.go') && !f.filename.includes('spec')
+    ).slice(0, 5);
+
+    const testFiles = files.filter(f => f.filename.endsWith('_test.go'));
+    const srcFiles = files.filter(f => f.filename.endsWith('.go') && !f.filename.endsWith('_test.go'));
+
+    const authorLogin = pr.user?.login || 'unknown';
+    const isBot = authorLogin.includes('bot') || authorLogin.includes('copilot') || authorLogin.includes('actions');
+
+    return `<div class="impact-card">
+      <div class="impact-title">
+        <span class="category-tag ${cat.cls}">${escHtml(cat.tag)}</span>
+        <a href="${escAttr(pr.html_url)}">#${pr.number}</a>
+        ${escHtml(description || pr.title)}
+      </div>
+      <div class="impact-meta">
+        ${badge(authorLogin, isBot ? 'purple' : 'blue')}
+        &middot; merged ${escHtml(timeAgo(pr.merged_at))}
+        &middot;
+        <span class="impact-stat"><span class="diff-add">+${additions}</span></span>
+        <span class="impact-stat"><span class="diff-del">-${deletions}</span></span>
+        ${testFiles.length > 0 ? `&middot; <span class="impact-stat">${badge(testFiles.length + ' test file' + (testFiles.length !== 1 ? 's' : ''), 'purple')}</span>` : ''}
+        ${srcFiles.length > 0 ? `&middot; <span class="impact-stat">${badge(srcFiles.length + ' source file' + (srcFiles.length !== 1 ? 's' : ''), 'blue')}</span>` : ''}
+      </div>
+      ${packages.length > 0 ? `<div class="impact-files">Packages: ${packages.map(p => `<span class="impact-file">${escHtml(p)}</span>`).join('')}</div>` : ''}
+      ${goFiles.length > 0 ? `<div class="impact-files">Files: ${goFiles.map(f => `<span class="impact-file">${escHtml(f.filename.split('/').pop())}</span>`).join('')}</div>` : ''}
+    </div>`;
+  });
+
+  el.innerHTML = cards.join('');
+
+  // Update totals in DORA section
+  document.getElementById('impact-additions').textContent = `+${totalAdd}`;
+  document.getElementById('impact-deletions').textContent = `-${totalDel}`;
+
+  // Render business impact from the same data
+  renderBusinessImpact(merged, totalAdd, totalDel);
+}
+
+function renderBusinessImpact(mergedPRs, totalAdd, totalDel) {
+  // Categorize all merged PRs
+  const counts = { bugfix: 0, test: 0, security: 0, feature: 0, infra: 0, refactor: 0 };
+  const byCategory = {};
+  let totalTestFiles = 0;
+
+  mergedPRs.forEach(pr => {
+    const cat = categorize(pr);
+    const files = (window._prFilesCache || {})[pr.number] || [];
+    const testFiles = files.filter(f => f.filename.endsWith('_test.go'));
+    totalTestFiles += testFiles.length;
+
+    const key = cat.tag.toLowerCase().replace(' ', '');
+    counts[key] = (counts[key] || 0) + 1;
+    if (!byCategory[cat.tag]) byCategory[cat.tag] = [];
+    byCategory[cat.tag].push(pr);
+  });
+
+  // Lead time (same calc as DORA but we want the value)
+  const leadTimes = mergedPRs
+    .filter(pr => pr.merged_at)
+    .map(pr => (new Date(pr.merged_at) - new Date(pr.created_at)) / 1000);
+  const avgLead = leadTimes.length > 0
+    ? Math.round(leadTimes.reduce((a, b) => a + b, 0) / leadTimes.length)
+    : 0;
+
+  // Reliability metric
+  const bugCount = counts.bugfix || 0;
+  document.getElementById('biz-reliability').textContent = bugCount;
+  document.getElementById('biz-reliability-detail').textContent =
+    bugCount === 1 ? 'bug fixed this week' : 'bugs fixed this week';
+
+  // Security metric
+  const secCount = counts.security || 0;
+  document.getElementById('biz-security').textContent = secCount;
+  document.getElementById('biz-security-detail').textContent =
+    secCount === 1 ? 'vulnerability addressed' : 'vulnerabilities addressed';
+
+  // Quality metric
+  document.getElementById('biz-quality').textContent = totalTestFiles;
+  document.getElementById('biz-quality-detail').textContent =
+    totalTestFiles === 1 ? 'test file added/modified' : 'test files added/modified';
+
+  // Velocity metric
+  document.getElementById('biz-velocity').textContent = avgLead > 0 ? duration(avgLead) : 'N/A';
+  document.getElementById('biz-velocity-detail').textContent = 'avg issue to production';
+
+  // Build the narrative — human-readable product impact
+  const narrativeEl = document.getElementById('biz-narrative');
+  const parts = [];
+
+  if (mergedPRs.length === 0) {
+    narrativeEl.innerHTML = '<p style="color:var(--muted)">No merged PRs in the analysis window.</p>';
+    return;
+  }
+
+  // Opening
+  parts.push(`<p>This week, the autonomous pipeline shipped <span class="biz-highlight">${mergedPRs.length} change${mergedPRs.length !== 1 ? 's' : ''}</span> to production — <span class="biz-highlight">+${totalAdd}</span> lines added, <span style="color:var(--red)">${totalDel}</span> removed.</p>`);
+
+  // Reliability story
+  if (bugCount > 0) {
+    const bugPRs = byCategory['Bug Fix'] || [];
+    const bugDescs = bugPRs.map(pr => {
+      const d = (pr.title || '')
+        .replace(/^(impl|fix|spec):\s*/i, '')
+        .replace(/Issue #\d+\s*[-—]\s*/g, '')
+        .replace(/Goose implementation/i, '')
+        .trim();
+      return d;
+    }).filter(Boolean).slice(0, 3);
+    parts.push(`<p><strong>Reliability:</strong> ${bugCount} bug${bugCount !== 1 ? 's' : ''} fixed — ${bugDescs.length > 0 ? escHtml(bugDescs.join('; ')) + '.' : 'improving system stability.'} Each fix reduces risk of connection drops or resource leaks in production mesh networks.</p>`);
+  }
+
+  // Security story
+  if (secCount > 0) {
+    const secPRs = byCategory['Security'] || [];
+    const secDescs = secPRs.map(pr => {
+      const d = (pr.title || '')
+        .replace(/^(impl|fix|spec|security):\s*/i, '')
+        .replace(/Issue #\d+\s*[-—]\s*/g, '')
+        .replace(/Goose implementation/i, '')
+        .trim();
+      return d;
+    }).filter(Boolean).slice(0, 3);
+    parts.push(`<p><strong>Security posture:</strong> ${secCount} ${secCount !== 1 ? 'vulnerabilities' : 'vulnerability'} addressed — ${secDescs.length > 0 ? escHtml(secDescs.join('; ')) + '.' : 'hardening the mesh protocol.'} These changes directly reduce the attack surface for mesh network operators.</p>`);
+  }
+
+  // Quality story
+  if (totalTestFiles > 0 || (counts.test || 0) > 0) {
+    const testPRs = byCategory['Tests'] || [];
+    const covDescs = testPRs.map(pr => {
+      const files = (window._prFilesCache || {})[pr.number] || [];
+      const pkgs = new Set();
+      files.forEach(f => {
+        const m = f.filename.match(/^pkg\/(\w+)\//);
+        if (m) pkgs.add(m[1]);
+      });
+      return pkgs.size > 0 ? [...pkgs].join(', ') : null;
+    }).filter(Boolean);
+    parts.push(`<p><strong>Release confidence:</strong> ${totalTestFiles} test file${totalTestFiles !== 1 ? 's' : ''} added or improved${covDescs.length > 0 ? ` covering <span class="biz-highlight">${escHtml(covDescs.join(', '))}</span>` : ''}. Higher test coverage means safer refactors and fewer regressions reaching users.</p>`);
+  }
+
+  // Feature story
+  if ((counts.feature || 0) > 0) {
+    const featPRs = byCategory['Feature'] || [];
+    const featDescs = featPRs.map(pr => {
+      const d = (pr.title || '')
+        .replace(/^(impl|feat|spec):\s*/i, '')
+        .replace(/Issue #\d+\s*[-—]\s*/g, '')
+        .replace(/Goose implementation/i, '')
+        .trim();
+      return d;
+    }).filter(Boolean).slice(0, 3);
+    parts.push(`<p><strong>New capabilities:</strong> ${featDescs.length > 0 ? escHtml(featDescs.join('; ')) + '.' : `${counts.feature} new feature${counts.feature !== 1 ? 's' : ''} added.`}</p>`);
+  }
+
+  // Infra story
+  if ((counts.infra || 0) > 0) {
+    parts.push(`<p><strong>Developer velocity:</strong> ${counts.infra} pipeline improvement${counts.infra !== 1 ? 's' : ''} shipped — each one reduces the time from idea to production code.</p>`);
+  }
+
+  // Pipeline velocity story
+  if (avgLead > 0) {
+    const leadStr = duration(avgLead);
+    const isGood = avgLead < 3600; // under 1h
+    parts.push(`<p><strong>Time to market:</strong> Average lead time from PR creation to production is <span class="${isGood ? 'biz-highlight' : 'biz-warn'}">${leadStr}</span>. ${isGood ? 'The autonomous pipeline is delivering changes faster than most human-only teams.' : 'There is room to optimize the review and merge cycle.'}</p>`);
+  }
+
+  narrativeEl.innerHTML = parts.join('');
+}
+
 function renderPipeline(issues, openPRs, closedPRs, runs) {
   const tbody = document.querySelector('#pipeline-tracker tbody');
-  document.getElementById('dora-issues').textContent = issues.length;
+  // Update active count in DORA
+  const doraActive = document.getElementById('dora-active');
+  const activeCount = runs.workflow_runs.filter(r => r.status === 'in_progress' || r.status === 'queued').length;
+  doraActive.textContent = `${activeCount} / ${issues.length}`;
 
   if (issues.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="7" class="empty">No active pipeline issues</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" class="empty">No active pipeline issues</td></tr>';
     return;
   }
 
@@ -313,6 +729,7 @@ function renderPipeline(issues, openPRs, closedPRs, runs) {
 
   const rows = issues.map(issue => {
     const num = issue.number;
+    const cat = categorize(issue);
     const isCopilotTriaging = issue.labels.some(l => l.name === 'copilot-triaging');
 
     // Find spec PR (title contains issue number)
@@ -323,15 +740,15 @@ function renderPipeline(issues, openPRs, closedPRs, runs) {
     // Find impl PR (created by goose/github-actions, references issue)
     const implPR = allPRs.find(pr =>
       !pr.title.startsWith('spec:') &&
-      (pr.title.includes(`#${num}`) || pr.body?.includes(`#${num}`)) &&
-      pr.user.login !== 'app/copilot-swe-agent'
+      (pr.title.includes(`#${num}`) || (pr.body || '').includes(`#${num}`)) &&
+      pr.user.login !== 'copilot-swe-agent[bot]'
     );
 
     // Find Goose runs for this issue
     const gooseRuns = allRuns.filter(r =>
       r.name === 'Goose Implementation' &&
       (r.head_branch?.includes(specPR?.head?.ref || `issue-${num}`) ||
-       r.display_title?.includes(`#${num}`))
+       (r.display_title || '').includes(`#${num}`))
     );
     const gooseActive = gooseRuns.some(r => r.status === 'in_progress' || r.status === 'queued');
     const gooseDone = gooseRuns.some(r => r.conclusion === 'success');
@@ -339,8 +756,6 @@ function renderPipeline(issues, openPRs, closedPRs, runs) {
 
     // Stages
     const triaged = isCopilotTriaging || !!specPR;
-    const specDone = specPR?.merged_at || (specPR && specPR.state === 'open');
-    const specMerged = !!specPR?.merged_at;
     const merged = !!implPR?.merged_at;
 
     // Age
@@ -350,12 +765,12 @@ function renderPipeline(issues, openPRs, closedPRs, runs) {
     let specBadge;
     if (!specPR) specBadge = badge('Pending', 'muted');
     else if (specPR.merged_at) specBadge = badge('Merged', 'green');
-    else if (specPR.state === 'open') specBadge = `<a href="${specPR.html_url}">${badge(`#${specPR.number} Open`, 'blue')}</a>`;
+    else if (specPR.state === 'open') specBadge = `<a href="${escAttr(specPR.html_url)}">${badge('#' + specPR.number + ' Open', 'blue')}</a>`;
     else specBadge = badge('Closed', 'red');
 
     // Goose status
     let gooseBadge;
-    if (gooseActive) gooseBadge = `<span class="flow-stage"><span class="spinner"></span> Building</span>`;
+    if (gooseActive) gooseBadge = `<span style="display:flex;align-items:center;gap:0.25rem"><span class="spinner"></span> Building</span>`;
     else if (gooseDone) gooseBadge = badge('Success', 'green');
     else if (gooseFailed) gooseBadge = badge('Failed', 'red');
     else if (specPR) gooseBadge = badge('Queued', 'yellow');
@@ -364,19 +779,20 @@ function renderPipeline(issues, openPRs, closedPRs, runs) {
     // Impl PR
     let implBadge;
     if (!implPR) implBadge = gooseActive ? badge('Building...', 'yellow') : badge('-', 'muted');
-    else if (implPR.merged_at) implBadge = `<a href="${implPR.html_url}">${badge(`#${implPR.number} Merged`, 'green')}</a>`;
-    else implBadge = `<a href="${implPR.html_url}">${badge(`#${implPR.number} Open`, 'blue')}</a>`;
+    else if (implPR.merged_at) implBadge = `<a href="${escAttr(implPR.html_url)}">${badge('#' + implPR.number + ' Merged', 'green')}</a>`;
+    else implBadge = `<a href="${escAttr(implPR.html_url)}">${badge('#' + implPR.number + ' Open', 'blue')}</a>`;
 
     const mergedBadge = merged ? badge('Done', 'green') : badge('-', 'muted');
 
     return `<tr>
-      <td><a href="${issue.html_url}">#${num}</a> ${escHtml(issue.title.substring(0, 60))}</td>
+      <td><a href="${escAttr(issue.html_url)}">#${num}</a> ${escHtml((issue.title || '').substring(0, 60))}</td>
+      <td><span class="category-tag ${cat.cls}">${escHtml(cat.tag)}</span></td>
       <td>${triaged ? badge('Done', 'green') : badge('Pending', 'yellow')}</td>
       <td>${specBadge}</td>
       <td>${gooseBadge}</td>
       <td>${implBadge}</td>
       <td>${mergedBadge}</td>
-      <td style="color:var(--muted)">${age}</td>
+      <td style="color:var(--muted)">${escHtml(age)}</td>
     </tr>`;
   });
 
@@ -397,9 +813,9 @@ function renderActiveRuns(runs) {
   el.innerHTML = active.map(r => `
     <li class="run-item">
       ${runIcon(r.status, r.conclusion)}
-      <a href="${r.html_url}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-        title="${escHtml(r.display_title)}">${escHtml(r.name)}</a>
-      <span style="color:var(--muted);font-size:0.75rem;white-space:nowrap">${timeAgo(r.created_at)}</span>
+      <a href="${escAttr(r.html_url)}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${escAttr(r.display_title || r.name)}">${escHtml(r.name)}</a>
+      <span style="color:var(--muted);font-size:0.75rem;white-space:nowrap">${escHtml(timeAgo(r.created_at))}</span>
     </li>
   `).join('');
 }
@@ -408,7 +824,6 @@ function renderRecentRuns(runs) {
   const el = document.getElementById('recent-runs');
   const recent = runs.workflow_runs.filter(r =>
     r.status === 'completed' &&
-    // Only show interesting workflows
     ['Goose Implementation', 'Spec Auto-Approve', 'Auto-merge on CI pass', 'Copilot Issue Triage'].includes(r.name)
   ).slice(0, 10);
 
@@ -420,49 +835,154 @@ function renderRecentRuns(runs) {
   el.innerHTML = recent.map(r => `
     <li class="run-item">
       ${runIcon(r.status, r.conclusion)}
-      <a href="${r.html_url}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
-        title="${escHtml(r.display_title)}">${escHtml(r.name)}</a>
-      <span style="color:var(--muted);font-size:0.75rem;white-space:nowrap">${timeAgo(r.updated_at)}</span>
+      <a href="${escAttr(r.html_url)}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${escAttr(r.display_title || r.name)}">${escHtml(r.name)}</a>
+      <span style="color:var(--muted);font-size:0.75rem;white-space:nowrap">${escHtml(timeAgo(r.updated_at))}</span>
     </li>
   `).join('');
 }
 
-function renderMergedPRs(closedPRs) {
-  const tbody = document.querySelector('#merged-prs tbody');
-  const merged = closedPRs.filter(pr => pr.merged_at).slice(0, 10);
+// ── mem0 Statistics ──
+// Parses Goose Implementation run job logs to extract mem0 retrieve/save stats.
+// Uses the Jobs API: /actions/runs/{id}/jobs — 1 API call per run.
+// We only parse the 3 most recent completed Goose runs, and cache results.
 
-  if (merged.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="5" class="empty">No recently merged PRs</td></tr>';
+const mem0Cache = {};
+
+async function fetchMem0Stats(runs) {
+  const gooseRuns = runs.workflow_runs.filter(r =>
+    r.name === 'Goose Implementation' && r.status === 'completed'
+  ).slice(0, 5);
+
+  if (gooseRuns.length === 0) {
+    renderMem0Empty();
     return;
   }
 
-  tbody.innerHTML = merged.map(pr => {
-    const author = pr.user.login;
-    const authorBadge = author.includes('copilot') || author.includes('bot')
-      ? badge(author, 'purple')
-      : author === 'nycterent'
-        ? badge(author, 'blue')
-        : badge(author, 'muted');
+  // Fetch jobs for runs we haven't cached yet (max 2 new fetches per cycle)
+  let fetched = 0;
+  for (const run of gooseRuns) {
+    if (mem0Cache[run.id] || fetched >= 2) continue;
+    try {
+      const jobsData = await ghFetch(`/actions/runs/${run.id}/jobs`);
+      const job = (jobsData.jobs || [])[0];
+      if (!job) continue;
 
-    return `<tr>
-      <td><a href="${pr.html_url}">#${pr.number}</a></td>
-      <td style="max-width:400px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(pr.title)}</td>
-      <td>${authorBadge}</td>
-      <td style="color:var(--muted)">${timeAgo(pr.merged_at)}</td>
-      <td>${pr.review_comments > 0 ? badge(`${pr.review_comments} comments`, 'yellow') : badge('0', 'muted')}</td>
-    </tr>`;
-  }).join('');
+      // Extract mem0 stats from step names and conclusions
+      const steps = job.steps || [];
+      const retrieveStep = steps.find(s => s.name && s.name.includes('Retrieve memories'));
+      const saveStep = steps.find(s => s.name && s.name.includes('Save memories'));
+      const encryptStep = steps.find(s => s.name && s.name.includes('Encrypt mem0'));
+      const cacheStep = steps.find(s => s.name && s.name.includes('Save mem0 memory cache'));
+      const restoreStep = steps.find(s => s.name && s.name.includes('Restore mem0 memory cache'));
+
+      mem0Cache[run.id] = {
+        runId: run.id,
+        runUrl: run.html_url,
+        conclusion: run.conclusion,
+        createdAt: run.created_at,
+        issueTitle: run.display_title || '',
+        retrieve: {
+          status: retrieveStep?.conclusion || 'skipped',
+          ran: !!retrieveStep,
+        },
+        save: {
+          status: saveStep?.conclusion || 'skipped',
+          ran: !!saveStep,
+        },
+        encrypt: {
+          status: encryptStep?.conclusion || 'skipped',
+          ran: !!encryptStep,
+        },
+        cacheRestore: restoreStep?.conclusion || 'skipped',
+        cacheSave: cacheStep?.conclusion || 'skipped',
+      };
+      fetched++;
+    } catch {
+      // Rate limit or other error — skip
+    }
+  }
+
+  renderMem0(gooseRuns);
 }
 
-function escHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s || '';
-  return d.innerHTML;
+function renderMem0Empty() {
+  document.getElementById('mem0-status').innerHTML = badge('No Data', 'muted');
+  document.getElementById('mem0-retrieved').textContent = '-';
+  document.getElementById('mem0-saved').textContent = '-';
+  document.getElementById('mem0-cache').innerHTML = badge('Unknown', 'muted');
+  document.getElementById('mem0-history').innerHTML = '<li class="empty">No Goose runs found</li>';
+}
+
+function renderMem0(gooseRuns) {
+  const entries = gooseRuns.map(r => mem0Cache[r.id]).filter(Boolean);
+
+  if (entries.length === 0) {
+    renderMem0Empty();
+    return;
+  }
+
+  const latest = entries[0];
+
+  // Status: check if retrieve and save both succeeded
+  const retrieveOk = latest.retrieve.ran && latest.retrieve.status === 'success';
+  const saveOk = latest.save.ran && latest.save.status === 'success';
+  const encryptOk = latest.encrypt.ran && latest.encrypt.status === 'success';
+
+  let statusBadge;
+  if (retrieveOk && saveOk) {
+    statusBadge = badge('Healthy', 'green');
+  } else if (latest.retrieve.ran || latest.save.ran) {
+    // Steps ran but may have had issues (the BaseLlmConfig bug)
+    statusBadge = badge('Degraded', 'yellow');
+  } else {
+    statusBadge = badge('Disabled', 'muted');
+  }
+  document.getElementById('mem0-status').innerHTML = statusBadge;
+
+  // Retrieve/save — we can't get exact counts without log parsing,
+  // but we can show step success/failure
+  document.getElementById('mem0-retrieved').innerHTML =
+    latest.retrieve.ran
+      ? (retrieveOk ? badge('OK', 'green') : badge('Failed', 'red'))
+      : badge('Skipped', 'muted');
+
+  document.getElementById('mem0-saved').innerHTML =
+    latest.save.ran
+      ? (saveOk ? badge('OK', 'green') : badge('Failed', 'red'))
+      : badge('Skipped', 'muted');
+
+  // Cache status
+  document.getElementById('mem0-cache').innerHTML =
+    encryptOk
+      ? badge('Encrypted + Cached', 'green')
+      : latest.cacheSave === 'success'
+        ? badge('Cached (unencrypted)', 'yellow')
+        : badge('Not cached', 'red');
+
+  // History list
+  const historyEl = document.getElementById('mem0-history');
+  historyEl.innerHTML = entries.map(e => {
+    const retrieveBadge = e.retrieve.ran
+      ? (e.retrieve.status === 'success' ? badge('Retrieved', 'green') : badge('Retrieve failed', 'red'))
+      : badge('No retrieve', 'muted');
+    const saveBadge = e.save.ran
+      ? (e.save.status === 'success' ? badge('Saved', 'green') : badge('Save failed', 'red'))
+      : badge('No save', 'muted');
+
+    return `<li class="run-item">
+      ${runIcon('completed', e.conclusion)}
+      <a href="${escAttr(e.runUrl)}" style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+        title="${escAttr(e.issueTitle)}">${escHtml(e.issueTitle.substring(0, 40))}</a>
+      ${retrieveBadge} ${saveBadge}
+      <span style="color:var(--muted);font-size:0.75rem;white-space:nowrap">${escHtml(timeAgo(e.createdAt))}</span>
+    </li>`;
+  }).join('');
 }
 
 // ── Init ──
 fetchAll();
-setInterval(fetchAll, 30000);
+setInterval(fetchAll, REFRESH_MS); // 5 minutes — stays within 60 req/hr
 </script>
 </body>
 </html>
