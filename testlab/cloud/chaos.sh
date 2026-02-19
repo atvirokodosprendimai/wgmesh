@@ -282,6 +282,111 @@ chaos_random_hit() {
 }
 
 # ---------------------------------------------------------------------------
+# NAT simulation
+#
+# Simulates NAT by using one node as a gateway with iptables MASQUERADE.
+# The "NATted" node has its direct public-IP traffic to other mesh nodes
+# blocked, forcing all mesh traffic through the gateway via a GRE tunnel.
+#
+# Architecture:
+#   [natted-node] --GRE-tunnel--> [gateway-node] --MASQUERADE--> [mesh peers]
+#
+# This simulates a node behind a home router where the public IP is the
+# gateway's, not the node's own.
+# ---------------------------------------------------------------------------
+
+# Set up a NAT gateway: traffic from natted_node goes through gw_node.
+# Usage: nat_setup <gw_node> <natted_node> <nat_type>
+#   nat_type: "cone" | "symmetric"
+#     cone      = endpoint-independent mapping (same ext port for all destinations)
+#     symmetric = endpoint-dependent mapping (different ext port per destination)
+nat_setup() {
+    local gw="$1" natted="$2" nat_type="${3:-cone}"
+    local gw_ip="${NODE_IPS[$gw]}"
+    local natted_ip="${NODE_IPS[$natted]}"
+
+    # Create a GRE tunnel between natted node and gateway
+    local tun_natted="10.99.0.2"
+    local tun_gw="10.99.0.1"
+
+    # On gateway: create GRE tunnel endpoint, enable forwarding and MASQUERADE
+    run_on "$gw" "
+        ip tunnel add gre-nat mode gre remote $natted_ip local $gw_ip ttl 255 2>/dev/null || true
+        ip addr add $tun_gw/30 dev gre-nat 2>/dev/null || true
+        ip link set gre-nat up
+        sysctl -w net.ipv4.ip_forward=1 >/dev/null
+
+        # MASQUERADE all traffic from the NATted node's tunnel
+        iptables -t nat -A POSTROUTING -s $tun_natted/32 -j MASQUERADE
+    "
+
+    if [ "$nat_type" = "symmetric" ]; then
+        # Symmetric NAT: use random source ports (no connection tracking reuse)
+        run_on "$gw" "
+            iptables -t nat -A POSTROUTING -s $tun_natted/32 -p udp -j MASQUERADE --random
+        "
+        log_info "nat: symmetric NAT on $gw for $natted"
+    else
+        log_info "nat: cone NAT on $gw for $natted"
+    fi
+
+    # On natted node: create GRE tunnel, route mesh traffic through it
+    run_on "$natted" "
+        ip tunnel add gre-nat mode gre remote $gw_ip local $natted_ip ttl 255 2>/dev/null || true
+        ip addr add $tun_natted/30 dev gre-nat 2>/dev/null || true
+        ip link set gre-nat up
+    "
+
+    # Block natted node's direct traffic to all other mesh nodes (except gateway)
+    # This forces all mesh traffic through the GRE tunnel
+    for peer in "${!NODE_IPS[@]}"; do
+        [ "$peer" = "$natted" ] && continue
+        [ "$peer" = "$gw" ] && continue
+        local peer_ip="${NODE_IPS[$peer]}"
+        run_on "$natted" "
+            iptables -A OUTPUT -d $peer_ip -o \$(ip route show default | awk '/default/ {print \$5}' | head -1) -j DROP
+            iptables -A INPUT -s $peer_ip -i \$(ip route show default | awk '/default/ {print \$5}' | head -1) -j DROP
+        "
+    done
+
+    # Add routes to mesh peers via the GRE tunnel on the natted node
+    for peer in "${!NODE_IPS[@]}"; do
+        [ "$peer" = "$natted" ] && continue
+        [ "$peer" = "$gw" ] && continue
+        local peer_ip="${NODE_IPS[$peer]}"
+        run_on "$natted" "ip route add $peer_ip via $tun_gw dev gre-nat 2>/dev/null || true"
+    done
+
+    log_info "nat: $natted is now behind $nat_type NAT via $gw"
+}
+
+# Tear down NAT simulation on a pair.
+# Usage: nat_teardown <gw_node> <natted_node>
+nat_teardown() {
+    local gw="$1" natted="$2"
+    local gw_ip="${NODE_IPS[$gw]}"
+    local natted_ip="${NODE_IPS[$natted]}"
+
+    # Remove routes on natted node
+    for peer in "${!NODE_IPS[@]}"; do
+        [ "$peer" = "$natted" ] && continue
+        [ "$peer" = "$gw" ] && continue
+        local peer_ip="${NODE_IPS[$peer]}"
+        run_on_ok "$natted" "ip route del $peer_ip via 10.99.0.1 dev gre-nat 2>/dev/null"
+    done
+
+    # Flush iptables on both
+    run_on_ok "$natted" "iptables -F INPUT; iptables -F OUTPUT; iptables -P INPUT ACCEPT; iptables -P OUTPUT ACCEPT"
+    run_on_ok "$gw" "iptables -t nat -F POSTROUTING"
+
+    # Delete GRE tunnels
+    run_on_ok "$natted" "ip tunnel del gre-nat 2>/dev/null"
+    run_on_ok "$gw" "ip tunnel del gre-nat 2>/dev/null"
+
+    log_info "nat: teardown complete for $natted via $gw"
+}
+
+# ---------------------------------------------------------------------------
 # Cleanup everything
 # ---------------------------------------------------------------------------
 
