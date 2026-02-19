@@ -43,6 +43,10 @@ jobs:
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            const fs = require('fs');
+
+            // Agent metrics: collect per-PR merge data
+            const mergeMetrics = [];
 
             // Collect candidate PRs based on event type
             let candidates = [];
@@ -205,6 +209,7 @@ jobs:
 
                 // Squash-merge directly — GitHub rejects enablePullRequestAutoMerge
                 // when the PR is already in 'clean' (immediately mergeable) state.
+                let mergeResult = { succeeded: false, method: 'squash' };
                 try {
                   await github.rest.pulls.merge({
                     owner, repo,
@@ -212,11 +217,69 @@ jobs:
                     merge_method: 'squash',
                   });
                   core.info(`PR #${prNumber}: squash-merged`);
+                  mergeResult.succeeded = true;
                 } catch (mergeErr) {
                   core.warning(`PR #${prNumber}: failed to merge: ${mergeErr.message}`);
+                  mergeResult.error = mergeErr.message;
                 }
+
+                // Agent metrics: collect review burden (Copilot + human comments)
+                let reviewBurden = { copilot_comments: 0, human_comments: 0, total_reviews: 0 };
+                try {
+                  const { data: prComments } = await github.rest.pulls.listReviewComments({
+                    owner, repo, pull_number: prNumber, per_page: 100,
+                  });
+                  reviewBurden.copilot_comments = prComments.filter(
+                    c => c.user?.login?.includes('copilot') || c.user?.login?.includes('bot')
+                  ).length;
+                  reviewBurden.human_comments = prComments.length - reviewBurden.copilot_comments;
+                  reviewBurden.total_reviews = reviews.length;
+                } catch (e) { /* non-fatal */ }
+
+                // Agent metrics: record this PR
+                mergeMetrics.push({
+                  schema_version: 1,
+                  stage: 'auto_merge',
+                  pr_number: prNumber,
+                  timestamp: new Date().toISOString(),
+                  pr: {
+                    author: pr.user?.login || 'unknown',
+                    labels: pr.labels.map(l => l.name),
+                    created_at: pr.created_at,
+                    merged_at: mergeResult.succeeded ? new Date().toISOString() : null,
+                    pr_age_seconds: mergeResult.succeeded
+                      ? Math.round((Date.now() - new Date(pr.created_at).getTime()) / 1000)
+                      : null,
+                  },
+                  checks: {
+                    total: relevant.length,
+                    passed: relevant.filter(cr => cr.conclusion === 'success').length,
+                    failed: relevant.filter(cr => cr.conclusion !== 'success' && cr.conclusion !== 'skipped').length,
+                    failed_names: relevant
+                      .filter(cr => cr.conclusion !== 'success' && cr.conclusion !== 'skipped')
+                      .map(cr => cr.name),
+                  },
+                  merge: mergeResult,
+                  review_burden: reviewBurden,
+                });
 
               } catch (err) {
                 core.warning(`PR #${prNumber}: error: ${err.message}`);
               }
             }
+
+            // Agent metrics: write collected data
+            if (mergeMetrics.length > 0) {
+              const metricsPath = '/tmp/agent-metrics-merge.json';
+              fs.writeFileSync(metricsPath, JSON.stringify(mergeMetrics, null, 2));
+              core.info(`Agent metrics: wrote ${mergeMetrics.length} PR records to ${metricsPath}`);
+            }
+
+      - name: Upload agent metrics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-metrics-merge-${{ github.run_id }}
+          path: /tmp/agent-metrics-merge.json
+          retention-days: 90
+          if-no-files-found: ignore
