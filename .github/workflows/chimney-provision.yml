@@ -228,8 +228,23 @@ jobs:
           curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
             | tar xz -C /usr/local/bin hcloud
 
-      - name: List chimney servers
+      - name: Fix missing labels and list servers
         run: |
+          set -euo pipefail
+
+          # Ensure all chimney servers have the service=chimney label.
+          # Servers created manually or before the labeling convention may lack it.
+          IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
+          for loc in "${LOCATIONS[@]}"; do
+            loc=$(echo "$loc" | xargs)
+            name="chimney-${loc}"
+            if hcloud server describe "$name" >/dev/null 2>&1; then
+              echo "Found $name — ensuring service=chimney label..."
+              hcloud server add-label "$name" "service=chimney" --overwrite 2>/dev/null || true
+              hcloud server add-label "$name" "location=$loc" --overwrite 2>/dev/null || true
+            fi
+          done
+
           echo "## Chimney Servers" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
