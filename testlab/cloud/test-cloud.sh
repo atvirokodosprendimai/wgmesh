@@ -700,14 +700,148 @@ test_t24_asymmetric() {
 }
 
 # ===========================================================================
-# TIER 5 — NAT Simulation (iptables MASQUERADE)
+# TIER 5 — NAT Simulation (iptables MASQUERADE + GRE tunnel)
+#
+# Uses one VM as a NAT gateway. The "NATted" node's direct traffic to
+# other mesh nodes is blocked; it must go through the gateway with
+# MASQUERADE. This simulates a node behind a home router.
+#
+# Requires >= 4 VMs: 1 introducer, 1 gateway, 1 NATted node, 1+ public.
 # ===========================================================================
 
-# T25-T27: NAT simulation requires a gateway VM setup which is complex.
-# These are marked as SKIP for now with a clear note.
-test_t25_cone_nat()     { echo "NAT simulation requires gateway VM — not yet implemented"; return 2; }
-test_t26_symmetric_nat() { echo "NAT simulation requires gateway VM — not yet implemented"; return 2; }
-test_t27_mixed_nat()    { echo "NAT simulation requires gateway VM — not yet implemented"; return 2; }
+_nat_pick_roles() {
+    # Assign NAT roles: gateway = first non-introducer, natted = second
+    NAT_GW=""
+    NAT_NODE=""
+    local nodes=()
+    for node in "${!NODE_ROLES[@]}"; do
+        [ "${NODE_ROLES[$node]}" != "introducer" ] && nodes+=("$node")
+    done
+    if [ ${#nodes[@]} -lt 3 ]; then
+        echo "NAT tests require >= 4 VMs (1 intro + 1 gw + 1 nat + 1 public), have $((${#nodes[@]} + 1))"
+        return 2  # SKIP
+    fi
+    NAT_GW="${nodes[0]}"
+    NAT_NODE="${nodes[1]}"
+}
+
+# --- T25: Cone NAT ---
+test_t25_cone_nat() {
+    _nat_pick_roles || return $?
+    _chaos_setup
+
+    nat_setup "$NAT_GW" "$NAT_NODE" "cone"
+    sleep 5
+
+    # Restart the NATted node's mesh so it re-discovers peers via NAT
+    restart_mesh_node "$NAT_NODE"
+    sleep 10
+
+    # The NATted node should rejoin the mesh through the NAT gateway.
+    # Cone NAT is the easiest — once a mapping exists, any peer can reach it.
+    wait_for "NATted node mesh via cone NAT" 120 _check_all_pairs "${!NODE_IPS[@]}"
+
+    nat_teardown "$NAT_GW" "$NAT_NODE"
+    sleep 5
+    # Restore direct connectivity and verify clean mesh
+    restart_mesh_node "$NAT_NODE"
+    verify_full_mesh 60
+    scan_logs_for_errors
+}
+
+# --- T26: Symmetric NAT ---
+test_t26_symmetric_nat() {
+    _nat_pick_roles || return $?
+    _chaos_setup
+
+    nat_setup "$NAT_GW" "$NAT_NODE" "symmetric"
+    sleep 5
+
+    restart_mesh_node "$NAT_NODE"
+    sleep 10
+
+    # Symmetric NAT is harder — each destination gets a different source port.
+    # WireGuard's roaming + wgmesh's relay should handle this.
+    # Allow longer timeout since hole-punching is more complex.
+    wait_for "NATted node mesh via symmetric NAT" 180 _check_all_pairs "${!NODE_IPS[@]}"
+
+    nat_teardown "$NAT_GW" "$NAT_NODE"
+    sleep 5
+    restart_mesh_node "$NAT_NODE"
+    verify_full_mesh 60
+    scan_logs_for_errors
+}
+
+# --- T27: Mixed NAT topology (2 nodes behind NAT) ---
+test_t27_mixed_nat() {
+    local nodes=()
+    for node in "${!NODE_ROLES[@]}"; do
+        [ "${NODE_ROLES[$node]}" != "introducer" ] && nodes+=("$node")
+    done
+    if [ ${#nodes[@]} -lt 4 ]; then
+        echo "Mixed NAT test requires >= 5 VMs (1 intro + 2 gw + 2 nat), have $((${#nodes[@]} + 1))"
+        return 2  # SKIP
+    fi
+
+    _chaos_setup
+
+    # Two separate NAT setups: nodes[0] gateways nodes[1], nodes[2] gateways nodes[3]
+    local gw1="${nodes[0]}" nat1="${nodes[1]}"
+    local gw2="${nodes[2]}" nat2="${nodes[3]}"
+
+    nat_setup "$gw1" "$nat1" "cone"
+    # Use different tunnel IPs for second pair to avoid collision
+    run_on "$gw2" "
+        ip tunnel add gre-nat2 mode gre remote ${NODE_IPS[$nat2]} local ${NODE_IPS[$gw2]} ttl 255 2>/dev/null || true
+        ip addr add 10.99.1.1/30 dev gre-nat2 2>/dev/null || true
+        ip link set gre-nat2 up
+        sysctl -w net.ipv4.ip_forward=1 >/dev/null
+        iptables -t nat -A POSTROUTING -s 10.99.1.2/32 -j MASQUERADE
+    "
+    run_on "$nat2" "
+        ip tunnel add gre-nat2 mode gre remote ${NODE_IPS[$gw2]} local ${NODE_IPS[$nat2]} ttl 255 2>/dev/null || true
+        ip addr add 10.99.1.2/30 dev gre-nat2 2>/dev/null || true
+        ip link set gre-nat2 up
+    "
+    # Block nat2's direct traffic to other peers (except gw2)
+    for peer in "${!NODE_IPS[@]}"; do
+        [ "$peer" = "$nat2" ] && continue
+        [ "$peer" = "$gw2" ] && continue
+        local peer_ip="${NODE_IPS[$peer]}"
+        run_on "$nat2" "
+            iptables -A OUTPUT -d $peer_ip -o \$(ip route show default | awk '/default/ {print \$5}' | head -1) -j DROP
+            iptables -A INPUT -s $peer_ip -i \$(ip route show default | awk '/default/ {print \$5}' | head -1) -j DROP
+        "
+        run_on "$nat2" "ip route add $peer_ip via 10.99.1.1 dev gre-nat2 2>/dev/null || true"
+    done
+
+    sleep 5
+    restart_mesh_node "$nat1"
+    restart_mesh_node "$nat2"
+    sleep 10
+
+    # Both NATted nodes should reach the full mesh
+    wait_for "mixed NAT mesh (2 nodes behind NAT)" 180 _check_all_pairs "${!NODE_IPS[@]}"
+
+    # Teardown
+    nat_teardown "$gw1" "$nat1"
+    # Manual teardown for second pair
+    for peer in "${!NODE_IPS[@]}"; do
+        [ "$peer" = "$nat2" ] && continue
+        [ "$peer" = "$gw2" ] && continue
+        run_on_ok "$nat2" "ip route del ${NODE_IPS[$peer]} via 10.99.1.1 dev gre-nat2 2>/dev/null"
+    done
+    run_on_ok "$nat2" "iptables -F INPUT; iptables -F OUTPUT; iptables -P INPUT ACCEPT; iptables -P OUTPUT ACCEPT"
+    run_on_ok "$gw2" "iptables -t nat -F POSTROUTING"
+    run_on_ok "$nat2" "ip tunnel del gre-nat2 2>/dev/null"
+    run_on_ok "$gw2" "ip tunnel del gre-nat2 2>/dev/null"
+
+    sleep 5
+    restart_mesh_node "$nat1"
+    restart_mesh_node "$nat2"
+    verify_full_mesh 90
+    scan_logs_for_errors
+}
 
 # ===========================================================================
 # TIER 6 — Chaos Monkey / Fuzzing
