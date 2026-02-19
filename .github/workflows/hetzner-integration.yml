@@ -135,6 +135,16 @@ jobs:
           SSH_KEY_FILE: ${{ env.SSH_KEY_FILE }}
           WGMESH_RUN_ID: "${{ github.run_id }}-t${{ matrix.tier }}"
           VM_PREFIX: "wgmesh-t${{ matrix.tier }}"
+          WGMESH_PPROF: "1"
+
+      - name: Generate test report
+        if: always()
+        run: |
+          if [ -f /tmp/wgmesh-ci-logs/trace.jsonl ]; then
+            python3 testlab/cloud/gen-report.py \
+              /tmp/wgmesh-ci-logs/trace.jsonl \
+              /tmp/wgmesh-ci-logs/report.html || true
+          fi
 
       - name: Tier summary
         if: always()

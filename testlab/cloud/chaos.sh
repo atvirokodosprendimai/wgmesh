@@ -51,6 +51,7 @@ _get_iface() {
 #   corrupt <percent>                  — bit-level corruption
 chaos_apply() {
     local node="$1" type="$2"; shift 2
+    emit_event "chaos_apply" "$node" "type=$type" "params=$*"
     local iface
     iface=$(_get_iface "$node")
 
@@ -104,6 +105,7 @@ chaos_apply() {
 # Remove all tc netem impairments from a node.
 chaos_clear() {
     local node="$1"
+    emit_event "chaos_clear" "$node"
     local iface
     iface=$(_get_iface "$node")
     run_on_ok "$node" "tc qdisc del dev $iface root 2>/dev/null"
