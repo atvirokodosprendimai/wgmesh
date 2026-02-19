@@ -20,8 +20,10 @@ import (
 )
 
 const (
-	githubAPI   = "https://api.github.com"
-	defaultRepo = "atvirokodosprendimai/wgmesh"
+	githubAPI     = "https://api.github.com"
+	defaultRepo   = "atvirokodosprendimai/wgmesh"
+	maxCacheSize  = 500
+	clientTimeout = 10 * time.Second
 )
 
 // cacheEntry holds a cached GitHub API response.
@@ -39,6 +41,9 @@ var (
 
 	githubToken string
 	repo        string
+
+	// httpClient with explicit timeout to prevent hanging on GitHub API calls.
+	httpClient = &http.Client{Timeout: clientTimeout}
 )
 
 func main() {
@@ -47,9 +52,12 @@ func main() {
 	flag.StringVar(&repo, "repo", defaultRepo, "GitHub owner/repo")
 	flag.Parse()
 
-	githubToken = os.Getenv("GITHUB_TOKEN")
-	if githubToken == "" {
+	rawToken := os.Getenv("GITHUB_TOKEN")
+	githubToken = strings.TrimSpace(rawToken)
+	if rawToken == "" {
 		log.Println("WARNING: GITHUB_TOKEN not set — using unauthenticated API (60 req/hr)")
+	} else if githubToken == "" {
+		log.Println("WARNING: GITHUB_TOKEN is empty or whitespace — using unauthenticated API (60 req/hr)")
 	} else {
 		log.Println("GitHub token configured — 5,000 req/hr")
 	}
@@ -60,13 +68,7 @@ func main() {
 	mux.HandleFunc("/api/github/", handleGitHubProxy)
 
 	// Health check
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		cacheMu.RLock()
-		entries := len(cache)
-		cacheMu.RUnlock()
-		fmt.Fprintf(w, `{"status":"ok","cache_entries":%d,"repo":"%s"}`, entries, repo)
-	})
+	mux.HandleFunc("/healthz", handleHealthz)
 
 	// Cache stats
 	mux.HandleFunc("/api/cache/stats", handleCacheStats)
@@ -79,6 +81,42 @@ func main() {
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatal(err)
 	}
+}
+
+// handleHealthz returns server health as properly marshaled JSON.
+func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+	cacheMu.RLock()
+	entries := len(cache)
+	cacheMu.RUnlock()
+
+	w.Header().Set("Content-Type", "application/json")
+	resp := map[string]interface{}{
+		"status":        "ok",
+		"cache_entries": entries,
+		"repo":          repo,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to marshal health response: %v", err), http.StatusInternalServerError)
+		return
+	}
+	if _, err := w.Write(data); err != nil {
+		log.Printf("writing /healthz response: %v", err)
+	}
+}
+
+// ttlForPath returns the appropriate cache TTL for a GitHub API path.
+func ttlForPath(ghPath, rawQuery string) time.Duration {
+	if strings.Contains(ghPath, "/actions/runs") {
+		return 30 * time.Second // workflow runs change often
+	}
+	if strings.Contains(ghPath, "/pulls") && strings.Contains(rawQuery, "state=closed") {
+		return 5 * time.Minute // closed PRs rarely change
+	}
+	if strings.Contains(ghPath, "/issues") {
+		return 2 * time.Minute
+	}
+	return 30 * time.Second
 }
 
 // handleGitHubProxy proxies requests to GitHub API with server-side caching.
@@ -97,19 +135,12 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 
 	cacheKey := ghPath + "?" + r.URL.RawQuery
 
-	// Check cache — serve if fresh enough (30s for hot data, 5m for cold)
+	// Check cache — serve if fresh enough
 	cacheMu.RLock()
 	entry, found := cache[cacheKey]
 	cacheMu.RUnlock()
 
-	maxAge := 30 * time.Second
-	if strings.Contains(ghPath, "/actions/runs") {
-		maxAge = 30 * time.Second // workflow runs change often
-	} else if strings.Contains(ghPath, "/pulls") && strings.Contains(r.URL.RawQuery, "state=closed") {
-		maxAge = 5 * time.Minute // closed PRs rarely change
-	} else if strings.Contains(ghPath, "/issues") {
-		maxAge = 2 * time.Minute
-	}
+	maxAge := ttlForPath(ghPath, r.URL.RawQuery)
 
 	// Client sent If-None-Match? Check against our cache
 	clientETag := r.Header.Get("If-None-Match")
@@ -139,7 +170,7 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		req.Header.Set("If-None-Match", entry.etag)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		// If GitHub is down but we have stale cache, serve it
 		if found {
@@ -151,11 +182,10 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
-	// 304 — GitHub says data hasn't changed, refresh our cache timestamp
+	// 304 — GitHub says data hasn't changed, serve cached response as-is.
+	// We do not mutate the shared cache entry to avoid racing with
+	// concurrent cache updates that may have replaced this entry.
 	if resp.StatusCode == http.StatusNotModified && found {
-		cacheMu.Lock()
-		entry.fetchedAt = time.Now()
-		cacheMu.Unlock()
 		writeResponse(w, entry)
 		return
 	}
@@ -166,7 +196,7 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Cache the response
+	// Build the new cache entry
 	newEntry := &cacheEntry{
 		body:       body,
 		etag:       resp.Header.Get("ETag"),
@@ -181,23 +211,47 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Insert into cache and evict if over capacity.
+	// Take a snapshot of keys+times under the lock, then find oldest outside it.
 	cacheMu.Lock()
 	cache[cacheKey] = newEntry
-	// Evict old entries (keep cache bounded)
-	if len(cache) > 500 {
-		oldest := ""
-		oldestTime := time.Now()
+	needEvict := len(cache) > maxCacheSize
+	var snapshot []struct {
+		key       string
+		fetchedAt time.Time
+	}
+	if needEvict {
+		snapshot = make([]struct {
+			key       string
+			fetchedAt time.Time
+		}, 0, len(cache))
 		for k, v := range cache {
-			if v.fetchedAt.Before(oldestTime) {
-				oldest = k
-				oldestTime = v.fetchedAt
-			}
-		}
-		if oldest != "" {
-			delete(cache, oldest)
+			snapshot = append(snapshot, struct {
+				key       string
+				fetchedAt time.Time
+			}{key: k, fetchedAt: v.fetchedAt})
 		}
 	}
 	cacheMu.Unlock()
+
+	// Find oldest entry outside the critical section, then delete with a short lock.
+	if needEvict && len(snapshot) > 0 {
+		oldestKey := ""
+		oldestTime := time.Now()
+		for _, e := range snapshot {
+			if e.fetchedAt.Before(oldestTime) {
+				oldestKey = e.key
+				oldestTime = e.fetchedAt
+			}
+		}
+		if oldestKey != "" {
+			cacheMu.Lock()
+			if cur, ok := cache[oldestKey]; ok && cur.fetchedAt.Equal(oldestTime) {
+				delete(cache, oldestKey)
+			}
+			cacheMu.Unlock()
+		}
+	}
 
 	writeResponse(w, newEntry)
 }
@@ -214,10 +268,12 @@ func writeResponse(w http.ResponseWriter, entry *cacheEntry) {
 	w.Header().Set("X-Cache-Age", fmt.Sprintf("%.0f", time.Since(entry.fetchedAt).Seconds()))
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(entry.statusCode)
-	w.Write(entry.body)
+	if _, err := w.Write(entry.body); err != nil {
+		log.Printf("writing response: %v", err)
+	}
 }
 
-func handleCacheStats(w http.ResponseWriter, r *http.Request) {
+func handleCacheStats(w http.ResponseWriter, _ *http.Request) {
 	cacheMu.RLock()
 	defer cacheMu.RUnlock()
 
@@ -239,8 +295,10 @@ func handleCacheStats(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	if err := json.NewEncoder(w).Encode(map[string]interface{}{
 		"entries": len(stats),
 		"details": stats,
-	})
+	}); err != nil {
+		log.Printf("writing cache stats response: %v", err)
+	}
 }
