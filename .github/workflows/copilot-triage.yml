@@ -152,7 +152,7 @@ jobs:
               copilot_assigned: true,
             };
 
-            fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2));
+            fs.writeFileSync(metricsPath, JSON.stringify(metrics, null, 2) + '\n');
             core.info(`Agent metrics: triage latency ${triageLatency}s for issue #${issueNumber}`);
 
       - name: Upload agent metrics

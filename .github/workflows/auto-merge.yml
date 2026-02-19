@@ -268,10 +268,10 @@ jobs:
               }
             }
 
-            // Agent metrics: write collected data
+            // Agent metrics: write collected data (use run_id in filename to avoid overwrite on extraction)
             if (mergeMetrics.length > 0) {
-              const metricsPath = '/tmp/agent-metrics-merge.json';
-              fs.writeFileSync(metricsPath, JSON.stringify(mergeMetrics, null, 2));
+              const metricsPath = `/tmp/agent-metrics-merge-${process.env.GITHUB_RUN_ID}.json`;
+              fs.writeFileSync(metricsPath, JSON.stringify(mergeMetrics, null, 2) + '\n');
               core.info(`Agent metrics: wrote ${mergeMetrics.length} PR records to ${metricsPath}`);
             }
 
@@ -280,6 +280,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: agent-metrics-merge-${{ github.run_id }}
-          path: /tmp/agent-metrics-merge.json
+          path: /tmp/agent-metrics-merge-${{ github.run_id }}.json
           retention-days: 90
           if-no-files-found: ignore

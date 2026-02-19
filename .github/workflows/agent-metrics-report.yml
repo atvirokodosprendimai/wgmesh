@@ -80,10 +80,22 @@ jobs:
       - name: Extract metrics
         run: |
           cd "$METRICS_DIR"
+          # Extract each artifact zip into a unique subdir to prevent filename collisions
+          # (e.g., multiple merge artifacts each contain agent-metrics-merge.json)
+          i=0
           for zipfile in *.zip; do
             [ -f "$zipfile" ] || continue
-            unzip -o -q "$zipfile" -d . 2>/dev/null || true
-            rm -f "$zipfile"
+            subdir="artifact-$i"
+            mkdir -p "$subdir"
+            unzip -o -q "$zipfile" -d "$subdir" 2>/dev/null || true
+            # Move extracted JSONs to top level with unique names
+            for json in "$subdir"/*.json; do
+              [ -f "$json" ] || continue
+              base=$(basename "$json" .json)
+              mv "$json" "${base}-${i}.json"
+            done
+            rm -rf "$subdir" "$zipfile"
+            i=$((i + 1))
           done
           echo "Extracted JSON files:"
           ls -la *.json 2>/dev/null || echo "No JSON files found"
@@ -93,12 +105,17 @@ jobs:
           cd "$METRICS_DIR"
 
           # Collect all JSON into arrays by stage
-          # Use find + cat to handle missing files gracefully (cat with glob fails silently)
-          TRIAGE=$(find . -maxdepth 1 -name 'agent-metrics-triage-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')
-          SPEC=$(find . -maxdepth 1 -name 'agent-metrics-spec-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')
-          GOOSE=$(find . -maxdepth 1 -name 'agent-metrics-goose-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')
-          # Merge files contain arrays of PRs; flatten them
-          MERGE=$(find . -maxdepth 1 -name 'agent-metrics-merge*.json' -exec cat {} + 2>/dev/null | jq -s 'flatten' 2>/dev/null || echo '[]')
+          # Pass file paths directly to jq -s (avoids cat concat breaking on files without trailing newlines)
+          # In GHA bash (-e -o pipefail) a non-matching glob with plain cat would exit non-zero and fail the step.
+          triage_files=$(find . -maxdepth 1 -name 'agent-metrics-triage-*.json' -print 2>/dev/null)
+          spec_files=$(find . -maxdepth 1 -name 'agent-metrics-spec-*.json' -print 2>/dev/null)
+          goose_files=$(find . -maxdepth 1 -name 'agent-metrics-goose-*.json' -print 2>/dev/null)
+          merge_files=$(find . -maxdepth 1 -name 'agent-metrics-merge-*.json' -print 2>/dev/null)
+
+          TRIAGE=$([ -n "$triage_files" ] && jq -s '.' $triage_files || echo '[]')
+          SPEC=$([ -n "$spec_files" ] && jq -s '.' $spec_files || echo '[]')
+          GOOSE=$([ -n "$goose_files" ] && jq -s '.' $goose_files || echo '[]')
+          MERGE=$([ -n "$merge_files" ] && jq -s 'flatten' $merge_files || echo '[]')
 
           # Calculate DORA metrics
           TOTAL_ISSUES=$(echo "$TRIAGE" | jq 'length')
@@ -210,13 +227,19 @@ jobs:
           cd "$METRICS_DIR"
 
           # Create an aggregated JSON for historical tracking
+          # Reuse the same safe file-list pattern from the report step
+          triage_files=$(find . -maxdepth 1 -name 'agent-metrics-triage-*.json' -print 2>/dev/null)
+          spec_files=$(find . -maxdepth 1 -name 'agent-metrics-spec-*.json' -print 2>/dev/null)
+          goose_files=$(find . -maxdepth 1 -name 'agent-metrics-goose-*.json' -print 2>/dev/null)
+          merge_files=$(find . -maxdepth 1 -name 'agent-metrics-merge-*.json' -print 2>/dev/null)
+
           jq -n \
             --arg period_start "$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-7d +%Y-%m-%dT%H:%M:%SZ)" \
             --arg period_end "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --argjson triage "$(find . -maxdepth 1 -name 'agent-metrics-triage-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')" \
-            --argjson spec "$(find . -maxdepth 1 -name 'agent-metrics-spec-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')" \
-            --argjson goose "$(find . -maxdepth 1 -name 'agent-metrics-goose-*.json' -exec cat {} + 2>/dev/null | jq -s '.' 2>/dev/null || echo '[]')" \
-            --argjson merge "$(find . -maxdepth 1 -name 'agent-metrics-merge*.json' -exec cat {} + 2>/dev/null | jq -s 'flatten' 2>/dev/null || echo '[]')" \
+            --argjson triage "$([ -n "$triage_files" ] && jq -s '.' $triage_files || echo '[]')" \
+            --argjson spec "$([ -n "$spec_files" ] && jq -s '.' $spec_files || echo '[]')" \
+            --argjson goose "$([ -n "$goose_files" ] && jq -s '.' $goose_files || echo '[]')" \
+            --argjson merge "$([ -n "$merge_files" ] && jq -s 'flatten' $merge_files || echo '[]')" \
             '{
               period: { start: $period_start, end: $period_end },
               triage: $triage,
