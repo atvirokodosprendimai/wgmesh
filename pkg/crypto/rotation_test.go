@@ -1,6 +1,8 @@
 package crypto
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -82,5 +84,138 @@ func TestRotationState(t *testing.T) {
 	state.Completed = true
 	if state.IsInGracePeriod() {
 		t.Error("Completed state should not be in grace period")
+	}
+}
+
+func TestRotationStateMarshalJSON(t *testing.T) {
+	tests := []struct {
+		name        string
+		state       *RotationState
+		wantErr     bool
+		checkFields bool
+	}{
+		{
+			name: "valid state with 90 minute grace period",
+			state: &RotationState{
+				OldSecret:   "old-secret",
+				NewSecret:   "new-secret",
+				GracePeriod: 90 * time.Minute,
+				StartedAt:   time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC),
+				Completed:   false,
+			},
+			checkFields: true,
+		},
+		{
+			name: "completed state with 24 hour grace period",
+			state: &RotationState{
+				OldSecret:   "old",
+				NewSecret:   "new",
+				GracePeriod: 24 * time.Hour,
+				StartedAt:   time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
+				Completed:   true,
+			},
+			checkFields: true,
+		},
+		{
+			name: "state with second precision duration",
+			state: &RotationState{
+				OldSecret:   "old",
+				NewSecret:   "new",
+				GracePeriod: 45 * time.Second,
+				StartedAt:   time.Date(2024, 6, 15, 8, 30, 0, 0, time.UTC),
+				Completed:   false,
+			},
+			checkFields: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Test Marshal
+			data, err := json.Marshal(tt.state)
+			if err != nil {
+				t.Fatalf("Marshal failed: %v", err)
+			}
+
+			// Verify JSON contains human-readable duration string
+			jsonStr := string(data)
+			if !strings.Contains(jsonStr, `"grace_period":"`) {
+				t.Errorf("JSON should contain grace_period as string: %s", jsonStr)
+			}
+
+			// Verify no duplicate grace_period keys
+			// Count occurrences of "grace_period"
+			count := strings.Count(jsonStr, `"grace_period"`)
+			if count != 1 {
+				t.Errorf("Expected exactly 1 grace_period field, found %d in: %s", count, jsonStr)
+			}
+
+			// Test Unmarshal
+			var state2 RotationState
+			err = json.Unmarshal(data, &state2)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("Unmarshal error = %v, wantErr %v", err, tt.wantErr)
+			}
+
+			if tt.checkFields {
+				// Verify round-trip preserves values
+				if state2.OldSecret != tt.state.OldSecret {
+					t.Errorf("OldSecret = %v, want %v", state2.OldSecret, tt.state.OldSecret)
+				}
+				if state2.NewSecret != tt.state.NewSecret {
+					t.Errorf("NewSecret = %v, want %v", state2.NewSecret, tt.state.NewSecret)
+				}
+				if state2.GracePeriod != tt.state.GracePeriod {
+					t.Errorf("GracePeriod = %v, want %v", state2.GracePeriod, tt.state.GracePeriod)
+				}
+				if !state2.StartedAt.Equal(tt.state.StartedAt) {
+					t.Errorf("StartedAt = %v, want %v", state2.StartedAt, tt.state.StartedAt)
+				}
+				if state2.Completed != tt.state.Completed {
+					t.Errorf("Completed = %v, want %v", state2.Completed, tt.state.Completed)
+				}
+			}
+		})
+	}
+}
+
+func TestRotationStateUnmarshalJSONErrors(t *testing.T) {
+	tests := []struct {
+		name    string
+		json    string
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name:    "invalid duration format",
+			json:    `{"old_secret":"old","new_secret":"new","grace_period":"invalid","started_at":"2024-01-01T12:00:00Z","completed":false}`,
+			wantErr: true,
+			errMsg:  "invalid grace_period duration",
+		},
+		{
+			name:    "missing grace_period",
+			json:    `{"old_secret":"old","new_secret":"new","started_at":"2024-01-01T12:00:00Z","completed":false}`,
+			wantErr: false, // Zero value is acceptable
+		},
+		{
+			name:    "empty grace_period string",
+			json:    `{"old_secret":"old","new_secret":"new","grace_period":"","started_at":"2024-01-01T12:00:00Z","completed":false}`,
+			wantErr: false, // Empty string is treated as zero duration
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var state RotationState
+			err := json.Unmarshal([]byte(tt.json), &state)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("Unmarshal error = %v, wantErr %v", err, tt.wantErr)
+			}
+			if tt.wantErr && err != nil {
+				if !strings.Contains(err.Error(), tt.errMsg) {
+					t.Errorf("Error message should contain %q, got: %v", tt.errMsg, err)
+				}
+			}
+		})
 	}
 }
