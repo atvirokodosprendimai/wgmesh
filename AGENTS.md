@@ -161,6 +161,37 @@ func TestDeriveKey(t *testing.T) {
 - Encryption: AES-256-GCM with unique nonces (`pkg/crypto/envelope.go`)
 - Authentication: HMAC (`pkg/crypto/membership.go`)
 
+## Frontend & API Conventions
+
+- **All external API calls MUST go through a local proxy** — never call external APIs (GitHub, etc.) directly from browser JavaScript. Use relative URLs (`/api/...`), not absolute external URLs.
+- Backend proxies provide authenticated tokens, server-side caching, and rate limit protection. Bypassing them defeats the entire caching architecture.
+- chimney proxy: `/api/github/{path}` → GitHub REST API (authenticated, 5,000 req/hr, cached)
+- lighthouse API: `/v1/...` → CDN control plane
+
+```javascript
+// BAD — direct external API call from browser (60 req/hr, no cache)
+const API = 'https://api.github.com/repos/owner/repo';
+const res = await fetch(`${API}/pulls`);
+
+// GOOD — through chimney proxy (5,000 req/hr, server-side cache)
+const API = '/api/github';
+const res = await fetch(`${API}/pulls`);
+```
+
+## Integration Rules
+
+- **Backend + frontend = one PR.** When creating a new backend endpoint (API, proxy, webhook), update the frontend to use it in the same PR. Do not split into "add proxy" + "update frontend" — the second PR never comes.
+- **Every deploy MUST have a smoke test** that verifies the full request path (user → frontend → proxy → external service), not just `healthz`. See `chimney-deploy.yml` for the pattern.
+- **Smoke test template** for new services:
+  ```yaml
+  # Minimum checks after deploy:
+  # 1. Health endpoint returns ok
+  # 2. Main page/API loads
+  # 3. Proxy/upstream integration returns real data
+  # 4. Caching layer responds
+  ```
+- **Always read Copilot review comments after every PR merge** — check with `gh api repos/.../pulls/N/comments` and `gh api repos/.../pulls/N/reviews`. If there are actionable comments, create follow-up fix PRs. Do NOT blindly resolve review threads — read them, evaluate, and fix real bugs before resolving.
+
 ## What NOT to Modify
 
 - `.git*` files or Git configuration

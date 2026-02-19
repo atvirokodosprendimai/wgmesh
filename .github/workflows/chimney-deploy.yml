@@ -175,6 +175,51 @@ jobs:
             echo ""
           done < /tmp/chimney-servers.txt
 
+      - name: Smoke test (end-to-end)
+        if: steps.discover.outputs.has_servers == 'true'
+        run: |
+          set -euo pipefail
+          echo "## Smoke Tests" >> "$GITHUB_STEP_SUMMARY"
+
+          PASS=0
+          FAIL=0
+          check() {
+            local desc="$1" url="$2" expect="$3"
+            BODY=$(curl -sf --max-time 10 "$url" 2>/dev/null) || BODY=""
+            if echo "$BODY" | grep -q "$expect"; then
+              echo "  PASS: $desc"
+              echo "- :white_check_mark: $desc" >> "$GITHUB_STEP_SUMMARY"
+              PASS=$((PASS + 1))
+            else
+              echo "  FAIL: $desc (expected '$expect')"
+              echo "- :x: $desc" >> "$GITHUB_STEP_SUMMARY"
+              FAIL=$((FAIL + 1))
+            fi
+          }
+
+          echo "Running smoke tests against chimney.cloudroof.eu..."
+          check "healthz returns ok" \
+            "https://chimney.cloudroof.eu/healthz" '"status":"ok"'
+
+          check "dashboard HTML loads" \
+            "https://chimney.cloudroof.eu/" "Agent Pipeline Dashboard"
+
+          check "GitHub API proxy returns data" \
+            "https://chimney.cloudroof.eu/api/github/pulls?per_page=1&state=all" '"number"'
+
+          check "cache stats endpoint works" \
+            "https://chimney.cloudroof.eu/api/cache/stats" '"entries"'
+
+          echo ""
+          echo "Results: $PASS passed, $FAIL failed"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "**$PASS passed, $FAIL failed**" >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$FAIL" -gt 0 ]; then
+            echo "::error::$FAIL smoke test(s) failed — blocking deploy"
+            exit 1
+          fi
+
       - name: Cleanup SSH key
         if: always() && steps.discover.outputs.has_servers == 'true'
         run: |
