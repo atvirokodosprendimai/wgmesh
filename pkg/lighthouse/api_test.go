@@ -11,10 +11,12 @@ import (
 // testAPI creates an API that will fail on store access but lets us test
 // HTTP routing, content-type headers, validation, and public endpoints.
 // Tests requiring store operations would need a real Redis/Dragonfly.
+// Auth is wired with a nil-store Auth (rejects all keys but won't panic on
+// missing Authorization header — the middleware checks the header first).
 func testAPI() *API {
 	return &API{
 		store:     nil, // No store — tests must not hit Redis
-		auth:      nil, // No auth — tests must handle this
+		auth:      &Auth{store: nil},
 		dnsTarget: "edge.test.cloudroof.eu",
 		mux:       http.NewServeMux(),
 	}

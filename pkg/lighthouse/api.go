@@ -378,20 +378,34 @@ func (a *API) handleUpdateSite(w http.ResponseWriter, r *http.Request) {
 	if patch.Origin != nil {
 		if patch.Origin.MeshIP != "" {
 			if net.ParseIP(patch.Origin.MeshIP) == nil {
-				writeError(w, http.StatusBadRequest, "validation_error", "origin.mesh_ip is not valid")
+				writeError(w, http.StatusBadRequest, "validation_error", "origin.mesh_ip is not a valid IP")
 				return
 			}
 			site.Origin.MeshIP = patch.Origin.MeshIP
 		}
-		if patch.Origin.Port > 0 {
+		if patch.Origin.Port != 0 {
+			if patch.Origin.Port < 0 || patch.Origin.Port > 65535 {
+				writeError(w, http.StatusBadRequest, "validation_error", "origin.port must be 1-65535")
+				return
+			}
 			site.Origin.Port = patch.Origin.Port
 		}
 		if patch.Origin.Protocol != "" {
+			if patch.Origin.Protocol != "http" && patch.Origin.Protocol != "https" {
+				writeError(w, http.StatusBadRequest, "validation_error", "origin.protocol must be http or https")
+				return
+			}
 			site.Origin.Protocol = patch.Origin.Protocol
 		}
 	}
 	if patch.TLS != nil {
-		site.TLS = TLSMode(*patch.TLS)
+		switch TLSMode(*patch.TLS) {
+		case TLSModeAuto, TLSModeCustom, TLSModeOff:
+			site.TLS = TLSMode(*patch.TLS)
+		default:
+			writeError(w, http.StatusBadRequest, "validation_error", "tls must be auto, custom, or off")
+			return
+		}
 	}
 
 	if err := a.store.UpdateSite(r.Context(), site); err != nil {

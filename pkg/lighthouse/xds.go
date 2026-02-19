@@ -18,10 +18,9 @@ import (
 // This keeps the dependency footprint minimal while achieving the same result.
 // Migration to full xDS gRPC is straightforward later.
 type XDS struct {
-	store      *Store
-	mu         sync.RWMutex
-	version    int64
-	lastConfig []byte
+	store   *Store
+	mu      sync.RWMutex
+	version int64
 }
 
 // NewXDS creates a new xDS config generator.
@@ -92,12 +91,6 @@ func (x *XDS) BuildSnapshot(ctx context.Context) (*EnvoySnapshot, error) {
 		})
 	}
 
-	// Cache the config
-	data, _ := json.Marshal(snap)
-	x.mu.Lock()
-	x.lastConfig = data
-	x.mu.Unlock()
-
 	return snap, nil
 }
 
@@ -140,17 +133,18 @@ func (x *XDS) HandleCaddyConfig(w http.ResponseWriter, r *http.Request) {
 
 		upstream := fmt.Sprintf("%s://%s:%d", site.Origin.Protocol, site.Origin.MeshIP, site.Origin.Port)
 
-		fmt.Fprintf(w, "%s {\n", site.Domain)
+		// When TLS is off, use http:// prefix to tell Caddy not to provision a certificate
+		if site.TLS == TLSModeOff {
+			fmt.Fprintf(w, "http://%s {\n", site.Domain)
+		} else {
+			fmt.Fprintf(w, "%s {\n", site.Domain)
+		}
 		fmt.Fprintf(w, "\treverse_proxy %s {\n", upstream)
 		fmt.Fprintf(w, "\t\theader_up Host {upstream_hostport}\n")
 		fmt.Fprintf(w, "\t\theader_up X-Real-IP {remote_host}\n")
 		fmt.Fprintf(w, "\t\theader_up X-Forwarded-For {remote_host}\n")
 		fmt.Fprintf(w, "\t\theader_up X-Site-ID %s\n", site.ID)
 		fmt.Fprintf(w, "\t}\n")
-
-		if site.TLS == TLSModeOff {
-			fmt.Fprintf(w, "\t# TLS disabled for this site\n")
-		}
 
 		fmt.Fprintf(w, "\theader {\n")
 		fmt.Fprintf(w, "\t\tX-Served-By {system.hostname}\n")
