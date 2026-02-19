@@ -826,10 +826,11 @@ async function fetchAll() {
     fetchCount++;
     const isFull = fetchCount === 1 || fetchCount % 3 === 0; // Full fetch every ~15min
 
-    // Always fetch these (2 calls)
-    const [openPRs, runs] = await Promise.all([
+    // Always fetch these (3 calls - added dedicated Goose run fetch)
+    const [openPRs, runs, gooseRuns] = await Promise.all([
       ghFetch('/pulls?state=open&per_page=30'),
       ghFetch('/actions/runs?per_page=40'),
+      ghFetch('/actions/runs?workflow=goose-build.yml&per_page=10&status=completed'),
     ]);
 
     let closedPRs, allOpenIssues;
@@ -862,7 +863,7 @@ async function fetchAll() {
     renderRecentRuns(runs);
     if (isFull) {
       renderImpact(closedPRs);
-      fetchMem0Stats(runs);
+      fetchMem0Stats(gooseRuns);
     }
 
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString();
@@ -1263,22 +1264,23 @@ async function fetchMem0Stats(runs) {
     return;
   }
 
-  // Fetch jobs for runs we haven't cached yet (max 2 new fetches per cycle)
+  // Fetch jobs for runs we haven't cached yet (max 5 new fetches per cycle)
   let fetched = 0;
   for (const run of gooseRuns) {
-    if (mem0Cache[run.id] || fetched >= 2) continue;
+    if (mem0Cache[run.id] || fetched >= 5) continue;
     try {
       const jobsData = await ghFetch(`/actions/runs/${run.id}/jobs`);
       const jobs = jobsData.jobs || [];
       const job = jobs.find(j =>
         Array.isArray(j.steps) &&
         j.steps.some(s =>
-          s.name &&
-          (s.name.includes('Retrieve memories') ||
-           s.name.includes('Save memories') ||
-           s.name.includes('Encrypt mem0') ||
-           s.name.includes('Save mem0 memory cache') ||
-           s.name.includes('Restore mem0 memory cache'))
+          s.name && (
+            s.name.includes('Retrieve memories') ||
+            s.name.includes('Save memories') ||
+            s.name.includes('Encrypt mem0') ||
+            s.name.includes('Save mem0 memory cache') ||
+            s.name.includes('Restore mem0 memory cache')
+          )
         )
       ) || jobs[0];
       if (!job) continue;
