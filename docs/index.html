@@ -624,7 +624,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   wgmesh Agent Pipeline Dashboard &middot;
   <a href="https://github.com/atvirokodosprendimai/wgmesh">Repository</a> &middot;
   <a href="https://cloudroof.eu">cloudroof.eu</a> &middot;
-   Data via chimney proxy (authenticated, 5,000 req/hr)
+   <span id="footer-mode">Data via chimney proxy (authenticated, 5,000 req/hr)</span>
 </footer>
 
 <script>
@@ -675,6 +675,19 @@ function saveCache() {
 
 loadCache();
 
+// Serialize proxy→fallback transition so concurrent ghFetch calls don't all trigger it
+let fallbackInFlight = null;
+
+function switchToDirectAPI() {
+  if (!usingProxy) return; // already switched
+  console.warn('Chimney proxy unreachable, falling back to direct GitHub API');
+  API = DIRECT_API;
+  usingProxy = false;
+  // Update footer to reflect actual data source
+  const footerEl = document.getElementById('footer-mode');
+  if (footerEl) footerEl.textContent = 'Data via direct GitHub API (unauthenticated, 60 req/hr)';
+}
+
 // Fetch with conditional requests (ETag/304), rate limit tracking, and 403 backoff.
 // Uses chimney proxy (authenticated, server-cached) with fallback to direct GitHub API.
 async function ghFetch(path) {
@@ -692,11 +705,17 @@ async function ghFetch(path) {
   try {
     res = await fetch(url, { headers, cache: 'no-store' });
   } catch (err) {
-    // Proxy unreachable — fall back to direct GitHub API (local dev)
-    if (usingProxy) {
-      console.warn('Chimney proxy unreachable, falling back to direct GitHub API');
-      API = DIRECT_API;
-      usingProxy = false;
+    // Proxy unreachable — fall back to direct GitHub API (local dev).
+    // Serialize the transition: if another concurrent call is already switching,
+    // wait for it to finish, then retry with the new API base.
+    if (usingProxy || fallbackInFlight) {
+      if (!fallbackInFlight) {
+        fallbackInFlight = (async () => {
+          switchToDirectAPI();
+        })();
+      }
+      await fallbackInFlight;
+      fallbackInFlight = null;
       const fallbackUrl = `${API}${path}`;
       res = await fetch(fallbackUrl, { headers, cache: 'no-store' });
     } else {
@@ -715,6 +734,10 @@ async function ghFetch(path) {
   if (reset) rateLimitReset = parseInt(reset, 10) * 1000;
   const modeEl = document.getElementById('api-mode');
   if (modeEl) modeEl.textContent = usingProxy ? 'proxy 5k/hr' : 'direct 60/hr';
+  const footerEl = document.getElementById('footer-mode');
+  if (footerEl) footerEl.textContent = usingProxy
+    ? 'Data via chimney proxy (authenticated, 5,000 req/hr)'
+    : 'Data via direct GitHub API (unauthenticated, 60 req/hr)';
 
   // Update cache stats display
   const statsEl = document.getElementById('cache-stats');
