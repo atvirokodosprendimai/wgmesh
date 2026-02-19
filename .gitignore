@@ -1,6 +1,8 @@
-# Binaries
-wgmesh
-wgmeshbuilder
+# Binaries (root-level only, not subdirectories)
+/wgmesh
+/wgmeshbuilder
+/lighthouse
+/chimney
 *.exe
 *.dll
 *.so
