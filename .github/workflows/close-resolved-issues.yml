@@ -1,0 +1,97 @@
+name: Close resolved issues
+
+# Detects open issues that have a merged implementation PR and closes them.
+# This catches cases where the PR body didn't include "Closes #N" or where
+# the auto-close keyword was missing from the Goose template.
+#
+# Detection logic: for each open issue, search for a merged PR whose title
+# matches "impl: Issue #N". If found, close the issue with a reference.
+
+on:
+  # Run after PRs are merged
+  pull_request:
+    types: [closed]
+  # Daily sweep at 06:00 UTC
+  schedule:
+    - cron: '0 6 * * *'
+  # Manual trigger
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  close-resolved:
+    runs-on: ubuntu-latest
+    # Only run on merged PRs (not closed-without-merge), schedule, or dispatch
+    if: >
+      github.event_name == 'schedule' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true)
+    steps:
+      - name: Close issues with merged implementation PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // If triggered by a PR merge, extract the issue number from the title
+            if (context.eventName === 'pull_request') {
+              const pr = context.payload.pull_request;
+              const match = pr.title.match(/^impl:\s*Issue\s*#(\d+)/i);
+              if (!match) {
+                core.info(`PR #${pr.number} title doesn't match impl pattern, skipping`);
+                return;
+              }
+              const issueNum = parseInt(match[1]);
+              const issue = await github.rest.issues.get({ owner, repo, issue_number: issueNum });
+              if (issue.data.state === 'open') {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issueNum,
+                  body: `Automatically closed — fixed by PR #${pr.number} (merged).`
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issueNum,
+                  state: 'closed', state_reason: 'completed'
+                });
+                core.info(`Closed issue #${issueNum} (fixed by PR #${pr.number})`);
+              } else {
+                core.info(`Issue #${issueNum} is already ${issue.data.state}`);
+              }
+              return;
+            }
+
+            // Schedule/dispatch: sweep all open issues
+            core.info('Running full sweep of open issues...');
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', per_page: 100
+            });
+
+            // Filter to actual issues (not PRs)
+            const realIssues = issues.filter(i => !i.pull_request);
+            core.info(`Found ${realIssues.length} open issues`);
+
+            let closed = 0;
+            for (const issue of realIssues) {
+              // Search for merged impl PRs referencing this issue
+              const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
+                q: `repo:${owner}/${repo} is:pr is:merged "impl: Issue #${issue.number}" in:title`
+              });
+
+              if (searchResult.total_count > 0) {
+                const implPR = searchResult.items[0];
+                core.info(`Issue #${issue.number} has merged impl PR #${implPR.number}, closing`);
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issue.number,
+                  body: `Automatically closed — fixed by PR #${implPR.number} (merged).`
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issue.number,
+                  state: 'closed', state_reason: 'completed'
+                });
+                closed++;
+              }
+            }
+            core.info(`Sweep complete: closed ${closed} resolved issues`);

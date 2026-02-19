@@ -817,6 +817,8 @@ jobs:
               body: [
                 `## Goose Implementation`,
                 ``,
+                `Closes #${issueNum}`,
+                ``,
                 `Automated implementation for **Issue #${issueNum}**`,
                 `Based on specification from **PR #${specPR}**`,
                 ``,
