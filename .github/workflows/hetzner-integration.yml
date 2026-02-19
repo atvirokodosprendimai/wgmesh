@@ -78,16 +78,17 @@ jobs:
   #   Tier 4 (Partitions):      ~15 min
   #   Tier 5 (NAT Simulation):   ~1 min  (all SKIP — not yet implemented)
   #   Tier 6 (Chaos Monkey):    ~35 min
-  #   Tier 7 (Stability Soak):  ~35 min  (5+10+15 min soaks)
+  #   Tier 7 (Stability Soak):  ~37 min  (5+10+15 min soaks)
   #
-  # 90 min gives generous buffer for the heaviest tiers (3, 6, 7)
-  # plus ~3 min provisioning overhead per tier.
+  # When all 7 tiers run in parallel (35 VMs), shared Hetzner infra
+  # adds ~30% overhead. Tier 3 solo takes ~69 min but can reach ~90 min
+  # under parallel load. 120 min gives safe buffer.
   # -----------------------------------------------------------------------
   tier:
     name: "Tier ${{ matrix.tier }}"
     runs-on: ubuntu-latest
     needs: build
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
