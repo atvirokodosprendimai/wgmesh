@@ -4,7 +4,7 @@ name: Chimney Infrastructure
 #
 #   Origins (blue/green deployment targets):
 #     chimney-nbg1  — cax11 arm64, nbg1 (primary EU origin)
-#     chimney-fsn1  — cax11 arm64, fsn1 (secondary EU origin)
+#     chimney-fsn1  — cax11 arm64, hel1 (secondary EU origin; fsn1 capacity unavailable)
 #
 #   Edges (watchtower auto-update):
 #     chimney-hel1  — cax11 arm64, hel1 (EU edge)
@@ -96,7 +96,7 @@ jobs:
           # Server definitions: name|location|type|arch
           SERVERS=(
             "chimney-nbg1|nbg1|cax11|arm64|origin"
-            "chimney-fsn1|fsn1|cax11|arm64|origin"
+            "chimney-fsn1|hel1|cax11|arm64|origin"
             "chimney-hel1|hel1|cax11|arm64|edge"
             "chimney-ash|ash|cpx11|amd64|edge"
           )
