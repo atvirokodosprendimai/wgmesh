@@ -2,12 +2,12 @@
 # Caddy handles TLS automatically via Let's Encrypt / ZeroSSL
 #
 # Architecture:
-#   Client → chimney.cloudroof.eu → Caddy (TLS termination) → chimney origin (:8080)
+#   Client → chimney.beerpub.dev → Caddy (TLS termination) → chimney origin (:8080)
 #
 # Caching is handled by the chimney origin server (in-memory with tiered TTLs),
 # not at the Caddy layer. Caddy acts purely as a TLS-terminating reverse proxy.
 
-chimney.cloudroof.eu {
+chimney.beerpub.dev {
 	# Reverse proxy to chimney origin server
 	reverse_proxy localhost:8080 {
 		# Health check

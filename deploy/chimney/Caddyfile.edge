@@ -2,13 +2,13 @@
 # Caddy handles TLS automatically via Let's Encrypt / ZeroSSL
 #
 # Architecture:
-#   Client → chimney.cloudroof.eu (edge IP) → Caddy (TLS termination)
+#   Client → chimney.beerpub.dev (edge IP) → Caddy (TLS termination)
 #          → WireGuard mesh → chimney origin (:8080)
 #
 # WGMESH_ORIGIN_IP is substituted at deploy time with the WireGuard mesh IP
 # of the chimney-nbg1 origin server (e.g. 10.96.0.1).
 
-chimney.cloudroof.eu {
+chimney.beerpub.dev {
 	# Reverse proxy to chimney origin via WireGuard mesh IP
 	reverse_proxy {$WGMESH_ORIGIN_IP}:8080 {
 		health_uri /healthz
