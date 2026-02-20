@@ -335,7 +335,8 @@ jobs:
           # Upload persistent deploy key to Hetzner (replace if exists)
           KEY_NAME="chimney-persistent-key"
           hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
-          echo "$CHIMNEY_SSH_PUBKEY" | hcloud ssh-key create --name "$KEY_NAME" --public-key-from-stdin
+          echo "$CHIMNEY_SSH_PUBKEY" > /tmp/chimney-persistent.pub
+          hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file /tmp/chimney-persistent.pub
           KEY_ID=$(hcloud ssh-key describe "$KEY_NAME" -o json | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
           echo "Uploaded persistent key: $KEY_NAME (ID: $KEY_ID)"
 
