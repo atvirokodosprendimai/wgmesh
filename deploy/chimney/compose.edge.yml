@@ -1,0 +1,72 @@
+# Docker Compose: chimney edge server (hel1 / ash)
+#
+# Edge nodes are pure TLS-terminating reverse proxies.
+# They proxy to origin nodes via the WireGuard mesh.
+#
+# Watchtower monitors the chimney image and restarts the edge
+# container immediately when a new image is pushed (no blue/green
+# needed on edges — stateless proxy, instant restart is fine).
+#
+# Components:
+#   caddy    — TLS termination, proxies to origin WG IPs (ports 80/443)
+#   wgmesh   — WireGuard mesh daemon (host network, NET_ADMIN)
+#   watchtower — polls ghcr.io, auto-restarts edge on new image
+
+name: chimney-edge
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  wgmesh_state:
+
+services:
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile.edge:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+
+  wgmesh:
+    image: ghcr.io/atvirokodosprendimai/wgmesh:latest
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - wgmesh_state:/var/lib/wgmesh
+      - /lib/modules:/lib/modules:ro
+    environment:
+      WGMESH_SECRET: ${WGMESH_SECRET:-}
+    command:
+      - join
+      - --secret=${WGMESH_SECRET:-}
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+
+  watchtower:
+    image: containrrr/watchtower:latest
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      WATCHTOWER_POLL_INTERVAL: "30"
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_INCLUDE_STOPPED: "false"
+      # On edges, watchtower DOES restart containers immediately on new image.
+      # Edge nodes are stateless proxies — instant restart = zero-downtime.
+      WATCHTOWER_MONITOR_ONLY: "false"
+      WATCHTOWER_NOTIFICATIONS_LEVEL: info

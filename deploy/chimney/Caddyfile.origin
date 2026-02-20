@@ -1,0 +1,33 @@
+# Caddy config for chimney origin servers (nbg1, fsn1).
+#
+# Blue/green: upstream.conf contains a single line like:
+#   reverse_proxy localhost:8081
+# or
+#   reverse_proxy localhost:8082
+#
+# deploy.sh writes upstream.conf then runs `caddy reload` via the admin API.
+# Caddy atomically switches upstreams with zero dropped connections.
+#
+# upstream.conf is bind-mounted from the host. On first boot, setup.sh
+# writes it pointing to blue (port 8081).
+
+chimney.beerpub.dev {
+    encode gzip
+
+    log {
+        output stderr
+        format console
+        level INFO
+    }
+
+    tls {
+        protocols tls1.2 tls1.3
+    }
+
+    import /etc/caddy/upstream.conf
+}
+
+# Caddy admin API on localhost only (caddy reload target)
+{
+    admin localhost:2019
+}
