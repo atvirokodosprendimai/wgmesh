@@ -215,6 +215,14 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
 <div class="section-divider">
   <h2>Traction Roadmap &mdash; cloudroof.eu</h2>
   <p>Zero-infrastructure anycast CDN built on WireGuard mesh. Measuring outcomes, not outputs.</p>
+  <p style="margin-top:0.5rem;font-size:0.8125rem;color:var(--muted)">
+    wgmesh live:
+    <span id="traction-wgmesh-version" style="color:var(--accent);font-family:monospace">loading...</span>
+    &middot; open issues: <span id="traction-open-issues" style="color:var(--yellow)">-</span>
+    &middot; open PRs: <span id="traction-open-prs" style="color:var(--accent)">-</span>
+    &middot; Goose pass rate: <span id="traction-goose-rate" style="color:var(--green)">-</span>
+    &middot; last merge: <span id="traction-last-merge" style="color:var(--muted)">-</span>
+  </p>
 </div>
 
 <!-- MSC Progress -->
@@ -923,6 +931,43 @@ let fetchCount = 0;
 let cachedData = {};
 const REFRESH_MS = 300000; // 5 minutes
 
+async function fetchPipelineSummary() {
+  try {
+    // Use chimney's own /api/pipeline/summary endpoint — cached 60s server-side.
+    const origin = window.location.origin;
+    const res = await fetch(`${origin}/api/pipeline/summary`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+
+    const versionEl = document.getElementById('traction-wgmesh-version');
+    if (versionEl) versionEl.textContent = data.wgmesh_version || 'unknown';
+
+    const issuesEl = document.getElementById('traction-open-issues');
+    if (issuesEl) issuesEl.textContent = data.open_issues ?? '-';
+
+    const prsEl = document.getElementById('traction-open-prs');
+    if (prsEl) prsEl.textContent = data.open_prs ?? '-';
+
+    const rateEl = document.getElementById('traction-goose-rate');
+    if (rateEl) {
+      if (data.goose_success_rate_pct != null) {
+        const pct = Math.round(data.goose_success_rate_pct);
+        rateEl.textContent = `${pct}%`;
+        rateEl.style.color = pct >= 80 ? 'var(--green)' : pct >= 60 ? 'var(--yellow)' : 'var(--red)';
+      }
+    }
+
+    const mergeEl = document.getElementById('traction-last-merge');
+    if (mergeEl && data.last_merged_pr) {
+      const pr = data.last_merged_pr;
+      const when = pr.merged_at ? new Date(pr.merged_at).toLocaleDateString() : '';
+      mergeEl.innerHTML = `<a href="https://github.com/atvirokodosprendimai/wgmesh/pull/${pr.number}" target="_blank">#${pr.number}</a> ${when}`;
+    }
+  } catch (e) {
+    console.warn('pipeline/summary fetch failed (local dev?):', e.message);
+  }
+}
+
 async function fetchAll() {
   try {
     fetchCount++;
@@ -1501,7 +1546,9 @@ function renderMem0(gooseRuns) {
 
 // ── Init ──
 fetchAll();
+fetchPipelineSummary(); // chimney-native endpoint — no GitHub rate limit cost
 setInterval(fetchAll, REFRESH_MS); // 5 min — reduces API call volume to stay within unauthenticated rate limits
+setInterval(fetchPipelineSummary, 60000); // refresh pipeline summary every 60s (server-side cached)
 </script>
 </body>
 </html>
