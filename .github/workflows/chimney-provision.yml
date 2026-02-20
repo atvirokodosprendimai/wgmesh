@@ -333,20 +333,12 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           # Upload persistent deploy key to Hetzner
-          # First write key to file so we can compute its fingerprint
+          # Write key to file so we can compute its fingerprint
           echo "$CHIMNEY_SSH_PUBKEY" > /tmp/chimney-persistent.pub
           FINGERPRINT=$(ssh-keygen -lf /tmp/chimney-persistent.pub | awk '{print $2}')
 
-          # Check if this exact key fingerprint already exists (under any name)
-          EXISTING_ID=$(hcloud ssh-key list -o json | python3 -c "
-import sys, json
-keys = json.load(sys.stdin)
-fp = '${FINGERPRINT}'
-for k in keys:
-    if k.get('fingerprint') == fp:
-        print(k['id'])
-        break
-" 2>/dev/null || true)
+          # Check if this exact fingerprint already exists in Hetzner (avoids uniqueness_error)
+          EXISTING_ID=$(hcloud ssh-key list -o json | python3 -c "import sys,json,os; keys=json.load(sys.stdin); [print(k['id']) for k in keys if k.get('fingerprint')==os.environ.get('FINGERPRINT')]" 2>/dev/null || true)
 
           if [ -n "$EXISTING_ID" ]; then
             KEY_ID="$EXISTING_ID"
