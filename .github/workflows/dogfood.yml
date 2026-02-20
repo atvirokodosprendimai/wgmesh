@@ -83,21 +83,18 @@ jobs:
         with:
           go-version: ${{ env.GO_VERSION }}
 
-      - name: Build wgmesh binary (linux/amd64)
+      - name: Build wgmesh binaries (arm64 + amd64)
         run: |
-          # Edge node will be cpx11 (x86) — hel1 doesn't have ARM
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v \
-            -ldflags="-s -w -X main.version=wgmesh-${GITHUB_SHA::8}" \
-            -o wgmesh-linux-amd64 .
-          ls -lh wgmesh-linux-amd64
-
-      - name: Build chimney binary (linux/arm64) for origin bootstrap
-        run: |
-          # chimney-nbg1 is ARM64 (cax11)
+          # Build both architectures:
+          # - arm64: for edge node (cax11 in EU) and chimney-nbg1 origin (also cax11)
+          # - amd64: fallback for ash (US) locations
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v \
             -ldflags="-s -w -X main.version=wgmesh-${GITHUB_SHA::8}" \
             -o wgmesh-linux-arm64 .
-          ls -lh wgmesh-linux-arm64
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v \
+            -ldflags="-s -w -X main.version=wgmesh-${GITHUB_SHA::8}" \
+            -o wgmesh-linux-amd64 .
+          ls -lh wgmesh-linux-*
 
       - name: Install hcloud CLI
         run: |
@@ -132,10 +129,17 @@ jobs:
             hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
             hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file "${SSH_KEY_FILE}.pub"
 
-            # hel1 uses x86 (no ARM available)
+            # Use cax11 (ARM64) for EU locations — available in nbg1, hel1, fsn1
+            # Use cpx11 (x86) for ash (US) where ARM isn't available
+            if [[ "$LOC" == ash* ]]; then
+              VM_TYPE="cpx11"
+            else
+              VM_TYPE="cax11"
+            fi
+
             hcloud server create \
               --name "$EDGE_NAME" \
-              --type "cpx11" \
+              --type "$VM_TYPE" \
               --image "ubuntu-24.04" \
               --location "$LOC" \
               --ssh-key "$KEY_NAME" \
@@ -186,10 +190,19 @@ jobs:
             -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${EDGE_IP}" \
             "apt-get update -qq && apt-get install -y -qq wireguard caddy curl"
 
+          # Select binary architecture matching edge server type
+          # EU locations (hel1, nbg1, fsn1) use cax11 (ARM64); ash uses cpx11 (amd64)
+          LOC="${{ inputs.edge_location }}"
+          if [[ "$LOC" == ash* ]]; then
+            EDGE_BINARY="wgmesh-linux-amd64"
+          else
+            EDGE_BINARY="wgmesh-linux-arm64"
+          fi
+
           # Copy wgmesh binary
           scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-            wgmesh-linux-amd64 "root@${EDGE_IP}:/usr/local/bin/wgmesh"
+            "$EDGE_BINARY" "root@${EDGE_IP}:/usr/local/bin/wgmesh"
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${EDGE_IP}" \
             "chmod +x /usr/local/bin/wgmesh && wgmesh version"
