@@ -401,20 +401,22 @@ jobs:
             mkdir -p ~/.ssh && chmod 700 ~/.ssh
             echo "${{ secrets.CHIMNEY_SSH_KEY }}" > ~/.ssh/chimney && chmod 600 ~/.ssh/chimney
 
+            # Wait up to 10 minutes for SSH — rebuild boots a fresh OS image
             ssh_ready=false
-            for i in $(seq 1 30); do
+            for i in $(seq 1 60); do
               if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                 -o ConnectTimeout=5 -o LogLevel=ERROR -i ~/.ssh/chimney \
+                 -o ConnectTimeout=10 -o LogLevel=ERROR -i ~/.ssh/chimney \
                  "root@${IP}" "echo ok" 2>/dev/null | grep -q ok; then
-                echo "SSH ready on $name after ${i}0s"
+                echo "SSH ready on $name after $((i * 10))s"
                 ssh_ready=true
                 break
               fi
+              echo "  SSH not ready on $name yet (attempt $i/60)..."
               sleep 10
             done
 
             if [ "$ssh_ready" = "false" ]; then
-              echo "ERROR: SSH did not become ready on $name ($IP) after 300s" >&2
+              echo "ERROR: SSH did not become ready on $name ($IP) after 600s" >&2
               exit 1
             fi
 
