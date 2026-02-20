@@ -192,12 +192,15 @@ jobs:
                 }
 
                 // Check for unresolved review threads via GraphQL
+                // Auto-resolve threads from Copilot (AI reviewer) — these are informational,
+                // not human blockers. Human CHANGES_REQUESTED is already caught above.
                 const prGql = await github.graphql(`
                   query($owner: String!, $repo: String!, $number: Int!) {
                     repository(owner: $owner, name: $repo) {
                       pullRequest(number: $number) {
                         reviewThreads(first: 100) {
                           nodes {
+                            id
                             isResolved
                             comments(first: 1) {
                               nodes { body author { login } }
@@ -211,14 +214,39 @@ jobs:
 
                 const threads = prGql.repository.pullRequest.reviewThreads.nodes;
                 const unresolvedThreads = threads.filter(t => !t.isResolved);
-                if (unresolvedThreads.length > 0) {
-                  const authors = unresolvedThreads
+
+                // Auto-resolve threads from bot/Copilot reviewers
+                const botLogins = ['copilot-pull-request-reviewer', 'github-copilot', 'copilot[bot]'];
+                const botThreads = unresolvedThreads.filter(t => {
+                  const login = t.comments.nodes[0]?.author?.login || '';
+                  return botLogins.some(b => login.includes('copilot') || login.includes('bot'));
+                });
+
+                for (const thread of botThreads) {
+                  try {
+                    await github.graphql(`
+                      mutation($threadId: ID!) {
+                        resolveReviewThread(input: { threadId: $threadId }) {
+                          thread { id isResolved }
+                        }
+                      }
+                    `, { threadId: thread.id });
+                    core.info(`PR #${prNumber}: auto-resolved bot review thread ${thread.id}`);
+                  } catch (resolveErr) {
+                    core.warning(`PR #${prNumber}: could not resolve thread ${thread.id}: ${resolveErr.message}`);
+                  }
+                }
+
+                // Re-check after auto-resolution
+                const remainingUnresolved = unresolvedThreads.filter(t => !botThreads.includes(t));
+                if (remainingUnresolved.length > 0) {
+                  const authors = remainingUnresolved
                     .map(t => t.comments.nodes[0]?.author?.login || 'unknown')
                     .filter((v, i, a) => a.indexOf(v) === i);
-                  core.info(`PR #${prNumber}: ${unresolvedThreads.length} unresolved review thread(s) from ${authors.join(', ')}, skipping`);
+                  core.info(`PR #${prNumber}: ${remainingUnresolved.length} unresolved human review thread(s) from ${authors.join(', ')}, skipping`);
                   continue;
                 }
-                core.info(`PR #${prNumber}: all review threads resolved`);
+                core.info(`PR #${prNumber}: all review threads resolved (${botThreads.length} bot threads auto-resolved)`);
 
                 // Remove 'conflict' label if present (branch is now clean)
                 const labels = pr.labels.map(l => l.name);
