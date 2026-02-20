@@ -93,13 +93,9 @@ jobs:
           # This is more reliable than --ssh-key: cloud-init runs after the OS
           # boots and writes directly to authorized_keys, bypassing Hetzner's
           # key injection mechanism which can fail silently on rebuilds.
-          cat > /tmp/cloud-init.yaml << CLOUDINIT
-#cloud-config
-users:
-  - name: root
-    ssh_authorized_keys:
-      - $(cat /tmp/chimney-deploy.pub)
-CLOUDINIT
+          # NOTE: no heredoc here — bare markers at column 0 break YAML parsing.
+          PUB_KEY=$(cat /tmp/chimney-deploy.pub)
+          printf '#cloud-config\nusers:\n  - name: root\n    ssh_authorized_keys:\n      - %s\n' "$PUB_KEY" > /tmp/cloud-init.yaml
           echo "cloud-init user-data prepared:"
           cat /tmp/cloud-init.yaml
 
