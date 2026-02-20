@@ -1,0 +1,107 @@
+# Docker Compose stack for a chimney origin/edge server.
+#
+# Components:
+#   caddy      — TLS termination, reverse proxy to chimney (ports 80/443)
+#   chimney    — GitHub API proxy + dashboard origin (port 8080, internal only)
+#   dragonfly  — Redis-compatible cache for chimney (port 6379, internal only)
+#   wgmesh     — WireGuard mesh daemon sidecar (host network, NET_ADMIN)
+#
+# Deploy:
+#   docker compose --env-file .env up -d
+#
+# Update chimney binary:
+#   docker compose build chimney && docker compose up -d --no-deps chimney
+#
+# Logs:
+#   docker compose logs -f chimney
+#   docker compose logs -f dragonfly
+
+name: chimney
+
+networks:
+  internal:
+    driver: bridge
+
+volumes:
+  caddy_data:
+  caddy_config:
+  dragonfly_data:
+  wgmesh_state:
+
+services:
+
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    restart: unless-stopped
+    command:
+      - --bind=0.0.0.0
+      - --port=6379
+      - --maxmemory=128mb
+      - --proactor_threads=1
+    volumes:
+      - dragonfly_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "6379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  chimney:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chimney:local
+    restart: unless-stopped
+    command:
+      - -addr=:8080
+      - -docs=/docs
+      - -redis=dragonfly:6379
+    environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+    networks:
+      - internal
+    depends_on:
+      dragonfly:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - internal
+    depends_on:
+      chimney:
+        condition: service_healthy
+
+  wgmesh:
+    image: ghcr.io/atvirokodosprendimai/wgmesh:latest
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    volumes:
+      - wgmesh_state:/var/lib/wgmesh
+      - /lib/modules:/lib/modules:ro
+    environment:
+      WGMESH_SECRET: ${WGMESH_SECRET:-}
+    command:
+      - join
+      - --secret=${WGMESH_SECRET:-}

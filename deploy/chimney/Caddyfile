@@ -1,28 +1,24 @@
-# Caddyfile for chimney edge servers
+# Caddyfile for chimney origin server
 # Caddy handles TLS automatically via Let's Encrypt / ZeroSSL
 #
-# Architecture:
-#   Client → chimney.beerpub.dev → Caddy (TLS termination) → chimney origin (:8080)
+# Architecture (Docker Compose):
+#   Client → chimney.beerpub.dev → Caddy (TLS, ports 80/443)
+#                                 → chimney container (:8080, internal network)
 #
-# Caching is handled by the chimney origin server (in-memory with tiered TTLs),
-# not at the Caddy layer. Caddy acts purely as a TLS-terminating reverse proxy.
+# Caching is handled by the chimney origin server, not at the Caddy layer.
 
 chimney.beerpub.dev {
-	# Reverse proxy to chimney origin server
-	reverse_proxy localhost:8080 {
-		# Health check
+	reverse_proxy chimney:8080 {
 		health_uri /healthz
 		health_interval 10s
 		health_timeout 3s
 	}
 
-	# Response headers
 	header {
 		X-Served-By {system.hostname}
 		-Server
 	}
 
-	# Logging to stdout (captured by systemd journald)
 	log {
 		output stdout
 	}

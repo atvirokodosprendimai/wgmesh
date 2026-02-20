@@ -192,27 +192,24 @@ jobs:
             echo "Deploying to $name ($IP, $ARCH)..."
 
             # Copy files to server
-            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              "$BINARY" "root@${IP}:/tmp/chimney"
+            SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i $SSH_KEY_FILE"
+            $SCP "$BINARY"                    "root@${IP}:/tmp/chimney"
+            $SCP deploy/chimney/setup.sh      "root@${IP}:/tmp/setup.sh"
+            $SCP deploy/chimney/compose.yml   "root@${IP}:/tmp/compose.yml"
+            $SCP deploy/chimney/Caddyfile     "root@${IP}:/tmp/Caddyfile"
+            $SCP deploy/chimney/Dockerfile    "root@${IP}:/tmp/Dockerfile"
+            $SCP -r docs                      "root@${IP}:/tmp/docs"
 
-            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              deploy/chimney/setup.sh "root@${IP}:/tmp/setup.sh"
-
-            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              deploy/chimney/Caddyfile "root@${IP}:/tmp/Caddyfile"
-
-            # Copy dashboard files
-            scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              docs "root@${IP}:/tmp/docs"
-
-            # Run setup — pass token via stdin to avoid exposing in process list
-            echo '${{ secrets.PUSH_TOKEN }}' | ssh -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              "root@${IP}" 'read -r GITHUB_TOKEN; export GITHUB_TOKEN; ROLE=origin bash /tmp/setup.sh'
+            # Run setup — pass secrets via stdin to avoid exposing in process list
+            printf '%s\n%s\n' \
+              '${{ secrets.PUSH_TOKEN }}' \
+              '${{ secrets.WGMESH_SECRET }}' \
+            | ssh -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+                "root@${IP}" \
+                'read -r GITHUB_TOKEN; read -r WGMESH_SECRET
+                 export GITHUB_TOKEN WGMESH_SECRET
+                 ROLE=origin bash /tmp/setup.sh'
 
             echo "$name deployed successfully"
           done
