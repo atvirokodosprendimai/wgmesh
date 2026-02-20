@@ -333,15 +333,15 @@ jobs:
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
           # Upload persistent deploy key to Hetzner
-          # Write key to file and look up by fingerprint to avoid uniqueness_error
+          # Write key to file; use MD5 fingerprint for Hetzner comparison
           echo "$CHIMNEY_SSH_PUBKEY" > /tmp/chimney-persistent.pub
-          FINGERPRINT=$(ssh-keygen -lf /tmp/chimney-persistent.pub | awk '{print $2}')
-          echo "Key fingerprint: $FINGERPRINT"
+          # Hetzner stores MD5 fingerprints (e.g. aa:bb:cc:...) — get MD5 without prefix
+          MD5_FP=$(ssh-keygen -E md5 -lf /tmp/chimney-persistent.pub | awk '{print $2}' | sed 's/^MD5://')
+          echo "Key MD5 fingerprint: $MD5_FP"
 
           # Check if this exact fingerprint already exists in Hetzner (under any name)
-          # hcloud ssh-key list -o columns=id,fingerprint: ID   FINGERPRINT
           KEY_ID=$(hcloud ssh-key list -o noheader -o columns=id,fingerprint 2>/dev/null \
-            | awk -v fp="$FINGERPRINT" '$2==fp{print $1}' | head -1)
+            | awk -v fp="$MD5_FP" '$2==fp{print $1}' | head -1)
 
           if [ -n "$KEY_ID" ]; then
             echo "Key already exists in Hetzner (fingerprint match) — ID: $KEY_ID"
