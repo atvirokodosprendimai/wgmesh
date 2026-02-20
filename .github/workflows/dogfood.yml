@@ -213,7 +213,8 @@ jobs:
             -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${EDGE_IP}" \
             "chmod +x /usr/local/bin/wgmesh && wgmesh version"
 
-      - name: Install wgmesh on origin (chimney-nbg1)
+      - name: Get origin WireGuard IP (chimney-nbg1)
+        id: origin-wg
         run: |
           set -euo pipefail
           ORIGIN_IP="${{ env.ORIGIN_IP }}"
@@ -230,36 +231,10 @@ jobs:
           fi
           echo "SSH to origin: OK"
 
-          # Install wgmesh on origin
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${ORIGIN_IP}" \
-            "apt-get install -y -qq wireguard 2>/dev/null || true"
-
-          # Stop wgmesh before copying to avoid "Text file busy" on redeployment
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${ORIGIN_IP}" \
-            "systemctl stop wgmesh 2>/dev/null || true"
-
-          scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-            wgmesh-linux-arm64 "root@${ORIGIN_IP}:/usr/local/bin/wgmesh"
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${ORIGIN_IP}" \
-            "chmod +x /usr/local/bin/wgmesh && wgmesh version"
-
-      - name: Start wgmesh daemon on origin
-        run: |
-          set -euo pipefail
-          ORIGIN_IP="${{ env.ORIGIN_IP }}"
-          MESH_SECRET="${{ secrets.WGMESH_SECRET }}"
-
-          # Install wgmesh as a systemd service on origin (idempotent)
-          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${ORIGIN_IP}" \
-            "wgmesh install-service --secret '$MESH_SECRET' 2>/dev/null || true; systemctl restart wgmesh || true"
-
-          # Wait for WireGuard interface to come up and get mesh IP
-          echo "Waiting for wgmesh to assign WireGuard IP on origin..."
+          # chimney-nbg1 runs wgmesh via Docker (chimney-wgmesh-1) with network_mode: host.
+          # The wg0 interface is on the host network — read IP directly.
+          # Do NOT install a second systemd wgmesh service (it would conflict with Docker).
+          echo "Waiting for wgmesh Docker container to assign WireGuard IP on origin..."
           ORIGIN_WG_IP=""
           for i in $(seq 1 30); do
             ORIGIN_WG_IP=$(ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
@@ -276,7 +251,7 @@ jobs:
             echo "ERROR: Could not get WireGuard IP from origin after 150s"
             ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
               -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${ORIGIN_IP}" \
-              "systemctl status wgmesh --no-pager; journalctl -u wgmesh -n 30 --no-pager" 2>/dev/null || true
+              "docker logs chimney-wgmesh-1 --tail=30 2>/dev/null || true; ip addr show 2>/dev/null || true" 2>/dev/null || true
             exit 1
           fi
 
