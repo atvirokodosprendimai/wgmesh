@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -130,32 +131,50 @@ func (x *XDS) HandleCaddyConfig(w http.ResponseWriter, r *http.Request) {
 		if site.Status == SiteStatusDeleted || site.Status == SiteStatusSuspended {
 			continue
 		}
-
-		upstream := fmt.Sprintf("%s://%s:%d", site.Origin.Protocol, site.Origin.MeshIP, site.Origin.Port)
-
-		// When TLS is off, use http:// prefix to tell Caddy not to provision a certificate
-		if site.TLS == TLSModeOff {
-			fmt.Fprintf(w, "http://%s {\n", site.Domain)
-		} else {
-			fmt.Fprintf(w, "%s {\n", site.Domain)
-		}
-		fmt.Fprintf(w, "\treverse_proxy %s {\n", upstream)
-		fmt.Fprintf(w, "\t\theader_up Host {upstream_hostport}\n")
-		fmt.Fprintf(w, "\t\theader_up X-Real-IP {remote_host}\n")
-		fmt.Fprintf(w, "\t\theader_up X-Forwarded-For {remote_host}\n")
-		fmt.Fprintf(w, "\t\theader_up X-Site-ID %s\n", site.ID)
-		fmt.Fprintf(w, "\t}\n")
-
-		fmt.Fprintf(w, "\theader {\n")
-		fmt.Fprintf(w, "\t\tX-Served-By {system.hostname}\n")
-		fmt.Fprintf(w, "\t\tX-CDN cloudroof\n")
-		fmt.Fprintf(w, "\t\t-Server\n")
-		fmt.Fprintf(w, "\t}\n")
-
-		fmt.Fprintf(w, "\tlog {\n")
-		fmt.Fprintf(w, "\t\toutput stdout\n")
-		fmt.Fprintf(w, "\t}\n")
-
-		fmt.Fprintf(w, "}\n\n")
+		renderCaddyBlock(w, site)
 	}
+}
+
+// renderCaddyBlock writes a single Caddy site block to w.
+// It is extracted as a standalone function for unit-testability.
+func renderCaddyBlock(w io.Writer, site Site) {
+	upstream := fmt.Sprintf("%s://%s:%d", site.Origin.Protocol, site.Origin.MeshIP, site.Origin.Port)
+
+	// When TLS is off, use http:// prefix to tell Caddy not to provision a certificate
+	if site.TLS == TLSModeOff {
+		fmt.Fprintf(w, "http://%s {\n", site.Domain)
+	} else {
+		fmt.Fprintf(w, "%s {\n", site.Domain)
+	}
+	fmt.Fprintf(w, "\treverse_proxy %s {\n", upstream)
+	fmt.Fprintf(w, "\t\theader_up Host {upstream_hostport}\n")
+	fmt.Fprintf(w, "\t\theader_up X-Real-IP {remote_host}\n")
+	fmt.Fprintf(w, "\t\theader_up X-Forwarded-For {remote_host}\n")
+	fmt.Fprintf(w, "\t\theader_up X-Site-ID %s\n", site.ID)
+	if hc := site.Origin.HealthCheck; hc.Path != "" {
+		fmt.Fprintf(w, "\t\thealth_uri %s\n", hc.Path)
+		interval := hc.Interval
+		if interval <= 0 {
+			interval = defaultCheckInterval
+		}
+		fmt.Fprintf(w, "\t\thealth_interval %s\n", interval)
+		timeout := hc.Timeout
+		if timeout <= 0 {
+			timeout = defaultCheckTimeout
+		}
+		fmt.Fprintf(w, "\t\thealth_timeout %s\n", timeout)
+	}
+	fmt.Fprintf(w, "\t}\n")
+
+	fmt.Fprintf(w, "\theader {\n")
+	fmt.Fprintf(w, "\t\tX-Served-By {system.hostname}\n")
+	fmt.Fprintf(w, "\t\tX-CDN cloudroof\n")
+	fmt.Fprintf(w, "\t\t-Server\n")
+	fmt.Fprintf(w, "\t}\n")
+
+	fmt.Fprintf(w, "\tlog {\n")
+	fmt.Fprintf(w, "\t\toutput stdout\n")
+	fmt.Fprintf(w, "\t}\n")
+
+	fmt.Fprintf(w, "}\n\n")
 }
