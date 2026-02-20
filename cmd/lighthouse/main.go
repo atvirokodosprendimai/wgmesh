@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/lighthouse"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/proxy"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
@@ -42,6 +43,8 @@ func main() {
 	dnsTarget := flag.String("dns-target", "edge.cloudroof.eu", "DNS target for customer CNAME")
 	rateLimitRPS := flag.Float64("rate-limit-rps", 100, "Rate limit: requests per second per API key (0 to disable)")
 	rateLimitBurst := flag.Int("rate-limit-burst", 200, "Rate limit: burst size per API key")
+	proxyAddr := flag.String("proxy-addr", "", "address to listen for proxy traffic (e.g. :8081)")
+	proxyOrigins := flag.String("proxy-origins", "", "comma-separated domain=url pairs (e.g. example.com=http://10.0.0.2:3000)")
 
 	var peers stringSlice
 	flag.Var(&peers, "peer", "Mesh IP of another lighthouse instance (repeatable)")
@@ -109,6 +112,32 @@ func main() {
 		log.Printf("Mesh sync active — federated replication enabled")
 	} else {
 		log.Printf("WARNING: No mesh IP configured — running standalone (no federation)")
+	}
+
+	if *proxyAddr != "" {
+		origins := make(map[string]string)
+		for _, pair := range strings.Split(*proxyOrigins, ",") {
+			pair = strings.TrimSpace(pair)
+			if pair == "" {
+				continue
+			}
+			idx := strings.IndexByte(pair, '=')
+			if idx <= 0 {
+				log.Printf("WARNING: proxy-origins: skipping malformed pair %q", pair)
+				continue
+			}
+			origins[pair[:idx]] = pair[idx+1:]
+		}
+		p, err := proxy.New(origins)
+		if err != nil {
+			log.Fatalf("proxy: failed to initialize: %v", err)
+		}
+		go func() {
+			log.Printf("proxy starting on %s", *proxyAddr)
+			if err := http.ListenAndServe(*proxyAddr, p); err != nil {
+				log.Printf("proxy: %v", err)
+			}
+		}()
 	}
 
 	if err := http.ListenAndServe(*addr, mux); err != nil {
