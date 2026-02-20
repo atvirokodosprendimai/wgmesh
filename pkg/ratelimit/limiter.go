@@ -71,16 +71,12 @@ func NewDefault() *IPRateLimiter {
 	return New(DefaultRate, DefaultBurst, DefaultMaxIPs)
 }
 
-// Allow returns true if the message from the given IP should be processed.
-// It consumes one token from the source IP's bucket. Returns false if the
-// bucket is empty (rate limit exceeded).
-func (l *IPRateLimiter) Allow(ip string) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-
-	now := time.Now()
-
-	elem, exists := l.buckets[ip]
+// consume is the internal token bucket logic. Must be called with l.mu held.
+// It returns whether the request is allowed, the remaining whole tokens after
+// consumption, and how long to wait before the next token is available (only
+// meaningful when allowed == false).
+func (l *IPRateLimiter) consume(key string, now time.Time) (allowed bool, remaining float64, retryAfter time.Duration) {
+	elem, exists := l.buckets[key]
 	if exists {
 		bkt := elem.Value.(*entry).bkt
 		// Refill tokens based on elapsed time
@@ -93,13 +89,14 @@ func (l *IPRateLimiter) Allow(ip string) bool {
 		l.lru.MoveToFront(elem)
 
 		if bkt.tokens < 1 {
-			return false
+			wait := (1 - bkt.tokens) / l.rate
+			return false, 0, time.Duration(wait * float64(time.Second))
 		}
 		bkt.tokens--
-		return true
+		return true, bkt.tokens, 0
 	}
 
-	// New IP: evict LRU entry if at capacity
+	// New key: evict LRU entry if at capacity
 	if l.lru.Len() >= l.maxIPs {
 		oldest := l.lru.Back()
 		if oldest != nil {
@@ -110,10 +107,41 @@ func (l *IPRateLimiter) Allow(ip string) bool {
 
 	// Start with burst-1 tokens (consumed one for this message)
 	bkt := &bucket{tokens: l.burst - 1, lastFill: now}
-	e := &entry{ip: ip, bkt: bkt}
+	e := &entry{ip: key, bkt: bkt}
 	elem = l.lru.PushFront(e)
-	l.buckets[ip] = elem
-	return true
+	l.buckets[key] = elem
+	return true, l.burst - 1, 0
+}
+
+// Allow returns true if the message from the given IP should be processed.
+// It consumes one token from the source IP's bucket. Returns false if the
+// bucket is empty (rate limit exceeded).
+func (l *IPRateLimiter) Allow(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	allowed, _, _ := l.consume(ip, time.Now())
+	return allowed
+}
+
+// Reserve attempts to consume a token for the given key.
+// It returns whether the request is allowed, the number of whole tokens
+// remaining in the bucket after this request, and how long to wait before
+// retrying (only meaningful when allowed == false).
+func (l *IPRateLimiter) Reserve(key string) (allowed bool, remaining int, retryAfter time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	ok, rem, after := l.consume(key, time.Now())
+	return ok, int(rem), after
+}
+
+// Burst returns the configured burst size (maximum token depth).
+func (l *IPRateLimiter) Burst() int {
+	return int(l.burst)
+}
+
+// Rate returns the configured refill rate in tokens per second.
+func (l *IPRateLimiter) Rate() float64 {
+	return l.rate
 }
 
 // Reset clears all state. Useful for testing.

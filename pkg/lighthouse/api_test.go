@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
 // testAPI creates an API that will fail on store access but lets us test
@@ -477,5 +480,206 @@ func TestSyncMessageSerialization(t *testing.T) {
 	}
 	if decoded.NodeID != "lh-node-1" {
 		t.Errorf("nodeID = %q, want lh-node-1", decoded.NodeID)
+	}
+}
+
+// testAPIWithLimiter creates an API with a rate limiter for rate limit testing.
+func testAPIWithLimiter(limiter *ratelimit.IPRateLimiter) *API {
+	a := testAPI()
+	a.limiter = limiter
+	a.registerRoutes()
+	return a
+}
+
+// rateLimitRequest builds a request that has X-Org-ID already set (simulating
+// a request that has passed requireAuth). Used to exercise rateLimit directly.
+func rateLimitRequest(orgID string) *http.Request {
+	req := httptest.NewRequest("GET", "/healthz", nil)
+	req.Header.Set("X-Org-ID", orgID)
+	return req
+}
+
+func TestRateLimit_AllowsUnderBurst(t *testing.T) {
+	t.Parallel()
+
+	// burst=3: first 3 requests must be allowed
+	limiter := ratelimit.New(10, 3, 100)
+	a := testAPI()
+	a.limiter = limiter
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := a.rateLimit(inner)
+
+	for i := 0; i < 3; i++ {
+		req := rateLimitRequest("org_test")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("request %d: status = %d, want %d", i+1, w.Code, http.StatusOK)
+		}
+	}
+}
+
+func TestRateLimit_Returns429WhenExhausted(t *testing.T) {
+	t.Parallel()
+
+	// burst=2: third request must be rate limited
+	limiter := ratelimit.New(10, 2, 100)
+	a := testAPI()
+	a.limiter = limiter
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := a.rateLimit(inner)
+
+	// Exhaust the burst
+	for i := 0; i < 2; i++ {
+		req := rateLimitRequest("org_test")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+	}
+
+	// Next request should be rate limited
+	req := rateLimitRequest("org_test")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusTooManyRequests)
+	}
+
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/problem+json" {
+		t.Errorf("content-type = %q, want application/problem+json", ct)
+	}
+
+	var problem map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&problem); err != nil {
+		t.Fatalf("decode 429 body: %v", err)
+	}
+	typeStr, _ := problem["type"].(string)
+	if !strings.Contains(typeStr, "rate_limit_exceeded") {
+		t.Errorf("error type = %q, want rate_limit_exceeded", typeStr)
+	}
+}
+
+func TestRateLimit_Headers(t *testing.T) {
+	t.Parallel()
+
+	limiter := ratelimit.New(10, 5, 100)
+	a := testAPI()
+	a.limiter = limiter
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := a.rateLimit(inner)
+
+	req := rateLimitRequest("org_abc")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", w.Code)
+	}
+
+	for _, hdr := range []string{"X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"} {
+		if w.Header().Get(hdr) == "" {
+			t.Errorf("missing header %s", hdr)
+		}
+	}
+
+	limit, err := strconv.Atoi(w.Header().Get("X-RateLimit-Limit"))
+	if err != nil || limit != 5 {
+		t.Errorf("X-RateLimit-Limit = %q, want 5", w.Header().Get("X-RateLimit-Limit"))
+	}
+}
+
+func TestRateLimit_RetryAfterOnDenied(t *testing.T) {
+	t.Parallel()
+
+	// burst=1: second request must be denied with Retry-After
+	limiter := ratelimit.New(10, 1, 100)
+	a := testAPI()
+	a.limiter = limiter
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := a.rateLimit(inner)
+
+	// First request — allowed
+	handler.ServeHTTP(httptest.NewRecorder(), rateLimitRequest("org_ra"))
+
+	// Second request — denied
+	req := rateLimitRequest("org_ra")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", w.Code)
+	}
+
+	ra := w.Header().Get("Retry-After")
+	if ra == "" {
+		t.Error("missing Retry-After header on 429")
+	}
+	secs, err := strconv.Atoi(ra)
+	if err != nil || secs < 1 {
+		t.Errorf("Retry-After = %q, want a positive integer", ra)
+	}
+}
+
+func TestRateLimit_NilLimiterIsNoop(t *testing.T) {
+	t.Parallel()
+
+	// nil limiter — all requests pass through
+	a := testAPI()
+	a.limiter = nil
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := a.rateLimit(inner)
+
+	for i := 0; i < 10; i++ {
+		req := rateLimitRequest("org_nolimit")
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, req)
+		if w.Code != http.StatusOK {
+			t.Errorf("request %d: status = %d, want 200", i+1, w.Code)
+		}
+	}
+}
+
+func TestRateLimit_PerKeyIsolation(t *testing.T) {
+	t.Parallel()
+
+	// burst=1: exhausting org_A must not affect org_B
+	limiter := ratelimit.New(10, 1, 100)
+	a := testAPI()
+	a.limiter = limiter
+
+	inner := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	handler := a.rateLimit(inner)
+
+	// Exhaust org_A
+	handler.ServeHTTP(httptest.NewRecorder(), rateLimitRequest("org_A"))
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, rateLimitRequest("org_A"))
+	if w.Code != http.StatusTooManyRequests {
+		t.Fatalf("org_A second request: status = %d, want 429", w.Code)
+	}
+
+	// org_B should still be allowed
+	w2 := httptest.NewRecorder()
+	handler.ServeHTTP(w2, rateLimitRequest("org_B"))
+	if w2.Code != http.StatusOK {
+		t.Errorf("org_B: status = %d, want 200 (should not be affected by org_A's bucket)", w2.Code)
 	}
 }
