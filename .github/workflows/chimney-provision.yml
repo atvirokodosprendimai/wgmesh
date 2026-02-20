@@ -134,21 +134,22 @@ jobs:
               IP=$(hcloud server ip "$name")
               echo "Created $name: $IP"
 
-              # Wait for SSH with failure detection
-              echo "Waiting for SSH on $name ($IP)..."
+              # Wait for SSH — cloud-init injects the key on first boot which can
+              # take 5-10 minutes (OS boot + apt + cloud-init). Poll for up to 15min.
+              echo "Waiting for SSH on $name ($IP) (cloud-init can take 10+ minutes)..."
               ssh_ready=false
-              for i in $(seq 1 30); do
+              for i in $(seq 1 90); do
                 if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                    -o ConnectTimeout=5 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
                    "root@${IP}" "true" 2>/dev/null; then
-                  echo "SSH ready on $name after ${i}0s"
+                  echo "SSH ready on $name after $((i * 10))s"
                   ssh_ready=true
                   break
                 fi
                 sleep 10
               done
               if [ "$ssh_ready" = "false" ]; then
-                echo "ERROR: SSH did not become ready on $name ($IP) after 300s" >&2
+                echo "ERROR: SSH did not become ready on $name ($IP) after 900s" >&2
                 exit 1
               fi
             fi
