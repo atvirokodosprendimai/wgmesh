@@ -121,6 +121,13 @@ func InstallSystemdService(cfg SystemdServiceConfig) error {
 		return fmt.Errorf("failed to generate unit file: %w", err)
 	}
 
+	// Create state directory (required by ReadWritePaths in systemd unit).
+	// ProtectSystem=full will fail with status=226/NAMESPACE if this dir doesn't exist.
+	stateDir := "/var/lib/wgmesh"
+	if err := os.MkdirAll(stateDir, 0750); err != nil {
+		return fmt.Errorf("failed to create state directory (run as root?): %w", err)
+	}
+
 	// Write secret to environment file with restricted permissions
 	secretDir := "/etc/wgmesh"
 	if err := os.MkdirAll(secretDir, 0700); err != nil {
