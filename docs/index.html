@@ -248,8 +248,8 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
     <div class="funnel-stage blocked">
       <div class="stage-name">Activation</div>
       <div class="stage-metric">Deploy mesh + serve HTTP</div>
-      <div class="stage-status" style="color:var(--red)">BLOCKED</div>
-      <span class="constraint-arrow">&#9650; #1 CONSTRAINT</span>
+      <div class="stage-status" style="color:var(--yellow)">IN PROGRESS</div>
+      <span class="constraint-arrow">&#9650; needs CLI: <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a> + <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/259">#259</a></span>
     </div>
     <div class="funnel-stage waiting">
       <div class="stage-name">Revenue</div>
@@ -268,7 +268,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
     </div>
   </div>
   <div style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem">
-    80% of effort goes to the single biggest constraint. Currently: <strong style="color:var(--red)">Edge Proxy</strong> &mdash; no way to serve HTTP through the mesh.
+    80% of effort goes to the single biggest constraint. Currently: <strong style="color:var(--yellow)">Edge Bootstrap CLI</strong> &mdash; lighthouse + Caddy config generation exist, need single-command edge setup (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a>).
   </div>
 </div>
 
@@ -277,10 +277,12 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   <div class="horizon-card now">
     <h3>NOW &mdash; 90 days</h3>
     <ul>
-      <li>Build edge proxy config generation</li>
+      <li><s>Build edge proxy config generation</s> &check; <code>pkg/lighthouse/xds.go</code></li>
+      <li><code>wgmesh edge init</code> &rarr; single-command edge bootstrap (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a>)</li>
+      <li><code>wgmesh origin register</code> &rarr; origin self-announce (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/259">#259</a>)</li>
+      <li>Edge heartbeats + health checks (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/247">#247</a>, <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/248">#248</a>)</li>
       <li>End-to-end: <code>wgmesh init</code> &rarr; serving HTTP in &lt;5 min</li>
       <li>1 real user deploys mesh + serves traffic</li>
-      <li>Origin lockdown enforcement (iptables)</li>
       <li><a href="https://rentahuman.ai">RentAHuman.ai</a>: hire beta tester for field validation</li>
     </ul>
   </div>
@@ -288,8 +290,9 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
     <h3>NEXT &mdash; 6 months</h3>
     <ul>
       <li>4 paying customers ($20/mo)</li>
-      <li>GeoDNS routing (simpler than BGP, ships faster)</li>
-      <li>Automated PoP deployment scripts</li>
+      <li>GeoDNS routing (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/253">#253</a>)</li>
+      <li>Multi-origin failover (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/254">#254</a>)</li>
+      <li>DNS verification loop (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/250">#250</a>)</li>
       <li>Monitoring dashboard for mesh operators</li>
       <li>RentAHuman: humans deploy PoP nodes in datacenters</li>
     </ul>
@@ -591,11 +594,53 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
           <td><code>.github/workflows</code></td>
           <td>&mdash;</td>
         </tr>
-        <tr style="background:rgba(248,81,73,0.05)">
-          <td><strong>Edge Proxy</strong></td>
-          <td class="cap-blocked">&#10007; Not Started</td>
+        <tr>
+          <td>RPC Socket Interface</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/rpc</code></td>
           <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>Lighthouse CDN Control Plane</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/lighthouse</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>Edge Proxy (Caddyfile generation)</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/lighthouse/xds.go</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr>
+          <td>Federated State Sync (LWW CRDT)</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/lighthouse/sync.go</code></td>
+          <td>&mdash;</td>
+        </tr>
+        <tr style="background:rgba(248,81,73,0.05)">
+          <td><strong>Edge Bootstrap CLI</strong></td>
+          <td class="cap-blocked">&#10007; Not Started</td>
+          <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a></td>
           <td class="cap-blocked">YES &mdash; #1 blocker (NOW)</td>
+        </tr>
+        <tr style="background:rgba(248,81,73,0.05)">
+          <td><strong>Origin Registration CLI</strong></td>
+          <td class="cap-blocked">&#10007; Not Started</td>
+          <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/259">#259</a></td>
+          <td class="cap-blocked">YES &mdash; #1 blocker (NOW)</td>
+        </tr>
+        <tr>
+          <td>Edge Heartbeats</td>
+          <td class="cap-blocked">&#10007; Not Started</td>
+          <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/247">#247</a></td>
+          <td class="cap-partial">Yes (NOW)</td>
+        </tr>
+        <tr>
+          <td>HTTP Health Checks</td>
+          <td class="cap-blocked">&#10007; Not Started</td>
+          <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/248">#248</a></td>
+          <td class="cap-partial">Yes (NOW)</td>
         </tr>
         <tr>
           <td>Origin Lockdown</td>
@@ -604,10 +649,22 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
           <td class="cap-partial">Yes (NOW)</td>
         </tr>
         <tr>
-          <td>BGP / GeoDNS Routing</td>
+          <td>GeoDNS Routing</td>
+          <td class="cap-blocked">&#10007; Not Started</td>
+          <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/253">#253</a></td>
+          <td class="cap-later">Yes (NEXT phase)</td>
+        </tr>
+        <tr>
+          <td>Multi-origin Failover</td>
+          <td class="cap-blocked">&#10007; Not Started</td>
+          <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/254">#254</a></td>
+          <td class="cap-later">Yes (NEXT phase)</td>
+        </tr>
+        <tr>
+          <td>BGP Anycast</td>
           <td class="cap-blocked">&#10007; Not Started</td>
           <td>&mdash;</td>
-          <td class="cap-later">Yes (NEXT phase)</td>
+          <td class="cap-later">Yes (LATER phase)</td>
         </tr>
       </tbody>
     </table>
