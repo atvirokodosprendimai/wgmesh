@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       hostname:
-        description: 'Hostname to update (e.g. chimney.cloudroof.eu)'
+        description: 'Hostname to update (e.g. chimney.beerpub.dev)'
         required: true
-        default: 'chimney.cloudroof.eu'
+        default: 'chimney.beerpub.dev'
       target_ip:
         description: 'New A record value (edge node IP)'
         required: true
@@ -17,7 +17,7 @@ on:
       zone:
         description: 'Cloudflare zone name'
         required: true
-        default: 'cloudroof.eu'
+        default: 'beerpub.dev'
 
 jobs:
   update-dns:
