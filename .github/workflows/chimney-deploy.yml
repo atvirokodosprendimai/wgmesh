@@ -98,16 +98,84 @@ jobs:
 
           ls -lh chimney-linux-* 2>/dev/null || true
 
-      - name: Generate SSH key
+      - name: Setup SSH key
         if: steps.discover.outputs.has_servers == 'true'
         run: |
-          ssh-keygen -t ed25519 -f ~/.ssh/chimney -N "" -q
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # Write persistent deploy key from secret
+          echo "${{ secrets.CHIMNEY_SSH_KEY }}" > ~/.ssh/chimney
+          chmod 600 ~/.ssh/chimney
           echo "SSH_KEY_FILE=$HOME/.ssh/chimney" >> "$GITHUB_ENV"
 
-          # Upload to Hetzner
-          KEY_NAME="chimney-deploy-key"
-          hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
-          hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file ~/.ssh/chimney.pub
+          # Derive public key
+          ssh-keygen -y -f ~/.ssh/chimney > ~/.ssh/chimney.pub
+          echo "Deploy key fingerprint: $(ssh-keygen -lf ~/.ssh/chimney.pub)"
+
+      - name: Bootstrap SSH access
+        if: steps.discover.outputs.has_servers == 'true'
+        run: |
+          set -euo pipefail
+          apt-get install -y sshpass 2>/dev/null || true
+
+          PUB_KEY=$(cat ~/.ssh/chimney.pub)
+
+          while IFS='|' read -r name ip arch; do
+            [ -z "$name" ] && continue
+
+            # Test if our key already works
+            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+               -o LogLevel=ERROR -o ConnectTimeout=5 -i ~/.ssh/chimney \
+               "root@${ip}" "echo ok" 2>/dev/null | grep -q ok; then
+              echo "$name: SSH key already authorized, skipping bootstrap"
+              continue
+            fi
+
+            echo "$name: key not authorized — bootstrapping via Hetzner password reset"
+
+            # Get server ID
+            SERVER_ID=$(hcloud server list -o noheader -o columns=id,ipv4 | awk -v ip="$ip" '$2==ip{print $1}')
+            if [ -z "$SERVER_ID" ]; then
+              echo "ERROR: could not find server ID for $ip"
+              exit 1
+            fi
+
+            # Reset root password via Hetzner API
+            echo "Resetting root password for server $SERVER_ID ($name)..."
+            RESET_RESP=$(curl -sf -X POST \
+              -H "Authorization: Bearer $HCLOUD_TOKEN" \
+              -H "Content-Type: application/json" \
+              "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reset_password")
+
+            ROOT_PASS=$(echo "$RESET_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['root_password'])")
+            if [ -z "$ROOT_PASS" ]; then
+              echo "ERROR: failed to get root password from Hetzner API"
+              echo "$RESET_RESP"
+              exit 1
+            fi
+
+            # Wait a moment for the password to take effect
+            sleep 5
+
+            # Inject our public key via password SSH
+            echo "Injecting SSH public key via password auth..."
+            sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
+              -o PreferredAuthentications=password \
+              "root@${ip}" \
+              "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$PUB_KEY' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo 'key injected'"
+
+            # Verify key now works
+            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+               -o LogLevel=ERROR -o ConnectTimeout=5 -i ~/.ssh/chimney \
+               "root@${ip}" "echo ok" 2>/dev/null | grep -q ok; then
+              echo "$name: bootstrap successful"
+            else
+              echo "ERROR: key injection failed for $name"
+              exit 1
+            fi
+          done < /tmp/chimney-servers.txt
 
       - name: Rolling deploy
         if: steps.discover.outputs.has_servers == 'true'
@@ -223,4 +291,5 @@ jobs:
       - name: Cleanup SSH key
         if: always() && steps.discover.outputs.has_servers == 'true'
         run: |
-          hcloud ssh-key delete "chimney-deploy-key" 2>/dev/null || true
+          # Remove key from memory (no Hetzner cleanup needed — persistent key, not ephemeral)
+          rm -f ~/.ssh/chimney ~/.ssh/chimney.pub || true
