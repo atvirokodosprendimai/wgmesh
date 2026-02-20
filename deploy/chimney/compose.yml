@@ -33,21 +33,25 @@ services:
   dragonfly:
     image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
     restart: unless-stopped
+    ulimits:
+      memlock: -1
     command:
       - --bind=0.0.0.0
       - --port=6379
       - --maxmemory=128mb
-      - --proactor_threads=1
+      - --proactor_threads=2
+      - --no_tls
     volumes:
       - dragonfly_data:/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "redis-cli", "-h", "127.0.0.1", "-p", "6379", "ping"]
+      # DragonflyDB image ships redis-cli at /usr/local/bin/redis-cli
+      test: ["CMD-SHELL", "redis-cli -h 127.0.0.1 -p 6379 ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
-      retries: 10
-      start_period: 10s
+      retries: 12
+      start_period: 20s
 
   chimney:
     build:
