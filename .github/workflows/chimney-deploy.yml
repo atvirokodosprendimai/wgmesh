@@ -281,7 +281,7 @@ jobs:
             "https://chimney.beerpub.dev/api/github/pulls?per_page=1&state=all" '"number"'
 
           check "cache stats endpoint works" \
-            "https://chimney.beerpub.dev/api/cache/stats" '"entries"'
+            "https://chimney.beerpub.dev/api/cache/stats" '"mem_entries"'
 
           echo ""
           echo "Results: $PASS passed, $FAIL failed"
