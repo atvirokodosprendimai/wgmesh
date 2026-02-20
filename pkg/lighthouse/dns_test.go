@@ -7,7 +7,7 @@ import (
 
 // mockResolver is a test double for Resolver.
 type mockResolver struct {
-	cname string
+	cname    string
 	cnameErr error
 	hosts    []string
 	hostErr  error
@@ -25,13 +25,13 @@ func TestVerifyDNS(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		resolver     *mockResolver
-		domain       string
+		name          string
+		resolver      *mockResolver
+		domain        string
 		expectedCNAME string
-		expectedIPs  []string
-		want         bool
-		wantErr      bool
+		expectedIPs   []string
+		want          bool
+		wantErr       bool
 	}{
 		{
 			name: "matching CNAME",
@@ -77,9 +77,9 @@ func TestVerifyDNS(t *testing.T) {
 				cnameErr: errors.New("no CNAME"),
 				hosts:    []string{"1.2.3.4", "5.6.7.8"},
 			},
-			domain:       "example.com",
-			expectedIPs:  []string{"1.2.3.4"},
-			want:         true,
+			domain:      "example.com",
+			expectedIPs: []string{"1.2.3.4"},
+			want:        true,
 		},
 		{
 			name: "no matching CNAME or IP",
