@@ -2,17 +2,27 @@ name: Auto-undraft Copilot PRs
 
 # When Copilot coding agent opens a draft PR, automatically mark it
 # ready for review so automated code review and the /approve flow work.
+#
+# Triggers:
+#   - pull_request_target: immediate reaction to new draft PRs
+#   - schedule (every 5 min): catches PRs where pull_request_target was
+#     blocked by GitHub's actor-approval gate (e.g. Copilot bot)
 
 on:
   pull_request_target:
     types: [opened]
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
 
 permissions:
   pull-requests: write
 
 jobs:
+  # ── Event-driven path ──
   undraft:
     if: >-
+      github.event_name == 'pull_request_target' &&
       github.event.pull_request.draft == true &&
       github.event.pull_request.user.login == 'copilot-swe-agent[bot]'
     runs-on: ubuntu-latest
@@ -36,3 +46,50 @@ jobs:
             `, { id: prNodeId });
 
             console.log(`PR #${prNumber} marked ready for review`);
+
+  # ── Scheduled scan: catches draft PRs blocked by actor-approval gate ──
+  scan-drafts:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Undraft Copilot PRs
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // GitHub REST API doesn't filter by draft, so fetch all open PRs
+            const { data: openPRs } = await github.rest.pulls.list({
+              owner, repo,
+              state: 'open',
+              per_page: 100,
+            });
+
+            const draftCopilotPRs = openPRs.filter(pr =>
+              pr.draft && pr.user.login === 'copilot-swe-agent[bot]'
+            );
+
+            if (draftCopilotPRs.length === 0) {
+              core.info('No draft Copilot PRs found');
+              return;
+            }
+
+            core.info(`Found ${draftCopilotPRs.length} draft Copilot PR(s)`);
+
+            for (const pr of draftCopilotPRs) {
+              try {
+                await github.graphql(`
+                  mutation($id: ID!) {
+                    markPullRequestReadyForReview(input: {pullRequestId: $id}) {
+                      pullRequest { isDraft }
+                    }
+                  }
+                `, { id: pr.node_id });
+
+                core.info(`PR #${pr.number}: marked ready for review`);
+              } catch (err) {
+                core.warning(`PR #${pr.number}: failed to undraft: ${err.message}`);
+              }
+            }
