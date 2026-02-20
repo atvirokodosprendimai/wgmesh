@@ -300,6 +300,55 @@ jobs:
 
           hcloud server list -l "service=chimney" -o columns=name,status,ipv4,datacenter
 
+      - name: Check Hetzner firewalls and server SSH reachability
+        env:
+          CHIMNEY_SSH_KEY: ${{ secrets.CHIMNEY_SSH_KEY }}
+          CHIMNEY_SSH_PUBKEY: ${{ secrets.CHIMNEY_SSH_PUBKEY }}
+        run: |
+          set -uo pipefail  # no -e so we can capture all output even on failure
+
+          echo "=== Hetzner Firewalls (project level) ==="
+          hcloud firewall list || true
+          echo ""
+
+          IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
+          for loc in "${LOCATIONS[@]}"; do
+            loc=$(echo "$loc" | xargs)
+            name="chimney-${loc}"
+            if ! hcloud server describe "$name" >/dev/null 2>&1; then
+              echo "$name: not found"
+              continue
+            fi
+            IP=$(hcloud server ip "$name")
+            echo "=== $name ($IP) firewall status ==="
+            hcloud server describe "$name" -o json | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          print('Status:', d.get('status'))
+          fw = d.get('firewall_status', [])
+          print('Firewalls:', fw if fw else 'NONE (no firewall applied)')
+          print('Cloud-init status field:', d.get('cloud_init_progress', 'n/a'))
+          " || true
+            echo ""
+            echo "=== TCP port 22 reachability test ==="
+            if nc -z -w 10 "$IP" 22; then
+              echo "PASS: TCP/22 is OPEN on $IP"
+            else
+              echo "FAIL: TCP/22 is BLOCKED/CLOSED on $IP — likely a Hetzner firewall rule"
+            fi
+            echo ""
+            echo "=== SSH key fingerprint ==="
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            echo "$CHIMNEY_SSH_KEY" > ~/.ssh/chimney && chmod 600 ~/.ssh/chimney
+            echo "$CHIMNEY_SSH_PUBKEY" > ~/.ssh/chimney.pub
+            ssh-keygen -l -f ~/.ssh/chimney.pub || true
+            echo ""
+            echo "=== SSH attempt (verbose, 15s timeout) ==="
+            ssh -vv -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o ConnectTimeout=15 -i ~/.ssh/chimney \
+              "root@${IP}" "echo SSH_OK; cat /root/.ssh/authorized_keys" 2>&1 | head -60 || true
+          done
+
   teardown:
     name: "Chimney: teardown"
     runs-on: ubuntu-latest
