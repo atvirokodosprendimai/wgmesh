@@ -11,6 +11,7 @@ on:
           - provision
           - teardown
           - status
+          - rebuild
       locations:
         description: 'Comma-separated Hetzner locations (e.g. nbg1,ash)'
         required: false
@@ -309,3 +310,105 @@ jobs:
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "All chimney servers removed." >> "$GITHUB_STEP_SUMMARY"
+
+  rebuild:
+    name: "Chimney: rebuild with persistent SSH key"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: inputs.action == 'rebuild'
+    steps:
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Rebuild chimney servers with persistent deploy key
+        env:
+          CHIMNEY_SSH_PUBKEY: ${{ secrets.CHIMNEY_SSH_PUBKEY }}
+        run: |
+          set -euo pipefail
+
+          echo "## Chimney Rebuild" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+
+          # Upload persistent deploy key to Hetzner (replace if exists)
+          KEY_NAME="chimney-persistent-key"
+          hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
+          echo "$CHIMNEY_SSH_PUBKEY" | hcloud ssh-key create --name "$KEY_NAME" --public-key-from-stdin
+          KEY_ID=$(hcloud ssh-key describe "$KEY_NAME" -o json | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+          echo "Uploaded persistent key: $KEY_NAME (ID: $KEY_ID)"
+
+          IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
+
+          for loc in "${LOCATIONS[@]}"; do
+            loc=$(echo "$loc" | xargs)
+            name="chimney-${loc}"
+
+            if ! hcloud server describe "$name" >/dev/null 2>&1; then
+              echo "Server $name not found — skipping"
+              continue
+            fi
+
+            SERVER_ID=$(hcloud server describe "$name" -o json | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+            IP=$(hcloud server ip "$name")
+            echo "Rebuilding $name (ID: $SERVER_ID, IP: $IP) with ubuntu-24.04 + persistent key..."
+
+            # Rebuild via Hetzner API — keeps same IP, reinstalls OS with our key
+            REBUILD_RESP=$(curl -sf -X POST \
+              -H "Authorization: Bearer $HCLOUD_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"image\": \"ubuntu-24.04\", \"ssh_keys\": [${KEY_ID}]}" \
+              "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/rebuild")
+
+            ACTION_ID=$(echo "$REBUILD_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['action']['id'])")
+            echo "Rebuild action started: $ACTION_ID"
+
+            # Poll until action completes (rebuild typically takes 60-120s)
+            for i in $(seq 1 30); do
+              ACTION_STATUS=$(curl -sf \
+                -H "Authorization: Bearer $HCLOUD_TOKEN" \
+                "https://api.hetzner.cloud/v1/actions/${ACTION_ID}" \
+                | python3 -c "import sys,json; print(json.load(sys.stdin)['action']['status'])")
+              echo "  Action status: $ACTION_STATUS (attempt $i)"
+              if [ "$ACTION_STATUS" = "success" ]; then
+                echo "Rebuild complete for $name"
+                break
+              elif [ "$ACTION_STATUS" = "error" ]; then
+                echo "ERROR: rebuild action failed for $name"
+                exit 1
+              fi
+              sleep 10
+            done
+
+            # Wait for SSH to become available with the new key
+            echo "Waiting for SSH on $name ($IP) with persistent key..."
+            mkdir -p ~/.ssh && chmod 700 ~/.ssh
+            echo "${{ secrets.CHIMNEY_SSH_KEY }}" > ~/.ssh/chimney && chmod 600 ~/.ssh/chimney
+
+            ssh_ready=false
+            for i in $(seq 1 30); do
+              if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                 -o ConnectTimeout=5 -o LogLevel=ERROR -i ~/.ssh/chimney \
+                 "root@${IP}" "echo ok" 2>/dev/null | grep -q ok; then
+                echo "SSH ready on $name after ${i}0s"
+                ssh_ready=true
+                break
+              fi
+              sleep 10
+            done
+
+            if [ "$ssh_ready" = "false" ]; then
+              echo "ERROR: SSH did not become ready on $name ($IP) after 300s" >&2
+              exit 1
+            fi
+
+            echo "- **$name** ($IP): rebuilt successfully, SSH accessible with persistent key" >> "$GITHUB_STEP_SUMMARY"
+            echo "$name: rebuild and SSH verification complete"
+          done
+
+          # Clean up the temporary Hetzner key entry (key is now in authorized_keys on server)
+          hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
+
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Rebuild complete. Run **Chimney Deploy** workflow to reinstall chimney." >> "$GITHUB_STEP_SUMMARY"
