@@ -1,4 +1,4 @@
-// chimney is the origin server for the wgmesh dashboard at chimney.cloudroof.eu.
+// chimney is the origin server for the wgmesh dashboard at chimney.beerpub.dev.
 //
 // It serves the static dashboard HTML and provides a caching proxy for the
 // GitHub REST API. Server-side caching with an authenticated GitHub token
@@ -90,7 +90,10 @@ func main() {
 		log.Println("GitHub token configured — 5,000 req/hr")
 	}
 
-	// Connect to Dragonfly/Redis
+	// Connect to Dragonfly/Redis with retry.
+	// Dragonfly may still be starting when chimney starts (systemd ordering
+	// guarantees Dragonfly is started but not yet accepting connections).
+	// Retry up to 10 times with 1s backoff before falling back to in-memory.
 	rdb = redis.NewClient(&redis.Options{
 		Addr:         redisAddr,
 		DB:           0,
@@ -99,14 +102,23 @@ func main() {
 		DialTimeout:  time.Second,
 	})
 
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		log.Printf("WARNING: Dragonfly not available at %s: %v — using in-memory cache", redisAddr, err)
-		useRedis = false
-	} else {
-		log.Printf("Dragonfly connected at %s", redisAddr)
-		useRedis = true
+	const redisMaxRetries = 10
+	for attempt := 1; attempt <= redisMaxRetries; attempt++ {
+		pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err := rdb.Ping(pingCtx).Err()
+		pingCancel()
+		if err == nil {
+			log.Printf("Dragonfly connected at %s (attempt %d)", redisAddr, attempt)
+			useRedis = true
+			break
+		}
+		if attempt == redisMaxRetries {
+			log.Printf("WARNING: Dragonfly not available at %s after %d attempts: %v — using in-memory cache", redisAddr, redisMaxRetries, err)
+			useRedis = false
+		} else {
+			log.Printf("Dragonfly not ready at %s (attempt %d/%d): %v — retrying in 1s", redisAddr, attempt, redisMaxRetries, err)
+			time.Sleep(time.Second)
+		}
 	}
 
 	mux := http.NewServeMux()
