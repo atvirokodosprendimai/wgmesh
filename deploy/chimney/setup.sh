@@ -62,8 +62,11 @@ docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" bu
 echo "Starting stack..."
 if ! docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" \
     --env-file "$DEPLOY_DIR/.env" up -d 2>&1; then
-    echo "ERROR: docker compose up failed — dumping dragonfly logs:"
-    docker logs chimney-dragonfly-1 2>&1 | tail -50 || true
+    echo "ERROR: docker compose up failed — waiting 3s then dumping diagnostics:"
+    sleep 3
+    echo "--- dragonfly logs ---"
+    docker logs chimney-dragonfly-1 2>&1 | tail -80 || true
+    echo "--- dragonfly inspect ---"
     docker inspect chimney-dragonfly-1 2>&1 | python3 -c "
 import sys, json
 try:
@@ -76,6 +79,8 @@ try:
 except Exception as e:
     print('Could not parse:', e)
 " || true
+    echo "--- uname/kernel ---"
+    uname -a || true
     exit 1
 fi
 

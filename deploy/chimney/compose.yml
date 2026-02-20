@@ -41,6 +41,10 @@ services:
       - --maxmemory=128mb
       - --proactor_threads=2
       - --no_tls
+      # Disable io_uring: Hetzner cax11 (arm64) kernels may lack required
+      # uring_cmd support. epoll mode is universally compatible.
+      - --proactor_mode=epoll
+      - --alsologtostderr
     volumes:
       - dragonfly_data:/data
     networks:
