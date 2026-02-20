@@ -1,165 +1,82 @@
 #!/usr/bin/env bash
-# setup.sh — Bootstrap a chimney edge/origin server on Ubuntu 24.04
+# setup.sh — Bootstrap a chimney server on Ubuntu 24.04 using Docker Compose.
 #
-# Usage: GITHUB_TOKEN="..." ROLE=origin|edge bash setup.sh
+# Usage: GITHUB_TOKEN="..." WGMESH_SECRET="..." ROLE=origin|edge bash setup.sh
 #
-# The binary should be pre-deployed to /tmp/chimney by the CI workflow.
+# Files expected in /tmp (placed by CI workflow):
+#   /tmp/chimney     — compiled chimney binary (linux/ARCH)
+#   /tmp/docs/       — dashboard static files
+#   /tmp/compose.yml — Docker Compose stack definition
+#   /tmp/Caddyfile   — Caddy reverse proxy config
+#   /tmp/Dockerfile  — Dockerfile for chimney container
+#
 # This script is idempotent — safe to re-run.
+# Cattle, not pets: on failure, reprovision the server rather than debugging state.
 set -euo pipefail
 
 ROLE="${ROLE:-origin}"
-CHIMNEY_USER="chimney"
-CHIMNEY_DIR="/opt/chimney"
+DEPLOY_DIR="/opt/chimney"
 
 echo "=== chimney setup (role=$ROLE) ==="
 
-# ── Validate inputs ──
-if [ -z "${GITHUB_TOKEN:-}" ]; then
-    echo "WARNING: GITHUB_TOKEN not set — chimney will use unauthenticated GitHub API (60 req/hr)"
+# ── Docker ──
+if ! command -v docker &>/dev/null; then
+    echo "Installing Docker..."
+    curl -fsSL https://get.docker.com | sh
+    systemctl enable docker
+    systemctl start docker
+    echo "Docker installed: $(docker --version)"
+else
+    echo "Docker already installed: $(docker --version)"
 fi
 
-# ── System packages ──
-apt-get update -qq
-apt-get install -y -qq caddy curl jq redis-tools
+# ── Deploy directory ──
+mkdir -p "$DEPLOY_DIR/docs"
 
-# ── Create service user (early — required before Dragonfly chown below) ──
-if ! id "$CHIMNEY_USER" &>/dev/null; then
-    useradd --system --home-dir "$CHIMNEY_DIR" --shell /usr/sbin/nologin "$CHIMNEY_USER"
-fi
-mkdir -p "$CHIMNEY_DIR"
-chown "$CHIMNEY_USER:$CHIMNEY_USER" "$CHIMNEY_DIR"
+# ── Copy compose files ──
+cp /tmp/compose.yml  "$DEPLOY_DIR/compose.yml"
+cp /tmp/Caddyfile    "$DEPLOY_DIR/Caddyfile"
+cp /tmp/Dockerfile   "$DEPLOY_DIR/Dockerfile"
 
-# ── Dragonfly (Redis-compatible cache) ──
-# Install Dragonfly as a systemd service for persistent shared caching.
-# Listens on 127.0.0.1:6379 only — not exposed externally.
-if ! command -v dragonfly &>/dev/null; then
-    echo "Installing Dragonfly..."
-    ARCH=$(dpkg --print-architecture)
-    # Dragonfly publishes releases for x86_64 and aarch64
-    if [ "$ARCH" = "arm64" ] || [ "$ARCH" = "aarch64" ]; then
-        DF_ARCH="aarch64"
-    else
-        DF_ARCH="x86_64"
-    fi
-    DF_VERSION=$(curl -sf https://api.github.com/repos/dragonflydb/dragonfly/releases/latest | jq -r '.tag_name')
-    DF_URL="https://github.com/dragonflydb/dragonfly/releases/download/${DF_VERSION}/dragonfly-${DF_ARCH}.tar.gz"
-    echo "Downloading Dragonfly ${DF_VERSION} for ${DF_ARCH}..."
-    # The tarball contains "dragonfly-<arch>" binary, not "dragonfly".
-    # Extract to /tmp then rename to get a consistent binary name.
-    curl -sfL "$DF_URL" | tar xz -C /tmp
-    mv "/tmp/dragonfly-${DF_ARCH}" /usr/local/bin/dragonfly
-    chmod +x /usr/local/bin/dragonfly
+if [ -d /tmp/docs ]; then
+    cp -r /tmp/docs/. "$DEPLOY_DIR/docs/"
 fi
 
-# Dragonfly data directory — owned by chimney user so Dragonfly can write it
-mkdir -p /var/lib/dragonfly
-chown "$CHIMNEY_USER:$CHIMNEY_USER" /var/lib/dragonfly
+# ── Copy chimney binary into build context ──
+if [ -f /tmp/chimney ]; then
+    cp /tmp/chimney "$DEPLOY_DIR/chimney"
+    chmod +x "$DEPLOY_DIR/chimney"
+fi
 
-# Dragonfly systemd service
-cat > /etc/systemd/system/dragonfly.service <<EOF
-[Unit]
-Description=Dragonfly — Redis-compatible cache for chimney
-After=network.target
-
-[Service]
-Type=simple
-User=$CHIMNEY_USER
-ExecStart=/usr/local/bin/dragonfly --bind 127.0.0.1 --port 6379 --dbdir /var/lib/dragonfly --maxmemory 128mb --proactor_threads 1
-Restart=always
-RestartSec=3
-
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=/var/lib/dragonfly
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
+# ── Write .env (secrets — never logged) ──
+cat > "$DEPLOY_DIR/.env" <<EOF
+GITHUB_TOKEN=${GITHUB_TOKEN:-}
+WGMESH_SECRET=${WGMESH_SECRET:-}
 EOF
+chmod 600 "$DEPLOY_DIR/.env"
 
-systemctl daemon-reload
-systemctl enable dragonfly
-systemctl restart dragonfly
+# ── Build chimney image and start stack ──
+echo "Building chimney image..."
+docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" build chimney
 
-# Wait for Dragonfly to be ready (up to 30s) before proceeding
-echo "Waiting for Dragonfly on 127.0.0.1:6379..."
-for i in $(seq 1 30); do
-    if redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG; then
-        echo "Dragonfly ready (attempt $i)"
+echo "Starting stack..."
+docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" \
+    --env-file "$DEPLOY_DIR/.env" up -d
+
+# ── Wait for chimney to be healthy ──
+echo "Waiting for chimney to be healthy (up to 60s)..."
+for i in $(seq 1 20); do
+    STATUS=$(docker inspect --format='{{.State.Health.Status}}' chimney-chimney-1 2>/dev/null || echo "not_found")
+    if [ "$STATUS" = "healthy" ]; then
+        echo "chimney healthy after $((i * 3))s"
         break
     fi
-    if [ "$i" = "30" ]; then
-        echo "WARNING: Dragonfly not responding after 30s — continuing anyway"
-        journalctl -u dragonfly -n 20 --no-pager || true
+    if [ "$i" = "20" ]; then
+        echo "WARNING: chimney not healthy after 60s (status=$STATUS)"
+        docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" logs --tail=30
     fi
-    sleep 1
+    sleep 3
 done
 
-# ── Deploy chimney binary ──
-# The binary is expected at /tmp/chimney, placed there by the CI workflow via scp.
-# We do NOT support downloading from arbitrary URLs for security reasons.
-# Stop the running service first to avoid "Text file busy" on the binary.
-systemctl stop chimney 2>/dev/null || true
-
-if [ -f /tmp/chimney ]; then
-    cp /tmp/chimney "$CHIMNEY_DIR/chimney"
-    chmod +x "$CHIMNEY_DIR/chimney"
-else
-    if [ -f "$CHIMNEY_DIR/chimney" ]; then
-        echo "Using existing chimney binary (no new binary in /tmp)"
-    else
-        echo "ERROR: No chimney binary found at /tmp/chimney or $CHIMNEY_DIR/chimney" >&2
-        exit 1
-    fi
-fi
-
-# ── Deploy dashboard files ──
-mkdir -p "$CHIMNEY_DIR/docs"
-if [ -d /tmp/docs ]; then
-    cp -r /tmp/docs/* "$CHIMNEY_DIR/docs/"
-fi
-
-# ── Chimney systemd service ──
-# Note: chimney logs to stdout/stderr, captured by systemd journald.
-# No file-based logging — ProtectSystem=strict is safe without extra ReadWritePaths.
-cat > /etc/systemd/system/chimney.service <<EOF
-[Unit]
-Description=chimney origin server (beerpub.dev dashboard)
-After=network.target dragonfly.service
-Requires=dragonfly.service
-
-[Service]
-Type=simple
-User=$CHIMNEY_USER
-WorkingDirectory=$CHIMNEY_DIR
-ExecStart=$CHIMNEY_DIR/chimney -addr :8080 -docs $CHIMNEY_DIR/docs
-Restart=always
-RestartSec=5
-Environment=GITHUB_TOKEN=${GITHUB_TOKEN:-}
-
-# Hardening
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=$CHIMNEY_DIR
-PrivateTmp=true
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable chimney
-systemctl restart chimney
-
-# ── Caddy config ──
-if [ -f /tmp/Caddyfile ]; then
-    cp /tmp/Caddyfile /etc/caddy/Caddyfile
-    systemctl enable caddy
-    systemctl restart caddy
-fi
-
 echo "=== chimney setup complete (role=$ROLE) ==="
-systemctl status chimney --no-pager || true
+docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" ps
