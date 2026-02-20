@@ -1,4 +1,4 @@
-name: Dogfood — Edge Mesh Node
+name: Dogfood - Edge Mesh Node
 
 # Provisions an edge node, joins it to the wgmesh with chimney-nbg1 (origin),
 # and configures Caddy to proxy chimney.beerpub.dev via the WireGuard mesh.
