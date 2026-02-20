@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/lighthouse"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
 type stringSlice []string
@@ -37,6 +38,8 @@ func main() {
 	meshIP := flag.String("mesh-ip", "", "This node's WireGuard mesh IP")
 	nodeID := flag.String("node-id", "", "Unique node ID (auto-generated if empty)")
 	dnsTarget := flag.String("dns-target", "edge.cloudroof.eu", "DNS target for customer CNAME")
+	rateLimitRPS := flag.Float64("rate-limit-rps", 100, "Rate limit: requests per second per API key (0 to disable)")
+	rateLimitBurst := flag.Int("rate-limit-burst", 200, "Rate limit: burst size per API key")
 
 	var peers stringSlice
 	flag.Var(&peers, "peer", "Mesh IP of another lighthouse instance (repeatable)")
@@ -61,7 +64,12 @@ func main() {
 
 	auth := lighthouse.NewAuth(store)
 	xds := lighthouse.NewXDS(store)
-	api := lighthouse.NewAPI(store, auth, *dnsTarget)
+
+	var limiter *ratelimit.IPRateLimiter
+	if *rateLimitRPS > 0 {
+		limiter = ratelimit.New(*rateLimitRPS, float64(*rateLimitBurst), ratelimit.DefaultMaxIPs)
+	}
+	api := lighthouse.NewAPI(store, auth, *dnsTarget, limiter)
 
 	// Start mesh sync if we have a mesh IP
 	var sync *lighthouse.Sync

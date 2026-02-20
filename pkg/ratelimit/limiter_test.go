@@ -133,3 +133,65 @@ func TestReset(t *testing.T) {
 		t.Error("should be allowed after reset")
 	}
 }
+
+func TestReserveAllowed(t *testing.T) {
+	t.Parallel()
+	l := New(10, 3, 100)
+
+	allowed, remaining, retryAfter := l.Reserve("key1")
+	if !allowed {
+		t.Fatal("first Reserve should be allowed")
+	}
+	if remaining != 2 {
+		t.Errorf("remaining = %d, want 2 (burst 3, one consumed)", remaining)
+	}
+	if retryAfter != 0 {
+		t.Errorf("retryAfter = %v, want 0 when allowed", retryAfter)
+	}
+}
+
+func TestReserveDenied(t *testing.T) {
+	t.Parallel()
+	l := New(10, 1, 100)
+
+	// First request allowed
+	allowed, _, _ := l.Reserve("key2")
+	if !allowed {
+		t.Fatal("first Reserve should be allowed")
+	}
+
+	// Second request denied
+	allowed, remaining, retryAfter := l.Reserve("key2")
+	if allowed {
+		t.Fatal("second Reserve should be denied (burst=1)")
+	}
+	if remaining != 0 {
+		t.Errorf("remaining = %d, want 0 when denied", remaining)
+	}
+	if retryAfter <= 0 {
+		t.Errorf("retryAfter = %v, want > 0 when denied", retryAfter)
+	}
+}
+
+func TestBurst(t *testing.T) {
+	t.Parallel()
+	l := New(10, 42, 100)
+	if l.Burst() != 42 {
+		t.Errorf("Burst() = %d, want 42", l.Burst())
+	}
+}
+
+func TestAllowStillWorksAfterRefactor(t *testing.T) {
+	t.Parallel()
+	l := New(10, 2, 100)
+
+	if !l.Allow("ip1") {
+		t.Error("first Allow should be permitted")
+	}
+	if !l.Allow("ip1") {
+		t.Error("second Allow should be permitted (burst=2)")
+	}
+	if l.Allow("ip1") {
+		t.Error("third Allow should be denied (burst exhausted)")
+	}
+}
