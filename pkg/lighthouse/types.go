@@ -53,6 +53,7 @@ const (
 	SiteStatusActive        SiteStatus = "active"
 	SiteStatusSuspended     SiteStatus = "suspended"
 	SiteStatusDeleted       SiteStatus = "deleted"
+	SiteStatusDNSFailed     SiteStatus = "dns_failed"
 )
 
 // HealthCheck configures periodic HTTP probing for an origin endpoint.

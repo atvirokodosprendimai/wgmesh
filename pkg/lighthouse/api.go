@@ -61,6 +61,7 @@ func (a *API) registerRoutes() {
 	a.mux.HandleFunc("GET /v1/sites/{site_id}", a.requireAuth(a.rateLimit(a.handleGetSite)))
 	a.mux.HandleFunc("PATCH /v1/sites/{site_id}", a.requireAuth(a.rateLimit(a.handleUpdateSite)))
 	a.mux.HandleFunc("DELETE /v1/sites/{site_id}", a.requireAuth(a.rateLimit(a.handleDeleteSite)))
+	a.mux.HandleFunc("GET /v1/sites/{site_id}/dns-status", a.requireAuth(a.rateLimit(a.handleGetSiteDNSStatus)))
 
 	// Edges (read-only, authenticated)
 	a.mux.HandleFunc("GET /v1/edges", a.requireAuth(a.rateLimit(a.handleListEdges)))
@@ -498,6 +499,28 @@ func (a *API) handleListEdges(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"edges": edges,
 		"count": len(edges),
+	})
+}
+
+func (a *API) handleGetSiteDNSStatus(w http.ResponseWriter, r *http.Request) {
+	orgID := getOrgID(r)
+	siteID := r.PathValue("site_id")
+
+	site, err := a.store.GetSite(r.Context(), siteID)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "not_found", err.Error())
+		return
+	}
+	if site.OrgID != orgID {
+		writeError(w, http.StatusForbidden, "forbidden", "Site belongs to another organization")
+		return
+	}
+
+	writeJSON(w, http.StatusOK, map[string]interface{}{
+		"site_id":    site.ID,
+		"domain":     site.Domain,
+		"dns_target": site.DNSTarget,
+		"status":     site.Status,
 	})
 }
 
