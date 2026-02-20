@@ -55,6 +55,15 @@ WGMESH_SECRET=${WGMESH_SECRET:-}
 EOF
 chmod 600 "$DEPLOY_DIR/.env"
 
+# ── Clean up any stopped/crashed dragonfly volume to avoid data corruption ──
+# If dragonfly previously crashed during startup, its data directory may be
+# in a partially-written state that causes subsequent starts to fail.
+echo "Stopping any existing stack..."
+docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" down --remove-orphans 2>/dev/null || true
+# Remove dragonfly volume on redeploy — it's a cache, not persistent state
+docker volume rm chimney_dragonfly_data 2>/dev/null || true
+echo "Kernel: $(uname -a)"
+
 # ── Build chimney image and start stack ──
 echo "Building chimney image..."
 docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" build chimney
@@ -62,8 +71,8 @@ docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" bu
 echo "Starting stack..."
 if ! docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" \
     --env-file "$DEPLOY_DIR/.env" up -d 2>&1; then
-    echo "ERROR: docker compose up failed — waiting 3s then dumping diagnostics:"
-    sleep 3
+    echo "ERROR: docker compose up failed — waiting 5s then dumping diagnostics:"
+    sleep 5
     echo "--- dragonfly logs ---"
     docker logs chimney-dragonfly-1 2>&1 | tail -80 || true
     echo "--- dragonfly inspect ---"
@@ -79,8 +88,6 @@ try:
 except Exception as e:
     print('Could not parse:', e)
 " || true
-    echo "--- uname/kernel ---"
-    uname -a || true
     exit 1
 fi
 
