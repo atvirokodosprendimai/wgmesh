@@ -10,6 +10,7 @@ name: Dogfood - Edge Mesh Node
 # Requires secrets: HCLOUD_TOKEN, CHIMNEY_SSH_KEY, PUSH_TOKEN
 # Requires a pre-existing mesh secret in: WGMESH_SECRET
 # (Generate once with: wgmesh init -secret, store in repo secret)
+# Force re-registration: 2026-02-20
 
 on:
   workflow_dispatch:
