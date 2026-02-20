@@ -20,6 +20,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -65,12 +66,13 @@ var (
 
 	httpClient = &http.Client{Timeout: clientTimeout}
 
-	rdb         *redis.Client
-	useRedis    bool
-	redisAddr   string
-	cacheHits   int64
-	cacheMisses int64
-	counterMu   sync.Mutex
+	rdb           *redis.Client
+	useRedis      atomic.Bool // true once Dragonfly is connected; set from background goroutine
+	redisConnDone atomic.Bool // true once the connect goroutine has finished (success or fail)
+	redisAddr     string
+	cacheHits     int64
+	cacheMisses   int64
+	counterMu     sync.Mutex
 )
 
 func main() {
@@ -90,10 +92,9 @@ func main() {
 		log.Println("GitHub token configured — 5,000 req/hr")
 	}
 
-	// Connect to Dragonfly/Redis with retry.
-	// Dragonfly may still be starting when chimney starts (systemd ordering
-	// guarantees Dragonfly is started but not yet accepting connections).
-	// Retry up to 10 times with 1s backoff before falling back to in-memory.
+	// Connect to Dragonfly/Redis asynchronously so the HTTP server starts
+	// immediately (allowing /healthz to respond during Dragonfly startup).
+	// Retries up to 30 times with 1s backoff (~30s window) before giving up.
 	rdb = redis.NewClient(&redis.Options{
 		Addr:         redisAddr,
 		DB:           0,
@@ -102,24 +103,27 @@ func main() {
 		DialTimeout:  time.Second,
 	})
 
-	const redisMaxRetries = 10
-	for attempt := 1; attempt <= redisMaxRetries; attempt++ {
-		pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
-		err := rdb.Ping(pingCtx).Err()
-		pingCancel()
-		if err == nil {
-			log.Printf("Dragonfly connected at %s (attempt %d)", redisAddr, attempt)
-			useRedis = true
-			break
+	go func() {
+		const redisMaxRetries = 30
+		for attempt := 1; attempt <= redisMaxRetries; attempt++ {
+			pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			err := rdb.Ping(pingCtx).Err()
+			pingCancel()
+			if err == nil {
+				log.Printf("Dragonfly connected at %s (attempt %d)", redisAddr, attempt)
+				useRedis.Store(true)
+				redisConnDone.Store(true)
+				return
+			}
+			if attempt == redisMaxRetries {
+				log.Printf("WARNING: Dragonfly not available at %s after %d attempts: %v — using in-memory cache", redisAddr, redisMaxRetries, err)
+				redisConnDone.Store(true)
+			} else {
+				log.Printf("Dragonfly not ready at %s (attempt %d/%d): %v — retrying in 1s", redisAddr, attempt, redisMaxRetries, err)
+				time.Sleep(time.Second)
+			}
 		}
-		if attempt == redisMaxRetries {
-			log.Printf("WARNING: Dragonfly not available at %s after %d attempts: %v — using in-memory cache", redisAddr, redisMaxRetries, err)
-			useRedis = false
-		} else {
-			log.Printf("Dragonfly not ready at %s (attempt %d/%d): %v — retrying in 1s", redisAddr, attempt, redisMaxRetries, err)
-			time.Sleep(time.Second)
-		}
-	}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/github/", handleGitHubProxy)
@@ -140,7 +144,7 @@ func main() {
 // --- Cache abstraction ---
 
 func cacheGet(ctx context.Context, key string) (*cachedResponse, bool) {
-	if useRedis {
+	if useRedis.Load() {
 		data, err := rdb.Get(ctx, cachePrefix+key).Bytes()
 		if err == nil {
 			var cr cachedResponse
@@ -171,7 +175,7 @@ func cacheSet(ctx context.Context, key string, cr *cachedResponse, ttl time.Dura
 		evictOldestMemEntry()
 	}
 
-	if useRedis {
+	if useRedis.Load() {
 		data, err := json.Marshal(cr)
 		if err != nil {
 			log.Printf("cache marshal error: %v", err)
@@ -224,7 +228,7 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	// Report Dragonfly status
-	if useRedis {
+	if useRedis.Load() {
 		ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
 		defer cancel()
 		if err := rdb.Ping(ctx).Err(); err != nil {
@@ -243,8 +247,10 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 				}
 			}
 		}
+	} else if redisConnDone.Load() {
+		resp["dragonfly"] = "unavailable"
 	} else {
-		resp["dragonfly"] = "disabled"
+		resp["dragonfly"] = "connecting"
 	}
 
 	memCacheMu.RLock()
@@ -602,7 +608,7 @@ func handleCacheStats(w http.ResponseWriter, r *http.Request) {
 	result["mem_entries"] = memEntries
 
 	// Dragonfly stats
-	if useRedis {
+	if useRedis.Load() {
 		dbSize, err := rdb.DBSize(ctx).Result()
 		if err == nil {
 			result["dragonfly_keys"] = dbSize
