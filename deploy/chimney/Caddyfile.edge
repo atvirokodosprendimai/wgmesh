@@ -1,28 +1,49 @@
-# Caddyfile for chimney edge nodes (dogfood: traffic via WireGuard mesh)
-# Caddy handles TLS automatically via Let's Encrypt / ZeroSSL
+# Caddy config for chimney edge servers (hel1, ash).
 #
-# Architecture:
-#   Client → chimney.beerpub.dev (edge IP) → Caddy (TLS termination)
-#          → WireGuard mesh → chimney origin (:8080)
+# Edge nodes proxy incoming HTTPS to origin nodes via the WireGuard mesh.
+# Both origin nodes serve from their WireGuard IPs on port 80 (HTTP, internal mesh).
+# Caddy load-balances between origins with health checking.
 #
-# WGMESH_ORIGIN_IP is substituted at deploy time with the WireGuard mesh IP
-# of the chimney-nbg1 origin server (e.g. 10.96.0.1).
+# {$ORIGIN_WG_IP_1} and {$ORIGIN_WG_IP_2} are resolved from environment
+# variables at Caddy startup. setup.sh writes them into the systemd
+# environment file or Docker env vars before starting Caddy.
 
 chimney.beerpub.dev {
-	# Reverse proxy to chimney origin via WireGuard mesh IP
-	reverse_proxy {$WGMESH_ORIGIN_IP}:8080 {
-		health_uri /healthz
-		health_interval 10s
-		health_timeout 3s
-	}
+    encode gzip
 
-	header {
-		X-Served-By {system.hostname}
-		X-Edge-Node "true"
-		-Server
-	}
+    log {
+        output stderr
+        format console
+        level INFO
+    }
 
-	log {
-		output stdout
-	}
+    tls {
+        protocols tls1.2 tls1.3
+    }
+
+    reverse_proxy {
+        to http://{$ORIGIN_WG_IP_1}:80 http://{$ORIGIN_WG_IP_2}:80
+
+        # Active health checks via /healthz
+        health_uri /healthz
+        health_interval 10s
+        health_timeout 5s
+        health_status 200
+
+        # Load balance: round-robin with automatic failover
+        lb_policy round_robin
+
+        # Pass real client IP
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    header {
+        X-Served-By {system.hostname}
+        -Server
+    }
+}
+
+{
+    admin localhost:2019
 }

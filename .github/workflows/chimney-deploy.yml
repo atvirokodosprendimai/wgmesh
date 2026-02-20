@@ -1,9 +1,27 @@
 name: Chimney Deploy
 
+# Triggered after chimney-build.yml pushes a new image to ghcr.io.
+# Performs blue/green deploy on origin servers and verifies edge health.
+#
+# Flow:
+#   1. Discover chimney-* servers via Hetzner labels
+#   2. Blue/green deploy on each origin (nbg1, fsn1) sequentially
+#      — new image pulled, inactive slot started, health check, Caddy switched,
+#        old slot drained and stopped
+#   3. Edge servers self-update via watchtower (30s poll) — no SSH needed
+#   4. Smoke tests against chimney.beerpub.dev
+
 on:
-  push:
+  workflow_run:
+    workflows: ["Chimney Build and Push"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      image:
+        description: "Image to deploy (e.g. sha-abc1234). Empty = latest."
+        required: false
+        default: ""
 
 concurrency:
   group: chimney-deploy
@@ -11,306 +29,144 @@ concurrency:
 
 env:
   HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-  GO_VERSION: '1.23.x'
+  IMAGE_BASE: ghcr.io/atvirokodosprendimai/wgmesh/chimney
 
 jobs:
   deploy:
-    name: Deploy chimney
+    name: Blue/green deploy to origins
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    timeout-minutes: 20
+    # Skip if triggered by a failed build
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
 
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Install hcloud CLI
         run: |
           curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
             | tar xz -C /usr/local/bin hcloud
-          hcloud version
 
-      - name: Discover chimney servers
-        id: discover
+      - name: Resolve image tag
+        id: image
         run: |
-          set -euo pipefail
-
-          SERVERS=$(hcloud server list -l "service=chimney" -o noheader -o columns=name,ipv4,type 2>/dev/null) || true
-
-          if [ -z "$SERVERS" ]; then
-            echo "No chimney servers found — skipping deploy"
-            echo "has_servers=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-
-          echo "has_servers=true" >> "$GITHUB_OUTPUT"
-          echo "$SERVERS"
-
-          # Build list of server specs: name|ip|arch
-          SPECS=""
-          while read -r name ip stype; do
-            [ -z "$name" ] && continue
-            if [[ "$stype" == cax* ]]; then
-              arch="arm64"
-            else
-              arch="amd64"
-            fi
-            SPECS="${SPECS}${name}|${ip}|${arch}\n"
-          done <<< "$SERVERS"
-
-          echo -e "$SPECS" > /tmp/chimney-servers.txt
-          cat /tmp/chimney-servers.txt
-
-      - name: Build binaries
-        if: steps.discover.outputs.has_servers == 'true'
-        run: |
-          set -euo pipefail
-
-          # Embed wgmesh version: prefer git tag, fall back to module version, then sha
-          WGMESH_TAG=$(git tag --points-at HEAD | grep '^v' | sort -V | tail -1 || true)
-          if [ -n "$WGMESH_TAG" ]; then
-            WGMESH_VERSION="${WGMESH_TAG}"
+          if [ -n "${{ inputs.image }}" ]; then
+            TAG="${{ env.IMAGE_BASE }}:${{ inputs.image }}"
           else
-            WGMESH_VERSION="dev-${GITHUB_SHA::8}"
+            # Use the SHA tag from the triggering build, or fall back to latest
+            SHA="${{ github.event.workflow_run.head_sha }}"
+            if [ -n "$SHA" ]; then
+              SHORT="${SHA::8}"
+              TAG="${{ env.IMAGE_BASE }}:sha-${SHORT}"
+            else
+              TAG="${{ env.IMAGE_BASE }}:latest"
+            fi
           fi
-          echo "wgmesh version: ${WGMESH_VERSION}"
-
-          NEED_ARM64=false
-          NEED_AMD64=false
-
-          while IFS='|' read -r name ip arch; do
-            [ -z "$name" ] && continue
-            [[ "$arch" == "arm64" ]] && NEED_ARM64=true
-            [[ "$arch" == "amd64" ]] && NEED_AMD64=true
-          done < /tmp/chimney-servers.txt
-
-          if [ "$NEED_ARM64" = "true" ]; then
-            echo "Building linux/arm64..."
-            CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v \
-              -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8} -X main.wgmeshVersion=${WGMESH_VERSION}" \
-              -o chimney-linux-arm64 ./cmd/chimney/
-          fi
-
-          if [ "$NEED_AMD64" = "true" ]; then
-            echo "Building linux/amd64..."
-            CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v \
-              -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8} -X main.wgmeshVersion=${WGMESH_VERSION}" \
-              -o chimney-linux-amd64 ./cmd/chimney/
-          fi
-
-          ls -lh chimney-linux-* 2>/dev/null || true
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Deploying image: ${TAG}"
 
       - name: Setup SSH key
-        if: steps.discover.outputs.has_servers == 'true'
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-
-          # Write persistent deploy key from secret
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
           echo "${{ secrets.CHIMNEY_SSH_KEY }}" > ~/.ssh/chimney
           chmod 600 ~/.ssh/chimney
           echo "SSH_KEY_FILE=$HOME/.ssh/chimney" >> "$GITHUB_ENV"
 
-          # Derive public key
-          ssh-keygen -y -f ~/.ssh/chimney > ~/.ssh/chimney.pub
-          echo "Deploy key fingerprint: $(ssh-keygen -lf ~/.ssh/chimney.pub)"
-
-      - name: Bootstrap SSH access
-        if: steps.discover.outputs.has_servers == 'true'
+      - name: Discover origin servers
+        id: origins
         run: |
           set -euo pipefail
-          apt-get install -y sshpass 2>/dev/null || true
+          SERVERS=$(hcloud server list -l "service=chimney,role=origin" \
+            -o noheader -o columns=name,ipv4,type 2>/dev/null) || true
 
-          PUB_KEY=$(cat ~/.ssh/chimney.pub)
+          if [ -z "$SERVERS" ]; then
+            echo "No origin servers found — skipping deploy"
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "found=true" >> "$GITHUB_OUTPUT"
+          echo "$SERVERS"
 
-          while IFS='|' read -r name ip arch; do
-            [ -z "$name" ] && continue
+          # Emit as file for next steps
+          echo "$SERVERS" > /tmp/origins.txt
 
-            # Test if our key already works
-            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-               -o LogLevel=ERROR -o ConnectTimeout=5 -i ~/.ssh/chimney \
-               "root@${ip}" "echo ok" 2>/dev/null | grep -q ok; then
-              echo "$name: SSH key already authorized, skipping bootstrap"
-              continue
-            fi
-
-            echo "$name: key not authorized — bootstrapping via Hetzner password reset"
-
-            # Get server ID
-            SERVER_ID=$(hcloud server list -o noheader -o columns=id,ipv4 | awk -v ip="$ip" '$2==ip{print $1}')
-            if [ -z "$SERVER_ID" ]; then
-              echo "ERROR: could not find server ID for $ip"
-              exit 1
-            fi
-
-            # Reset root password via Hetzner API
-            echo "Resetting root password for server $SERVER_ID ($name)..."
-            RESET_RESP=$(curl -sf -X POST \
-              -H "Authorization: Bearer $HCLOUD_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reset_password")
-
-            ROOT_PASS=$(echo "$RESET_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['root_password'])")
-            if [ -z "$ROOT_PASS" ]; then
-              echo "ERROR: failed to get root password from Hetzner API"
-              echo "$RESET_RESP"
-              exit 1
-            fi
-
-            # Wait a moment for the password to take effect
-            sleep 5
-
-            # Inject our public key via password SSH
-            echo "Injecting SSH public key via password auth..."
-            sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
-              -o PreferredAuthentications=password \
-              "root@${ip}" \
-              "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$PUB_KEY' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys && echo 'key injected'"
-
-            # Verify key now works
-            if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-               -o LogLevel=ERROR -o ConnectTimeout=5 -i ~/.ssh/chimney \
-               "root@${ip}" "echo ok" 2>/dev/null | grep -q ok; then
-              echo "$name: bootstrap successful"
-            else
-              echo "ERROR: key injection failed for $name"
-              exit 1
-            fi
-          done < /tmp/chimney-servers.txt
-
-      - name: Rolling deploy
-        if: steps.discover.outputs.has_servers == 'true'
+      - name: Blue/green deploy to origins
+        if: steps.origins.outputs.found == 'true'
         run: |
           set -euo pipefail
+          IMAGE="${{ steps.image.outputs.tag }}"
 
-          echo "## Chimney Deploy" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Commit: \`${GITHUB_SHA::8}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Deploy: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          while IFS='|' read -r name ip arch; do
+          while IFS= read -r line; do
+            name=$(echo "$line" | awk '{print $1}')
+            ip=$(echo "$line" | awk '{print $2}')
             [ -z "$name" ] && continue
 
-            echo "=== Deploying to $name ($ip, $arch) ==="
-            BINARY="chimney-linux-${arch}"
+            echo "=== Deploy to $name ($ip) ==="
 
-            SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i $SSH_KEY_FILE"
+            # Copy the blue/green deploy script
+            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+                deploy/chimney/bluegreen.sh "root@${ip}:/opt/chimney/bluegreen.sh"
 
-            # Copy chimney binary
-            $SCP "$BINARY" "root@${ip}:/tmp/chimney"
+            # Run blue/green deploy — passes image as env var
+            ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+                -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${ip}" \
+                "IMAGE='${IMAGE}' bash /opt/chimney/bluegreen.sh"
 
-            # Copy compose stack files
-            $SCP deploy/chimney/setup.sh    "root@${ip}:/tmp/setup.sh"
-            $SCP deploy/chimney/compose.yml "root@${ip}:/tmp/compose.yml"
-            $SCP deploy/chimney/Caddyfile   "root@${ip}:/tmp/Caddyfile"
-            $SCP deploy/chimney/Dockerfile  "root@${ip}:/tmp/Dockerfile"
+            echo "- **$name** ($ip): deployed ✓" >> "$GITHUB_STEP_SUMMARY"
+          done < /tmp/origins.txt
 
-            # Copy dashboard
-            $SCP -r docs "root@${ip}:/tmp/docs"
+      - name: Wait for edge self-update (watchtower)
+        run: |
+          echo "Edge nodes update automatically via watchtower (30s poll)."
+          echo "Waiting 60s for edges to converge on new image..."
+          sleep 60
 
-            # Run setup (idempotent) — pass secrets via stdin, never in env/args
-            printf '%s\n%s\n' \
-              '${{ secrets.PUSH_TOKEN }}' \
-              '${{ secrets.WGMESH_SECRET }}' \
-            | ssh -o StrictHostKeyChecking=no \
-                -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-                "root@${ip}" \
-                'read -r GITHUB_TOKEN; read -r WGMESH_SECRET
-                 export GITHUB_TOKEN WGMESH_SECRET
-                 ROLE=origin bash /tmp/setup.sh'
-
-            # Health check — chimney is in the internal Docker network; access via
-            # Caddy on port 80 (which is exposed on the host) or via docker exec.
-            # Using port 80 is simpler and also validates the full proxy chain.
-            echo "Verifying health on $name..."
-            HEALTHY=false
-            for i in $(seq 1 20); do
-              if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-                 "root@${ip}" "curl -sf http://localhost/healthz" 2>/dev/null; then
-                echo ""
-                echo "$name: healthy"
-                HEALTHY=true
-                break
-              fi
-              sleep 5
-            done
-
-            if [ "$HEALTHY" = "true" ]; then
-              echo "- **$name** ($ip): deployed successfully" >> "$GITHUB_STEP_SUMMARY"
-            else
-              echo "- **$name** ($ip): HEALTH CHECK FAILED — stopping rollout" >> "$GITHUB_STEP_SUMMARY"
-              echo "ERROR: $name health check failed — aborting rolling deploy to protect remaining servers" >&2
-              exit 1
-            fi
-
-            echo ""
-          done < /tmp/chimney-servers.txt
-
-      - name: Smoke test (end-to-end)
-        if: steps.discover.outputs.has_servers == 'true'
+      - name: Smoke tests
+        if: steps.origins.outputs.found == 'true'
         run: |
           set -euo pipefail
           echo "## Smoke Tests" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          # Wait for Caddy/TLS warmup — edge node may need time to get cert after deploy
-          echo "Waiting 30s for service warmup..."
-          sleep 30
+          PASS=0; FAIL=0
 
-          PASS=0
-          FAIL=0
-          # check_with_retry: tries up to 3 times with 10s between attempts
           check() {
             local desc="$1" url="$2" expect="$3"
-            local attempt=1 BODY=""
+            local attempt=1 body=""
             while [ $attempt -le 3 ]; do
-              BODY=$(curl -sf --max-time 15 "$url" 2>/dev/null) || BODY=""
-              # Use case/glob match to avoid broken pipe from grep -q closing pipe early
-              case "$BODY" in
+              body=$(curl -sf --max-time 15 "$url" 2>/dev/null) || body=""
+              case "$body" in
                 *"$expect"*)
                   echo "  PASS: $desc"
                   echo "- :white_check_mark: $desc" >> "$GITHUB_STEP_SUMMARY"
-                  PASS=$((PASS + 1))
+                  PASS=$((PASS+1))
                   return ;;
               esac
-              echo "  attempt $attempt/3 failed for: $desc"
-              attempt=$((attempt + 1))
+              attempt=$((attempt+1))
               [ $attempt -le 3 ] && sleep 10
             done
-            echo "  FAIL: $desc (expected '$expect', got: ${BODY:0:80})"
+            echo "  FAIL: $desc (expected '$expect', got: ${body:0:80})"
             echo "- :x: $desc" >> "$GITHUB_STEP_SUMMARY"
-            FAIL=$((FAIL + 1))
+            FAIL=$((FAIL+1))
           }
 
-          echo "Running smoke tests against chimney.beerpub.dev..."
-          check "healthz returns ok" \
-            "https://chimney.beerpub.dev/healthz" '"status":"ok"'
+          check "healthz ok"            "https://chimney.beerpub.dev/healthz"  '"status":"ok"'
+          check "dashboard loads"       "https://chimney.beerpub.dev/"         "Agent Pipeline Dashboard"
+          check "github api proxy"      "https://chimney.beerpub.dev/api/github/pulls?per_page=1&state=all" '"number"'
+          check "cache stats"           "https://chimney.beerpub.dev/api/cache/stats" '"mem_entries"'
 
-          check "dashboard HTML loads" \
-            "https://chimney.beerpub.dev/" "Agent Pipeline Dashboard"
-
-          check "GitHub API proxy returns data" \
-            "https://chimney.beerpub.dev/api/github/pulls?per_page=1&state=all" '"number"'
-
-          check "cache stats endpoint works" \
-            "https://chimney.beerpub.dev/api/cache/stats" '"mem_entries"'
-
-          echo ""
-          echo "Results: $PASS passed, $FAIL failed"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "**$PASS passed, $FAIL failed**" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "$FAIL" -gt 0 ]; then
-            echo "::error::$FAIL smoke test(s) failed — blocking deploy"
-            exit 1
-          fi
+          [ "$FAIL" -eq 0 ] || { echo "::error::$FAIL smoke test(s) failed"; exit 1; }
 
-      - name: Cleanup SSH key
-        if: always() && steps.discover.outputs.has_servers == 'true'
-        run: |
-          # Remove key from memory (no Hetzner cleanup needed — persistent key, not ephemeral)
-          rm -f ~/.ssh/chimney ~/.ssh/chimney.pub || true
+      - name: Cleanup
+        if: always()
+        run: rm -f ~/.ssh/chimney || true

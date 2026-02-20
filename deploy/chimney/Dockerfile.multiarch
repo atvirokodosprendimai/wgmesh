@@ -1,0 +1,40 @@
+# Multi-arch chimney image.
+#
+# Built by CI with pre-compiled binaries for each arch:
+#   docker buildx build --platform linux/amd64,linux/arm64 \
+#     --build-arg TARGETARCH ...
+#
+# The build context contains:
+#   chimney-amd64  — compiled by Go for linux/amd64
+#   chimney-arm64  — compiled by Go for linux/arm64
+#   docs/          — dashboard static files
+#
+# Uses busybox:musl as a minimal runtime (shell + wget for healthcheck).
+# The resulting image is ~4MB: binary + TLS certs + busybox.
+
+FROM busybox:musl AS base
+
+# Install CA certificates for outbound TLS (GitHub API calls)
+RUN wget -qO /etc/ssl/certs/ca-bundle.crt \
+    https://curl.se/ca/cacert.pem 2>/dev/null || \
+    mkdir -p /etc/ssl/certs && \
+    echo "# CA certs not fetched at build time" > /etc/ssl/certs/ca-bundle.crt
+
+FROM base
+ARG TARGETARCH
+
+# Copy arch-specific binary
+COPY chimney-${TARGETARCH} /chimney
+RUN chmod +x /chimney
+
+# Copy dashboard static files
+COPY docs /docs
+
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt
+
+# Healthcheck uses wget (available in busybox)
+HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -qO- http://localhost:8080/healthz || exit 1
+
+EXPOSE 8080
+ENTRYPOINT ["/chimney"]
