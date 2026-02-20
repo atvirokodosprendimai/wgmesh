@@ -32,12 +32,12 @@ const defaultCheckTimeout = 5 * time.Second
 
 // OriginHealth holds the live health state for a single origin.
 type OriginHealth struct {
-	SiteID      string       `json:"site_id"`
-	Status      HealthStatus `json:"status"`
-	ConsecFails int          `json:"consec_fails"`
-	ConsecPasses int         `json:"consec_passes"`
-	LastChecked time.Time    `json:"last_checked,omitempty"`
-	LastError   string       `json:"last_error,omitempty"`
+	SiteID       string       `json:"site_id"`
+	Status       HealthStatus `json:"status"`
+	ConsecFails  int          `json:"consec_fails"`
+	ConsecPasses int          `json:"consec_passes"`
+	LastChecked  time.Time    `json:"last_checked,omitempty"`
+	LastError    string       `json:"last_error,omitempty"`
 }
 
 // Checker runs periodic HTTP health probes for origin endpoints.
