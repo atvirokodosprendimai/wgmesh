@@ -332,13 +332,33 @@ jobs:
           echo "## Chimney Rebuild" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          # Upload persistent deploy key to Hetzner (replace if exists)
-          KEY_NAME="chimney-persistent-key"
-          hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
+          # Upload persistent deploy key to Hetzner
+          # First write key to file so we can compute its fingerprint
           echo "$CHIMNEY_SSH_PUBKEY" > /tmp/chimney-persistent.pub
-          hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file /tmp/chimney-persistent.pub
-          KEY_ID=$(hcloud ssh-key describe "$KEY_NAME" -o json | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
-          echo "Uploaded persistent key: $KEY_NAME (ID: $KEY_ID)"
+          FINGERPRINT=$(ssh-keygen -lf /tmp/chimney-persistent.pub | awk '{print $2}')
+
+          # Check if this exact key fingerprint already exists (under any name)
+          EXISTING_ID=$(hcloud ssh-key list -o json | python3 -c "
+import sys, json
+keys = json.load(sys.stdin)
+fp = '${FINGERPRINT}'
+for k in keys:
+    if k.get('fingerprint') == fp:
+        print(k['id'])
+        break
+" 2>/dev/null || true)
+
+          if [ -n "$EXISTING_ID" ]; then
+            KEY_ID="$EXISTING_ID"
+            echo "Key already exists in Hetzner (fingerprint match) — ID: $KEY_ID"
+          else
+            # Delete by name in case name exists with different key, then create fresh
+            KEY_NAME="chimney-persistent-key"
+            hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
+            hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file /tmp/chimney-persistent.pub
+            KEY_ID=$(hcloud ssh-key describe "$KEY_NAME" -o json | python3 -c "import sys,json; print(json.load(sys.stdin)['id'])")
+            echo "Uploaded persistent key: $KEY_NAME (ID: $KEY_ID)"
+          fi
 
           IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
 
