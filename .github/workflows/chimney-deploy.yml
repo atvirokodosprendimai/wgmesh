@@ -3,10 +3,6 @@ name: Chimney Deploy
 on:
   push:
     branches: [main]
-    paths:
-      - 'cmd/chimney/**'
-      - 'deploy/chimney/**'
-      - 'docs/**'
   workflow_dispatch:
 
 concurrency:
@@ -73,6 +69,15 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Embed wgmesh version: prefer git tag, fall back to module version, then sha
+          WGMESH_TAG=$(git tag --points-at HEAD | grep '^v' | sort -V | tail -1 || true)
+          if [ -n "$WGMESH_TAG" ]; then
+            WGMESH_VERSION="${WGMESH_TAG}"
+          else
+            WGMESH_VERSION="dev-${GITHUB_SHA::8}"
+          fi
+          echo "wgmesh version: ${WGMESH_VERSION}"
+
           NEED_ARM64=false
           NEED_AMD64=false
 
@@ -85,14 +90,14 @@ jobs:
           if [ "$NEED_ARM64" = "true" ]; then
             echo "Building linux/arm64..."
             CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -v \
-              -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8}" \
+              -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8} -X main.wgmeshVersion=${WGMESH_VERSION}" \
               -o chimney-linux-arm64 ./cmd/chimney/
           fi
 
           if [ "$NEED_AMD64" = "true" ]; then
             echo "Building linux/amd64..."
             CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v \
-              -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8}" \
+              -ldflags="-s -w -X main.version=chimney-${GITHUB_SHA::8} -X main.wgmeshVersion=${WGMESH_VERSION}" \
               -o chimney-linux-amd64 ./cmd/chimney/
           fi
 
