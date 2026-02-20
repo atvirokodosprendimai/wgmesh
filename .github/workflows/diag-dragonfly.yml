@@ -1,0 +1,40 @@
+name: Diag - Dragonfly Status
+
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    name: Diagnose Dragonfly on chimney-nbg1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.CHIMNEY_SSH_KEY }}" > ~/.ssh/chimney
+          chmod 600 ~/.ssh/chimney
+
+      - name: Check Dragonfly and chimney status
+        run: |
+          ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+              -o LogLevel=ERROR -i ~/.ssh/chimney root@91.99.171.86 '
+            echo "=== dragonfly.service ==="
+            systemctl status dragonfly --no-pager -l
+            echo ""
+            echo "=== dragonfly journal (last 30 lines) ==="
+            journalctl -u dragonfly -n 30 --no-pager
+            echo ""
+            echo "=== chimney journal (last 30 lines) ==="
+            journalctl -u chimney -n 30 --no-pager
+            echo ""
+            echo "=== port 6379 ==="
+            ss -tlnp | grep 6379 || echo "nothing on 6379"
+            echo ""
+            echo "=== redis-cli ping ==="
+            redis-cli -h 127.0.0.1 -p 6379 ping 2>&1 || echo "redis-cli not available"
+          '
+
+      - name: Cleanup SSH key
+        if: always()
+        run: rm -f ~/.ssh/chimney
