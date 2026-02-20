@@ -213,7 +213,7 @@ jobs:
             -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${EDGE_IP}" \
             "chmod +x /usr/local/bin/wgmesh && wgmesh version"
 
-       - name: Install wgmesh on origin (chimney-nbg1)
+      - name: Install wgmesh on origin (chimney-nbg1)
         run: |
           set -euo pipefail
           ORIGIN_IP="${{ env.ORIGIN_IP }}"
