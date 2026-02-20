@@ -51,7 +51,7 @@ Preserve a compatibility shim so callers that still read the old `origin` JSON k
 
 ```go
 type Origin struct {
-    ID       string `json:"id"`       // "org_…"-style prefixed random ID
+    ID       string `json:"id"`       // "ori_…"-style prefixed random ID (e.g. "ori_a1b2c3d4e5f6")
     MeshIP   string `json:"mesh_ip"`
     Port     int    `json:"port"`
     Protocol string `json:"protocol"` // "http" or "https"
@@ -204,8 +204,10 @@ All handlers re-use the existing auth middleware and org-isolation checks from `
 ### Integration / manual smoke test
 
 ```bash
-# Create site
-curl -X POST /v1/sites -d '{"domain":"example.com","origins":[{"mesh_ip":"10.77.1.50","port":80,"protocol":"http","priority":0}],...}'
+# Create site (tls, org_id and dns_target are set server-side; only required fields shown)
+curl -X POST /v1/sites \
+  -H "Authorization: Bearer cr_<api_key>" \
+  -d '{"domain":"example.com","tls":"auto","origins":[{"mesh_ip":"10.77.1.50","port":80,"protocol":"http","priority":0,"weight":1}]}'
 
 # Add backup origin
 curl -X POST /v1/sites/{id}/origins -d '{"mesh_ip":"10.77.1.51","port":80,"protocol":"http","priority":1,"weight":1}'
