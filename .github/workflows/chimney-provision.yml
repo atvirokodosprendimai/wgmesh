@@ -336,15 +336,14 @@ jobs:
           # Write key to file and look up by fingerprint to avoid uniqueness_error
           echo "$CHIMNEY_SSH_PUBKEY" > /tmp/chimney-persistent.pub
           FINGERPRINT=$(ssh-keygen -lf /tmp/chimney-persistent.pub | awk '{print $2}')
-          export FINGERPRINT
+          echo "Key fingerprint: $FINGERPRINT"
 
           # Check if this exact fingerprint already exists in Hetzner (under any name)
-          EXISTING_ID=$(hcloud ssh-key list -o json | python3 -c \
-            "import sys,json,os; keys=json.load(sys.stdin); ids=[str(k['id']) for k in keys if k.get('fingerprint')==os.environ['FINGERPRINT']]; print(ids[0] if ids else '')" \
-            2>/dev/null || true)
+          # hcloud ssh-key list -o columns=id,fingerprint: ID   FINGERPRINT
+          KEY_ID=$(hcloud ssh-key list -o noheader -o columns=id,fingerprint 2>/dev/null \
+            | awk -v fp="$FINGERPRINT" '$2==fp{print $1}' | head -1)
 
-          if [ -n "$EXISTING_ID" ]; then
-            KEY_ID="$EXISTING_ID"
+          if [ -n "$KEY_ID" ]; then
             echo "Key already exists in Hetzner (fingerprint match) — ID: $KEY_ID"
           else
             # Delete by name in case name exists with different key, then create fresh
