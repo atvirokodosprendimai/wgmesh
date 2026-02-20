@@ -1,10 +1,10 @@
 name: Dogfood — Edge Mesh Node
 
 # Provisions an edge node, joins it to the wgmesh with chimney-nbg1 (origin),
-# and configures Caddy to proxy chimney.cloudroof.eu via the WireGuard mesh.
+# and configures Caddy to proxy chimney.beerpub.dev via the WireGuard mesh.
 #
 # Traffic path:
-#   client → chimney.cloudroof.eu (edge public IP)
+#   client → chimney.beerpub.dev (edge public IP)
 #          → Caddy (TLS) → WireGuard mesh → chimney-nbg1:8080 (origin)
 #
 # Requires secrets: HCLOUD_TOKEN, CHIMNEY_SSH_KEY, PUSH_TOKEN
@@ -326,7 +326,7 @@ jobs:
           fi
 
           # Write edge Caddyfile with substituted WireGuard IP
-          CADDYFILE="chimney.cloudroof.eu {
+          CADDYFILE="chimney.beerpub.dev {
             reverse_proxy ${ORIGIN_WG_IP}:8080 {
               health_uri /healthz
               health_interval 10s
@@ -365,13 +365,13 @@ jobs:
           echo "| chimney-nbg1 (origin) | 91.99.171.86 | ${ORIGIN_WG_IP} |" >> "$GITHUB_STEP_SUMMARY"
           echo "| ${EDGE_NAME} (edge) | ${EDGE_IP} | ${EDGE_WG_IP} |" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Traffic path:** client → chimney.cloudroof.eu (${EDGE_IP}) → WireGuard mesh → ${ORIGIN_WG_IP}:8080" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Traffic path:** client → chimney.beerpub.dev (${EDGE_IP}) → WireGuard mesh → ${ORIGIN_WG_IP}:8080" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Next step:** Update DNS A record for \`chimney.cloudroof.eu\` → \`${EDGE_IP}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Next step:** Update DNS A record for \`chimney.beerpub.dev\` → \`${EDGE_IP}\`" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           echo "After DNS propagates, test with:" >> "$GITHUB_STEP_SUMMARY"
           echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "curl -sf https://chimney.cloudroof.eu/healthz" >> "$GITHUB_STEP_SUMMARY"
+          echo "curl -sf https://chimney.beerpub.dev/healthz" >> "$GITHUB_STEP_SUMMARY"
           echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
 
           echo ""
@@ -379,7 +379,7 @@ jobs:
           echo "Origin: 91.99.171.86 (WG: $ORIGIN_WG_IP)"
           echo "Edge:   $EDGE_IP (WG: $EDGE_WG_IP)"
           echo ""
-          echo "Update DNS: chimney.cloudroof.eu → $EDGE_IP"
+          echo "Update DNS: chimney.beerpub.dev → $EDGE_IP"
 
   # ── Teardown Edge ─────────────────────────────────────────────────────────
   teardown-edge:

@@ -270,18 +270,18 @@ jobs:
             fi
           }
 
-          echo "Running smoke tests against chimney.cloudroof.eu..."
+          echo "Running smoke tests against chimney.beerpub.dev..."
           check "healthz returns ok" \
-            "https://chimney.cloudroof.eu/healthz" '"status":"ok"'
+            "https://chimney.beerpub.dev/healthz" '"status":"ok"'
 
           check "dashboard HTML loads" \
-            "https://chimney.cloudroof.eu/" "Agent Pipeline Dashboard"
+            "https://chimney.beerpub.dev/" "Agent Pipeline Dashboard"
 
           check "GitHub API proxy returns data" \
-            "https://chimney.cloudroof.eu/api/github/pulls?per_page=1&state=all" '"number"'
+            "https://chimney.beerpub.dev/api/github/pulls?per_page=1&state=all" '"number"'
 
           check "cache stats endpoint works" \
-            "https://chimney.cloudroof.eu/api/cache/stats" '"entries"'
+            "https://chimney.beerpub.dev/api/cache/stats" '"entries"'
 
           echo ""
           echo "Results: $PASS passed, $FAIL failed"
