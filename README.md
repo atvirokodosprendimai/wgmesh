@@ -1,5 +1,5 @@
 <a href="https://viberank.dev/apps/wgmesh" target="_blank" rel="noopener noreferrer"><img src="https://viberank.dev/badge?app=wgmesh&theme=dark" alt="wgmesh on VibeRank" /></a>
-<a href="https://www.producthunt.com/products/wgmesh?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-wgmesh" target="_blank" rel="noopener noreferrer"><img alt="wgmesh - Decentralized WireGuard mesh builder with DHT discovery | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1081094&amp;theme=light&amp"></a>
+<a href="https://www.producthunt.com/products/wgmesh?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-wgmesh" target="_blank" rel="noopener noreferrer"><img alt="wgmesh - Decentralized WireGuard mesh builder with DHT discovery | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1081094&amp;theme=light&amp;t=1771444856938"></a>
 [![Chimney Deploy](https://github.com/atvirokodosprendimai/wgmesh/actions/workflows/chimney-deploy.yml/badge.svg)](https://github.com/atvirokodosprendimai/wgmesh/actions/workflows/chimney-deploy.yml)
 # WireGuard Mesh Builder
 
