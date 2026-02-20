@@ -285,6 +285,24 @@ func (s *Store) ListSites(ctx context.Context, orgID string) ([]Site, error) {
 	return sites, nil
 }
 
+func (s *Store) ListSitesByStatus(ctx context.Context, status SiteStatus) ([]Site, error) {
+	ids, err := s.rdb.SMembers(ctx, keyIndexAll).Result()
+	if err != nil {
+		return nil, fmt.Errorf("list all site IDs: %w", err)
+	}
+	sites := make([]Site, 0)
+	for _, id := range ids {
+		site, err := s.GetSite(ctx, id)
+		if err != nil {
+			continue
+		}
+		if site.Status == status {
+			sites = append(sites, *site)
+		}
+	}
+	return sites, nil
+}
+
 func (s *Store) ListAllSites(ctx context.Context) ([]Site, error) {
 	ids, err := s.rdb.SMembers(ctx, keyIndexAll).Result()
 	if err != nil {
