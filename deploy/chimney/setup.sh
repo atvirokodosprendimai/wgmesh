@@ -88,6 +88,28 @@ try:
 except Exception as e:
     print('Could not parse:', e)
 " || true
+    echo "--- chimney logs ---"
+    docker logs chimney-chimney-1 2>&1 | tail -80 || true
+    echo "--- chimney inspect ---"
+    docker inspect chimney-chimney-1 2>&1 | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)[0]
+    state = d.get('State', {})
+    print('Container state:', state.get('Status'))
+    print('Exit code:', state.get('ExitCode'))
+    print('Error:', state.get('Error'))
+    print('OOMKilled:', state.get('OOMKilled'))
+    hc = state.get('Health', {})
+    if hc:
+        print('Health status:', hc.get('Status'))
+        for log in (hc.get('Log') or [])[-3:]:
+            print('  HC output:', log.get('Output', '').strip())
+except Exception as e:
+    print('Could not parse:', e)
+" || true
+    echo "--- caddy logs ---"
+    docker logs chimney-caddy-1 2>&1 | tail -20 || true
     exit 1
 fi
 
