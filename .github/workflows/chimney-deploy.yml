@@ -266,12 +266,14 @@ jobs:
             local attempt=1 BODY=""
             while [ $attempt -le 3 ]; do
               BODY=$(curl -sf --max-time 15 "$url" 2>/dev/null) || BODY=""
-              if echo "$BODY" | grep -q "$expect"; then
-                echo "  PASS: $desc"
-                echo "- :white_check_mark: $desc" >> "$GITHUB_STEP_SUMMARY"
-                PASS=$((PASS + 1))
-                return
-              fi
+              # Use case/glob match to avoid broken pipe from grep -q closing pipe early
+              case "$BODY" in
+                *"$expect"*)
+                  echo "  PASS: $desc"
+                  echo "- :white_check_mark: $desc" >> "$GITHUB_STEP_SUMMARY"
+                  PASS=$((PASS + 1))
+                  return ;;
+              esac
               echo "  attempt $attempt/3 failed for: $desc"
               attempt=$((attempt + 1))
               [ $attempt -le 3 ] && sleep 10
