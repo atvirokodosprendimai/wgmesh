@@ -34,6 +34,12 @@ const (
 	cachePrefix   = "chimney:"
 )
 
+// version and wgmeshVersion are set at build time via -ldflags.
+var (
+	version       = "dev"
+	wgmeshVersion = "unknown"
+)
+
 // cachedResponse is the JSON-serializable form stored in Dragonfly.
 type cachedResponse struct {
 	Body       []byte            `json:"body"`
@@ -107,6 +113,8 @@ func main() {
 	mux.HandleFunc("/api/github/", handleGitHubProxy)
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/api/cache/stats", handleCacheStats)
+	mux.HandleFunc("/api/version", handleVersion)
+	mux.HandleFunc("/api/pipeline/summary", handlePipelineSummary)
 
 	fs := http.FileServer(http.Dir(*docsDir))
 	mux.Handle("/", fs)
@@ -361,6 +369,208 @@ func writeResponse(w http.ResponseWriter, entry *cachedResponse) {
 	w.WriteHeader(entry.StatusCode)
 	if _, err := w.Write(entry.Body); err != nil {
 		log.Printf("writing response: %v", err)
+	}
+}
+
+// handleVersion returns chimney's build version and the wgmesh version it was
+// compiled from. The dashboard uses this to show which wgmesh release is live.
+func handleVersion(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	resp := map[string]string{
+		"chimney_version": version,
+		"wgmesh_version":  wgmeshVersion,
+	}
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		log.Printf("writing /api/version: %v", err)
+	}
+}
+
+// pipelineSummary is the JSON shape returned by /api/pipeline/summary.
+type pipelineSummary struct {
+	WgmeshVersion    string            `json:"wgmesh_version"`
+	OpenIssues       int               `json:"open_issues"`
+	OpenPRs          int               `json:"open_prs"`
+	LastMergedPR     *mergedPR         `json:"last_merged_pr,omitempty"`
+	RecentRuns       []workflowRunInfo `json:"recent_workflow_runs"`
+	GooseSuccessRate *float64          `json:"goose_success_rate_pct,omitempty"`
+	FetchedAt        string            `json:"fetched_at"`
+}
+
+type mergedPR struct {
+	Number   int    `json:"number"`
+	Title    string `json:"title"`
+	SHA      string `json:"sha"`
+	MergedAt string `json:"merged_at"`
+}
+
+type workflowRunInfo struct {
+	WorkflowName string `json:"workflow_name"`
+	Status       string `json:"status"`
+	Conclusion   string `json:"conclusion"`
+	RunAt        string `json:"run_at"`
+	URL          string `json:"url"`
+}
+
+// handlePipelineSummary fetches a compact view of the wgmesh pipeline state:
+// open issue/PR counts, last merged PR, and recent Goose build outcomes.
+// Results are cached for 60s so the dashboard can poll without hammering GitHub.
+func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "__pipeline_summary__"
+	const cacheTTL = 60 * time.Second
+
+	ctx := r.Context()
+
+	// Serve cached summary if fresh
+	if entry, ok := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
+		counterMu.Lock()
+		cacheHits++
+		counterMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("X-Cache-Age", fmt.Sprintf("%.0f", time.Since(entry.FetchedAt).Seconds()))
+		if _, err := w.Write(entry.Body); err != nil {
+			log.Printf("writing /api/pipeline/summary (cached): %v", err)
+		}
+		return
+	}
+
+	counterMu.Lock()
+	cacheMisses++
+	counterMu.Unlock()
+
+	summary := pipelineSummary{
+		WgmeshVersion: wgmeshVersion,
+		FetchedAt:     time.Now().UTC().Format(time.RFC3339),
+	}
+
+	ghGet := func(path string, target interface{}) error {
+		url := fmt.Sprintf("%s/repos/%s%s", githubAPI, repo, path)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			return fmt.Errorf("build request: %w", err)
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "chimney/1.0 (cloudroof.eu)")
+		if githubToken != "" {
+			req.Header.Set("Authorization", "Bearer "+githubToken)
+		}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			return fmt.Errorf("fetch %s: %w", path, err)
+		}
+		defer resp.Body.Close()
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("GitHub returned %d for %s", resp.StatusCode, path)
+		}
+		return json.Unmarshal(body, target)
+	}
+
+	// Open issues (excludes PRs — GitHub API separates them with ?pulls=false via type param).
+	var issueList []struct {
+		Number      int       `json:"number"`
+		PullRequest *struct{} `json:"pull_request"`
+	}
+	if err := ghGet("/issues?state=open&per_page=100", &issueList); err != nil {
+		log.Printf("pipeline/summary: issues: %v", err)
+	} else {
+		for _, i := range issueList {
+			if i.PullRequest == nil {
+				summary.OpenIssues++
+			}
+		}
+	}
+
+	// Open PRs.
+	var prList []struct {
+		Number int `json:"number"`
+	}
+	if err := ghGet("/pulls?state=open&per_page=100", &prList); err != nil {
+		log.Printf("pipeline/summary: pulls: %v", err)
+	} else {
+		summary.OpenPRs = len(prList)
+	}
+
+	// Last merged PR.
+	var closedPRs []struct {
+		Number   int    `json:"number"`
+		Title    string `json:"title"`
+		MergedAt string `json:"merged_at"`
+		Head     struct {
+			SHA string `json:"sha"`
+		} `json:"head"`
+	}
+	if err := ghGet("/pulls?state=closed&per_page=10&sort=updated&direction=desc", &closedPRs); err != nil {
+		log.Printf("pipeline/summary: closed pulls: %v", err)
+	} else {
+		for _, pr := range closedPRs {
+			if pr.MergedAt != "" {
+				summary.LastMergedPR = &mergedPR{
+					Number:   pr.Number,
+					Title:    pr.Title,
+					SHA:      pr.Head.SHA,
+					MergedAt: pr.MergedAt,
+				}
+				break
+			}
+		}
+	}
+
+	// Recent Goose build workflow runs (last 10).
+	var runsResp struct {
+		WorkflowRuns []struct {
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			Conclusion string `json:"conclusion"`
+			CreatedAt  string `json:"created_at"`
+			HTMLURL    string `json:"html_url"`
+		} `json:"workflow_runs"`
+	}
+	if err := ghGet("/actions/workflows/goose-build.yml/runs?per_page=10&status=completed", &runsResp); err != nil {
+		log.Printf("pipeline/summary: goose runs: %v", err)
+	} else {
+		var total, successes int
+		for _, run := range runsResp.WorkflowRuns {
+			summary.RecentRuns = append(summary.RecentRuns, workflowRunInfo{
+				WorkflowName: run.Name,
+				Status:       run.Status,
+				Conclusion:   run.Conclusion,
+				RunAt:        run.CreatedAt,
+				URL:          run.HTMLURL,
+			})
+			total++
+			if run.Conclusion == "success" {
+				successes++
+			}
+		}
+		if total > 0 {
+			rate := float64(successes) / float64(total) * 100
+			summary.GooseSuccessRate = &rate
+		}
+	}
+
+	// Encode and cache
+	body, err := json.Marshal(summary)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	entry := &cachedResponse{
+		Body:       body,
+		StatusCode: http.StatusOK,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		FetchedAt:  time.Now(),
+	}
+	cacheSet(ctx, cacheKey, entry, cacheTTL)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	if _, err := w.Write(body); err != nil {
+		log.Printf("writing /api/pipeline/summary: %v", err)
 	}
 }
 
