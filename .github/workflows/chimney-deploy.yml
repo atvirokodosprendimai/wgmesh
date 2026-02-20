@@ -254,20 +254,31 @@ jobs:
           set -euo pipefail
           echo "## Smoke Tests" >> "$GITHUB_STEP_SUMMARY"
 
+          # Wait for Caddy/TLS warmup — edge node may need time to get cert after deploy
+          echo "Waiting 30s for service warmup..."
+          sleep 30
+
           PASS=0
           FAIL=0
+          # check_with_retry: tries up to 3 times with 10s between attempts
           check() {
             local desc="$1" url="$2" expect="$3"
-            BODY=$(curl -sf --max-time 10 "$url" 2>/dev/null) || BODY=""
-            if echo "$BODY" | grep -q "$expect"; then
-              echo "  PASS: $desc"
-              echo "- :white_check_mark: $desc" >> "$GITHUB_STEP_SUMMARY"
-              PASS=$((PASS + 1))
-            else
-              echo "  FAIL: $desc (expected '$expect')"
-              echo "- :x: $desc" >> "$GITHUB_STEP_SUMMARY"
-              FAIL=$((FAIL + 1))
-            fi
+            local attempt=1 BODY=""
+            while [ $attempt -le 3 ]; do
+              BODY=$(curl -sf --max-time 15 "$url" 2>/dev/null) || BODY=""
+              if echo "$BODY" | grep -q "$expect"; then
+                echo "  PASS: $desc"
+                echo "- :white_check_mark: $desc" >> "$GITHUB_STEP_SUMMARY"
+                PASS=$((PASS + 1))
+                return
+              fi
+              echo "  attempt $attempt/3 failed for: $desc"
+              attempt=$((attempt + 1))
+              [ $attempt -le 3 ] && sleep 10
+            done
+            echo "  FAIL: $desc (expected '$expect', got: ${BODY:0:80})"
+            echo "- :x: $desc" >> "$GITHUB_STEP_SUMMARY"
+            FAIL=$((FAIL + 1))
           }
 
           echo "Running smoke tests against chimney.beerpub.dev..."
