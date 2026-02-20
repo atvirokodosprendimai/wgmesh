@@ -24,10 +24,9 @@ permissions:
   issues: write
 
 env:
-  GOOSE_PROVIDER: anthropic
-  GOOSE_MODEL: GLM-4.7
-  ANTHROPIC_API_KEY: ${{ secrets.ZAI_API_KEY }}
-  ANTHROPIC_HOST: https://api.z.ai/api/anthropic
+  GOOSE_PROVIDER: google
+  GOOSE_MODEL: gemini-2.0-flash
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
 jobs:
   implement:
@@ -49,10 +48,10 @@ jobs:
       # ── Validate prerequisites ──────────────────────────
       - name: Validate API key is configured
         env:
-          KEY: ${{ secrets.ZAI_API_KEY }}
+          KEY: ${{ secrets.GOOGLE_API_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::error::ZAI_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
+            echo "::error::GOOGLE_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
             exit 1
           fi
 
