@@ -1,0 +1,74 @@
+name: Diag - SSH Connectivity Check
+# Temporary diagnostic workflow — delete after debugging
+
+on:
+  workflow_dispatch:
+    inputs:
+      ip:
+        description: 'Server IP to test'
+        required: true
+        default: '91.99.171.86'
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
+    steps:
+      - name: Install hcloud CLI
+        run: |
+          curl -sL https://github.com/hetznercloud/cli/releases/latest/download/hcloud-linux-amd64.tar.gz \
+            | tar xz -C /usr/local/bin hcloud
+          hcloud version
+
+      - name: Check Hetzner firewall state
+        run: |
+          echo "=== Hetzner Firewalls ==="
+          hcloud firewall list -o columns=id,name,rules_count || true
+          echo ""
+          echo "=== Firewalls applied to chimney-nbg1 ==="
+          hcloud server describe chimney-nbg1 -o json | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          print('Status:', d.get('status'))
+          print('Public IPv4:', d.get('public_net', {}).get('ipv4', {}).get('ip'))
+          print('Firewalls:', d.get('firewall_status', []))
+          print('Labels:', d.get('labels'))
+          " || echo "Server not found"
+          echo ""
+          echo "=== Hetzner project-level firewalls (all) ==="
+          hcloud firewall list -o json | python3 -m json.tool || true
+
+      - name: Test TCP connectivity to SSH port
+        run: |
+          IP="${{ inputs.ip }}"
+          echo "Testing TCP connectivity to $IP:22..."
+          # nc is more reliable than ssh for connectivity test
+          if nc -z -w 10 "$IP" 22 2>/dev/null; then
+            echo "PASS: TCP port 22 is open on $IP"
+          else
+            echo "FAIL: TCP port 22 is NOT reachable on $IP"
+          fi
+          echo ""
+          echo "Testing TCP to port 80 (should be closed):"
+          nc -z -w 5 "$IP" 80 && echo "port 80 open" || echo "port 80 closed (expected)"
+
+      - name: Try SSH with verbose output
+        env:
+          CHIMNEY_SSH_KEY: ${{ secrets.CHIMNEY_SSH_KEY }}
+          CHIMNEY_SSH_PUBKEY: ${{ secrets.CHIMNEY_SSH_PUBKEY }}
+        run: |
+          IP="${{ inputs.ip }}"
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$CHIMNEY_SSH_KEY" > ~/.ssh/chimney && chmod 600 ~/.ssh/chimney
+          echo "$CHIMNEY_SSH_PUBKEY" > ~/.ssh/chimney.pub
+
+          echo "=== SSH key fingerprint ==="
+          ssh-keygen -l -f ~/.ssh/chimney.pub
+
+          echo ""
+          echo "=== Attempting SSH with verbose output (truncated) ==="
+          ssh -vvv -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+            -o ConnectTimeout=15 -i ~/.ssh/chimney \
+            "root@${IP}" "echo SSH_OK; uname -a; cat /root/.ssh/authorized_keys" 2>&1 | head -80 || true
