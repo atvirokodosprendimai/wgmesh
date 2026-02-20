@@ -40,10 +40,10 @@ services:
       - --port=6379
       - --maxmemory=128mb
       - --proactor_threads=2
-      - --no_tls
-      # Disable io_uring: Hetzner cax11 (arm64) kernels may lack required
-      # uring_cmd support. epoll mode is universally compatible.
-      - --proactor_mode=epoll
+      # TLS is disabled by default (no --tls flag needed)
+      # Use epoll instead of io_uring: Hetzner cax11 (arm64) kernels may lack
+      # required uring_cmd support. epoll is universally compatible.
+      - --force_epoll
       - --alsologtostderr
     volumes:
       - dragonfly_data:/data
