@@ -198,34 +198,35 @@ jobs:
             echo "=== Deploying to $name ($ip, $arch) ==="
             BINARY="chimney-linux-${arch}"
 
-            # Copy binary
-            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              "$BINARY" "root@${ip}:/tmp/chimney"
+            SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i $SSH_KEY_FILE"
 
-            # Copy deploy scripts and config
-            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              deploy/chimney/setup.sh "root@${ip}:/tmp/setup.sh"
+            # Copy chimney binary
+            $SCP "$BINARY" "root@${ip}:/tmp/chimney"
 
-            scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              deploy/chimney/Caddyfile "root@${ip}:/tmp/Caddyfile"
+            # Copy compose stack files
+            $SCP deploy/chimney/setup.sh    "root@${ip}:/tmp/setup.sh"
+            $SCP deploy/chimney/compose.yml "root@${ip}:/tmp/compose.yml"
+            $SCP deploy/chimney/Caddyfile   "root@${ip}:/tmp/Caddyfile"
+            $SCP deploy/chimney/Dockerfile  "root@${ip}:/tmp/Dockerfile"
 
             # Copy dashboard
-            scp -r -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-              -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              docs "root@${ip}:/tmp/docs"
+            $SCP -r docs "root@${ip}:/tmp/docs"
 
-            # Run setup (idempotent) — pass token via stdin to avoid exposing in process list
-            echo '${{ secrets.PUSH_TOKEN }}' | ssh -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-              "root@${ip}" 'read -r GITHUB_TOKEN; export GITHUB_TOKEN; ROLE=origin bash /tmp/setup.sh'
+            # Run setup (idempotent) — pass secrets via stdin, never in env/args
+            printf '%s\n%s\n' \
+              '${{ secrets.PUSH_TOKEN }}' \
+              '${{ secrets.WGMESH_SECRET }}' \
+            | ssh -o StrictHostKeyChecking=no \
+                -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+                "root@${ip}" \
+                'read -r GITHUB_TOKEN; read -r WGMESH_SECRET
+                 export GITHUB_TOKEN WGMESH_SECRET
+                 ROLE=origin bash /tmp/setup.sh'
 
-            # Health check
+            # Health check — chimney is now behind Docker, check via curl on port 8080
             echo "Verifying health on $name..."
             HEALTHY=false
-            for i in $(seq 1 12); do
+            for i in $(seq 1 20); do
               if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                  -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
                  "root@${ip}" "curl -sf http://localhost:8080/healthz" 2>/dev/null; then
