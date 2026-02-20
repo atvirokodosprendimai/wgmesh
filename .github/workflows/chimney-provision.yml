@@ -55,21 +55,52 @@ jobs:
             | tar xz -C /usr/local/bin hcloud
           hcloud version
 
-      - name: Generate SSH key
+      - name: Setup persistent SSH key
+        env:
+          CHIMNEY_SSH_KEY: ${{ secrets.CHIMNEY_SSH_KEY }}
+          CHIMNEY_SSH_PUBKEY: ${{ secrets.CHIMNEY_SSH_PUBKEY }}
         run: |
-          ssh-keygen -t ed25519 -f ~/.ssh/chimney -N "" -q
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          echo "$CHIMNEY_SSH_KEY" > ~/.ssh/chimney && chmod 600 ~/.ssh/chimney
+          echo "$CHIMNEY_SSH_PUBKEY" > ~/.ssh/chimney.pub
           echo "SSH_KEY_FILE=$HOME/.ssh/chimney" >> "$GITHUB_ENV"
 
       - name: Provision servers
         id: provision
+        env:
+          CHIMNEY_SSH_PUBKEY: ${{ secrets.CHIMNEY_SSH_PUBKEY }}
         run: |
           set -euo pipefail
 
           KEY_NAME="chimney-deploy-key"
 
-          # Upload SSH key (replace if exists)
-          hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
-          hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file "${SSH_KEY_FILE}.pub"
+          # Upload persistent deploy key (find by fingerprint to avoid uniqueness_error)
+          echo "$CHIMNEY_SSH_PUBKEY" > /tmp/chimney-deploy.pub
+          MD5_FP=$(ssh-keygen -E md5 -lf /tmp/chimney-deploy.pub | awk '{print $2}' | sed 's/^MD5://')
+          KEY_ID=$(hcloud ssh-key list -o noheader -o columns=id,fingerprint 2>/dev/null \
+            | awk -v fp="$MD5_FP" '$2==fp{print $1}' | head -1)
+          if [ -z "$KEY_ID" ]; then
+            hcloud ssh-key delete "$KEY_NAME" 2>/dev/null || true
+            hcloud ssh-key create --name "$KEY_NAME" --public-key-from-file /tmp/chimney-deploy.pub
+          else
+            echo "Reusing existing Hetzner key ID: $KEY_ID"
+            KEY_NAME=$(hcloud ssh-key list -o noheader -o columns=name,fingerprint \
+              | awk -v fp="$MD5_FP" '$2==fp{print $1}' | head -1)
+          fi
+
+          # Build cloud-init user-data that injects our SSH pubkey on first boot.
+          # This is more reliable than --ssh-key: cloud-init runs after the OS
+          # boots and writes directly to authorized_keys, bypassing Hetzner's
+          # key injection mechanism which can fail silently on rebuilds.
+          cat > /tmp/cloud-init.yaml << CLOUDINIT
+#cloud-config
+users:
+  - name: root
+    ssh_authorized_keys:
+      - $(cat /tmp/chimney-deploy.pub)
+CLOUDINIT
+          echo "cloud-init user-data prepared:"
+          cat /tmp/cloud-init.yaml
 
           IFS=',' read -ra LOCATIONS <<< "${{ inputs.locations }}"
           SERVER_IPS=""
@@ -99,7 +130,7 @@ jobs:
                 --type "$VM_TYPE" \
                 --image "ubuntu-24.04" \
                 --location "$loc" \
-                --ssh-key "$KEY_NAME" \
+                --user-data-from-file /tmp/cloud-init.yaml \
                 --label "service=chimney" \
                 --label "location=$loc"
 
