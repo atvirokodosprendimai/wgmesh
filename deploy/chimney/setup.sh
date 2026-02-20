@@ -86,6 +86,9 @@ chown "$CHIMNEY_USER:$CHIMNEY_USER" "$CHIMNEY_DIR"
 # ── Deploy chimney binary ──
 # The binary is expected at /tmp/chimney, placed there by the CI workflow via scp.
 # We do NOT support downloading from arbitrary URLs for security reasons.
+# Stop the running service first to avoid "Text file busy" on the binary.
+systemctl stop chimney 2>/dev/null || true
+
 if [ -f /tmp/chimney ]; then
     cp /tmp/chimney "$CHIMNEY_DIR/chimney"
     chmod +x "$CHIMNEY_DIR/chimney"
