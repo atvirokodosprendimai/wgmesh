@@ -103,8 +103,8 @@ const (
 Add a new `edge-heartbeat` script alongside the existing `edge-config-pull` script. The script:
 
 1. Reads `LIGHTHOUSE_URL`, `EDGE_ID`, `EDGE_API_KEY`, `EDGE_NAME`, `EDGE_LOCATION` from env.
-2. Collects `load_avg` from `/proc/loadavg` and `active_connections` from `ss -t state established | wc -l`.
-3. Collects `mesh_ip` from the WireGuard interface (`wg show wg0 | grep 'address'` or `ip addr show wg0`).
+2. Collects `load_avg` from `/proc/loadavg` and `active_connections` from `ss -t state established | tail -n +2 | wc -l` (skipping the header line that `ss` always prints).
+3. Collects `mesh_ip` from the WireGuard interface using `ip -4 addr show wg0 | grep inet | awk '{print $2}' | cut -d'/' -f1` (the `wg show` command does not output an `address` field, so `ip addr` is more reliable).
 4. POSTs `{"mesh_ip":..., "public_ip":..., "location":..., "load_avg":..., "active_connections":...}` to `${LIGHTHOUSE_URL}/v1/edges/${EDGE_ID}/heartbeat` with `Authorization: Bearer ${EDGE_API_KEY}`.
 5. Logs success/failure (non-fatal on failure so the timer continues).
 
@@ -140,7 +140,7 @@ Following the existing pattern in `api_test.go` (nil-store + `X-Org-ID` header i
 4. **Valid request, store returns not-found** → handler auto-creates edge, returns 200.
 5. **Valid request, store exists** → handler updates fields, returns 200 with site list.
 
-Because the nil-store pattern panics on any store call, these tests will need either a simple in-memory stub store (`type stubStore struct { ... }`) or use dependency injection for the store interface, consistent with how `testAPI()` currently skips store-dependent paths.
+Because the nil-store pattern panics on any store call, these tests will need a simple **in-memory stub store** — a private `stubStore` struct that implements only the `GetEdge`/`UpsertEdge`/`ListSites` methods via a map. This is preferred over full dependency injection to keep the change surface minimal and consistent with the existing `testAPI()` helper pattern. The stub is defined only in `_test.go` files and is not exported.
 
 ### Unit tests — staleness detection (`health_test.go`)
 
