@@ -55,11 +55,21 @@ const (
 	SiteStatusDeleted       SiteStatus = "deleted"
 )
 
+// HealthCheck configures periodic HTTP probing for an origin endpoint.
+type HealthCheck struct {
+	Path      string        `json:"path"`                // e.g., "/healthz"
+	Interval  time.Duration `json:"interval,omitempty"`  // default 10s
+	Timeout   time.Duration `json:"timeout,omitempty"`   // default 5s
+	Unhealthy int           `json:"unhealthy,omitempty"` // consecutive failures before marking down (default 2)
+	Healthy   int           `json:"healthy,omitempty"`   // consecutive successes before marking up (default 2)
+}
+
 // Origin defines where traffic should be proxied to.
 type Origin struct {
-	MeshIP   string `json:"mesh_ip"`  // WireGuard mesh IP of the origin node
-	Port     int    `json:"port"`     // Port on the origin
-	Protocol string `json:"protocol"` // "http" or "https" (to origin)
+	MeshIP      string      `json:"mesh_ip"`                // WireGuard mesh IP of the origin node
+	Port        int         `json:"port"`                   // Port on the origin
+	Protocol    string      `json:"protocol"`               // "http" or "https" (to origin)
+	HealthCheck HealthCheck `json:"health_check,omitempty"` // Optional HTTP health probe config
 }
 
 // Site represents a customer domain routed through the CDN.

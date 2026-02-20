@@ -20,6 +20,7 @@ type API struct {
 	auth      *Auth
 	dnsTarget string // Edge DNS target (e.g., "edge.cloudroof.eu")
 	limiter   *ratelimit.IPRateLimiter
+	health    *HealthReporter
 	mux       *http.ServeMux
 }
 
@@ -30,6 +31,7 @@ func NewAPI(store *Store, auth *Auth, dnsTarget string, limiter *ratelimit.IPRat
 		auth:      auth,
 		dnsTarget: dnsTarget,
 		limiter:   limiter,
+		health:    NewHealthReporter(),
 		mux:       http.NewServeMux(),
 	}
 	a.registerRoutes()
@@ -62,6 +64,9 @@ func (a *API) registerRoutes() {
 
 	// Edges (read-only, authenticated)
 	a.mux.HandleFunc("GET /v1/edges", a.requireAuth(a.rateLimit(a.handleListEdges)))
+
+	// Edge health reporting (internal — edges POST their probe results here)
+	a.mux.HandleFunc("POST /v1/sites/{site_id}/health", a.requireAuth(a.handleReportHealth))
 }
 
 // --- Middleware ---
@@ -387,7 +392,11 @@ func (a *API) handleGetSite(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, http.StatusOK, site)
+	resp := map[string]interface{}{
+		"site":          site,
+		"origin_health": a.health.StatusForSite(siteID),
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 func (a *API) handleUpdateSite(w http.ResponseWriter, r *http.Request) {
@@ -490,6 +499,41 @@ func (a *API) handleListEdges(w http.ResponseWriter, r *http.Request) {
 		"edges": edges,
 		"count": len(edges),
 	})
+}
+
+// handleReportHealth accepts a health status report from an edge for a specific site.
+// Edges call this endpoint to report the result of their HTTP origin health probes.
+func (a *API) handleReportHealth(w http.ResponseWriter, r *http.Request) {
+	siteID := r.PathValue("site_id")
+
+	var report struct {
+		EdgeID string       `json:"edge_id"`
+		Status HealthStatus `json:"status"`
+		Error  string       `json:"error,omitempty"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "Invalid JSON body")
+		return
+	}
+	if report.EdgeID == "" {
+		writeError(w, http.StatusBadRequest, "validation_error", "edge_id is required")
+		return
+	}
+	switch report.Status {
+	case HealthStatusHealthy, HealthStatusUnhealthy, HealthStatusUnknown:
+	default:
+		writeError(w, http.StatusBadRequest, "validation_error", "status must be healthy, unhealthy, or unknown")
+		return
+	}
+
+	a.health.Report(report.EdgeID, OriginHealth{
+		SiteID:      siteID,
+		Status:      report.Status,
+		LastChecked: time.Now().UTC(),
+		LastError:   report.Error,
+	})
+
+	writeJSON(w, http.StatusOK, map[string]string{"status": "accepted"})
 }
 
 // --- Helpers ---

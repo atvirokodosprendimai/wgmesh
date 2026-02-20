@@ -21,6 +21,7 @@ func testAPI() *API {
 		store:     nil, // No store — tests must not hit Redis
 		auth:      &Auth{store: nil},
 		dnsTarget: "edge.test.cloudroof.eu",
+		health:    NewHealthReporter(),
 		mux:       http.NewServeMux(),
 	}
 }
