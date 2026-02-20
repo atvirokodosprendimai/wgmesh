@@ -200,7 +200,7 @@ Use `net/http/httptest.NewServer` to mock the Cloudflare API:
 ### Zone-file tests (`dns_zonefile_test.go`)
 
 - Golden-file test: compare generated output to a fixture.
-- Verify serial number is derived from current timestamp (date-based `YYYYMMDDnn`).
+- Verify serial number is derived from current timestamp using the format `YYYYMMDDnn`, where `nn` is a two-digit daily increment counter (starts at `00`, increments on each sync within the same day; resets to `00` the next day).
 - Verify comment lines include region name.
 
 ### API endpoint tests (`api_test.go`)
