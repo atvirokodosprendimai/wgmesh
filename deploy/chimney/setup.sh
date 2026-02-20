@@ -60,8 +60,24 @@ echo "Building chimney image..."
 docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" build chimney
 
 echo "Starting stack..."
-docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" \
-    --env-file "$DEPLOY_DIR/.env" up -d
+if ! docker compose -f "$DEPLOY_DIR/compose.yml" --project-directory "$DEPLOY_DIR" \
+    --env-file "$DEPLOY_DIR/.env" up -d 2>&1; then
+    echo "ERROR: docker compose up failed — dumping dragonfly logs:"
+    docker logs chimney-dragonfly-1 2>&1 | tail -50 || true
+    docker inspect chimney-dragonfly-1 2>&1 | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin)[0]
+    state = d.get('State', {})
+    print('Container state:', state.get('Status'))
+    print('Exit code:', state.get('ExitCode'))
+    print('Error:', state.get('Error'))
+    print('OOMKilled:', state.get('OOMKilled'))
+except Exception as e:
+    print('Could not parse:', e)
+" || true
+    exit 1
+fi
 
 # ── Wait for chimney to be healthy ──
 echo "Waiting for chimney to be healthy (up to 60s)..."
