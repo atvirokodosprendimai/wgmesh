@@ -1,0 +1,6 @@
+git_workflow: true
+status_reporting: true
+skills_list: true
+specs_and_concepts: true
+session_context: true
+context_tracking_max: 200000
