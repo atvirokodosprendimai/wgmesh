@@ -32,7 +32,6 @@ services:
 
   dragonfly:
     image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
-    platform: linux/arm64
     restart: unless-stopped
     ulimits:
       memlock: -1
