@@ -1,0 +1,135 @@
+name: Chimney Build and Push
+
+# Builds a minimal multi-arch Docker image for chimney and pushes to ghcr.io.
+#
+# The image is built with docker buildx from a Nix-inspired minimal Dockerfile
+# (busybox:musl base + statically compiled Go binary + CA certs).
+# The Nix flake at deploy/chimney/flake.nix provides the equivalent local build.
+#
+# Tags pushed:
+#   :sha-<SHORT_SHA>   — immutable, used by blue/green deploy workflow
+#   :latest            — floating, watched by watchtower on edge nodes
+#   :v<SEMVER>         — on tagged releases
+#
+# Image: ghcr.io/atvirokodosprendimai/wgmesh/chimney
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+    paths:
+      - "cmd/chimney/**"
+      - "pkg/**"
+      - "go.mod"
+      - "go.sum"
+      - "deploy/chimney/Dockerfile.multiarch"
+      - "deploy/chimney/flake.nix"
+      - ".github/workflows/chimney-build.yml"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Force rebuild even without code changes"
+        type: boolean
+        default: false
+
+concurrency:
+  group: chimney-build-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE: ghcr.io/atvirokodosprendimai/wgmesh/chimney
+  GO_VERSION: "1.23.x"
+
+jobs:
+  build-push:
+    name: Build and push chimney image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      sha_tag: ${{ steps.tags.outputs.sha_tag }}
+      latest_tag: ${{ steps.tags.outputs.latest_tag }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Compute tags
+        id: tags
+        run: |
+          SHORT="${GITHUB_SHA::8}"
+          echo "short_sha=${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "sha_tag=${{ env.IMAGE }}:sha-${SHORT}" >> "$GITHUB_OUTPUT"
+          echo "latest_tag=${{ env.IMAGE }}:latest" >> "$GITHUB_OUTPUT"
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            V="${GITHUB_REF#refs/tags/}"
+            echo "version_tag=${{ env.IMAGE }}:${V}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cross-compile chimney
+        run: |
+          SHORT="${GITHUB_SHA::8}"
+          LDFLAGS="-s -w -X main.version=chimney-${SHORT}"
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="${LDFLAGS}" -o deploy/chimney/chimney-amd64 ./cmd/chimney/
+
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build \
+            -ldflags="${LDFLAGS}" -o deploy/chimney/chimney-arm64 ./cmd/chimney/
+
+          ls -lh deploy/chimney/chimney-*
+
+      - name: Copy docs into build context
+        run: cp -r docs deploy/chimney/docs
+
+      - name: Set up QEMU (for arm64 emulation)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/chimney
+          file: deploy/chimney/Dockerfile.multiarch
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.tags.outputs.sha_tag }}
+            ${{ steps.tags.outputs.latest_tag }}
+            ${{ startsWith(github.ref, 'refs/tags/') && steps.tags.outputs.version_tag || '' }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=https://github.com/atvirokodosprendimai/wgmesh
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=chimney GitHub API proxy
+
+      - name: Summary
+        run: |
+          echo "## Chimney Image" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Tag | Value |" >> "$GITHUB_STEP_SUMMARY"
+          echo "|-----|-------|" >> "$GITHUB_STEP_SUMMARY"
+          echo "| SHA | \`${{ steps.tags.outputs.sha_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "| Latest | \`${{ steps.tags.outputs.latest_tag }}\` |" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Platforms: \`linux/amd64\`, \`linux/arm64\`" >> "$GITHUB_STEP_SUMMARY"
