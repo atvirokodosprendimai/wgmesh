@@ -112,9 +112,9 @@ fi
 # No file-based logging — ProtectSystem=strict is safe without extra ReadWritePaths.
 cat > /etc/systemd/system/chimney.service <<EOF
 [Unit]
-Description=chimney origin server (cloudroof.eu dashboard)
+Description=chimney origin server (beerpub.dev dashboard)
 After=network.target dragonfly.service
-Wants=dragonfly.service
+Requires=dragonfly.service
 
 [Service]
 Type=simple
