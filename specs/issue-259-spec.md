@@ -61,7 +61,7 @@ Flags:
 - `--port` (required) — origin port
 - `--protocol` (default `http`) — `http` or `https`
 - `--health-path` (default `/healthz`) — origin health check path
-- `--interface` (default `wg0` / `utun20` on macOS) — WireGuard interface to read mesh IP from
+- `--interface` (optional) — WireGuard interface name; auto-detected per platform (`wg0` on Linux, `utun20` on macOS) if not specified, matching the same logic used by `joinCmd()`
 - `--tls` (default `auto`) — TLS mode
 
 Flow:
@@ -135,7 +135,7 @@ The existing `main_test.go` pattern only tests subcommand routing. Extend it to 
 
 ```bash
 # 1. Start lighthouse (with dragonfly)
-cmd/lighthouse/main --addr :8080
+./cmd/lighthouse/main --addr :8080
 
 # 2. On origin server, join mesh
 wgmesh join --secret 'cdn-mesh-secret'
