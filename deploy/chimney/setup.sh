@@ -37,7 +37,10 @@ if ! command -v dragonfly &>/dev/null; then
     DF_VERSION=$(curl -sf https://api.github.com/repos/dragonflydb/dragonfly/releases/latest | jq -r '.tag_name')
     DF_URL="https://github.com/dragonflydb/dragonfly/releases/download/${DF_VERSION}/dragonfly-${DF_ARCH}.tar.gz"
     echo "Downloading Dragonfly ${DF_VERSION} for ${DF_ARCH}..."
-    curl -sfL "$DF_URL" | tar xz -C /usr/local/bin
+    # The tarball contains "dragonfly-<arch>" binary, not "dragonfly".
+    # Extract to /tmp then rename to get a consistent binary name.
+    curl -sfL "$DF_URL" | tar xz -C /tmp
+    mv "/tmp/dragonfly-${DF_ARCH}" /usr/local/bin/dragonfly
     chmod +x /usr/local/bin/dragonfly
 fi
 
