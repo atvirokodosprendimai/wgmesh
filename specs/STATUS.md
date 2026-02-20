@@ -62,14 +62,14 @@ features/
 
 ---
 
-## Not Implemented (1 spec)
+## Implemented Since Last Audit (1 spec)
 
 ### RPC Socket Interface for Querying Running Daemon
 - **File:** `specs/not-implemented/rpc-socket-interface-spec.md`
 - **GitHub:** No associated issue found
-- **What's missing:** Everything. `pkg/rpc/` directory doesn't exist. No `peers` subcommand in `main.go`. No Unix socket listener in daemon.
-- **Spec scope:** Unix domain socket JSON-RPC at `/var/run/wgmesh.sock`, methods: `peers.list`, `peers.get`, `peers.count`, `daemon.status`, `daemon.ping`
-- **Estimated work:** 2-3 days (medium-high complexity)
+- **Status:** **IMPLEMENTED** — `pkg/rpc/` exists with full Unix socket JSON-RPC server (422 lines), client, protocol, and integration tests
+- **Evidence:** `pkg/rpc/server.go` (Unix socket listener, methods: `peers.list`, `peers.get`, `peers.count`, `daemon.status`, `daemon.ping`), `pkg/rpc/client.go`, `pkg/rpc/protocol.go`, `pkg/rpc/server_test.go`, `pkg/rpc/protocol_test.go`, `pkg/rpc/integration_test.go`
+- **Note:** Spec file should be moved to `specs/implemented/`
 
 ---
 

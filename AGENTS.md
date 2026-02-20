@@ -1,196 +1,132 @@
 # AGENTS.md - Coding Agent Guide for wgmesh
 
-This document provides essential context for agentic coding tools (Claude Code, Copilot, Goose) operating in this repository.
-
-## Project Overview
-
-wgmesh is a Go-based WireGuard mesh network builder with two operational modes:
+wgmesh is a Go 1.23 WireGuard mesh network builder with two operational modes:
 
 1. **Centralized mode** (`pkg/mesh`, `pkg/ssh`): Operator-managed node deployment via SSH
 2. **Decentralized mode** (`pkg/daemon`, `pkg/discovery`): Self-discovering mesh using a shared secret
 
-### Discovery Layers (Decentralized Mode)
-- Layer 0: GitHub Issues-based registry (`pkg/discovery/registry.go`)
-- Layer 1: LAN multicast (`pkg/discovery/lan.go`)
-- Layer 2: BitTorrent Mainline DHT (`pkg/discovery/dht.go`)
-- Layer 3: In-mesh gossip (`pkg/discovery/gossip.go`)
+Discovery layers (decentralized): GitHub Issues registry (L0), LAN multicast (L1), BitTorrent DHT (L2), in-mesh gossip (L3).
 
 ## Project Structure
 
 ```
+main.go              # CLI entry point (both modes, subcommands: join, init, status, qr, etc.)
+cmd/
+├── chimney/         # GitHub API proxy service
+└── lighthouse/      # CDN control plane service
 pkg/
-├── crypto/      # Key derivation (HKDF), AES-256-GCM, membership tokens
-├── daemon/      # Decentralized daemon mode, peer store, reconciliation
-├── discovery/   # Peer discovery layers (DHT, gossip, LAN, registry)
-├── privacy/     # Dandelion++ announcement relay
-├── mesh/        # Centralized mode data structures and operations
-├── ssh/         # SSH client and remote WireGuard operations
-└── wireguard/   # WireGuard config parsing, diffing, key generation
+├── crypto/          # HKDF key derivation, AES-256-GCM envelopes, HMAC membership tokens
+├── daemon/          # Decentralized daemon: peer store, reconciliation loop, health, relay
+├── discovery/       # Peer discovery: DHT, gossip, LAN multicast, registry, STUN, exchange
+├── lighthouse/      # Lighthouse API client, auth, store, xDS sync
+├── mesh/            # Centralized mode data structures, policy engine
+├── privacy/         # Dandelion++ announcement relay
+├── ratelimit/       # Token bucket rate limiter
+├── routes/          # Route management and diffing
+├── rpc/             # RPC protocol, client, server
+├── ssh/             # SSH client and remote WireGuard operations
+└── wireguard/       # WireGuard config parsing, diffing, key generation
 ```
 
 ## Build & Test Commands
 
 ```bash
-# Build
-make build        # or: go build -o wgmesh
-go build -o wgmesh .
-
-# Test all
-make test         # or: go test ./...
-go test ./...
+make build                    # or: go build -o wgmesh .
+make test                     # or: go test ./...
+make fmt                      # or: go fmt ./...
+make lint                     # or: golangci-lint run
+make deps                     # or: go mod download && go mod tidy
 
 # Test single package
 go test ./pkg/crypto/...
 
-# Test single file (run specific test)
+# Test single test by name
 go test ./pkg/crypto -run TestDeriveKeys
 go test ./pkg/daemon -run TestPeerStore -v
 
-# Test with race detector (REQUIRED for concurrency changes)
+# Test with race detector (REQUIRED for any concurrency changes)
 go test -race ./...
 go test -race ./pkg/daemon/...
 
 # Coverage
-go test -cover ./...
 go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
-
-# Format
-make fmt          # or: go fmt ./...
-go fmt ./...
-
-# Lint
-make lint         # or: golangci-lint run
-golangci-lint run
-
-# Dependencies
-make deps         # or: go mod download && go mod tidy
 ```
 
 ## Code Style
 
-### Language & Formatting
-- Go 1.23
-- Standard `gofmt` formatting
-- Line length: keep under 120 characters
-- Tabs for indentation (Go standard)
+### Formatting & Language
+- Go 1.23, module path: `github.com/atvirokodosprendimai/wgmesh`
+- Standard `gofmt` formatting, tabs for indentation
+- Line length: under 120 characters
 
 ### Import Organization
+Three groups separated by blank lines: stdlib, external, internal.
 ```go
 import (
-    // Standard library
-    "crypto/sha256"
     "fmt"
-    "net"
     "sync"
-    
-    // External packages
+
     "golang.org/x/crypto/hkdf"
-    
-    // Internal packages
+
     "github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
 ```
 
 ### Naming Conventions
-- **Packages**: lowercase, single word preferred (e.g., `crypto`, `mesh`, `daemon`)
-- **Types**: PascalCase for exported, camelCase for unexported
-- **Functions**: PascalCase for exported, camelCase for unexported
+- **Packages**: lowercase, single word (`crypto`, `daemon`, `mesh`)
+- **Exported types/functions**: PascalCase; unexported: camelCase
 - **Constants**: PascalCase or UPPER_SNAKE_CASE for exported
-- **Interfaces**: typically end with `-er` (e.g., `Discoverer`, `PeerStore`)
+- **Interfaces**: end with `-er` suffix (`Discoverer`, `PeerStore`)
 
 ### Error Handling
-Always check errors and wrap with context using `fmt.Errorf("context: %w", err)`. Never silently ignore errors.
-
-### Concurrency
-Use `sync.Mutex`/`sync.RWMutex` for thread-safe access. Always test with `-race`:
+Always check and wrap with context. Never silently ignore errors.
 ```go
-type PeerStore struct {
-    mu    sync.RWMutex
-    peers map[string]*Peer
-}
-
-func (ps *PeerStore) GetPeer(id string) (*Peer, bool) {
-    ps.mu.RLock()
-    defer ps.mu.RUnlock()
-    peer, ok := ps.peers[id]
-    return peer, ok
+data, err := os.ReadFile(path)
+if err != nil {
+    return fmt.Errorf("reading config: %w", err)
 }
 ```
+
+### Concurrency
+Use `sync.Mutex`/`sync.RWMutex` for thread-safe access. Always test with `-race`. Use `defer mu.Unlock()` / `defer mu.RUnlock()` pattern.
 
 ## Testing Standards
 
 - Test files: `*_test.go` in same package directory
 - Test functions: `TestFunctionName` or `TestFunctionName_Scenario`
-- Use `t.Parallel()` for independent tests
-- Mock external dependencies (network, filesystem, SSH)
+- Use `t.Parallel()` for independent tests; table-driven tests preferred
 - Test error paths, not just success paths
-- Aim for >80% coverage on new code
-- Always test concurrency code with `-race` flag
+- Mock external dependencies (network, filesystem, SSH)
+- Aim for >80% coverage on new code; always run `-race` for concurrency code
 
-### Table-Driven Tests (Preferred)
+Table-driven test pattern:
 ```go
-func TestDeriveKey(t *testing.T) {
-    tests := []struct {
-        name    string
-        secret  string
-        wantLen int
-        wantErr bool
-    }{
-        {"valid secret", "test-secret-long-enough", 32, false},
-        {"short secret", "short", 0, true},
-    }
-    for _, tt := range tests {
-        t.Run(tt.name, func(t *testing.T) {
-            key, err := DeriveKey(tt.secret)
-            if (err != nil) != tt.wantErr {
-                t.Errorf("DeriveKey() error = %v, wantErr %v", err, tt.wantErr)
-            }
-        })
-    }
+tests := []struct {
+    name string; secret string; wantErr bool
+}{
+    {"valid secret", "test-secret-long-enough", false},
+    {"short secret", "short", true},
+}
+for _, tt := range tests {
+    t.Run(tt.name, func(t *testing.T) {
+        _, err := DeriveKey(tt.secret)
+        if (err != nil) != tt.wantErr {
+            t.Errorf("DeriveKey() error = %v, wantErr %v", err, tt.wantErr)
+        }
+    })
 }
 ```
 
-## Security Considerations
+## Security Rules
 
 - NEVER hardcode secrets, keys, or tokens
 - NEVER disable or weaken existing security checks
 - NEVER modify encryption algorithms or key derivation parameters without review
-- Use constant-time comparison for cryptographic values
+- Use constant-time comparison for cryptographic values (`crypto/subtle`)
 - Validate all input from untrusted sources (peers, CLI args, config files)
 - Key derivation: HKDF-SHA256 (`pkg/crypto/derive.go`)
 - Encryption: AES-256-GCM with unique nonces (`pkg/crypto/envelope.go`)
 - Authentication: HMAC (`pkg/crypto/membership.go`)
-
-## Frontend & API Conventions
-
-- **All external API calls MUST go through a local proxy** — never call external APIs (GitHub, etc.) directly from browser JavaScript. Use relative URLs (`/api/...`), not absolute external URLs.
-- Backend proxies provide authenticated tokens, server-side caching, and rate limit protection. Bypassing them defeats the entire caching architecture.
-- chimney proxy: `/api/github/{path}` → GitHub REST API (authenticated, 5,000 req/hr, cached)
-- lighthouse API: `/v1/...` → CDN control plane
-
-```javascript
-// BAD — direct external API call from browser (60 req/hr, no cache)
-const API = 'https://api.github.com/repos/owner/repo';
-const res = await fetch(`${API}/pulls`);
-
-// GOOD — through chimney proxy (5,000 req/hr, server-side cache)
-const API = '/api/github';
-const res = await fetch(`${API}/pulls`);
-```
-
-## Integration Rules
-
-- **Backend + frontend = one PR.** When creating a new backend endpoint (API, proxy, webhook), update the frontend to use it in the same PR. Do not split into "add proxy" + "update frontend" — the second PR never comes.
-- **Every deploy MUST have a smoke test** that verifies the full request path (user → frontend → proxy → external service), not just `healthz`. See `chimney-deploy.yml` for the pattern.
-- **Smoke test template** for new services:
-  ```yaml
-  # Minimum checks after deploy:
-  # 1. Health endpoint returns ok
-  # 2. Main page/API loads
-  # 3. Proxy/upstream integration returns real data
-  # 4. Caching layer responds
-  ```
-- **Always read Copilot review comments after every PR merge** — check with `gh api repos/.../pulls/N/comments` and `gh api repos/.../pulls/N/reviews`. If there are actionable comments, create follow-up fix PRs. Do NOT blindly resolve review threads — read them, evaluate, and fix real bugs before resolving.
 
 ## What NOT to Modify
 
@@ -198,14 +134,19 @@ const res = await fetch(`${API}/pulls`);
 - `go.mod`/`go.sum` unless explicitly required
 - WireGuard key generation logic without security review
 - DHT bootstrap nodes without testing
-- Prefer Go stdlib over external dependencies; run `go mod tidy` after changes
+- Prefer Go stdlib over external deps; run `go mod tidy` after any dependency change
 
-## Specialized Agents
+## Copilot Triage (Spec-Only Mode)
 
-This repo defines specialized agents in `.github/AGENTS.md`:
-- **docs_agent**: Documentation only (*.md files)
-- **test_agent**: Test files only (*_test.go)
+When triaging an issue, do NOT write implementation code. Create a spec at `specs/issue-{NUMBER}-spec.md` with: Classification, Deliverables, Problem Analysis, Proposed Approach, Affected Files, Test Strategy, Estimated Complexity. Open as PR titled `spec: Issue #{NUMBER} - {description}`.
+
+## Specialized Agents (`.github/AGENTS.md`)
+
+- **docs_agent**: Markdown files only
+- **test_agent**: Test files only (`*_test.go`)
 - **security_agent**: Crypto and security code review
 - **refactor_agent**: Code structure improvements
 
-Invoke the appropriate agent for specialized work.
+## CI/CD
+
+Docker images: `ghcr.io`, built on push to main and tags (`v*.*.*`). Goose automated implementation triggered by `approved-for-build` label on spec PRs. Always check GitHub Actions for errors after pushing.
