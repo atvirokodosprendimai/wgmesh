@@ -6,7 +6,11 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
 // API implements the cloudroof.eu REST API.
@@ -15,15 +19,17 @@ type API struct {
 	store     *Store
 	auth      *Auth
 	dnsTarget string // Edge DNS target (e.g., "edge.cloudroof.eu")
+	limiter   *ratelimit.IPRateLimiter
 	mux       *http.ServeMux
 }
 
-// NewAPI creates the API handler.
-func NewAPI(store *Store, auth *Auth, dnsTarget string) *API {
+// NewAPI creates the API handler. limiter may be nil to disable rate limiting.
+func NewAPI(store *Store, auth *Auth, dnsTarget string, limiter *ratelimit.IPRateLimiter) *API {
 	a := &API{
 		store:     store,
 		auth:      auth,
 		dnsTarget: dnsTarget,
+		limiter:   limiter,
 		mux:       http.NewServeMux(),
 	}
 	a.registerRoutes()
@@ -44,18 +50,18 @@ func (a *API) registerRoutes() {
 	a.mux.HandleFunc("POST /v1/orgs", a.handleCreateOrg)
 
 	// Authenticated
-	a.mux.HandleFunc("GET /v1/orgs/{org_id}", a.requireAuth(a.handleGetOrg))
-	a.mux.HandleFunc("POST /v1/orgs/{org_id}/keys", a.requireAuth(a.handleCreateKey))
+	a.mux.HandleFunc("GET /v1/orgs/{org_id}", a.requireAuth(a.rateLimit(a.handleGetOrg)))
+	a.mux.HandleFunc("POST /v1/orgs/{org_id}/keys", a.requireAuth(a.rateLimit(a.handleCreateKey)))
 
 	// Sites
-	a.mux.HandleFunc("POST /v1/sites", a.requireAuth(a.handleCreateSite))
-	a.mux.HandleFunc("GET /v1/sites", a.requireAuth(a.handleListSites))
-	a.mux.HandleFunc("GET /v1/sites/{site_id}", a.requireAuth(a.handleGetSite))
-	a.mux.HandleFunc("PATCH /v1/sites/{site_id}", a.requireAuth(a.handleUpdateSite))
-	a.mux.HandleFunc("DELETE /v1/sites/{site_id}", a.requireAuth(a.handleDeleteSite))
+	a.mux.HandleFunc("POST /v1/sites", a.requireAuth(a.rateLimit(a.handleCreateSite)))
+	a.mux.HandleFunc("GET /v1/sites", a.requireAuth(a.rateLimit(a.handleListSites)))
+	a.mux.HandleFunc("GET /v1/sites/{site_id}", a.requireAuth(a.rateLimit(a.handleGetSite)))
+	a.mux.HandleFunc("PATCH /v1/sites/{site_id}", a.requireAuth(a.rateLimit(a.handleUpdateSite)))
+	a.mux.HandleFunc("DELETE /v1/sites/{site_id}", a.requireAuth(a.rateLimit(a.handleDeleteSite)))
 
 	// Edges (read-only, authenticated)
-	a.mux.HandleFunc("GET /v1/edges", a.requireAuth(a.handleListEdges))
+	a.mux.HandleFunc("GET /v1/edges", a.requireAuth(a.rateLimit(a.handleListEdges)))
 }
 
 // --- Middleware ---
@@ -79,6 +85,38 @@ func (a *API) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 
 func getOrgID(r *http.Request) string {
 	return r.Header.Get("X-Org-ID")
+}
+
+// rateLimit is a middleware that enforces per-org-ID rate limiting.
+// It must be chained after requireAuth so that X-Org-ID is already set.
+// If no limiter is configured, the middleware is a no-op.
+func (a *API) rateLimit(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if a.limiter != nil {
+			key := getOrgID(r)
+			allowed, remaining, retryAfter := a.limiter.Reserve(key)
+			// X-RateLimit-Reset: when the next token will be available.
+			// When allowed, this is 1/rate seconds from now; when denied,
+			// it is retryAfter from now.
+			var resetIn time.Duration
+			if allowed {
+				resetIn = time.Duration(float64(time.Second) / a.limiter.Rate())
+			} else {
+				resetIn = retryAfter
+			}
+			w.Header().Set("X-RateLimit-Limit", strconv.Itoa(a.limiter.Burst()))
+			w.Header().Set("X-RateLimit-Remaining", strconv.Itoa(remaining))
+			w.Header().Set("X-RateLimit-Reset", strconv.FormatInt(time.Now().Add(resetIn).Unix(), 10))
+			if !allowed {
+				// Retry-After in whole seconds, rounded up via integer arithmetic.
+				retrySecs := (int(retryAfter.Milliseconds()) + 999) / 1000
+				w.Header().Set("Retry-After", strconv.Itoa(retrySecs))
+				writeError(w, http.StatusTooManyRequests, "rate_limit_exceeded", "Rate limit exceeded. Please retry later.")
+				return
+			}
+		}
+		next(w, r)
+	}
 }
 
 // --- Handlers ---
