@@ -212,26 +212,17 @@ jobs:
           set -euo pipefail
           ORIGIN_IP="${{ env.ORIGIN_IP }}"
 
-          # Bootstrap SSH access to origin (same key, may already be installed)
-          PUB_KEY=$(cat ~/.ssh/chimney.pub)
-
+          # The persistent CHIMNEY_SSH_KEY is installed on chimney-nbg1 by chimney-deploy.
+          # Verify connectivity — if it fails, run chimney-deploy first.
+          echo "Testing SSH access to origin ($ORIGIN_IP)..."
           if ! ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-             -o ConnectTimeout=5 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-             "root@${ORIGIN_IP}" "echo ok" 2>/dev/null | grep -q ok; then
-            echo "Bootstrapping SSH to origin via Hetzner password reset..."
-            SERVER_ID=$(hcloud server list -o noheader -o columns=id,ipv4 | awk -v ip="$ORIGIN_IP" '$2==ip{print $1}')
-            RESET_RESP=$(curl -sf -X POST \
-              -H "Authorization: Bearer $HCLOUD_TOKEN" \
-              -H "Content-Type: application/json" \
-              "https://api.hetzner.cloud/v1/servers/${SERVER_ID}/actions/reset_password")
-            ROOT_PASS=$(echo "$RESET_RESP" | python3 -c "import sys,json; print(json.load(sys.stdin)['root_password'])")
-            sleep 5
-            apt-get install -y sshpass 2>/dev/null || true
-            sshpass -p "$ROOT_PASS" ssh -o StrictHostKeyChecking=no \
-              -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR \
-              -o PreferredAuthentications=password "root@${ORIGIN_IP}" \
-              "mkdir -p ~/.ssh && chmod 700 ~/.ssh && echo '$PUB_KEY' >> ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys"
+             -o ConnectTimeout=10 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
+             "root@${ORIGIN_IP}" "echo ssh-ok" 2>&1 | grep -q ssh-ok; then
+            echo "ERROR: Cannot SSH to chimney-nbg1 ($ORIGIN_IP) with CHIMNEY_SSH_KEY."
+            echo "Run the 'Chimney Deploy' workflow first to bootstrap SSH access on origin."
+            exit 1
           fi
+          echo "SSH to origin: OK"
 
           # Install wgmesh on origin
           ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
