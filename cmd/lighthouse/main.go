@@ -14,11 +14,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/lighthouse"
 )
@@ -77,6 +79,11 @@ func main() {
 		}
 	}
 
+	// Start DNS verification loop
+	dnsCtx, dnsCancel := context.WithCancel(context.Background())
+	defer dnsCancel()
+	go runDNSVerificationLoop(dnsCtx, store, lighthouse.NetResolver{})
+
 	// HTTP routes
 	mux := http.NewServeMux()
 
@@ -98,5 +105,60 @@ func main() {
 
 	if err := http.ListenAndServe(*addr, mux); err != nil {
 		log.Fatal(err)
+	}
+}
+
+// runDNSVerificationLoop checks sites in pending_dns state every 60 seconds.
+// Sites that pass DNS verification are transitioned to active.
+// Sites that have been pending for more than 24 hours are transitioned to dns_failed.
+func runDNSVerificationLoop(ctx context.Context, store *lighthouse.Store, resolver lighthouse.Resolver) {
+	const (
+		dnsVerificationInterval = 60 * time.Second
+		dnsVerificationTimeout  = 24 * time.Hour
+	)
+	ticker := time.NewTicker(dnsVerificationInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			checkPendingDNSSites(ctx, store, resolver, dnsVerificationTimeout)
+		}
+	}
+}
+
+func checkPendingDNSSites(ctx context.Context, store *lighthouse.Store, resolver lighthouse.Resolver, timeout time.Duration) {
+	sites, err := store.ListSitesByStatus(ctx, lighthouse.SiteStatusPendingDNS)
+	if err != nil {
+		log.Printf("dns-verify: list pending sites: %v", err)
+		return
+	}
+
+	for i := range sites {
+		site := &sites[i]
+		ok, err := lighthouse.VerifyDNS(resolver, site.Domain, site.DNSTarget, nil)
+		if err != nil {
+			log.Printf("dns-verify: domain=%s lookup error: %v", site.Domain, err)
+		}
+		if ok {
+			site.Status = lighthouse.SiteStatusActive
+			if err := store.UpdateSite(ctx, site); err != nil {
+				log.Printf("dns-verify: activate site %s: %v", site.ID, err)
+			} else {
+				log.Printf("dns-verify: site %s (%s) → active", site.ID, site.Domain)
+			}
+			continue
+		}
+		// Mark as failed after timeout
+		if time.Since(site.CreatedAt) > timeout {
+			site.Status = lighthouse.SiteStatusDNSFailed
+			if err := store.UpdateSite(ctx, site); err != nil {
+				log.Printf("dns-verify: fail site %s: %v", site.ID, err)
+			} else {
+				log.Printf("dns-verify: site %s (%s) → dns_failed (timeout)", site.ID, site.Domain)
+			}
+		}
 	}
 }

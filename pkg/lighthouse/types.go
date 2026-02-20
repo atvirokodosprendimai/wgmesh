@@ -53,6 +53,7 @@ const (
 	SiteStatusActive        SiteStatus = "active"
 	SiteStatusSuspended     SiteStatus = "suspended"
 	SiteStatusDeleted       SiteStatus = "deleted"
+	SiteStatusDNSFailed     SiteStatus = "dns_failed"
 )
 
 // Origin defines where traffic should be proxied to.
