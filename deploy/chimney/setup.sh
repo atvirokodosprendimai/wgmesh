@@ -20,7 +20,14 @@ fi
 
 # ── System packages ──
 apt-get update -qq
-apt-get install -y -qq caddy curl jq
+apt-get install -y -qq caddy curl jq redis-tools
+
+# ── Create service user (early — required before Dragonfly chown below) ──
+if ! id "$CHIMNEY_USER" &>/dev/null; then
+    useradd --system --home-dir "$CHIMNEY_DIR" --shell /usr/sbin/nologin "$CHIMNEY_USER"
+fi
+mkdir -p "$CHIMNEY_DIR"
+chown "$CHIMNEY_USER:$CHIMNEY_USER" "$CHIMNEY_DIR"
 
 # ── Dragonfly (Redis-compatible cache) ──
 # Install Dragonfly as a systemd service for persistent shared caching.
@@ -44,9 +51,9 @@ if ! command -v dragonfly &>/dev/null; then
     chmod +x /usr/local/bin/dragonfly
 fi
 
-# Dragonfly data directory
+# Dragonfly data directory — owned by chimney user so Dragonfly can write it
 mkdir -p /var/lib/dragonfly
-chown "$CHIMNEY_USER:$CHIMNEY_USER" /var/lib/dragonfly 2>/dev/null || true
+chown "$CHIMNEY_USER:$CHIMNEY_USER" /var/lib/dragonfly
 
 # Dragonfly systemd service
 cat > /etc/systemd/system/dragonfly.service <<EOF
@@ -56,6 +63,7 @@ After=network.target
 
 [Service]
 Type=simple
+User=$CHIMNEY_USER
 ExecStart=/usr/local/bin/dragonfly --bind 127.0.0.1 --port 6379 --dbdir /var/lib/dragonfly --maxmemory 128mb --proactor_threads 1
 Restart=always
 RestartSec=3
@@ -74,14 +82,20 @@ EOF
 systemctl daemon-reload
 systemctl enable dragonfly
 systemctl restart dragonfly
-echo "Dragonfly started on 127.0.0.1:6379"
 
-# ── Create service user ──
-if ! id "$CHIMNEY_USER" &>/dev/null; then
-    useradd --system --home-dir "$CHIMNEY_DIR" --shell /usr/sbin/nologin "$CHIMNEY_USER"
-fi
-mkdir -p "$CHIMNEY_DIR"
-chown "$CHIMNEY_USER:$CHIMNEY_USER" "$CHIMNEY_DIR"
+# Wait for Dragonfly to be ready (up to 30s) before proceeding
+echo "Waiting for Dragonfly on 127.0.0.1:6379..."
+for i in $(seq 1 30); do
+    if redis-cli -h 127.0.0.1 -p 6379 ping 2>/dev/null | grep -q PONG; then
+        echo "Dragonfly ready (attempt $i)"
+        break
+    fi
+    if [ "$i" = "30" ]; then
+        echo "WARNING: Dragonfly not responding after 30s — continuing anyway"
+        journalctl -u dragonfly -n 20 --no-pager || true
+    fi
+    sleep 1
+done
 
 # ── Deploy chimney binary ──
 # The binary is expected at /tmp/chimney, placed there by the CI workflow via scp.
