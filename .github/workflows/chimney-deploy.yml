@@ -223,13 +223,15 @@ jobs:
                  export GITHUB_TOKEN WGMESH_SECRET
                  ROLE=origin bash /tmp/setup.sh'
 
-            # Health check — chimney is now behind Docker, check via curl on port 8080
+            # Health check — chimney is in the internal Docker network; access via
+            # Caddy on port 80 (which is exposed on the host) or via docker exec.
+            # Using port 80 is simpler and also validates the full proxy chain.
             echo "Verifying health on $name..."
             HEALTHY=false
             for i in $(seq 1 20); do
               if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                  -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-                 "root@${ip}" "curl -sf http://localhost:8080/healthz" 2>/dev/null; then
+                 "root@${ip}" "curl -sf http://localhost/healthz" 2>/dev/null; then
                 echo ""
                 echo "$name: healthy"
                 HEALTHY=true
