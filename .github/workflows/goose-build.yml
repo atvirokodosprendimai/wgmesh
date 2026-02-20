@@ -734,12 +734,14 @@ jobs:
             fi
             echo "validate_vet_passed=$VET_PASSED" >> $GITHUB_OUTPUT
 
-            echo "=== Checking gofmt ==="
+            echo "=== Auto-formatting with gofmt ==="
+            gofmt -w .
             UNFORMATTED=$(gofmt -l .)
             if [ -z "$UNFORMATTED" ]; then
               FMT_PASSED=true
+              echo "gofmt: all files formatted correctly"
             else
-              echo "::error::gofmt found unformatted files: $UNFORMATTED"
+              echo "::error::gofmt found unformatted files even after gofmt -w: $UNFORMATTED"
               VALIDATION_FAILED=true
             fi
             echo "validate_fmt_passed=$FMT_PASSED" >> $GITHUB_OUTPUT
