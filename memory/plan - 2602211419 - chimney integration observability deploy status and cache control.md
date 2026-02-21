@@ -31,7 +31,7 @@ After this phase, chimney exports spans to Coroot — the trace waterfall shows 
    - => go directive bumped 1.23→1.25.0 (toolchain required); updated CI go-version pins to 1.25 in 5 workflows
    - => `go build ./cmd/chimney/` passes
 
-2. [ ] Implement `otelSetup(ctx context.Context)` → shutdown func
+2. [x] Implement `otelSetup(ctx context.Context)` → shutdown func
    - TracerProvider via `otlptracehttp.New`
    - MeterProvider via `otlpmetrichttp.New` (15s push interval)
    - LoggerProvider via `otlploghttp.New`
@@ -39,6 +39,9 @@ After this phase, chimney exports spans to Coroot — the trace waterfall shows 
    - Service name from `OTEL_SERVICE_NAME` (default `chimney`)
    - Returns a `shutdown(ctx)` func that calls all three providers' Shutdown with a 5s grace context
    - Add `startTime = time.Now()` package-level var
+   - => `otelSetup` added to `cmd/chimney/main.go`; `main()` calls it, defers shutdown with 5s context
+   - => go.sum was stale (tidy removed OTEL requires before imports existed); fixed by re-running `go get` at pinned versions after adding imports
+   - => `go build` + `go vet` pass
 
 3. [ ] Wrap mux with `otelhttp.NewHandler`; wire graceful shutdown in main
    - Replace `http.ListenAndServe` with `http.Server` + goroutine + `server.Shutdown` on signal
@@ -148,3 +151,4 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
 ## Progress Log
 
 - 2602211419 — Phase 1 / action 1: OTEL deps added (otel v1.40, go 1.25); CI go-version pins updated
+- 2602211419 — Phase 1 / action 2: otelSetup() implemented; all three providers wired; build + vet pass
