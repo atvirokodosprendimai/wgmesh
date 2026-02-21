@@ -22,7 +22,7 @@ concurrency:
 
 env:
   HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
-  GO_VERSION: '1.23'
+  GO_VERSION: '1.25'
 
 jobs:
   # -----------------------------------------------------------------------

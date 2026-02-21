@@ -43,7 +43,7 @@ permissions:
 env:
   REGISTRY: ghcr.io
   IMAGE: ghcr.io/atvirokodosprendimai/wgmesh/chimney
-  GO_VERSION: "1.23.x"
+  GO_VERSION: "1.25.x"
 
 jobs:
   validate-caddyfiles:
