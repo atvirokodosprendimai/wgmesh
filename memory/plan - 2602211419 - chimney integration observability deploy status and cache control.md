@@ -43,16 +43,21 @@ After this phase, chimney exports spans to Coroot — the trace waterfall shows 
    - => go.sum was stale (tidy removed OTEL requires before imports existed); fixed by re-running `go get` at pinned versions after adding imports
    - => `go build` + `go vet` pass
 
-3. [ ] Wrap mux with `otelhttp.NewHandler`; wire graceful shutdown in main
+3. [x] Wrap mux with `otelhttp.NewHandler`; wire graceful shutdown in main
    - Replace `http.ListenAndServe` with `http.Server` + goroutine + `server.Shutdown` on signal
    - Call `otelSetup` at startup; defer the returned shutdown func
    - `X-Trace-ID` response header: read `trace.SpanFromContext(r.Context()).SpanContext().TraceID().String()` in a response wrapper or middleware
    - SIGTERM / SIGINT → flush OTEL providers then `server.Shutdown`
+   - => `traceIDMux` middleware wraps `mux` inside `otelhttp.NewHandler`; sets `X-Trace-ID` where span is valid
+   - => otelShutdown changed from `defer` to explicit call in signal handler (SIGTERM/SIGINT); 5s grace for each
+   - => `go build` + `go vet` pass
 
-4. [ ] Set custom span attributes in handlers
+4. [x] Set custom span attributes in handlers
    - `chimney.cache_hit` (bool), `chimney.cache_tier` (`"dragonfly"` | `"memory"` | `"none"`)
    - `chimney.github_path` (string) on `/api/github/*` requests
    - Use `trace.SpanFromContext(ctx).SetAttributes(...)` at decision points in `cacheGet` and `handleGitHubProxy`
+   - => `cacheGet` signature extended to return tier string; set attributes at ETag match, fresh-cache, and miss paths in `handleGitHubProxy`
+   - => `go build` + `go vet` pass
 
 5. [ ] Add `chimney.github_fetch` child span in `handleGitHubProxy`
    - `tracer.Start(ctx, "chimney.github_fetch")` around `httpClient.Do(req)` → `io.ReadAll`
@@ -152,3 +157,5 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
 
 - 2602211419 — Phase 1 / action 1: OTEL deps added (otel v1.40, go 1.25); CI go-version pins updated
 - 2602211419 — Phase 1 / action 2: otelSetup() implemented; all three providers wired; build + vet pass
+- 2602211419 — Phase 1 / action 3: otelhttp wrapper + X-Trace-ID + graceful shutdown (SIGTERM/SIGINT)
+- 2602211419 — Phase 1 / action 4: custom span attrs (cache_hit, cache_tier, github_path)
