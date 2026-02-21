@@ -25,6 +25,11 @@ else
     echo "Docker: $(docker --version)"
 fi
 
+# ── Authenticate Docker to ghcr.io (image is private) ──
+if [ -n "${GITHUB_TOKEN:-}" ] && [ -n "${GITHUB_ACTOR:-}" ]; then
+    echo "$GITHUB_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+fi
+
 # ── Deploy directory ──
 mkdir -p "$DEPLOY_DIR"
 
