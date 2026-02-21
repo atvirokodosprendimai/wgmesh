@@ -88,9 +88,12 @@ jobs:
           if [ -z "$KEY_ID" ]; then
             hcloud ssh-key delete "chimney-deploy-key" 2>/dev/null || true
             hcloud ssh-key create --name "chimney-deploy-key" --public-key-from-file ~/.ssh/chimney.pub
+            KEY_ID=$(hcloud ssh-key list -o noheader -o columns=id,fingerprint 2>/dev/null \
+              | awk -v fp="$MD5_FP" '$2==fp{print $1}' | head -1)
           else
             echo "Reusing existing Hetzner SSH key $KEY_ID"
           fi
+          echo "Using Hetzner SSH key ID: $KEY_ID"
 
           # Generate cloud-init for an origin server.
           # All setup files are embedded as base64 blobs; setup-origin.sh runs
@@ -187,6 +190,7 @@ jobs:
               --image "ubuntu-24.04" \
               --location "$loc" \
               --user-data-from-file "/tmp/cloud-init-${name}.yaml" \
+              --ssh-key "chimney-deploy-key" \
               --label "service=chimney" \
               --label "role=$role" \
               --label "arch=$arch" \
