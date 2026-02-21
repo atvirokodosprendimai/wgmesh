@@ -46,8 +46,36 @@ env:
   GO_VERSION: "1.23.x"
 
 jobs:
+  validate-caddyfiles:
+    name: Validate Caddyfiles
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate origin Caddyfile
+        run: |
+          # Create a stub upstream.conf — the real file is generated at deploy time
+          # by bluegreen.sh; caddy validate needs it to exist for the import directive.
+          printf 'reverse_proxy localhost:8081\n' > /tmp/upstream.conf
+          docker run --rm \
+            -v "$PWD/deploy/chimney/Caddyfile.origin:/etc/caddy/Caddyfile:ro" \
+            -v "/tmp/upstream.conf:/etc/caddy/upstream.conf:ro" \
+            caddy:latest caddy validate --config /etc/caddy/Caddyfile
+
+      - name: Validate edge Caddyfile
+        run: |
+          # Env vars are substituted at runtime by Docker; use dummy IPs for validation.
+          docker run --rm \
+            -v "$PWD/deploy/chimney/Caddyfile.edge:/etc/caddy/Caddyfile:ro" \
+            -e ORIGIN_WG_IP_1=10.0.0.1 \
+            -e ORIGIN_WG_IP_2=10.0.0.2 \
+            caddy:latest caddy validate --config /etc/caddy/Caddyfile
+
   build-push:
     name: Build and push chimney image
+    needs: validate-caddyfiles
     runs-on: ubuntu-latest
     timeout-minutes: 20
     outputs:
