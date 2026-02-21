@@ -18,29 +18,24 @@ Extract eidos specs for all major subsystems of wgmesh.
   => [[spec - centralized SSH deploy - diff-based persistent WireGuard config pushed via SSH.md]]
   => [[pull - 2602211106 - mesh state access control and centralized SSH deploy.md]]
 
-- [ ] **Action B** — `/eidos:pull pkg/daemon/` (multi-pass — expanded below)
+- [x] **Action B** — `/eidos:pull pkg/daemon/` (multi-pass — expanded below)
   => Overview: [[pull - 2602211113 - daemon package overview.md]]
   => Sub-actions B.1–B.5 below replace this action.
 
-- [ ] **Action B.1** — daemon core lifecycle
-  Pull `Daemon` struct, `NewDaemon`, `Run`, `Shutdown`, `initLocalNode`, `setupWireGuard`, `teardownWireGuard`, signal handling, SIGHUP hot-reload.
-  Files: `daemon.go` (lifecycle sections), `helpers.go` (interface ops), `config.go`
+- [x] **Action B.1** — daemon core lifecycle
+  => [[spec - daemon lifecycle - secret-derived identity with interface setup and hot-reload.md]]
 
-- [ ] **Action B.2** — reconciliation loop & relay routing
-  Pull `reconcileLoop`, `reconcile`, `buildDesiredPeerConfigs`, `applyDesiredPeerConfigs`, `shouldRelayPeer`, `selectRelayForPeer`.
-  Files: `daemon.go` (reconcile + relay sections)
+- [x] **Action B.2** — reconciliation loop & relay routing
+  => [[spec - daemon reconciliation - peer config sync with relay routing fallback.md]]
 
-- [ ] **Action B.3** — peer store
-  Pull `PeerStore`, `PeerInfo`, endpoint ranking, subscription/notification, peer lifecycle timeouts.
-  Files: `peerstore.go`
+- [x] **Action B.3** — peer store
+  => [[spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md]]
 
-- [ ] **Action B.4** — health monitoring & mesh probing
-  Pull `healthMonitorLoop`, `meshProbeLoop`, `checkPeerHealth`, TCP probe sessions, `temporaryOffline` eviction.
-  Files: `daemon.go` (health + probe sections)
+- [x] **Action B.4** — health monitoring & mesh probing
+  => [[spec - daemon health - dual signal health monitoring with eviction and temporary offline.md]]
 
-- [ ] **Action B.5** — support subsystems
-  Pull peer cache persistence, IP collision resolution, epoch management, route sync, systemd integration.
-  Files: `cache.go`, `collision.go`, `epoch.go`, `routes.go`, `systemd.go`
+- [x] **Action B.5** — support subsystems
+  => [[spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md]]
 
 - [ ] **Action C** — `/eidos:pull pkg/discovery/`
   Pull discovery subsystem: DHT, LAN multicast, gossip, STUN, peer exchange protocol, rendezvous/hole-punching.
