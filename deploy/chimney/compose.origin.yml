@@ -65,6 +65,9 @@ services:
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SLOT: blue
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://table.beerpub.dev:4318"
+      OTEL_SERVICE_NAME: "chimney"
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.slot=blue"
     ports:
       - "127.0.0.1:8081:8080"
     networks:
@@ -90,6 +93,9 @@ services:
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SLOT: green
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://table.beerpub.dev:4318"
+      OTEL_SERVICE_NAME: "chimney"
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.slot=green"
     ports:
       - "127.0.0.1:8082:8080"
     networks:
