@@ -16,7 +16,7 @@ status: active
 
 ## Phases
 
-### Phase 1 - OTEL SDK and HTTP instrumentation - status: open
+### Phase 1 - OTEL SDK and HTTP instrumentation - status: completed
 
 Wire up the three OTEL providers and wrap the HTTP mux.
 After this phase, chimney exports spans to Coroot — the trace waterfall shows real request paths.
@@ -59,10 +59,13 @@ After this phase, chimney exports spans to Coroot — the trace waterfall shows 
    - => `cacheGet` signature extended to return tier string; set attributes at ETag match, fresh-cache, and miss paths in `handleGitHubProxy`
    - => `go build` + `go vet` pass
 
-5. [ ] Add `chimney.github_fetch` child span in `handleGitHubProxy`
+5. [x] Add `chimney.github_fetch` child span in `handleGitHubProxy`
    - `tracer.Start(ctx, "chimney.github_fetch")` around `httpClient.Do(req)` → `io.ReadAll`
    - Attrs: `github.api.path`, `github.api.status_code`, `github.conditional` (bool), `github.not_modified` (bool)
    - `span.RecordError(err)` + `span.SetStatus(codes.Error, ...)` on fetch errors
+   - => span created with `fetchCtx` (child of request ctx); request built with `fetchCtx` for W3C propagation
+   - => GitHub 5xx also marks span as Error; User-Agent domain fixed (cloudroof.eu→beerpub.dev)
+   - => `go build` + `go vet` pass; Phase 1 complete
 
 ### Phase 2 - Structured logging and panic recovery - status: open
 
@@ -159,3 +162,4 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
 - 2602211419 — Phase 1 / action 2: otelSetup() implemented; all three providers wired; build + vet pass
 - 2602211419 — Phase 1 / action 3: otelhttp wrapper + X-Trace-ID + graceful shutdown (SIGTERM/SIGINT)
 - 2602211419 — Phase 1 / action 4: custom span attrs (cache_hit, cache_tier, github_path)
+- 2602211419 — Phase 1 / action 5: chimney.github_fetch child span; Phase 1 complete
