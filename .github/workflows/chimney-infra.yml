@@ -109,9 +109,8 @@ jobs:
               printf "    content: %s\n" "$(base64 -w0 deploy/chimney/$f)"
               [[ "$f" == *.sh ]] && echo "    permissions: '0755'"
             done
-            ENV_B64=$(printf 'GITHUB_TOKEN=%s\nGITHUB_ACTOR=%s\nWGMESH_SECRET=%s\n' \
+            ENV_B64=$(printf 'GITHUB_TOKEN=%s\nWGMESH_SECRET=%s\n' \
               '${{ secrets.PUSH_TOKEN }}' \
-              '${{ github.actor }}' \
               '${{ secrets.WGMESH_SECRET }}' | base64 -w0)
             echo "  - path: /tmp/.chimney-env"
             echo "    encoding: b64"
@@ -238,14 +237,13 @@ jobs:
             $SCP deploy/chimney/bluegreen.sh          "root@${ip}:/tmp/bluegreen.sh"
             $SCP -r docs                              "root@${ip}:/tmp/docs"
 
-            printf '%s\n%s\n%s\n' \
+            printf '%s\n%s\n' \
               '${{ secrets.PUSH_TOKEN }}' \
-              '${{ github.actor }}' \
               '${{ secrets.WGMESH_SECRET }}' \
             | ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                 -o LogLevel=ERROR -i "$SSH_KEY_FILE" "root@${ip}" \
-                'read -r GITHUB_TOKEN; read -r GITHUB_ACTOR; read -r WGMESH_SECRET
-                 export GITHUB_TOKEN GITHUB_ACTOR WGMESH_SECRET
+                'read -r GITHUB_TOKEN; read -r WGMESH_SECRET
+                 export GITHUB_TOKEN WGMESH_SECRET
                  bash /tmp/setup-origin.sh'
 
             echo "- **$name** ($ip): bootstrapped ✓" >> "$GITHUB_STEP_SUMMARY"
