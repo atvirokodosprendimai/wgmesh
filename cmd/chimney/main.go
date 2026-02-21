@@ -24,7 +24,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"os/signal"
+	"syscall"
+
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
@@ -35,6 +39,7 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -97,17 +102,12 @@ func main() {
 
 	// Set up OTEL telemetry providers. Non-fatal: if the collector is unreachable
 	// at startup the exporters will keep retrying in the background.
-	otelShutdown, err := otelSetup(context.Background())
-	if err != nil {
+	// Shutdown is called explicitly in the signal handler below.
+	otelShutdown := func(context.Context) error { return nil } // no-op default
+	if fn, err := otelSetup(context.Background()); err != nil {
 		log.Printf("WARNING: OTEL setup failed: %v — telemetry disabled", err)
 	} else {
-		defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := otelShutdown(ctx); err != nil {
-				log.Printf("OTEL shutdown: %v", err)
-			}
-		}()
+		otelShutdown = fn
 	}
 
 	rawToken := os.Getenv("GITHUB_TOKEN")
@@ -163,10 +163,49 @@ func main() {
 	fs := http.FileServer(http.Dir(*docsDir))
 	mux.Handle("/", fs)
 
-	log.Printf("chimney starting on %s (docs=%s, repo=%s, redis=%s)", *addr, *docsDir, repo, redisAddr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
-		log.Fatal(err)
+	// traceIDMux injects X-Trace-ID into every response.
+	// It runs inside the otelhttp span (which creates the span before calling in),
+	// so trace.SpanFromContext already has a valid span ID at this point.
+	traceIDMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if span := trace.SpanFromContext(r.Context()); span.SpanContext().IsValid() {
+			w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
+		}
+		mux.ServeHTTP(w, r)
+	})
+
+	srv := &http.Server{
+		Addr:    *addr,
+		Handler: otelhttp.NewHandler(traceIDMux, "chimney"),
 	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	log.Printf("chimney starting on %s (docs=%s, repo=%s, redis=%s)", *addr, *docsDir, repo, redisAddr)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("listen: %v", err)
+		}
+	}()
+
+	<-sigCh
+	log.Println("shutdown: draining in-flight telemetry...")
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(ctx); err != nil {
+			log.Printf("OTEL shutdown: %v", err)
+		}
+	}
+	log.Println("shutdown: stopping HTTP server...")
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("HTTP server shutdown: %v", err)
+		}
+	}
+	log.Println("shutdown: complete")
 }
 
 // --- Cache abstraction ---
