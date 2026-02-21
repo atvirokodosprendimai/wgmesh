@@ -60,8 +60,9 @@ Extract eidos specs for all major subsystems of wgmesh.
 - [x] **Action C.6** — DHT rendezvous + hole-punching + GitHub registry (`dht.go` rendezvous + `registry.go`)
   => [[spec - discovery dht rendezvous - event-driven punch with introducer selection and github registry bootstrap.md]]
 
-- [ ] **Action D** — `/eidos:pull pkg/crypto/`
+- [x] **Action D** — `/eidos:pull pkg/crypto/`
   Pull crypto & identity: key derivation from shared secret, envelope encryption, membership proofs, secret rotation.
+  => [[spec - crypto - secret-derived keys envelope encryption membership proofs and rotation.md]]
 
 - [ ] **Action E** — `/eidos:pull pkg/privacy/`
   Pull privacy layer: Dandelion++ stem/fluff routing.
