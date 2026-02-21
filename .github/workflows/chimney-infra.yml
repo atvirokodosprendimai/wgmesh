@@ -340,14 +340,31 @@ jobs:
         if: inputs.action == 'teardown'
         run: |
           set -euo pipefail
-          SERVERS=$(hcloud server list -l "service=chimney" -o noheader -o columns=name 2>/dev/null) || true
 
-          if [ -z "$SERVERS" ]; then
+          # Primary: servers labeled service=chimney (current convention)
+          LABELED=$(hcloud server list -l "service=chimney" -o noheader -o columns=name 2>/dev/null) || true
+
+          # Secondary: unlabeled stragglers matching chimney-* name pattern.
+          # These survive from provision cycles that predated the labeling
+          # convention and are the root cause of the stale DNS incident
+          # (postmortem 2602211013, action item 7).
+          UNLABELED=$(hcloud server list -o noheader -o columns=name 2>/dev/null \
+            | grep '^chimney-' \
+            | { comm -23 <(sort) <(echo "$LABELED" | sort); } ) || true
+
+          ALL_SERVERS=$(printf '%s\n%s\n' "$LABELED" "$UNLABELED" | grep -v '^$' | sort -u) || true
+
+          if [ -z "$ALL_SERVERS" ]; then
             echo "No chimney servers found."
             exit 0
           fi
 
-          for name in $SERVERS; do
+          if [ -n "$UNLABELED" ]; then
+            echo "WARNING: found unlabeled chimney-* servers (stale from prior provision):"
+            echo "$UNLABELED"
+          fi
+
+          for name in $ALL_SERVERS; do
             echo "Deleting $name..."
             hcloud server delete "$name"
           done
