@@ -74,8 +74,9 @@ Extract eidos specs for all major subsystems of wgmesh.
 
 ### Phase 2 — Auxiliary services
 
-- [ ] **Action G** — `/eidos:pull pkg/lighthouse/ cmd/lighthouse/`
+- [x] **Action G** — `/eidos:pull pkg/lighthouse/ cmd/lighthouse/`
   Pull Lighthouse control plane: REST API, DNS management, XDS, health, rate limiting.
+  => [[spec - lighthouse - cdn control plane with rest api dragonfly store xds and federated sync.md]]
 
 - [ ] **Action H** — `/eidos:pull cmd/chimney/`
   Pull Chimney dashboard server: GitHub API proxy, Dragonfly/in-memory cache, static serving.
