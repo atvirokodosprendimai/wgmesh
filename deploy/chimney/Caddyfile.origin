@@ -11,7 +11,14 @@
 # upstream.conf is bind-mounted from the host. On first boot, setup.sh
 # writes it pointing to blue (port 8081).
 
-chimney.beerpub.dev {
+# Caddy admin API on localhost only (caddy reload target)
+{
+    admin localhost:2019
+    # Origins are accessed via WireGuard (HTTP only) — no auto-HTTPS needed
+    auto_https off
+}
+
+:80 {
     encode gzip
 
     log {
@@ -20,14 +27,5 @@ chimney.beerpub.dev {
         level INFO
     }
 
-    tls {
-        protocols tls1.2 tls1.3
-    }
-
     import /etc/caddy/upstream.conf
-}
-
-# Caddy admin API on localhost only (caddy reload target)
-{
-    admin localhost:2019
 }

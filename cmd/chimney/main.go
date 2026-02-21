@@ -12,18 +12,34 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel/codes"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -39,6 +55,8 @@ const (
 var (
 	version       = "dev"
 	wgmeshVersion = "unknown"
+
+	startTime = time.Now() // reserved for Phase 3 metrics — chimney.uptime gauge
 )
 
 // cachedResponse is the JSON-serializable form stored in Dragonfly.
@@ -81,6 +99,16 @@ func main() {
 	flag.StringVar(&repo, "repo", defaultRepo, "GitHub owner/repo")
 	flag.StringVar(&redisAddr, "redis", "127.0.0.1:6379", "Dragonfly/Redis address")
 	flag.Parse()
+
+	// Set up OTEL telemetry providers. Non-fatal: if the collector is unreachable
+	// at startup the exporters will keep retrying in the background.
+	// Shutdown is called explicitly in the signal handler below.
+	otelShutdown := func(context.Context) error { return nil } // no-op default
+	if fn, err := otelSetup(context.Background()); err != nil {
+		log.Printf("WARNING: OTEL setup failed: %v — telemetry disabled", err)
+	} else {
+		otelShutdown = fn
+	}
 
 	rawToken := os.Getenv("GITHUB_TOKEN")
 	githubToken = strings.TrimSpace(rawToken)
@@ -135,21 +163,62 @@ func main() {
 	fs := http.FileServer(http.Dir(*docsDir))
 	mux.Handle("/", fs)
 
-	log.Printf("chimney starting on %s (docs=%s, repo=%s, redis=%s)", *addr, *docsDir, repo, redisAddr)
-	if err := http.ListenAndServe(*addr, mux); err != nil {
-		log.Fatal(err)
+	// traceIDMux injects X-Trace-ID into every response.
+	// It runs inside the otelhttp span (which creates the span before calling in),
+	// so trace.SpanFromContext already has a valid span ID at this point.
+	traceIDMux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if span := trace.SpanFromContext(r.Context()); span.SpanContext().IsValid() {
+			w.Header().Set("X-Trace-ID", span.SpanContext().TraceID().String())
+		}
+		mux.ServeHTTP(w, r)
+	})
+
+	srv := &http.Server{
+		Addr:    *addr,
+		Handler: otelhttp.NewHandler(traceIDMux, "chimney"),
 	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+
+	log.Printf("chimney starting on %s (docs=%s, repo=%s, redis=%s)", *addr, *docsDir, repo, redisAddr)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("listen: %v", err)
+		}
+	}()
+
+	<-sigCh
+	log.Println("shutdown: draining in-flight telemetry...")
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := otelShutdown(ctx); err != nil {
+			log.Printf("OTEL shutdown: %v", err)
+		}
+	}
+	log.Println("shutdown: stopping HTTP server...")
+	{
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("HTTP server shutdown: %v", err)
+		}
+	}
+	log.Println("shutdown: complete")
 }
 
 // --- Cache abstraction ---
 
-func cacheGet(ctx context.Context, key string) (*cachedResponse, bool) {
+// cacheGet returns the cached response, whether it was found, and which tier
+// served it ("dragonfly", "memory", or "" on miss).
+func cacheGet(ctx context.Context, key string) (*cachedResponse, bool, string) {
 	if useRedis.Load() {
 		data, err := rdb.Get(ctx, cachePrefix+key).Bytes()
 		if err == nil {
 			var cr cachedResponse
 			if json.Unmarshal(data, &cr) == nil {
-				return &cr, true
+				return &cr, true, "dragonfly"
 			}
 		}
 		// Dragonfly miss or error — try in-memory fallback
@@ -159,9 +228,9 @@ func cacheGet(ctx context.Context, key string) (*cachedResponse, bool) {
 	entry, found := memCache[key]
 	memCacheMu.RUnlock()
 	if found {
-		return &entry.data, true
+		return &entry.data, true, "memory"
 	}
-	return nil, false
+	return nil, false, ""
 }
 
 func cacheSet(ctx context.Context, key string, cr *cachedResponse, ttl time.Duration) {
@@ -285,14 +354,20 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 
 	cacheKey := ghPath + "?" + r.URL.RawQuery
 	ctx := r.Context()
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(attribute.String("chimney.github_path", ghPath))
 
 	// Check cache
-	entry, found := cacheGet(ctx, cacheKey)
+	entry, found, tier := cacheGet(ctx, cacheKey)
 	maxAge := ttlForPath(ghPath, r.URL.RawQuery)
 
 	// Client ETag match
 	clientETag := r.Header.Get("If-None-Match")
 	if found && clientETag != "" && clientETag == entry.ETag {
+		span.SetAttributes(
+			attribute.Bool("chimney.cache_hit", true),
+			attribute.String("chimney.cache_tier", tier),
+		)
 		counterMu.Lock()
 		cacheHits++
 		counterMu.Unlock()
@@ -302,6 +377,10 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Serve from cache if fresh
 	if found && time.Since(entry.FetchedAt) < maxAge {
+		span.SetAttributes(
+			attribute.Bool("chimney.cache_hit", true),
+			attribute.String("chimney.cache_tier", tier),
+		)
 		counterMu.Lock()
 		cacheHits++
 		counterMu.Unlock()
@@ -309,27 +388,43 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	span.SetAttributes(
+		attribute.Bool("chimney.cache_hit", false),
+		attribute.String("chimney.cache_tier", "none"),
+	)
 	counterMu.Lock()
 	cacheMisses++
 	counterMu.Unlock()
 
-	// Fetch from GitHub
-	req, err := http.NewRequestWithContext(ctx, "GET", ghURL, nil)
+	// Fetch from GitHub — child span covers the upstream HTTP call + body read.
+	conditional := found && entry.ETag != ""
+	fetchCtx, fetchSpan := otel.Tracer("chimney").Start(ctx, "chimney.github_fetch")
+	fetchSpan.SetAttributes(
+		attribute.String("github.api.path", ghPath),
+		attribute.Bool("github.conditional", conditional),
+	)
+	defer fetchSpan.End()
+
+	req, err := http.NewRequestWithContext(fetchCtx, "GET", ghURL, nil)
 	if err != nil {
+		fetchSpan.RecordError(err)
+		fetchSpan.SetStatus(codes.Error, "build request")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "chimney/1.0 (cloudroof.eu)")
+	req.Header.Set("User-Agent", "chimney/1.0 (beerpub.dev)")
 	if githubToken != "" {
 		req.Header.Set("Authorization", "Bearer "+githubToken)
 	}
-	if found && entry.ETag != "" {
+	if conditional {
 		req.Header.Set("If-None-Match", entry.ETag)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		fetchSpan.RecordError(err)
+		fetchSpan.SetStatus(codes.Error, "github fetch")
 		// Stale cache fallback
 		if found {
 			writeResponse(w, entry)
@@ -340,8 +435,17 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	notModified := resp.StatusCode == http.StatusNotModified
+	fetchSpan.SetAttributes(
+		attribute.Int("github.api.status_code", resp.StatusCode),
+		attribute.Bool("github.not_modified", notModified),
+	)
+	if resp.StatusCode/100 == 5 {
+		fetchSpan.SetStatus(codes.Error, "github upstream error")
+	}
+
 	// 304 — serve cached
-	if resp.StatusCode == http.StatusNotModified && found {
+	if notModified && found {
 		// Refresh TTL in Dragonfly without re-fetching body
 		entry.FetchedAt = time.Now()
 		cacheSet(ctx, cacheKey, entry, maxAge)
@@ -351,6 +455,8 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		fetchSpan.RecordError(err)
+		fetchSpan.SetStatus(codes.Error, "read body")
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
@@ -440,7 +546,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Serve cached summary if fresh
-	if entry, ok := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
+	if entry, ok, _ := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
 		counterMu.Lock()
 		cacheHits++
 		counterMu.Unlock()
@@ -590,6 +696,77 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(body); err != nil {
 		log.Printf("writing /api/pipeline/summary: %v", err)
 	}
+}
+
+// --- OTEL setup ---
+
+// otelSetup initialises the three OTEL signal providers (trace, metric, log)
+// and registers them as global defaults. The returned shutdown func must be
+// called on process exit to flush in-flight telemetry.
+//
+// Configuration via standard OTEL env vars:
+//
+//	OTEL_EXPORTER_OTLP_ENDPOINT  default http://localhost:4318
+//	OTEL_SERVICE_NAME             default "chimney"
+//	OTEL_RESOURCE_ATTRIBUTES      optional extra resource labels
+func otelSetup(ctx context.Context) (func(context.Context) error, error) {
+	svcName := os.Getenv("OTEL_SERVICE_NAME")
+	if svcName == "" {
+		svcName = "chimney"
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(attribute.String("service.name", svcName)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("otel resource: %w", err)
+	}
+
+	// Trace provider — batched OTLP HTTP export
+	traceExp, err := otlptracehttp.New(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("otel trace exporter: %w", err)
+	}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(traceExp),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+
+	// Metric provider — 15s push interval
+	metricExp, err := otlpmetrichttp.New(ctx)
+	if err != nil {
+		_ = tp.Shutdown(ctx)
+		return nil, fmt.Errorf("otel metric exporter: %w", err)
+	}
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp,
+			sdkmetric.WithInterval(15*time.Second))),
+		sdkmetric.WithResource(res),
+	)
+	otel.SetMeterProvider(mp)
+
+	// Log provider — batched OTLP HTTP export
+	logExp, err := otlploghttp.New(ctx)
+	if err != nil {
+		_ = tp.Shutdown(ctx)
+		_ = mp.Shutdown(ctx)
+		return nil, fmt.Errorf("otel log exporter: %w", err)
+	}
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+		sdklog.WithResource(res),
+	)
+	global.SetLoggerProvider(lp)
+
+	shutdown := func(ctx context.Context) error {
+		return errors.Join(
+			tp.Shutdown(ctx),
+			mp.Shutdown(ctx),
+			lp.Shutdown(ctx),
+		)
+	}
+	return shutdown, nil
 }
 
 func handleCacheStats(w http.ResponseWriter, r *http.Request) {
