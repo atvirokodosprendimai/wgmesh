@@ -37,8 +37,22 @@ Extract eidos specs for all major subsystems of wgmesh.
 - [x] **Action B.5** — support subsystems
   => [[spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md]]
 
-- [ ] **Action C** — `/eidos:pull pkg/discovery/`
+- [x] **Action C** — `/eidos:pull pkg/discovery/` (multi-pass — expanded below)
   Pull discovery subsystem: DHT, LAN multicast, gossip, STUN, peer exchange protocol, rendezvous/hole-punching.
+  => Overview: [[pull - 2602211143 - discovery package overview.md]]
+  => Sub-actions C.1–C.6 below replace this action.
+
+- [ ] **Action C.1** — LAN discovery + STUN/NAT detection (`lan.go`, `stun.go`)
+
+- [ ] **Action C.2** — In-mesh gossip (`gossip.go`)
+
+- [ ] **Action C.3** — Peer exchange protocol — peer advertisement (`exchange.go` hello/reply)
+
+- [ ] **Action C.4** — Peer exchange rendezvous + hole-punching (`exchange.go` rendezvous)
+
+- [ ] **Action C.5** — DHT announce, query, persistence, IPv6 sync (`dht.go` core)
+
+- [ ] **Action C.6** — DHT rendezvous + hole-punching + GitHub registry (`dht.go` rendezvous + `registry.go`)
 
 - [ ] **Action D** — `/eidos:pull pkg/crypto/`
   Pull crypto & identity: key derivation from shared secret, envelope encryption, membership proofs, secret rotation.
