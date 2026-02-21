@@ -28,16 +28,14 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+    network_mode: host
+    environment:
+      ORIGIN_WG_IP_1: ${ORIGIN_WG_IP_1:-10.0.0.1}
+      ORIGIN_WG_IP_2: ${ORIGIN_WG_IP_2:-10.0.0.1}
     volumes:
       - ./Caddyfile.edge:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
-    networks:
-      - internal
 
   wgmesh:
     image: ghcr.io/atvirokodosprendimai/wgmesh:latest

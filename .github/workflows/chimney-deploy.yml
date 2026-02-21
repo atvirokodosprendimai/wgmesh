@@ -109,10 +109,13 @@ jobs:
 
             echo "=== Deploy to $name ($ip) ==="
 
-            # Copy the blue/green deploy script
+            # Copy deploy files (keeps compose + caddy config current)
             scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
                 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-                deploy/chimney/bluegreen.sh "root@${ip}:/opt/chimney/bluegreen.sh"
+                deploy/chimney/bluegreen.sh \
+                deploy/chimney/compose.origin.yml \
+                deploy/chimney/Caddyfile.origin \
+                "root@${ip}:/opt/chimney/"
 
             # Run blue/green deploy — passes image as env var
             ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \

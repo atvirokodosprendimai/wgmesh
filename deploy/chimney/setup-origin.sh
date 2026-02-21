@@ -96,3 +96,6 @@ done
 
 echo "=== origin setup complete ==="
 docker compose -f "$DEPLOY_DIR/compose.origin.yml" --project-directory "$DEPLOY_DIR" ps
+echo "--- caddy logs (last 20) ---"
+sleep 3
+docker logs chimney-caddy-1 --tail=20 2>&1 || true

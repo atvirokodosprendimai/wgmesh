@@ -70,8 +70,7 @@ services:
     networks:
       - internal
     depends_on:
-      dragonfly:
-        condition: service_healthy
+      - dragonfly
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
       interval: 10s
@@ -96,8 +95,7 @@ services:
     networks:
       - internal
     depends_on:
-      dragonfly:
-        condition: service_healthy
+      - dragonfly
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
       interval: 10s
@@ -110,17 +108,12 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+    network_mode: host
     volumes:
       - ./Caddyfile.origin:/etc/caddy/Caddyfile:ro
       - ./upstream.conf:/etc/caddy/upstream.conf:rw
       - caddy_data:/data
       - caddy_config:/config
-    networks:
-      - internal
     depends_on:
       - chimney-blue
       - chimney-green
