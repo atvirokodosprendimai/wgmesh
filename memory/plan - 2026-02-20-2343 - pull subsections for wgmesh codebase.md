@@ -54,9 +54,11 @@ Extract eidos specs for all major subsystems of wgmesh.
 - [x] **Action C.4** — Peer exchange rendezvous + hole-punching (`exchange.go` rendezvous)
   => merged into C.3 spec (same struct, cohesive coverage)
 
-- [ ] **Action C.5** — DHT announce, query, persistence, IPv6 sync (`dht.go` core)
+- [x] **Action C.5** — DHT announce, query, persistence, IPv6 sync (`dht.go` core)
+  => [[spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md]]
 
-- [ ] **Action C.6** — DHT rendezvous + hole-punching + GitHub registry (`dht.go` rendezvous + `registry.go`)
+- [x] **Action C.6** — DHT rendezvous + hole-punching + GitHub registry (`dht.go` rendezvous + `registry.go`)
+  => [[spec - discovery dht rendezvous - event-driven punch with introducer selection and github registry bootstrap.md]]
 
 - [ ] **Action D** — `/eidos:pull pkg/crypto/`
   Pull crypto & identity: key derivation from shared secret, envelope encryption, membership proofs, secret rotation.
