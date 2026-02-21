@@ -126,6 +126,21 @@ services:
       - chimney-blue
       - chimney-green
 
+  coroot-node-agent:
+    image: ghcr.io/coroot/coroot-node-agent:latest
+    restart: unless-stopped
+    privileged: true
+    pid: host
+    volumes:
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+      - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+    command:
+      - --cgroupfs-root=/host/sys/fs/cgroup
+      - --collector-endpoint=https://table.beerpub.dev
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
+
   wgmesh:
     image: ghcr.io/atvirokodosprendimai/wgmesh:latest
     restart: unless-stopped
