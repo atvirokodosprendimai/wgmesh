@@ -14,19 +14,17 @@
 # Caddy admin API on localhost only (caddy reload target)
 {
     admin localhost:2019
+    # Origins are accessed via WireGuard (HTTP only) — no auto-HTTPS needed
+    auto_https off
 }
 
-chimney.beerpub.dev {
+:80 {
     encode gzip
 
     log {
         output stderr
         format console
         level INFO
-    }
-
-    tls {
-        protocols tls1.2 tls1.3
     }
 
     import /etc/caddy/upstream.conf
