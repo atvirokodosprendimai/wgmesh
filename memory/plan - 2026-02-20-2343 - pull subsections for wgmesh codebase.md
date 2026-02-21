@@ -68,8 +68,9 @@ Extract eidos specs for all major subsystems of wgmesh.
   Pull privacy layer: Dandelion++ stem/fluff routing.
   => [[spec - privacy dandelion - stem fluff routing for announcement privacy.md]]
 
-- [ ] **Action F** — `/eidos:pull pkg/rpc/`
+- [x] **Action F** — `/eidos:pull pkg/rpc/`
   Pull RPC subsystem: unix socket JSON-RPC server/client, peer query API.
+  => [[spec - rpc - unix socket json-rpc server and client for peer and daemon queries.md]]
 
 ### Phase 2 — Auxiliary services
 
