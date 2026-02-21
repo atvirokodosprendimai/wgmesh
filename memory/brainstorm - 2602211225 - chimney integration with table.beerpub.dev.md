@@ -1,6 +1,6 @@
 ---
 tldr: How to integrate chimney fully into table.beerpub.dev — GitHub pipelines, deployments, live app errors/traces/logs
-status: active
+status: complete
 ---
 
 # Brainstorm: chimney integration with table.beerpub.dev
@@ -139,6 +139,12 @@ Small but high-UX-value; makes table an active tool not just a passive viewer.
 ## Next Steps
 
 - Spec out the observability layer (ring buffer + SSE + structured logging) → `/eidos:spec`
+  => [[spec - chimney observability - structured request logging with log ring buffer and sse stream]]
 - Spec out the deploy status endpoint + CI hook integration → `/eidos:spec`
+  => [[spec - chimney deploy status - deploy event ingestion and last-deploy endpoint]]
+- Spec out Prometheus metrics endpoint → `/eidos:spec`
+  => [[spec - chimney metrics - prometheus text format endpoint for cache and request counters]]
+- Spec out cache invalidation API → `/eidos:spec`
+  => [[spec - chimney cache control - runtime cache invalidation api]]
 - Plan implementation with phases: logging middleware first, then deploy hook, then metrics → `/eidos:plan`
 - Decide on SSE vs polling for live data in table (trade-off: SSE is push but requires persistent conn) → `/eidos:decision`
