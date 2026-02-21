@@ -84,8 +84,9 @@ Extract eidos specs for all major subsystems of wgmesh.
 
 ### Phase 3 — Entry point (depends on B, C, D)
 
-- [ ] **Action I** — `/eidos:pull main.go`
+- [x] **Action I** — `/eidos:pull main.go`
   Pull CLI entry point: dual-mode dispatch, subcommand structure, RPC server wiring.
+  => [[spec - cli entry point - dual mode dispatch with daemon wiring and rpc server.md]]
 
 ---
 
