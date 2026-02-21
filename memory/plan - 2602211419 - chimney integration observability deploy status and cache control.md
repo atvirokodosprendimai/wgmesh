@@ -21,12 +21,15 @@ status: active
 Wire up the three OTEL providers and wrap the HTTP mux.
 After this phase, chimney exports spans to Coroot — the trace waterfall shows real request paths.
 
-1. [ ] Add OTEL dependencies to go.mod
+1. [x] Add OTEL dependencies to go.mod
    - `go.opentelemetry.io/otel` + `otel/sdk/trace` + `otel/sdk/metric` + `otel/sdk/log`
    - OTLP HTTP exporters: `otel/exporters/otlp/otlptrace/otlptracehttp`, `otlpmetric/otlpmetrichttp`, `otlplog/otlploghttp`
    - `go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp`
    - `go.opentelemetry.io/contrib/bridges/otelslog`
    - `go get` each, then `go mod tidy`; commit go.mod + go.sum
+   - => all packages resolved at otel v1.40.0 / sdk/log v0.16.0 / otelhttp v0.65.0 / otelslog v0.15.0
+   - => go directive bumped 1.23→1.25.0 (toolchain required); updated CI go-version pins to 1.25 in 5 workflows
+   - => `go build ./cmd/chimney/` passes
 
 2. [ ] Implement `otelSetup(ctx context.Context)` → shutdown func
    - TracerProvider via `otlptracehttp.New`
@@ -143,3 +146,5 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
 ## Adjustments
 
 ## Progress Log
+
+- 2602211419 — Phase 1 / action 1: OTEL deps added (otel v1.40, go 1.25); CI go-version pins updated
