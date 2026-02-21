@@ -35,6 +35,7 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel/codes"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -396,23 +397,35 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 	cacheMisses++
 	counterMu.Unlock()
 
-	// Fetch from GitHub
-	req, err := http.NewRequestWithContext(ctx, "GET", ghURL, nil)
+	// Fetch from GitHub — child span covers the upstream HTTP call + body read.
+	conditional := found && entry.ETag != ""
+	fetchCtx, fetchSpan := otel.Tracer("chimney").Start(ctx, "chimney.github_fetch")
+	fetchSpan.SetAttributes(
+		attribute.String("github.api.path", ghPath),
+		attribute.Bool("github.conditional", conditional),
+	)
+	defer fetchSpan.End()
+
+	req, err := http.NewRequestWithContext(fetchCtx, "GET", ghURL, nil)
 	if err != nil {
+		fetchSpan.RecordError(err)
+		fetchSpan.SetStatus(codes.Error, "build request")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "chimney/1.0 (cloudroof.eu)")
+	req.Header.Set("User-Agent", "chimney/1.0 (beerpub.dev)")
 	if githubToken != "" {
 		req.Header.Set("Authorization", "Bearer "+githubToken)
 	}
-	if found && entry.ETag != "" {
+	if conditional {
 		req.Header.Set("If-None-Match", entry.ETag)
 	}
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		fetchSpan.RecordError(err)
+		fetchSpan.SetStatus(codes.Error, "github fetch")
 		// Stale cache fallback
 		if found {
 			writeResponse(w, entry)
@@ -423,8 +436,17 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	notModified := resp.StatusCode == http.StatusNotModified
+	fetchSpan.SetAttributes(
+		attribute.Int("github.api.status_code", resp.StatusCode),
+		attribute.Bool("github.not_modified", notModified),
+	)
+	if resp.StatusCode/100 == 5 {
+		fetchSpan.SetStatus(codes.Error, "github upstream error")
+	}
+
 	// 304 — serve cached
-	if resp.StatusCode == http.StatusNotModified && found {
+	if notModified && found {
 		// Refresh TTL in Dragonfly without re-fetching body
 		entry.FetchedAt = time.Now()
 		cacheSet(ctx, cacheKey, entry, maxAge)
@@ -434,6 +456,8 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		fetchSpan.RecordError(err)
+		fetchSpan.SetStatus(codes.Error, "read body")
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
