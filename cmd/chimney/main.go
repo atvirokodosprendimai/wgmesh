@@ -19,13 +19,12 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
-
-	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -57,7 +56,7 @@ var (
 	version       = "dev"
 	wgmeshVersion = "unknown"
 
-	startTime = time.Now() // used for uptime gauge
+	startTime = time.Now() // reserved for Phase 3 metrics — chimney.uptime gauge
 )
 
 // cachedResponse is the JSON-serializable form stored in Dragonfly.

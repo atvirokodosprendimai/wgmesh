@@ -37,6 +37,9 @@ chimney is the origin server for the wgmesh pipeline dashboard at `chimney.beerp
                        └───────────┘
 ```
 
+> **Note:** `chimney-fsn1` is provisioned in hel1 — the name is historical;
+> arm64 capacity in fsn1 was unavailable at provision time.
+
 ## Components
 
 - **cmd/chimney/** — Go origin server: caching GitHub API proxy + static dashboard serving
