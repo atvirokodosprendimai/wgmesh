@@ -717,6 +717,7 @@ func otelSetup(ctx context.Context) (func(context.Context) error, error) {
 
 	res, err := resource.New(ctx,
 		resource.WithAttributes(attribute.String("service.name", svcName)),
+		resource.WithFromEnv(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("otel resource: %w", err)
