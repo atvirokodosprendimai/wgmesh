@@ -97,12 +97,13 @@ jobs:
           # on first boot via runcmd. No SSH needed from CI runners.
           origin_cloud_init() {
             echo "#cloud-config"
-            echo "users:"
-            echo "  - name: root"
-            echo "    ssh_authorized_keys:"
-            echo "      - $PUB_KEY"
             echo ""
+            echo "# SSH key injected via write_files (reliable on Hetzner Ubuntu 24.04)"
             echo "write_files:"
+            echo "  - path: /root/.ssh/authorized_keys"
+            printf "    content: |\n      %s\n" "$PUB_KEY"
+            echo "    permissions: '0600'"
+            echo "    owner: root:root"
             for f in compose.origin.yml Caddyfile.origin bluegreen.sh setup-origin.sh; do
               echo "  - path: /tmp/$f"
               echo "    encoding: b64"
@@ -118,6 +119,7 @@ jobs:
             echo "    permissions: '0600'"
             echo ""
             echo "runcmd:"
+            echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh\""
             echo "  - \"bash -c 'set -a; . /tmp/.chimney-env; set +a; bash /tmp/setup-origin.sh > /var/log/chimney-setup.log 2>&1'\""
           }
 
@@ -126,12 +128,12 @@ jobs:
           # by the bootstrap action once origin WireGuard IPs are known.
           edge_cloud_init() {
             echo "#cloud-config"
-            echo "users:"
-            echo "  - name: root"
-            echo "    ssh_authorized_keys:"
-            echo "      - $PUB_KEY"
             echo ""
             echo "write_files:"
+            echo "  - path: /root/.ssh/authorized_keys"
+            printf "    content: |\n      %s\n" "$PUB_KEY"
+            echo "    permissions: '0600'"
+            echo "    owner: root:root"
             for f in compose.edge.yml Caddyfile.edge setup-edge.sh; do
               echo "  - path: /tmp/$f"
               echo "    encoding: b64"
@@ -146,6 +148,7 @@ jobs:
             echo "    permissions: '0600'"
             echo ""
             echo "runcmd:"
+            echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh\""
             echo "  - curl -fsSL https://get.docker.com | sh"
             echo "  - systemctl enable --now docker"
           }
