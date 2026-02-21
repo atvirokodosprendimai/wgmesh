@@ -64,8 +64,9 @@ Extract eidos specs for all major subsystems of wgmesh.
   Pull crypto & identity: key derivation from shared secret, envelope encryption, membership proofs, secret rotation.
   => [[spec - crypto - secret-derived keys envelope encryption membership proofs and rotation.md]]
 
-- [ ] **Action E** — `/eidos:pull pkg/privacy/`
+- [x] **Action E** — `/eidos:pull pkg/privacy/`
   Pull privacy layer: Dandelion++ stem/fluff routing.
+  => [[spec - privacy dandelion - stem fluff routing for announcement privacy.md]]
 
 - [ ] **Action F** — `/eidos:pull pkg/rpc/`
   Pull RPC subsystem: unix socket JSON-RPC server/client, peer query API.
