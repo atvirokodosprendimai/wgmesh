@@ -101,12 +101,16 @@ jobs:
           origin_cloud_init() {
             echo "#cloud-config"
             echo ""
-            echo "# SSH key injected via write_files (reliable on Hetzner Ubuntu 24.04)"
             echo "write_files:"
             echo "  - path: /root/.ssh/authorized_keys"
             printf "    content: |\n      %s\n" "$PUB_KEY"
             echo "    permissions: '0600'"
             echo "    owner: root:root"
+            echo "  - path: /etc/ssh/sshd_config.d/90-chimney.conf"
+            echo "    content: |"
+            echo "      PermitRootLogin yes"
+            echo "      AuthorizedKeysFile .ssh/authorized_keys"
+            echo "    permissions: '0644'"
             for f in compose.origin.yml Caddyfile.origin bluegreen.sh setup-origin.sh; do
               echo "  - path: /tmp/$f"
               echo "    encoding: b64"
@@ -122,7 +126,8 @@ jobs:
             echo "    permissions: '0600'"
             echo ""
             echo "runcmd:"
-            echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh\""
+            echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys\""
+            echo "  - \"systemctl restart sshd\""
             echo "  - \"bash -c 'set -a; . /tmp/.chimney-env; set +a; bash /tmp/setup-origin.sh > /var/log/chimney-setup.log 2>&1'\""
           }
 
@@ -137,6 +142,11 @@ jobs:
             printf "    content: |\n      %s\n" "$PUB_KEY"
             echo "    permissions: '0600'"
             echo "    owner: root:root"
+            echo "  - path: /etc/ssh/sshd_config.d/90-chimney.conf"
+            echo "    content: |"
+            echo "      PermitRootLogin yes"
+            echo "      AuthorizedKeysFile .ssh/authorized_keys"
+            echo "    permissions: '0644'"
             for f in compose.edge.yml Caddyfile.edge setup-edge.sh; do
               echo "  - path: /tmp/$f"
               echo "    encoding: b64"
@@ -151,7 +161,8 @@ jobs:
             echo "    permissions: '0600'"
             echo ""
             echo "runcmd:"
-            echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh\""
+            echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys\""
+            echo "  - \"systemctl restart sshd\""
             echo "  - curl -fsSL https://get.docker.com | sh"
             echo "  - systemctl enable --now docker"
           }
@@ -220,10 +231,7 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -ldflags="$LDFLAGS" -o chimney-linux-amd64 ./cmd/chimney/
 
-          SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-               -o PreferredAuthentications=publickey -o LogLevel=ERROR -i $SSH_KEY_FILE"
-          SSH_DIAG="ssh -v -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-               -o PreferredAuthentications=publickey -o ConnectTimeout=10 -i $SSH_KEY_FILE"
+          SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey -o LogLevel=ERROR -i $SSH_KEY_FILE"
 
           # Discover origin servers
           ORIGINS=$(hcloud server list -l "service=chimney,role=origin" -o noheader -o columns=name,ipv4,type 2>/dev/null)
@@ -239,9 +247,6 @@ jobs:
             [[ "$stype" == cax* ]] && arch="arm64" || arch="amd64"
 
             echo "=== Bootstrap origin: $name ($ip, $arch) ==="
-            echo "--- SSH diagnostic ---"
-            $SSH_DIAG "root@${ip}" "id && cat /root/.ssh/authorized_keys 2>/dev/null || echo 'no authorized_keys'" 2>&1 || true
-            echo "--- End diagnostic ---"
 
             $SCP "chimney-linux-${arch}"              "root@${ip}:/tmp/chimney"
             $SCP deploy/chimney/compose.origin.yml    "root@${ip}:/tmp/compose.origin.yml"

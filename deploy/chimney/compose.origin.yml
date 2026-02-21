@@ -70,8 +70,7 @@ services:
     networks:
       - internal
     depends_on:
-      dragonfly:
-        condition: service_healthy
+      - dragonfly
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
       interval: 10s
@@ -96,8 +95,7 @@ services:
     networks:
       - internal
     depends_on:
-      dragonfly:
-        condition: service_healthy
+      - dragonfly
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
       interval: 10s
