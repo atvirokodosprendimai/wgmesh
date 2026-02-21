@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,6 +25,16 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
+	"go.opentelemetry.io/otel/log/global"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 const (
@@ -39,6 +50,8 @@ const (
 var (
 	version       = "dev"
 	wgmeshVersion = "unknown"
+
+	startTime = time.Now() // used for uptime gauge
 )
 
 // cachedResponse is the JSON-serializable form stored in Dragonfly.
@@ -81,6 +94,21 @@ func main() {
 	flag.StringVar(&repo, "repo", defaultRepo, "GitHub owner/repo")
 	flag.StringVar(&redisAddr, "redis", "127.0.0.1:6379", "Dragonfly/Redis address")
 	flag.Parse()
+
+	// Set up OTEL telemetry providers. Non-fatal: if the collector is unreachable
+	// at startup the exporters will keep retrying in the background.
+	otelShutdown, err := otelSetup(context.Background())
+	if err != nil {
+		log.Printf("WARNING: OTEL setup failed: %v — telemetry disabled", err)
+	} else {
+		defer func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if err := otelShutdown(ctx); err != nil {
+				log.Printf("OTEL shutdown: %v", err)
+			}
+		}()
+	}
 
 	rawToken := os.Getenv("GITHUB_TOKEN")
 	githubToken = strings.TrimSpace(rawToken)
@@ -590,6 +618,77 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(body); err != nil {
 		log.Printf("writing /api/pipeline/summary: %v", err)
 	}
+}
+
+// --- OTEL setup ---
+
+// otelSetup initialises the three OTEL signal providers (trace, metric, log)
+// and registers them as global defaults. The returned shutdown func must be
+// called on process exit to flush in-flight telemetry.
+//
+// Configuration via standard OTEL env vars:
+//
+//	OTEL_EXPORTER_OTLP_ENDPOINT  default http://localhost:4318
+//	OTEL_SERVICE_NAME             default "chimney"
+//	OTEL_RESOURCE_ATTRIBUTES      optional extra resource labels
+func otelSetup(ctx context.Context) (func(context.Context) error, error) {
+	svcName := os.Getenv("OTEL_SERVICE_NAME")
+	if svcName == "" {
+		svcName = "chimney"
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(attribute.String("service.name", svcName)),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("otel resource: %w", err)
+	}
+
+	// Trace provider — batched OTLP HTTP export
+	traceExp, err := otlptracehttp.New(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("otel trace exporter: %w", err)
+	}
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(traceExp),
+		sdktrace.WithResource(res),
+	)
+	otel.SetTracerProvider(tp)
+
+	// Metric provider — 15s push interval
+	metricExp, err := otlpmetrichttp.New(ctx)
+	if err != nil {
+		_ = tp.Shutdown(ctx)
+		return nil, fmt.Errorf("otel metric exporter: %w", err)
+	}
+	mp := sdkmetric.NewMeterProvider(
+		sdkmetric.WithReader(sdkmetric.NewPeriodicReader(metricExp,
+			sdkmetric.WithInterval(15*time.Second))),
+		sdkmetric.WithResource(res),
+	)
+	otel.SetMeterProvider(mp)
+
+	// Log provider — batched OTLP HTTP export
+	logExp, err := otlploghttp.New(ctx)
+	if err != nil {
+		_ = tp.Shutdown(ctx)
+		_ = mp.Shutdown(ctx)
+		return nil, fmt.Errorf("otel log exporter: %w", err)
+	}
+	lp := sdklog.NewLoggerProvider(
+		sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+		sdklog.WithResource(res),
+	)
+	global.SetLoggerProvider(lp)
+
+	shutdown := func(ctx context.Context) error {
+		return errors.Join(
+			tp.Shutdown(ctx),
+			mp.Shutdown(ctx),
+			lp.Shutdown(ctx),
+		)
+	}
+	return shutdown, nil
 }
 
 func handleCacheStats(w http.ResponseWriter, r *http.Request) {
