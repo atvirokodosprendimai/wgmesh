@@ -12,13 +12,11 @@
 # Uses busybox:musl as a minimal runtime (shell + wget for healthcheck).
 # The resulting image is ~4MB: binary + TLS certs + busybox.
 
-FROM busybox:musl AS base
+FROM alpine:3.19 AS certs
+RUN apk add --no-cache ca-certificates
 
-# Install CA certificates for outbound TLS (GitHub API calls)
-RUN wget -qO /etc/ssl/certs/ca-bundle.crt \
-    https://curl.se/ca/cacert.pem 2>/dev/null || \
-    mkdir -p /etc/ssl/certs && \
-    echo "# CA certs not fetched at build time" > /etc/ssl/certs/ca-bundle.crt
+FROM busybox:musl AS base
+COPY --from=certs /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 
 FROM base
 ARG TARGETARCH
@@ -30,7 +28,7 @@ RUN chmod +x /chimney
 # Copy dashboard static files
 COPY docs /docs
 
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 
 # Healthcheck uses wget (available in busybox)
 HEALTHCHECK --interval=10s --timeout=3s --start-period=5s --retries=3 \
