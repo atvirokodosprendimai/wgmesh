@@ -8,6 +8,10 @@
 # variables at Caddy startup. setup.sh writes them into the systemd
 # environment file or Docker env vars before starting Caddy.
 
+{
+    admin localhost:2019
+}
+
 chimney.beerpub.dev {
     encode gzip
 
@@ -42,8 +46,4 @@ chimney.beerpub.dev {
         X-Served-By {system.hostname}
         -Server
     }
-}
-
-{
-    admin localhost:2019
 }
