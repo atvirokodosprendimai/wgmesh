@@ -48,9 +48,11 @@ Extract eidos specs for all major subsystems of wgmesh.
 - [x] **Action C.2** — In-mesh gossip (`gossip.go`)
   => [[spec - discovery gossip - in-mesh udp peer broadcast.md]]
 
-- [ ] **Action C.3** — Peer exchange protocol — peer advertisement (`exchange.go` hello/reply)
+- [x] **Action C.3** — Peer exchange protocol — peer advertisement (`exchange.go` hello/reply)
+  => [[spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md]]
 
-- [ ] **Action C.4** — Peer exchange rendezvous + hole-punching (`exchange.go` rendezvous)
+- [x] **Action C.4** — Peer exchange rendezvous + hole-punching (`exchange.go` rendezvous)
+  => merged into C.3 spec (same struct, cohesive coverage)
 
 - [ ] **Action C.5** — DHT announce, query, persistence, IPv6 sync (`dht.go` core)
 
