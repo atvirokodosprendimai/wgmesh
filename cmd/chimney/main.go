@@ -210,13 +210,15 @@ func main() {
 
 // --- Cache abstraction ---
 
-func cacheGet(ctx context.Context, key string) (*cachedResponse, bool) {
+// cacheGet returns the cached response, whether it was found, and which tier
+// served it ("dragonfly", "memory", or "" on miss).
+func cacheGet(ctx context.Context, key string) (*cachedResponse, bool, string) {
 	if useRedis.Load() {
 		data, err := rdb.Get(ctx, cachePrefix+key).Bytes()
 		if err == nil {
 			var cr cachedResponse
 			if json.Unmarshal(data, &cr) == nil {
-				return &cr, true
+				return &cr, true, "dragonfly"
 			}
 		}
 		// Dragonfly miss or error — try in-memory fallback
@@ -226,9 +228,9 @@ func cacheGet(ctx context.Context, key string) (*cachedResponse, bool) {
 	entry, found := memCache[key]
 	memCacheMu.RUnlock()
 	if found {
-		return &entry.data, true
+		return &entry.data, true, "memory"
 	}
-	return nil, false
+	return nil, false, ""
 }
 
 func cacheSet(ctx context.Context, key string, cr *cachedResponse, ttl time.Duration) {
@@ -352,14 +354,20 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 
 	cacheKey := ghPath + "?" + r.URL.RawQuery
 	ctx := r.Context()
+	span := trace.SpanFromContext(ctx)
+	span.SetAttributes(attribute.String("chimney.github_path", ghPath))
 
 	// Check cache
-	entry, found := cacheGet(ctx, cacheKey)
+	entry, found, tier := cacheGet(ctx, cacheKey)
 	maxAge := ttlForPath(ghPath, r.URL.RawQuery)
 
 	// Client ETag match
 	clientETag := r.Header.Get("If-None-Match")
 	if found && clientETag != "" && clientETag == entry.ETag {
+		span.SetAttributes(
+			attribute.Bool("chimney.cache_hit", true),
+			attribute.String("chimney.cache_tier", tier),
+		)
 		counterMu.Lock()
 		cacheHits++
 		counterMu.Unlock()
@@ -369,6 +377,10 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 
 	// Serve from cache if fresh
 	if found && time.Since(entry.FetchedAt) < maxAge {
+		span.SetAttributes(
+			attribute.Bool("chimney.cache_hit", true),
+			attribute.String("chimney.cache_tier", tier),
+		)
 		counterMu.Lock()
 		cacheHits++
 		counterMu.Unlock()
@@ -376,6 +388,10 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	span.SetAttributes(
+		attribute.Bool("chimney.cache_hit", false),
+		attribute.String("chimney.cache_tier", "none"),
+	)
 	counterMu.Lock()
 	cacheMisses++
 	counterMu.Unlock()
@@ -507,7 +523,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Serve cached summary if fresh
-	if entry, ok := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
+	if entry, ok, _ := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
 		counterMu.Lock()
 		cacheHits++
 		counterMu.Unlock()
