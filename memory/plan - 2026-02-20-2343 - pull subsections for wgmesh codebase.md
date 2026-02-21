@@ -45,7 +45,8 @@ Extract eidos specs for all major subsystems of wgmesh.
 - [x] **Action C.1** — LAN discovery + STUN/NAT detection (`lan.go`, `stun.go`)
   => [[spec - discovery lan and stun - multicast peer discovery and nat type detection.md]]
 
-- [ ] **Action C.2** — In-mesh gossip (`gossip.go`)
+- [x] **Action C.2** — In-mesh gossip (`gossip.go`)
+  => [[spec - discovery gossip - in-mesh udp peer broadcast.md]]
 
 - [ ] **Action C.3** — Peer exchange protocol — peer advertisement (`exchange.go` hello/reply)
 
