@@ -114,12 +114,12 @@ jobs:
             for f in compose.origin.yml Caddyfile.origin bluegreen.sh setup-origin.sh; do
               echo "  - path: /tmp/$f"
               echo "    encoding: b64"
-              printf "    content: %s\n" "$(base64 -w0 deploy/chimney/$f)"
+              printf "    content: %s\n" "$(base64 deploy/chimney/$f | tr -d '\n')"
               [[ "$f" == *.sh ]] && echo "    permissions: '0755'"
             done
             ENV_B64=$(printf 'GITHUB_TOKEN=%s\nWGMESH_SECRET=%s\n' \
               '${{ secrets.PUSH_TOKEN }}' \
-              '${{ secrets.WGMESH_SECRET }}' | base64 -w0)
+              '${{ secrets.WGMESH_SECRET }}' | base64 | tr -d '\n')
             echo "  - path: /tmp/.chimney-env"
             echo "    encoding: b64"
             printf "    content: %s\n" "$ENV_B64"
@@ -128,7 +128,7 @@ jobs:
             echo "runcmd:"
             echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys\""
             echo "  - \"systemctl restart sshd\""
-            echo "  - \"bash -c 'set -a; . /tmp/.chimney-env; set +a; bash /tmp/setup-origin.sh > /var/log/chimney-setup.log 2>&1'\""
+            echo "  - \"bash -c 'set -a; . /tmp/.chimney-env; set +a; bash /tmp/setup-origin.sh > /var/log/chimney-setup.log 2>&1; rm -f /tmp/.chimney-env'\""
           }
 
           # Generate cloud-init for an edge server.
@@ -150,11 +150,11 @@ jobs:
             for f in compose.edge.yml Caddyfile.edge setup-edge.sh; do
               echo "  - path: /tmp/$f"
               echo "    encoding: b64"
-              printf "    content: %s\n" "$(base64 -w0 deploy/chimney/$f)"
+              printf "    content: %s\n" "$(base64 deploy/chimney/$f | tr -d '\n')"
               [[ "$f" == *.sh ]] && echo "    permissions: '0755'"
             done
             ENV_B64=$(printf 'WGMESH_SECRET=%s\n' \
-              '${{ secrets.WGMESH_SECRET }}' | base64 -w0)
+              '${{ secrets.WGMESH_SECRET }}' | base64 | tr -d '\n')
             echo "  - path: /tmp/.chimney-env"
             echo "    encoding: b64"
             printf "    content: %s\n" "$ENV_B64"
