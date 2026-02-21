@@ -81,10 +81,10 @@ Automated health poll task (polling `/healthz` every 60s) detected 503s and noti
 | 3 | Fix Caddyfile global block ordering | ✅ done |
 | 4 | Origin Caddy `auto_https off` (HTTP-only internal) | ✅ done |
 | 5 | Caddy `network_mode: host` for wgmesh compat | ✅ done |
-| 6 | Add Caddyfile syntax validation to CI | 🔲 open |
-| 7 | Tag all servers with `service=chimney` or add DNS cleanup to teardown | 🔲 open |
-| 8 | Add e2e smoke test step to `chimney-deploy.yml` | 🔲 open |
-| 9 | Document wgmesh iptables behaviour in deploy README | 🔲 open |
+| 6 | Add Caddyfile syntax validation to CI | ✅ done |
+| 7 | Tag all servers with `service=chimney` or add DNS cleanup to teardown | ✅ done |
+| 8 | Add e2e smoke test step to `chimney-deploy.yml` | ✅ done |
+| 9 | Document wgmesh iptables behaviour in deploy README | ✅ done |
 
 ---
 
