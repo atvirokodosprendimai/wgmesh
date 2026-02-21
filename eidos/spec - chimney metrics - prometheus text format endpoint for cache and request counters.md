@@ -1,7 +1,12 @@
 ---
-tldr: GET /api/metrics exposes chimney's internal counters in Prometheus text format — request counts by route and status class, cache hit/miss ratio, GitHub rate limit remaining, Dragonfly status, and panic count — so table.beerpub.dev can render sparklines without a separate monitoring stack.
+tldr: GET /api/metrics exposes chimney's internal counters in Prometheus text format — request counts by route and status class, cache hit/miss ratio, GitHub rate limit remaining, Dragonfly status, and panic count. With Coroot running on table.beerpub.dev, this is a secondary output; the primary metrics path is OTEL metrics via OTLP — see the observability spec.
 category: feature
+superseded_by: "[[spec - chimney observability - opentelemetry instrumentation for coroot traces metrics and logs]]"
 ---
+
+> **Note:** table.beerpub.dev runs Coroot. The primary metrics output is OTEL metrics via OTLP (see [[spec - chimney observability - opentelemetry instrumentation for coroot traces metrics and logs]]).
+> This Prometheus endpoint may still be served as a secondary/optional output via the OTEL Prometheus exporter, but it is no longer the recommended path.
+> The counter definitions in this spec remain valid as the instrument inventory; ownership has moved to the observability spec.
 
 # Chimney metrics — Prometheus text format endpoint for cache and request counters
 

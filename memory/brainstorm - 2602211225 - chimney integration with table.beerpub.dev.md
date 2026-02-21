@@ -139,7 +139,8 @@ Small but high-UX-value; makes table an active tool not just a passive viewer.
 ## Next Steps
 
 - Spec out the observability layer (ring buffer + SSE + structured logging) → `/eidos:spec`
-  => [[spec - chimney observability - structured request logging with log ring buffer and sse stream]]
+  => [[spec - chimney observability - opentelemetry instrumentation for coroot traces metrics and logs]]
+  (revised: table runs Coroot — OTEL SDK + OTLP replaces custom ring buffer + SSE)
 - Spec out the deploy status endpoint + CI hook integration → `/eidos:spec`
   => [[spec - chimney deploy status - deploy event ingestion and last-deploy endpoint]]
 - Spec out Prometheus metrics endpoint → `/eidos:spec`
