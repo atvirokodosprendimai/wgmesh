@@ -40,6 +40,7 @@ const (
 // PeerInfo represents peer information in RPC responses
 type PeerInfo struct {
 	PubKey           string   `json:"pubkey"`
+	Hostname         string   `json:"hostname,omitempty"`
 	MeshIP           string   `json:"mesh_ip"`
 	Endpoint         string   `json:"endpoint"`
 	LastSeen         string   `json:"last_seen"` // ISO 8601 format
