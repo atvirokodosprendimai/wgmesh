@@ -215,38 +215,37 @@ jobs:
                 const threads = prGql.repository.pullRequest.reviewThreads.nodes;
                 const unresolvedThreads = threads.filter(t => !t.isResolved);
 
-                // Auto-resolve threads from bot/Copilot reviewers
-                const botLogins = ['copilot-pull-request-reviewer', 'github-copilot', 'copilot[bot]'];
-                const botThreads = unresolvedThreads.filter(t => {
-                  const login = t.comments.nodes[0]?.author?.login || '';
-                  return botLogins.some(b => login.includes('copilot') || login.includes('bot'));
-                });
-
-                for (const thread of botThreads) {
-                  try {
-                    await github.graphql(`
-                      mutation($threadId: ID!) {
-                        resolveReviewThread(input: { threadId: $threadId }) {
-                          thread { id isResolved }
-                        }
-                      }
-                    `, { threadId: thread.id });
-                    core.info(`PR #${prNumber}: auto-resolved bot review thread ${thread.id}`);
-                  } catch (resolveErr) {
-                    core.warning(`PR #${prNumber}: could not resolve thread ${thread.id}: ${resolveErr.message}`);
-                  }
-                }
-
-                // Re-check after auto-resolution
-                const remainingUnresolved = unresolvedThreads.filter(t => !botThreads.includes(t));
-                if (remainingUnresolved.length > 0) {
-                  const authors = remainingUnresolved
+                // Unresolved review threads block merge.
+                // Copilot threads are not auto-resolved — Goose must address them.
+                if (unresolvedThreads.length > 0) {
+                  const byAuthor = unresolvedThreads
                     .map(t => t.comments.nodes[0]?.author?.login || 'unknown')
                     .filter((v, i, a) => a.indexOf(v) === i);
-                  core.info(`PR #${prNumber}: ${remainingUnresolved.length} unresolved human review thread(s) from ${authors.join(', ')}, skipping`);
-                  continue;
+                  const copilotThreads = unresolvedThreads.filter(t => {
+                    const login = t.comments.nodes[0]?.author?.login || '';
+                    return login.includes('copilot') || login.includes('bot');
+                  });
+
+                  core.info(`PR #${prNumber}: ${unresolvedThreads.length} unresolved thread(s) from ${byAuthor.join(', ')}`);
+
+                  // Dispatch goose-review to address Copilot feedback on the PR branch
+                  if (copilotThreads.length > 0) {
+                    try {
+                      await github.rest.actions.createWorkflowDispatch({
+                        owner, repo,
+                        workflow_id: 'goose-review.yml',
+                        ref: 'main',
+                        inputs: { pr_number: String(prNumber) },
+                      });
+                      core.info(`PR #${prNumber}: dispatched goose-review to address ${copilotThreads.length} Copilot thread(s)`);
+                    } catch (dispatchErr) {
+                      core.warning(`PR #${prNumber}: could not dispatch goose-review: ${dispatchErr.message}`);
+                    }
+                  }
+
+                  continue; // block merge until threads are resolved
                 }
-                core.info(`PR #${prNumber}: all review threads resolved (${botThreads.length} bot threads auto-resolved)`);
+                core.info(`PR #${prNumber}: all review threads resolved`);
 
                 // Remove 'conflict' label if present (branch is now clean)
                 const labels = pr.labels.map(l => l.name);
