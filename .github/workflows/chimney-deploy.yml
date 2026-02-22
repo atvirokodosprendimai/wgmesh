@@ -132,7 +132,6 @@ jobs:
           sleep 60
 
       - name: Smoke tests
-        if: steps.origins.outputs.found == 'true'
         run: |
           set -euo pipefail
           echo "## Smoke Tests" >> "$GITHUB_STEP_SUMMARY"
