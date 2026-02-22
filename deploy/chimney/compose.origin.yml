@@ -65,7 +65,8 @@ services:
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SLOT: blue
-      OTEL_EXPORTER_OTLP_ENDPOINT: "https://table.beerpub.dev"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://table.beerpub.dev/v1/traces"
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://table.beerpub.dev/v1/logs"
       OTEL_SERVICE_NAME: "chimney"
       OTEL_RESOURCE_ATTRIBUTES: "deployment.slot=blue"
     ports:
@@ -93,7 +94,8 @@ services:
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SLOT: green
-      OTEL_EXPORTER_OTLP_ENDPOINT: "https://table.beerpub.dev"
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://table.beerpub.dev/v1/traces"
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://table.beerpub.dev/v1/logs"
       OTEL_SERVICE_NAME: "chimney"
       OTEL_RESOURCE_ATTRIBUTES: "deployment.slot=green"
     ports:
@@ -125,13 +127,13 @@ services:
       - chimney-green
 
   coroot-node-agent:
-    image: ghcr.io/coroot/coroot-node-agent:v1.28.3
+    image: ghcr.io/coroot/coroot-node-agent:latest
     restart: unless-stopped
     privileged: true
     pid: host
     volumes:
       - /sys/kernel/tracing:/sys/kernel/tracing:rw
-      - /sys/kernel/debug:/sys/kernel/debug:ro
+      - /sys/kernel/debug:/sys/kernel/debug:rw
       - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
     command:
       - --cgroupfs-root=/host/sys/fs/cgroup
