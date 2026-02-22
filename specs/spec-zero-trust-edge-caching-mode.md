@@ -202,6 +202,12 @@ type TenantCanaryResponse struct {
    - Modified software detected
    - Replay attacks prevented
 
+5. **Formal Verification with Tamarin Prover**
+   - Model attestation protocol security properties
+   - Verify edge cannot forge attestation
+   - Verify tenant can detect misrouting
+   - Find attacks on routing protocol
+
 ## Affected Files
 
 - `pkg/attestation/tpm.go` — NEW: TPM quote generation
@@ -288,6 +294,44 @@ type TenantCanaryResponse struct {
 | Keylime | Open source TPM attestation for Linux | Active project |
 
 **Key insight:** TPM attestation is well-standardized. We can use existing libraries (go-tpm, Keylime) rather than building from scratch.
+
+## Formal Verification with Tamarin Prover
+
+We will use **Tamarin Prover** (https://tamarin-prover.com/) to formally verify security properties:
+
+### What to Verify
+
+1. **Attestation Protocol**
+   - Edge cannot forge valid attestation without TPM
+   - Lighthouse can detect tampered PCRs
+   - Short-lived certificates prevent replay
+
+2. **Canary Verification Protocol**
+   - Tenant can detect misrouted traffic
+   - Edge cannot predict/forge canary tokens
+   - Freshness (nonces) prevent replay
+
+3. **Routing Integrity**
+   - Edge cannot route tenant A traffic to tenant B without detection
+   - Origin identity verification prevents impersonation
+
+### Tamarin Workflow
+
+```
+1. Model protocol in Tamarin's symbolic language
+2. Define security properties (lemmas):
+   - "edge_attestation_authenticity"
+   - "tenant_canary_verification"  
+   - "routing_integrity"
+3. Tamarin finds attacks or proves properties
+4. Fix any attacks found
+5. Use proven model as reference for implementation
+```
+
+### Resources
+
+- Tamarin Book (2025): "Modeling and Analyzing Security Protocols with Tamarin"
+- Existing models: TLS 1.3, WireGuard, Privacy Pass (reference implementations)
 
 ## Implementation Approach
 
