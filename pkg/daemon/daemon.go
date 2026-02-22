@@ -1631,6 +1631,7 @@ func (d *Daemon) GetRPCPeers() []*RPCPeerData {
 	for _, p := range peers {
 		result = append(result, &RPCPeerData{
 			WGPubKey:         p.WGPubKey,
+			Hostname:         p.Hostname,
 			MeshIP:           p.MeshIP,
 			Endpoint:         p.Endpoint,
 			LastSeen:         p.LastSeen,
@@ -1649,6 +1650,7 @@ func (d *Daemon) GetRPCPeer(pubKey string) (*RPCPeerData, bool) {
 	}
 	return &RPCPeerData{
 		WGPubKey:         peer.WGPubKey,
+		Hostname:         peer.Hostname,
 		MeshIP:           peer.MeshIP,
 		Endpoint:         peer.Endpoint,
 		LastSeen:         peer.LastSeen,
@@ -1684,6 +1686,7 @@ func (d *Daemon) GetRPCStatus() *RPCStatusData {
 // RPCPeerData represents peer info for RPC (matches rpc.PeerData)
 type RPCPeerData struct {
 	WGPubKey         string
+	Hostname         string
 	MeshIP           string
 	Endpoint         string
 	LastSeen         time.Time
