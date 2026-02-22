@@ -16,6 +16,7 @@ import (
 // PeerData represents peer information for RPC
 type PeerData struct {
 	WGPubKey         string
+	Hostname         string
 	MeshIP           string
 	Endpoint         string
 	LastSeen         time.Time
@@ -269,6 +270,7 @@ func (s *Server) handlePeersList(params map[string]interface{}) (*PeersListResul
 	for _, peer := range peers {
 		result.Peers = append(result.Peers, &PeerInfo{
 			PubKey:           peer.WGPubKey,
+			Hostname:         peer.Hostname,
 			MeshIP:           peer.MeshIP,
 			Endpoint:         peer.Endpoint,
 			LastSeen:         peer.LastSeen.Format(time.RFC3339),
@@ -300,6 +302,7 @@ func (s *Server) handlePeersGet(params map[string]interface{}) (*PeerInfo, *Erro
 
 	return &PeerInfo{
 		PubKey:           peer.WGPubKey,
+		Hostname:         peer.Hostname,
 		MeshIP:           peer.MeshIP,
 		Endpoint:         peer.Endpoint,
 		LastSeen:         peer.LastSeen.Format(time.RFC3339),

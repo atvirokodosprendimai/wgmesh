@@ -17,11 +17,21 @@ func TestClientServerIntegration(t *testing.T) {
 	// Mock peer data
 	mockPeer := &PeerData{
 		WGPubKey:         "test-pubkey-abc123",
+		Hostname:         "node-test-1",
 		MeshIP:           "10.42.0.5",
 		Endpoint:         "203.0.113.10:51820",
 		LastSeen:         time.Now(),
 		DiscoveredVia:    []string{"dht", "gossip"},
 		RoutableNetworks: []string{"192.168.1.0/24"},
+	}
+
+	// Mock peer without hostname (to test fallback behaviour)
+	mockPeerNoHostname := &PeerData{
+		WGPubKey:      "test-pubkey-nohostname",
+		MeshIP:        "10.42.0.6",
+		Endpoint:      "203.0.113.11:51820",
+		LastSeen:      time.Now(),
+		DiscoveredVia: []string{"lan"},
 	}
 
 	mockStatus := &StatusData{
@@ -36,16 +46,19 @@ func TestClientServerIntegration(t *testing.T) {
 		SocketPath: socketPath,
 		Version:    "test-v1.0",
 		GetPeers: func() []*PeerData {
-			return []*PeerData{mockPeer}
+			return []*PeerData{mockPeer, mockPeerNoHostname}
 		},
 		GetPeer: func(pubKey string) (*PeerData, bool) {
-			if pubKey == mockPeer.WGPubKey {
+			switch pubKey {
+			case mockPeer.WGPubKey:
 				return mockPeer, true
+			case mockPeerNoHostname.WGPubKey:
+				return mockPeerNoHostname, true
 			}
 			return nil, false
 		},
 		GetPeerCounts: func() (active, total, dead int) {
-			return 1, 1, 0
+			return 2, 2, 0
 		},
 		GetStatus: func() *StatusData {
 			return mockStatus
@@ -103,8 +116,8 @@ func TestClientServerIntegration(t *testing.T) {
 
 		resultMap := result.(map[string]interface{})
 		peers := resultMap["peers"].([]interface{})
-		if len(peers) != 1 {
-			t.Fatalf("expected 1 peer, got %d", len(peers))
+		if len(peers) != 2 {
+			t.Fatalf("expected 2 peers, got %d", len(peers))
 		}
 
 		peer := peers[0].(map[string]interface{})
@@ -113,6 +126,19 @@ func TestClientServerIntegration(t *testing.T) {
 		}
 		if peer["mesh_ip"] != mockPeer.MeshIP {
 			t.Errorf("expected mesh_ip %s, got %v", mockPeer.MeshIP, peer["mesh_ip"])
+		}
+		// Hostname must be present and correct when set
+		if peer["hostname"] != mockPeer.Hostname {
+			t.Errorf("expected hostname %s, got %v", mockPeer.Hostname, peer["hostname"])
+		}
+
+		// Second peer has no hostname — field must be absent or empty string
+		peerNoHostname := peers[1].(map[string]interface{})
+		if peerNoHostname["pubkey"] != mockPeerNoHostname.WGPubKey {
+			t.Errorf("expected pubkey %s, got %v", mockPeerNoHostname.WGPubKey, peerNoHostname["pubkey"])
+		}
+		if h, ok := peerNoHostname["hostname"]; ok && h != "" {
+			t.Errorf("expected hostname absent or empty for peer without hostname, got %v", h)
 		}
 	})
 
@@ -129,6 +155,25 @@ func TestClientServerIntegration(t *testing.T) {
 		peer := result.(map[string]interface{})
 		if peer["pubkey"] != mockPeer.WGPubKey {
 			t.Errorf("expected pubkey %s, got %v", mockPeer.WGPubKey, peer["pubkey"])
+		}
+		// Hostname must flow through peers.get as well
+		if peer["hostname"] != mockPeer.Hostname {
+			t.Errorf("expected hostname %s, got %v", mockPeer.Hostname, peer["hostname"])
+		}
+	})
+
+	// Test peers.get for peer without hostname
+	t.Run("peers.get no hostname", func(t *testing.T) {
+		params := map[string]interface{}{
+			"pubkey": mockPeerNoHostname.WGPubKey,
+		}
+		result, err := client.Call("peers.get", params)
+		if err != nil {
+			t.Fatalf("peers.get failed: %v", err)
+		}
+		peer := result.(map[string]interface{})
+		if h, ok := peer["hostname"]; ok && h != "" {
+			t.Errorf("expected hostname absent or empty for peer without hostname, got %v", h)
 		}
 	})
 
@@ -151,11 +196,11 @@ func TestClientServerIntegration(t *testing.T) {
 		}
 
 		counts := result.(map[string]interface{})
-		if int(counts["active"].(float64)) != 1 {
-			t.Errorf("expected 1 active peer, got %v", counts["active"])
+		if int(counts["active"].(float64)) != 2 {
+			t.Errorf("expected 2 active peers, got %v", counts["active"])
 		}
-		if int(counts["total"].(float64)) != 1 {
-			t.Errorf("expected 1 total peer, got %v", counts["total"])
+		if int(counts["total"].(float64)) != 2 {
+			t.Errorf("expected 2 total peers, got %v", counts["total"])
 		}
 		if int(counts["dead"].(float64)) != 0 {
 			t.Errorf("expected 0 dead peers, got %v", counts["dead"])
