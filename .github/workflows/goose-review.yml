@@ -1,0 +1,209 @@
+name: Goose Review — Address PR Feedback
+
+# Triggered by auto-merge.yml when a PR has unresolved Copilot review threads.
+# Checks out the PR branch, feeds the review comments to Goose, and pushes a fix commit.
+# The PR can then re-enter the auto-merge queue once threads are resolved.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number with unresolved review comments'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+env:
+  GOOSE_PROVIDER: google
+  GOOSE_MODEL: gemini-2.0-flash
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: goose-review-${{ github.event.inputs.pr_number }}
+      cancel-in-progress: true
+
+    steps:
+      - name: Validate API key
+        env:
+          KEY: ${{ secrets.GOOGLE_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "::error::GOOGLE_API_KEY secret is not configured."
+            exit 1
+          fi
+
+      - name: Fetch PR metadata and unresolved Copilot threads
+        id: pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const prNumber = parseInt('${{ github.event.inputs.pr_number }}', 10);
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            const { data: pr } = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
+
+            if (pr.state !== 'open') {
+              core.setFailed(`PR #${prNumber} is not open (state: ${pr.state})`);
+              return;
+            }
+
+            // Fetch unresolved Copilot review threads via GraphQL
+            const prGql = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    reviewThreads(first: 100) {
+                      nodes {
+                        id
+                        isResolved
+                        path
+                        line
+                        comments(first: 5) {
+                          nodes {
+                            body
+                            author { login }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `, { owner, repo, number: prNumber });
+
+            const allThreads = prGql.repository.pullRequest.reviewThreads.nodes;
+            const unresolvedCopilot = allThreads.filter(t => {
+              if (t.isResolved) return false;
+              const login = t.comments.nodes[0]?.author?.login || '';
+              return login.includes('copilot') || login.includes('bot');
+            });
+
+            if (unresolvedCopilot.length === 0) {
+              core.info(`PR #${prNumber}: no unresolved Copilot threads, nothing to do`);
+              core.setOutput('skip', 'true');
+              return;
+            }
+
+            core.info(`PR #${prNumber}: ${unresolvedCopilot.length} unresolved Copilot thread(s) on branch ${pr.head.ref}`);
+
+            // Build a structured feedback document for Goose
+            let feedback = `# PR #${prNumber} Review Feedback\n\n`;
+            feedback += `Branch: \`${pr.head.ref}\`\n`;
+            feedback += `Title: ${pr.title}\n\n`;
+            feedback += `## Unresolved Reviewer Comments\n\n`;
+
+            for (const thread of unresolvedCopilot) {
+              feedback += `### ${thread.path}${thread.line ? `:${thread.line}` : ''}\n\n`;
+              for (const comment of thread.comments.nodes) {
+                feedback += `**${comment.author.login}:** ${comment.body}\n\n`;
+              }
+              feedback += `---\n\n`;
+            }
+
+            core.setOutput('skip', 'false');
+            core.setOutput('branch', pr.head.ref);
+            core.setOutput('feedback', feedback);
+
+      - name: Skip if no threads
+        if: steps.pr.outputs.skip == 'true'
+        run: echo "No unresolved Copilot threads — exiting cleanly."
+
+      - name: Checkout repository
+        if: steps.pr.outputs.skip != 'true'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.PUSH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Checkout PR branch
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          git fetch origin '${{ steps.pr.outputs.branch }}'
+          git checkout '${{ steps.pr.outputs.branch }}'
+
+      - name: Configure git identity
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          git config user.name  "goose-bot"
+          git config user.email "goose-bot@users.noreply.github.com"
+
+      - name: Install Goose CLI
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          curl -fsSL "https://github.com/block/goose/releases/latest/download/download_cli.sh" \
+            -o /tmp/goose-install.sh
+          CONFIGURE=false bash /tmp/goose-install.sh
+          rm /tmp/goose-install.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          $HOME/.local/bin/goose --version
+
+      - name: Build Goose task
+        if: steps.pr.outputs.skip != 'true'
+        env:
+          FEEDBACK: ${{ steps.pr.outputs.feedback }}
+        run: |
+          cat > /tmp/goose-review-task.md << 'TASK'
+          You are addressing review comments left by a Copilot reviewer on a pull request.
+          Your job is to make the minimal changes needed to satisfy each comment.
+          Do not refactor unrelated code. Do not add features. Fix only what is flagged.
+
+          After making changes, run any relevant tests or linters if available.
+          Commit your changes with a message like:
+            fix(review): address PR reviewer feedback
+
+          Do not create new files unless necessary. Do not open a PR — just edit and commit.
+
+          TASK
+
+          echo "" >> /tmp/goose-review-task.md
+          printf '%s\n' "$FEEDBACK" >> /tmp/goose-review-task.md
+
+      - name: Run Goose
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          goose run \
+            --no-session \
+            --with-builtin "developer" \
+            -i /tmp/goose-review-task.md \
+            --max-turns 30 \
+            2>&1 | tee /tmp/goose-review-output.log
+
+      - name: Commit and push changes
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes made by Goose — review comments may already be addressed."
+          else
+            git commit -m "fix(review): address PR #${{ github.event.inputs.pr_number }} reviewer feedback"
+            git push origin '${{ steps.pr.outputs.branch }}'
+            echo "Changes pushed to ${{ steps.pr.outputs.branch }}"
+          fi
+
+      - name: Comment on PR
+        if: steps.pr.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const prNumber = parseInt('${{ github.event.inputs.pr_number }}', 10);
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: [
+                '**Goose review pass complete.**',
+                '',
+                'Changes have been pushed to address the unresolved reviewer comments.',
+                'Please verify the fixes and resolve the threads if satisfied.',
+              ].join('\n'),
+            });
