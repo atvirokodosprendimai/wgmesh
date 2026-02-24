@@ -16,10 +16,11 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,14 +28,15 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.opentelemetry.io/contrib/bridges/otelslog"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/log/global"
-	"go.opentelemetry.io/otel/codes"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -91,7 +93,106 @@ var (
 	cacheHits     int64
 	cacheMisses   int64
 	counterMu     sync.Mutex
+
+	panicsTotal atomic.Int64 // promoted to OTEL counter in Phase 3
 )
+
+// --- Request metadata (Phase 2) ---
+
+// ctxKey is the unexported context key type for chimney-internal values.
+type ctxKey int
+
+const ctxMetaKey ctxKey = 0
+
+// requestMeta holds per-request cache metadata. It is injected by requestLogger
+// and populated by cacheGet so the request log line includes cache info.
+type requestMeta struct {
+	cacheHit  bool
+	cacheTier string
+}
+
+func withRequestMeta(ctx context.Context) (context.Context, *requestMeta) {
+	m := &requestMeta{}
+	return context.WithValue(ctx, ctxMetaKey, m), m
+}
+
+func requestMetaFrom(ctx context.Context) *requestMeta {
+	if m, ok := ctx.Value(ctxMetaKey).(*requestMeta); ok {
+		return m
+	}
+	return nil
+}
+
+// --- Middleware ---
+
+// statusCapture wraps ResponseWriter to capture status code and bytes written.
+type statusCapture struct {
+	http.ResponseWriter
+	status int
+	bytes  int
+}
+
+func (sc *statusCapture) WriteHeader(code int) {
+	sc.status = code
+	sc.ResponseWriter.WriteHeader(code)
+}
+
+func (sc *statusCapture) Write(b []byte) (int, error) {
+	n, err := sc.ResponseWriter.Write(b)
+	sc.bytes += n
+	return n, err
+}
+
+// panicRecovery is the outermost handler wrapper. It catches panics, records
+// them on the current OTEL span, logs at ERROR with a stack trace, and returns
+// a 500 response. panicsTotal is promoted to an OTEL counter in Phase 3.
+func panicRecovery(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				ctx := r.Context()
+				buf := make([]byte, 4096)
+				n := runtime.Stack(buf, false)
+				stack := string(buf[:n])
+
+				span := trace.SpanFromContext(ctx)
+				err := fmt.Errorf("panic: %v", rec)
+				span.RecordError(err)
+				span.SetStatus(codes.Error, "panic")
+
+				panicsTotal.Add(1)
+				slog.ErrorContext(ctx, "panic recovered", "error", err, "stack", stack)
+
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requestLogger injects requestMeta into the request context and emits a
+// structured log line after each request completes. It runs inside the otelhttp
+// span so log lines carry trace_id and span_id automatically via the OTEL bridge.
+func requestLogger(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ctx, meta := withRequestMeta(r.Context())
+		r = r.WithContext(ctx)
+
+		sc := &statusCapture{ResponseWriter: w, status: http.StatusOK}
+		next.ServeHTTP(sc, r)
+
+		slog.InfoContext(ctx, "request",
+			"method", r.Method,
+			"route", r.URL.Path,
+			"status", sc.status,
+			"latency_ms", time.Since(start).Milliseconds(),
+			"cache_hit", meta.cacheHit,
+			"cache_tier", meta.cacheTier,
+			"bytes", sc.bytes,
+		)
+	})
+}
 
 func main() {
 	addr := flag.String("addr", ":8080", "Listen address")
@@ -105,19 +206,22 @@ func main() {
 	// Shutdown is called explicitly in the signal handler below.
 	otelShutdown := func(context.Context) error { return nil } // no-op default
 	if fn, err := otelSetup(context.Background()); err != nil {
-		log.Printf("WARNING: OTEL setup failed: %v — telemetry disabled", err)
+		slog.Warn("OTEL setup failed — telemetry disabled", "error", err)
 	} else {
 		otelShutdown = fn
+		// Route slog (and the standard log package) through the OTEL log bridge.
+		// Must be called after otelSetup registers the global LoggerProvider.
+		slog.SetDefault(slog.New(otelslog.NewHandler("chimney")))
 	}
 
 	rawToken := os.Getenv("GITHUB_TOKEN")
 	githubToken = strings.TrimSpace(rawToken)
 	if rawToken == "" {
-		log.Println("WARNING: GITHUB_TOKEN not set — using unauthenticated API (60 req/hr)")
+		slog.Warn("GITHUB_TOKEN not set — using unauthenticated API", "rate_limit", "60/hr")
 	} else if githubToken == "" {
-		log.Println("WARNING: GITHUB_TOKEN is empty or whitespace — using unauthenticated API")
+		slog.Warn("GITHUB_TOKEN is empty or whitespace — using unauthenticated API", "rate_limit", "60/hr")
 	} else {
-		log.Println("GitHub token configured — 5,000 req/hr")
+		slog.Info("GitHub token configured", "rate_limit", "5000/hr")
 	}
 
 	// Connect to Dragonfly/Redis asynchronously so the HTTP server starts
@@ -133,21 +237,24 @@ func main() {
 
 	go func() {
 		const redisMaxRetries = 30
+		ctx := context.Background()
 		for attempt := 1; attempt <= redisMaxRetries; attempt++ {
-			pingCtx, pingCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			pingCtx, pingCancel := context.WithTimeout(ctx, 2*time.Second)
 			err := rdb.Ping(pingCtx).Err()
 			pingCancel()
 			if err == nil {
-				log.Printf("Dragonfly connected at %s (attempt %d)", redisAddr, attempt)
+				slog.InfoContext(ctx, "Dragonfly connected", "addr", redisAddr, "attempt", attempt)
 				useRedis.Store(true)
 				redisConnDone.Store(true)
 				return
 			}
 			if attempt == redisMaxRetries {
-				log.Printf("WARNING: Dragonfly not available at %s after %d attempts: %v — using in-memory cache", redisAddr, redisMaxRetries, err)
+				slog.WarnContext(ctx, "Dragonfly not available — using in-memory cache",
+					"addr", redisAddr, "attempts", redisMaxRetries, "error", err)
 				redisConnDone.Store(true)
 			} else {
-				log.Printf("Dragonfly not ready at %s (attempt %d/%d): %v — retrying in 1s", redisAddr, attempt, redisMaxRetries, err)
+				slog.InfoContext(ctx, "Dragonfly not ready — retrying",
+					"addr", redisAddr, "attempt", attempt, "max", redisMaxRetries, "error", err)
 				time.Sleep(time.Second)
 			}
 		}
@@ -173,51 +280,60 @@ func main() {
 		mux.ServeHTTP(w, r)
 	})
 
+	// Handler chain (outermost → innermost):
+	//   panicRecovery → otelhttp (creates span) → requestLogger (logs + injects meta) → traceIDMux → mux
 	srv := &http.Server{
 		Addr:    *addr,
-		Handler: otelhttp.NewHandler(traceIDMux, "chimney"),
+		Handler: panicRecovery(otelhttp.NewHandler(requestLogger(traceIDMux), "chimney")),
 	}
 
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
 
-	log.Printf("chimney starting on %s (docs=%s, repo=%s, redis=%s)", *addr, *docsDir, repo, redisAddr)
+	slog.Info("chimney starting", "addr", *addr, "docs", *docsDir, "repo", repo, "redis", redisAddr)
 	go func() {
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("listen: %v", err)
+			slog.Error("listen failed", "error", err)
+			os.Exit(1)
 		}
 	}()
 
 	<-sigCh
-	log.Println("shutdown: draining in-flight telemetry...")
+	slog.Info("shutdown: draining in-flight telemetry")
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := otelShutdown(ctx); err != nil {
-			log.Printf("OTEL shutdown: %v", err)
+			slog.Error("OTEL shutdown", "error", err)
 		}
 	}
-	log.Println("shutdown: stopping HTTP server...")
+	slog.Info("shutdown: stopping HTTP server")
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := srv.Shutdown(ctx); err != nil {
-			log.Printf("HTTP server shutdown: %v", err)
+			slog.Error("HTTP server shutdown", "error", err)
 		}
 	}
-	log.Println("shutdown: complete")
+	slog.Info("shutdown: complete")
 }
 
 // --- Cache abstraction ---
 
 // cacheGet returns the cached response, whether it was found, and which tier
 // served it ("dragonfly", "memory", or "" on miss).
+// On a hit it also populates requestMeta in the context (if present) so the
+// requestLogger middleware can include cache info in the request log line.
 func cacheGet(ctx context.Context, key string) (*cachedResponse, bool, string) {
 	if useRedis.Load() {
 		data, err := rdb.Get(ctx, cachePrefix+key).Bytes()
 		if err == nil {
 			var cr cachedResponse
 			if json.Unmarshal(data, &cr) == nil {
+				if m := requestMetaFrom(ctx); m != nil {
+					m.cacheHit = true
+					m.cacheTier = "dragonfly"
+				}
 				return &cr, true, "dragonfly"
 			}
 		}
@@ -228,6 +344,10 @@ func cacheGet(ctx context.Context, key string) (*cachedResponse, bool, string) {
 	entry, found := memCache[key]
 	memCacheMu.RUnlock()
 	if found {
+		if m := requestMetaFrom(ctx); m != nil {
+			m.cacheHit = true
+			m.cacheTier = "memory"
+		}
 		return &entry.data, true, "memory"
 	}
 	return nil, false, ""
@@ -247,11 +367,11 @@ func cacheSet(ctx context.Context, key string, cr *cachedResponse, ttl time.Dura
 	if useRedis.Load() {
 		data, err := json.Marshal(cr)
 		if err != nil {
-			log.Printf("cache marshal error: %v", err)
+			slog.ErrorContext(ctx, "cache marshal error", "error", err)
 			return
 		}
 		if err := rdb.Set(ctx, cachePrefix+key, data, ttl).Err(); err != nil {
-			log.Printf("Dragonfly SET error (degrading to in-memory): %v", err)
+			slog.WarnContext(ctx, "Dragonfly SET error — degrading to in-memory", "error", err)
 		}
 	}
 }
@@ -290,7 +410,8 @@ func ttlForPath(ghPath, rawQuery string) time.Duration {
 
 // --- Handlers ---
 
-func handleHealthz(w http.ResponseWriter, _ *http.Request) {
+func handleHealthz(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	resp := map[string]interface{}{
 		"status": "ok",
 		"repo":   repo,
@@ -298,14 +419,14 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 
 	// Report Dragonfly status
 	if useRedis.Load() {
-		ctx, cancel := context.WithTimeout(context.Background(), redisTimeout)
+		pingCtx, cancel := context.WithTimeout(ctx, redisTimeout)
 		defer cancel()
-		if err := rdb.Ping(ctx).Err(); err != nil {
+		if err := rdb.Ping(pingCtx).Err(); err != nil {
 			resp["dragonfly"] = "error"
 			resp["dragonfly_error"] = err.Error()
 		} else {
-			info, _ := rdb.Info(ctx, "memory").Result()
-			dbSize, _ := rdb.DBSize(ctx).Result()
+			info, _ := rdb.Info(pingCtx, "memory").Result()
+			dbSize, _ := rdb.DBSize(pingCtx).Result()
 			resp["dragonfly"] = "connected"
 			resp["dragonfly_keys"] = dbSize
 			// Extract used_memory_human from info
@@ -338,7 +459,7 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 	if _, err := w.Write(data); err != nil {
-		log.Printf("writing /healthz response: %v", err)
+		slog.ErrorContext(ctx, "writing /healthz response", "error", err)
 	}
 }
 
@@ -384,7 +505,7 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		counterMu.Lock()
 		cacheHits++
 		counterMu.Unlock()
-		writeResponse(w, entry)
+		writeResponse(ctx, w, entry)
 		return
 	}
 
@@ -427,7 +548,7 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		fetchSpan.SetStatus(codes.Error, "github fetch")
 		// Stale cache fallback
 		if found {
-			writeResponse(w, entry)
+			writeResponse(ctx, w, entry)
 			return
 		}
 		http.Error(w, err.Error(), http.StatusBadGateway)
@@ -449,7 +570,7 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		// Refresh TTL in Dragonfly without re-fetching body
 		entry.FetchedAt = time.Now()
 		cacheSet(ctx, cacheKey, entry, maxAge)
-		writeResponse(w, entry)
+		writeResponse(ctx, w, entry)
 		return
 	}
 
@@ -478,10 +599,10 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	cacheSet(ctx, cacheKey, newEntry, maxAge)
-	writeResponse(w, newEntry)
+	writeResponse(ctx, w, newEntry)
 }
 
-func writeResponse(w http.ResponseWriter, entry *cachedResponse) {
+func writeResponse(ctx context.Context, w http.ResponseWriter, entry *cachedResponse) {
 	for k, v := range entry.Headers {
 		w.Header().Set(k, v)
 	}
@@ -492,13 +613,14 @@ func writeResponse(w http.ResponseWriter, entry *cachedResponse) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(entry.StatusCode)
 	if _, err := w.Write(entry.Body); err != nil {
-		log.Printf("writing response: %v", err)
+		slog.ErrorContext(ctx, "writing response", "error", err)
 	}
 }
 
 // handleVersion returns chimney's build version and the wgmesh version it was
 // compiled from. The dashboard uses this to show which wgmesh release is live.
-func handleVersion(w http.ResponseWriter, _ *http.Request) {
+func handleVersion(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	resp := map[string]string{
@@ -506,7 +628,7 @@ func handleVersion(w http.ResponseWriter, _ *http.Request) {
 		"wgmesh_version":  wgmeshVersion,
 	}
 	if err := json.NewEncoder(w).Encode(resp); err != nil {
-		log.Printf("writing /api/version: %v", err)
+		slog.ErrorContext(ctx, "writing /api/version", "error", err)
 	}
 }
 
@@ -554,7 +676,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("X-Cache-Age", fmt.Sprintf("%.0f", time.Since(entry.FetchedAt).Seconds()))
 		if _, err := w.Write(entry.Body); err != nil {
-			log.Printf("writing /api/pipeline/summary (cached): %v", err)
+			slog.ErrorContext(ctx, "writing /api/pipeline/summary (cached)", "error", err)
 		}
 		return
 	}
@@ -600,7 +722,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 		PullRequest *struct{} `json:"pull_request"`
 	}
 	if err := ghGet("/issues?state=open&per_page=100", &issueList); err != nil {
-		log.Printf("pipeline/summary: issues: %v", err)
+		slog.WarnContext(ctx, "pipeline/summary: issues", "error", err)
 	} else {
 		for _, i := range issueList {
 			if i.PullRequest == nil {
@@ -614,7 +736,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 		Number int `json:"number"`
 	}
 	if err := ghGet("/pulls?state=open&per_page=100", &prList); err != nil {
-		log.Printf("pipeline/summary: pulls: %v", err)
+		slog.WarnContext(ctx, "pipeline/summary: pulls", "error", err)
 	} else {
 		summary.OpenPRs = len(prList)
 	}
@@ -629,7 +751,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 		} `json:"head"`
 	}
 	if err := ghGet("/pulls?state=closed&per_page=10&sort=updated&direction=desc", &closedPRs); err != nil {
-		log.Printf("pipeline/summary: closed pulls: %v", err)
+		slog.WarnContext(ctx, "pipeline/summary: closed pulls", "error", err)
 	} else {
 		for _, pr := range closedPRs {
 			if pr.MergedAt != "" {
@@ -655,7 +777,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 		} `json:"workflow_runs"`
 	}
 	if err := ghGet("/actions/workflows/goose-build.yml/runs?per_page=10&status=completed", &runsResp); err != nil {
-		log.Printf("pipeline/summary: goose runs: %v", err)
+		slog.WarnContext(ctx, "pipeline/summary: goose runs", "error", err)
 	} else {
 		var total, successes int
 		for _, run := range runsResp.WorkflowRuns {
@@ -694,7 +816,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if _, err := w.Write(body); err != nil {
-		log.Printf("writing /api/pipeline/summary: %v", err)
+		slog.ErrorContext(ctx, "writing /api/pipeline/summary", "error", err)
 	}
 }
 
@@ -826,6 +948,6 @@ func handleCacheStats(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	if err := json.NewEncoder(w).Encode(result); err != nil {
-		log.Printf("writing cache stats: %v", err)
+		slog.ErrorContext(ctx, "writing cache stats", "error", err)
 	}
 }
