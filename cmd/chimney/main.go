@@ -21,7 +21,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -38,7 +37,6 @@ import (
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/log/global"
-	"go.opentelemetry.io/otel/metric"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -60,7 +58,7 @@ var (
 	version       = "dev"
 	wgmeshVersion = "unknown"
 
-	startTime = time.Now() // used by chimney.uptime observable gauge
+	startTime = time.Now() // reserved for Phase 3 metrics — chimney.uptime gauge
 )
 
 // cachedResponse is the JSON-serializable form stored in Dragonfly.
@@ -92,118 +90,12 @@ var (
 	useRedis      atomic.Bool // true once Dragonfly is connected; set from background goroutine
 	redisConnDone atomic.Bool // true once the connect goroutine has finished (success or fail)
 	redisAddr     string
+	cacheHits     int64
+	cacheMisses   int64
+	counterMu     sync.Mutex
 
-	// Atomic backing values for observable gauges (updated from response headers / connection state)
-	rateLimitRemaining atomic.Int64 // last X-RateLimit-Remaining seen from GitHub
-	rateLimitReset     atomic.Int64 // last X-RateLimit-Reset (unix timestamp) seen from GitHub
+	panicsTotal atomic.Int64 // promoted to OTEL counter in Phase 3
 )
-
-// --- OTEL metric instruments (Phase 3) ---
-// Initialized in initMetrics after otelSetup. If OTEL is unavailable the
-// global meter provider is a no-op, so all instruments still work (discarded).
-
-var (
-	mCacheHits  metric.Int64Counter
-	mCacheMisses metric.Int64Counter
-
-	mCacheEntries       metric.Int64ObservableGauge
-	mDragonflyConnected metric.Int64ObservableGauge
-	mRateLimitRemaining metric.Int64ObservableGauge
-	mRateLimitReset     metric.Int64ObservableGauge
-	mUptime             metric.Float64ObservableGauge
-
-	mRequests    metric.Int64Counter
-	mRequestDur  metric.Float64Histogram
-	mPanics      metric.Int64Counter
-	mDeployEvents metric.Int64Counter
-)
-
-// initMetrics registers all OTEL metric instruments against the global meter.
-// Must be called after otelSetup (or immediately if OTEL is unavailable — the
-// no-op meter handles that transparently).
-func initMetrics() error {
-	meter := otel.Meter("chimney")
-
-	var err error
-
-	// Cache counters
-	if mCacheHits, err = meter.Int64Counter("chimney.cache.hits",
-		metric.WithDescription("Cache hits, by tier")); err != nil {
-		return fmt.Errorf("chimney.cache.hits: %w", err)
-	}
-	if mCacheMisses, err = meter.Int64Counter("chimney.cache.misses",
-		metric.WithDescription("Cache misses")); err != nil {
-		return fmt.Errorf("chimney.cache.misses: %w", err)
-	}
-
-	// Observable gauges (polled at collection time)
-	if mCacheEntries, err = meter.Int64ObservableGauge("chimney.cache.entries",
-		metric.WithDescription("In-memory cache entries")); err != nil {
-		return fmt.Errorf("chimney.cache.entries: %w", err)
-	}
-	if mDragonflyConnected, err = meter.Int64ObservableGauge("chimney.dragonfly.connected",
-		metric.WithDescription("1 if Dragonfly is connected, 0 otherwise")); err != nil {
-		return fmt.Errorf("chimney.dragonfly.connected: %w", err)
-	}
-	if mRateLimitRemaining, err = meter.Int64ObservableGauge("chimney.github.rate_limit.remaining",
-		metric.WithDescription("GitHub API rate-limit remaining requests")); err != nil {
-		return fmt.Errorf("chimney.github.rate_limit.remaining: %w", err)
-	}
-	if mRateLimitReset, err = meter.Int64ObservableGauge("chimney.github.rate_limit.reset",
-		metric.WithDescription("GitHub API rate-limit reset time (unix timestamp)")); err != nil {
-		return fmt.Errorf("chimney.github.rate_limit.reset: %w", err)
-	}
-	if mUptime, err = meter.Float64ObservableGauge("chimney.uptime",
-		metric.WithDescription("Seconds since chimney started"),
-		metric.WithUnit("s")); err != nil {
-		return fmt.Errorf("chimney.uptime: %w", err)
-	}
-
-	if _, err = meter.RegisterCallback(func(_ context.Context, o metric.Observer) error {
-		memCacheMu.RLock()
-		entries := int64(len(memCache))
-		memCacheMu.RUnlock()
-		o.ObserveInt64(mCacheEntries, entries)
-
-		connected := int64(0)
-		if useRedis.Load() {
-			connected = 1
-		}
-		o.ObserveInt64(mDragonflyConnected, connected)
-		o.ObserveInt64(mRateLimitRemaining, rateLimitRemaining.Load())
-		o.ObserveInt64(mRateLimitReset, rateLimitReset.Load())
-		o.ObserveFloat64(mUptime, time.Since(startTime).Seconds())
-		return nil
-	}, mCacheEntries, mDragonflyConnected, mRateLimitRemaining, mRateLimitReset, mUptime); err != nil {
-		return fmt.Errorf("RegisterCallback: %w", err)
-	}
-
-	// Request metrics
-	if mRequests, err = meter.Int64Counter("chimney.requests",
-		metric.WithDescription("Total HTTP requests by route and status class")); err != nil {
-		return fmt.Errorf("chimney.requests: %w", err)
-	}
-	if mRequestDur, err = meter.Float64Histogram("chimney.request.duration",
-		metric.WithDescription("Request latency"),
-		metric.WithUnit("ms"),
-		metric.WithExplicitBucketBoundaries(5, 25, 100, 500, 2000)); err != nil {
-		return fmt.Errorf("chimney.request.duration: %w", err)
-	}
-
-	// Panics counter (replaces Phase 2 atomic.Int64)
-	if mPanics, err = meter.Int64Counter("chimney.panics",
-		metric.WithDescription("Recovered panics")); err != nil {
-		return fmt.Errorf("chimney.panics: %w", err)
-	}
-
-	// Deploy events placeholder (incremented by Phase 4 handler)
-	if mDeployEvents, err = meter.Int64Counter("chimney.deploy_events",
-		metric.WithDescription("Deploy events by outcome")); err != nil {
-		return fmt.Errorf("chimney.deploy_events: %w", err)
-	}
-
-	return nil
-}
 
 // --- Request metadata (Phase 2) ---
 
@@ -252,8 +144,8 @@ func (sc *statusCapture) Write(b []byte) (int, error) {
 }
 
 // panicRecovery is the outermost handler wrapper. It catches panics, records
-// them on the current OTEL span, logs at ERROR with a stack trace, increments
-// mPanics, and returns a 500 response.
+// them on the current OTEL span, logs at ERROR with a stack trace, and returns
+// a 500 response. panicsTotal is promoted to an OTEL counter in Phase 3.
 func panicRecovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -268,7 +160,7 @@ func panicRecovery(next http.Handler) http.Handler {
 				span.RecordError(err)
 				span.SetStatus(codes.Error, "panic")
 
-				mPanics.Add(ctx, 1)
+				panicsTotal.Add(1)
 				slog.ErrorContext(ctx, "panic recovered", "error", err, "stack", stack)
 
 				http.Error(w, "internal server error", http.StatusInternalServerError)
@@ -278,9 +170,9 @@ func panicRecovery(next http.Handler) http.Handler {
 	})
 }
 
-// requestLogger injects requestMeta into the request context and, after the
-// handler returns, records mRequests + mRequestDur metrics and emits a
-// structured slog line. Runs inside otelhttp so log lines carry trace/span IDs.
+// requestLogger injects requestMeta into the request context and emits a
+// structured log line after each request completes. It runs inside the otelhttp
+// span so log lines carry trace_id and span_id automatically via the OTEL bridge.
 func requestLogger(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
@@ -290,23 +182,11 @@ func requestLogger(next http.Handler) http.Handler {
 		sc := &statusCapture{ResponseWriter: w, status: http.StatusOK}
 		next.ServeHTTP(sc, r)
 
-		latency := time.Since(start)
-		route := r.URL.Path
-		statusClass := fmt.Sprintf("%dxx", sc.status/100)
-
-		mRequests.Add(ctx, 1,
-			metric.WithAttributes(
-				attribute.String("route", route),
-				attribute.String("status_class", statusClass),
-			))
-		mRequestDur.Record(ctx, float64(latency.Milliseconds()),
-			metric.WithAttributes(attribute.String("route", route)))
-
 		slog.InfoContext(ctx, "request",
 			"method", r.Method,
-			"route", route,
+			"route", r.URL.Path,
 			"status", sc.status,
-			"latency_ms", latency.Milliseconds(),
+			"latency_ms", time.Since(start).Milliseconds(),
 			"cache_hit", meta.cacheHit,
 			"cache_tier", meta.cacheTier,
 			"bytes", sc.bytes,
@@ -332,12 +212,6 @@ func main() {
 		// Route slog (and the standard log package) through the OTEL log bridge.
 		// Must be called after otelSetup registers the global LoggerProvider.
 		slog.SetDefault(slog.New(otelslog.NewHandler("chimney")))
-	}
-
-	// Register metric instruments. Uses the global meter provider set by otelSetup;
-	// falls back to no-op instruments transparently if OTEL is unavailable.
-	if err := initMetrics(); err != nil {
-		slog.Warn("metric instrument registration failed", "error", err)
 	}
 
 	rawToken := os.Getenv("GITHUB_TOKEN")
@@ -407,7 +281,7 @@ func main() {
 	})
 
 	// Handler chain (outermost → innermost):
-	//   panicRecovery → otelhttp (creates span) → requestLogger (metrics + log) → traceIDMux → mux
+	//   panicRecovery → otelhttp (creates span) → requestLogger (logs + injects meta) → traceIDMux → mux
 	srv := &http.Server{
 		Addr:    *addr,
 		Handler: panicRecovery(otelhttp.NewHandler(requestLogger(traceIDMux), "chimney")),
@@ -573,6 +447,11 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	resp["mem_cache_entries"] = len(memCache)
 	memCacheMu.RUnlock()
 
+	counterMu.Lock()
+	resp["cache_hits"] = cacheHits
+	resp["cache_misses"] = cacheMisses
+	counterMu.Unlock()
+
 	w.Header().Set("Content-Type", "application/json")
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -610,7 +489,9 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 			attribute.Bool("chimney.cache_hit", true),
 			attribute.String("chimney.cache_tier", tier),
 		)
-		mCacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("tier", tier)))
+		counterMu.Lock()
+		cacheHits++
+		counterMu.Unlock()
 		w.WriteHeader(http.StatusNotModified)
 		return
 	}
@@ -621,7 +502,9 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 			attribute.Bool("chimney.cache_hit", true),
 			attribute.String("chimney.cache_tier", tier),
 		)
-		mCacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("tier", tier)))
+		counterMu.Lock()
+		cacheHits++
+		counterMu.Unlock()
 		writeResponse(ctx, w, entry)
 		return
 	}
@@ -630,7 +513,9 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		attribute.Bool("chimney.cache_hit", false),
 		attribute.String("chimney.cache_tier", "none"),
 	)
-	mCacheMisses.Add(ctx, 1)
+	counterMu.Lock()
+	cacheMisses++
+	counterMu.Unlock()
 
 	// Fetch from GitHub — child span covers the upstream HTTP call + body read.
 	conditional := found && entry.ETag != ""
@@ -678,18 +563,6 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 	)
 	if resp.StatusCode/100 == 5 {
 		fetchSpan.SetStatus(codes.Error, "github upstream error")
-	}
-
-	// Update rate-limit gauges from response headers
-	if v := resp.Header.Get("X-RateLimit-Remaining"); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			rateLimitRemaining.Store(n)
-		}
-	}
-	if v := resp.Header.Get("X-RateLimit-Reset"); v != "" {
-		if n, err := strconv.ParseInt(v, 10, 64); err == nil {
-			rateLimitReset.Store(n)
-		}
 	}
 
 	// 304 — serve cached
@@ -795,8 +668,10 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 
 	// Serve cached summary if fresh
-	if entry, ok, tier := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
-		mCacheHits.Add(ctx, 1, metric.WithAttributes(attribute.String("tier", tier)))
+	if entry, ok, _ := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
+		counterMu.Lock()
+		cacheHits++
+		counterMu.Unlock()
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("X-Cache-Age", fmt.Sprintf("%.0f", time.Since(entry.FetchedAt).Seconds()))
@@ -806,7 +681,9 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mCacheMisses.Add(ctx, 1)
+	counterMu.Lock()
+	cacheMisses++
+	counterMu.Unlock()
 
 	summary := pipelineSummary{
 		WgmeshVersion: wgmeshVersion,
@@ -1018,6 +895,11 @@ func otelSetup(ctx context.Context) (func(context.Context) error, error) {
 func handleCacheStats(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	result := map[string]interface{}{}
+
+	counterMu.Lock()
+	result["hits"] = cacheHits
+	result["misses"] = cacheMisses
+	counterMu.Unlock()
 
 	// In-memory stats
 	memCacheMu.RLock()
