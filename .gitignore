@@ -38,3 +38,6 @@ go.work
 Thumbs.db
 .scannerwork/
 __pycache__/
+
+# Strategy and outreach notes — kept local only (GDPR: may contain personal data)
+memory/
