@@ -98,24 +98,28 @@ After this phase, log lines appear in Coroot linked to their parent traces.
    - => handler chain: panicRecovery → otelhttp → requestLogger → traceIDMux → mux
    - => PR #351
 
-### Phase 3 - OTEL metrics - status: open
+### Phase 3 - OTEL metrics - status: completed
 
 Promote existing int64 counters to OTEL instruments.
 After this phase, Coroot shows chimney metric charts (cache ratio, rate limit remaining, etc.).
 
-9. [ ] Promote cache counters; add Dragonfly and rate-limit gauges
+9. [x] Promote cache counters; add Dragonfly and rate-limit gauges
    - `chimney.cache.hits` counter (`tier` attr: `dragonfly` / `memory`) — replaces `cacheHits int64`
    - `chimney.cache.misses` counter — replaces `cacheMisses int64`
    - `chimney.cache.entries` observable gauge — `len(memCache)` at collection time
    - `chimney.dragonfly.connected` observable gauge — 1/0, read from `useRedis` atomic
    - `chimney.github.rate_limit.remaining` + `.reset` gauges — updated in `handleGitHubProxy` when GitHub response includes headers
+   - `chimney.uptime` gauge — seconds since startTime
    - Remove `counterMu sync.Mutex` + int64 globals; remove cache_hits/misses from `/healthz` JSON (already in OTEL)
+   - => rate-limit values backed by `atomic.Int64`; observable gauges registered via `RegisterCallback`
+   - => `handlePipelineSummary` captures tier from cacheGet return value
 
-10. [ ] Add request metrics; wire panics and deploy-event counters
+10. [x] Add request metrics; wire panics and deploy-event counters
     - `chimney.requests` counter (`route`, `status_class` attrs: 2xx/3xx/4xx/5xx) — incremented by request middleware
     - `chimney.request.duration` histogram (`route` attr, explicit boundaries: 5/25/100/500/2000ms)
     - `chimney.panics` counter — replace Phase 2 atomic int64 placeholder with OTEL counter
     - `chimney.deploy_events` counter (`outcome` attr) — placeholder counter; incremented by Phase 4 handler
+    - => all instruments registered in `initMetrics()` called after otelSetup; no-op fallback if OTEL unavailable
 
 ### Phase 4 - Deploy status endpoint and CI hook - status: open
 
@@ -172,3 +176,4 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
 - 2602211419 — Phase 1 / action 4: custom span attrs (cache_hit, cache_tier, github_path)
 - 2602211419 — Phase 1 / action 5: chimney.github_fetch child span; Phase 1 complete
 - 2602240000 — Phase 2 / actions 6-8: slog + OTEL bridge, panic recovery, request logger; PR #351
+- 2602240000 — Phase 3 / actions 9-10: OTEL metric instruments (counters, histograms, gauges); PR #351
