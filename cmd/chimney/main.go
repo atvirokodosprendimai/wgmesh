@@ -394,6 +394,7 @@ func main() {
 	mux.HandleFunc("/api/pipeline/summary", handlePipelineSummary)
 	mux.HandleFunc("POST /api/deploy/events", handleDeployEvents)
 	mux.HandleFunc("GET /api/deploy/status", handleDeployStatus)
+	mux.HandleFunc("POST /api/cache/invalidate", handleCacheInvalidate)
 
 	fs := http.FileServer(http.Dir(*docsDir))
 	mux.Handle("/", fs)
