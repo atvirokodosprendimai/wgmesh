@@ -121,21 +121,21 @@ After this phase, Coroot shows chimney metric charts (cache ratio, rate limit re
     - `chimney.deploy_events` counter (`outcome` attr) — placeholder counter; incremented by Phase 4 handler
     - => all instruments registered in `initMetrics()` called after otelSetup; no-op fallback if OTEL unavailable
 
-### Phase 4 - Deploy status endpoint and CI hook - status: open
+### Phase 4 - Deploy status endpoint and CI hook - status: completed
 
 After this phase, `GET /api/deploy/status` shows last deploy metadata and CI writes to it on completion.
 
-11. [ ] Add deploy event ring buffer + `POST /api/deploy/events`
+11. [x] Add deploy event ring buffer + `POST /api/deploy/events`
     - `deployEvent` struct: `SHA string`, `Slot string`, `Outcome string`, `Timestamp time.Time`, `DurationS float64`
     - 50-element circular buffer with mutex
     - `POST /api/deploy/events`: check `Authorization: Bearer <$DEPLOY_TOKEN>`; decode JSON body; append; increment `chimney.deploy_events{outcome=...}` counter
 
-12. [ ] Add `GET /api/deploy/status`
+12. [x] Add `GET /api/deploy/status`
     - Returns last event + `age_s` (time.Since)
     - Returns success_rate_pct over all ring entries (0–100, omitted if ring empty)
     - Returns 204 with empty body if no events received yet
 
-13. [ ] Add CI deploy hook to `chimney-deploy.yml`
+13. [x] Add CI deploy hook to `chimney-deploy.yml`
     - After smoke tests pass: `curl -sf -X POST https://<origin-ip>/api/deploy/events` with JSON body `{sha, slot, outcome:"success", duration_s}`
     - On failure path (if smoke tests fail): post `outcome:"failure"` before exit
     - `DEPLOY_TOKEN` from GitHub secret; add to deploy workflow env
@@ -177,3 +177,4 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
 - 2602211419 — Phase 1 / action 5: chimney.github_fetch child span; Phase 1 complete
 - 2602240000 — Phase 2 / actions 6-8: slog + OTEL bridge, panic recovery, request logger; PR #351
 - 2602240000 — Phase 3 / actions 9-10: OTEL metric instruments (counters, histograms, gauges); PR #351
+- 2602240000 — Phase 4 / actions 11-13: deploy ring buffer (deploy.go), POST/GET deploy endpoints, CI hook in chimney-deploy.yml with DEPLOY_TOKEN + outcome reporting; PR #351
