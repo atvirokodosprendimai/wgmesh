@@ -64,6 +64,7 @@ services:
       - -redis=dragonfly:6379
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DEPLOY_TOKEN: ${DEPLOY_TOKEN:-}
       SLOT: blue
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://table.beerpub.dev/v1/traces"
       OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://table.beerpub.dev/v1/logs"
@@ -93,6 +94,7 @@ services:
       - -redis=dragonfly:6379
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      DEPLOY_TOKEN: ${DEPLOY_TOKEN:-}
       SLOT: green
       OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://table.beerpub.dev/v1/traces"
       OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://table.beerpub.dev/v1/logs"

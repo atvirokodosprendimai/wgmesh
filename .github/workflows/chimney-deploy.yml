@@ -30,6 +30,7 @@ concurrency:
 env:
   HCLOUD_TOKEN: ${{ secrets.HCLOUD_TOKEN }}
   IMAGE_BASE: ghcr.io/atvirokodosprendimai/wgmesh/chimney
+  DEPLOY_TOKEN: ${{ secrets.DEPLOY_TOKEN }}
 
 jobs:
   deploy:
@@ -102,6 +103,9 @@ jobs:
           echo "## Deploy: $IMAGE" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
 
+          DEPLOY_START=$(date +%s)
+          echo "$DEPLOY_START" > /tmp/deploy_start
+
           while IFS= read -r line; do
             name=$(echo "$line" | awk '{print $1}')
             ip=$(echo "$line" | awk '{print $2}')
@@ -132,6 +136,7 @@ jobs:
           sleep 60
 
       - name: Smoke tests
+        id: smoke
         if: steps.origins.outputs.found == 'true'
         run: |
           set -euo pipefail
@@ -169,6 +174,28 @@ jobs:
           echo "**$PASS passed, $FAIL failed**" >> "$GITHUB_STEP_SUMMARY"
 
           [ "$FAIL" -eq 0 ] || { echo "::error::$FAIL smoke test(s) failed"; exit 1; }
+
+      - name: Report deploy outcome
+        if: always() && steps.origins.outputs.found == 'true'
+        run: |
+          set -uo pipefail
+          OUTCOME="failure"
+          [ "${{ steps.smoke.outcome }}" = "success" ] && OUTCOME="success"
+          SHA="${{ github.sha }}"
+          DURATION_S=0
+          if [ -f /tmp/deploy_start ]; then
+            DURATION_S=$(( $(date +%s) - $(cat /tmp/deploy_start) ))
+          fi
+          while IFS= read -r line; do
+            ip=$(echo "$line" | awk '{print $2}')
+            [ -z "$ip" ] && continue
+            curl -sf --max-time 10 \
+              -X POST "http://$ip/api/deploy/events" \
+              -H "Authorization: Bearer $DEPLOY_TOKEN" \
+              -H "Content-Type: application/json" \
+              -d "{\"sha\":\"$SHA\",\"slot\":\"\",\"outcome\":\"$OUTCOME\",\"duration_s\":$DURATION_S}" \
+              || echo "Warning: deploy event post to $ip failed (non-fatal)"
+          done < /tmp/origins.txt
 
       - name: Cleanup
         if: always()
