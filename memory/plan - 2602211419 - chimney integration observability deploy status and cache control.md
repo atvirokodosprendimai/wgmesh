@@ -67,28 +67,36 @@ After this phase, chimney exports spans to Coroot — the trace waterfall shows 
    - => GitHub 5xx also marks span as Error; User-Agent domain fixed (cloudroof.eu→beerpub.dev)
    - => `go build` + `go vet` pass; Phase 1 complete
 
-### Phase 2 - Structured logging and panic recovery - status: open
+### Phase 2 - Structured logging and panic recovery - status: completed
 
 Replace log.Print* with slog + OTEL log bridge.
 After this phase, log lines appear in Coroot linked to their parent traces.
 
-6. [ ] Replace `log.Print*` with slog + OTEL log bridge
+6. [x] Replace `log.Print*` with slog + OTEL log bridge
    - Init `otelslog.NewHandler(loggerProvider)` as the slog backend
    - `slog.SetDefault(slog.New(otelslogHandler))` — this also redirects Go's `log` package
    - Migrate each `log.Printf/Println/Fatal` call to `slog.InfoContext` / `slog.WarnContext` / `slog.ErrorContext`
    - Pass request context to slog calls inside handlers so trace_id / span_id attach automatically
+   - => `"log"` import removed; `log/slog` + `go.opentelemetry.io/contrib/bridges/otelslog` added
+   - => slog.SetDefault called after otelSetup succeeds; falls back to default text handler if OTEL unavailable
+   - => all log.* calls migrated; handleHealthz/handleVersion gain ctx; writeResponse gains ctx param
 
-7. [ ] Add panic recovery middleware
+7. [x] Add panic recovery middleware
    - Outer-most wrapper (added before `otelhttp.NewHandler` in the chain)
    - On panic: recover, get current span from context, `span.RecordError`, `span.SetStatus(codes.Error, "panic")`
    - Log at ERROR via slog with `"stack"` attribute (runtime.Stack, truncated to 4KB)
    - Increment `panicsCounter` (OTEL counter, registered in Phase 3) — use atomic int64 for Phase 2, promote in Phase 3
    - Write 500 response
+   - => `panicRecovery(next http.Handler) http.Handler` added; wraps full chain
 
-8. [ ] Add request log middleware
+8. [x] Add request log middleware
    - Wraps handlers inside `otelhttp`; captures status code, bytes written, latency
    - After handler returns: emit `slog.InfoContext(ctx, "request", ...)` with method, route, status, latency_ms, cache_hit, cache_tier, bytes
    - Stores per-request cache metadata (hit/tier) via context key set in `cacheGet`
+   - => `requestLogger` middleware + `statusCapture` ResponseWriter wrapper added
+   - => `requestMeta` context value injected by middleware; `cacheGet` populates hit/tier on cache hit
+   - => handler chain: panicRecovery → otelhttp → requestLogger → traceIDMux → mux
+   - => PR #351
 
 ### Phase 3 - OTEL metrics - status: open
 
@@ -163,3 +171,4 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
 - 2602211419 — Phase 1 / action 3: otelhttp wrapper + X-Trace-ID + graceful shutdown (SIGTERM/SIGINT)
 - 2602211419 — Phase 1 / action 4: custom span attrs (cache_hit, cache_tier, github_path)
 - 2602211419 — Phase 1 / action 5: chimney.github_fetch child span; Phase 1 complete
+- 2602240000 — Phase 2 / actions 6-8: slog + OTEL bridge, panic recovery, request logger; PR #351
