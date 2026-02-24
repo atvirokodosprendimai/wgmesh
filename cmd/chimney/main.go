@@ -209,9 +209,11 @@ func main() {
 		slog.Warn("OTEL setup failed — telemetry disabled", "error", err)
 	} else {
 		otelShutdown = fn
-		// Route slog (and the standard log package) through the OTEL log bridge.
+		// Route slog through both stderr and the OTEL log bridge so logs are
+		// visible locally even when the OTEL collector is unavailable.
 		// Must be called after otelSetup registers the global LoggerProvider.
-		slog.SetDefault(slog.New(otelslog.NewHandler("chimney")))
+		consoleHandler := slog.NewTextHandler(os.Stderr, nil)
+		slog.SetDefault(slog.New(newMultiHandler(consoleHandler, otelslog.NewHandler("chimney"))))
 	}
 
 	rawToken := os.Getenv("GITHUB_TOKEN")
@@ -266,6 +268,8 @@ func main() {
 	mux.HandleFunc("/api/cache/stats", handleCacheStats)
 	mux.HandleFunc("/api/version", handleVersion)
 	mux.HandleFunc("/api/pipeline/summary", handlePipelineSummary)
+	mux.HandleFunc("POST /api/deploy/events", handleDeployEvents)
+	mux.HandleFunc("GET /api/deploy/status", handleDeployStatus)
 
 	fs := http.FileServer(http.Dir(*docsDir))
 	mux.Handle("/", fs)
@@ -818,6 +822,48 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(body); err != nil {
 		slog.ErrorContext(ctx, "writing /api/pipeline/summary", "error", err)
 	}
+}
+
+// --- multi-handler for slog ---
+
+// multiHandler fans out slog records to multiple handlers.
+// Used to write to both stderr and the OTEL log bridge simultaneously.
+type multiHandler []slog.Handler
+
+func newMultiHandler(handlers ...slog.Handler) slog.Handler { return multiHandler(handlers) }
+
+func (m multiHandler) Enabled(ctx context.Context, l slog.Level) bool {
+	for _, h := range m {
+		if h.Enabled(ctx, l) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m multiHandler) Handle(ctx context.Context, r slog.Record) error {
+	for _, h := range m {
+		if h.Enabled(ctx, r.Level) {
+			_ = h.Handle(ctx, r.Clone())
+		}
+	}
+	return nil
+}
+
+func (m multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	out := make(multiHandler, len(m))
+	for i, h := range m {
+		out[i] = h.WithAttrs(attrs)
+	}
+	return out
+}
+
+func (m multiHandler) WithGroup(name string) slog.Handler {
+	out := make(multiHandler, len(m))
+	for i, h := range m {
+		out[i] = h.WithGroup(name)
+	}
+	return out
 }
 
 // --- OTEL setup ---
