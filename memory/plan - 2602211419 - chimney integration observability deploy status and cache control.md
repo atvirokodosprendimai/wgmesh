@@ -141,11 +141,11 @@ After this phase, `GET /api/deploy/status` shows last deploy metadata and CI wri
     - `DEPLOY_TOKEN` from GitHub secret; add to deploy workflow env
     - Use the origin public IP already available from the deploy loop variable
 
-### Phase 5 - Cache invalidation API - status: open
+### Phase 5 - Cache invalidation API - status: completed
 
 After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-deploy.
 
-14. [ ] Implement `POST /api/cache/invalidate`
+14. [x] Implement `POST /api/cache/invalidate`
     - `Authorization: Bearer <$INVALIDATE_TOKEN>` env var
     - Body: `{"prefix": "/pulls", "all": false}`
     - `all: true` requires `INVALIDATE_ALL_ALLOWED=true` env (guard against accidental full wipe)
@@ -153,7 +153,7 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
     - Response: `{"deleted": N, "dragonfly": N, "memory": N}`
     - Log via slog + set span attribute `chimney.cache.invalidated_keys` (count)
 
-15. [ ] Register `/api/cache/invalidate` route
+15. [x] Register `/api/cache/invalidate` route
     - `mux.HandleFunc("POST /api/cache/invalidate", handleCacheInvalidate)` (Go 1.22 method+path syntax)
     - Add `INVALIDATE_TOKEN` and `INVALIDATE_ALL_ALLOWED` to `compose.origin.yml` env block (empty defaults)
 
@@ -178,3 +178,4 @@ After this phase, table.beerpub.dev can force-refresh a stale GitHub path post-d
 - 2602240000 — Phase 2 / actions 6-8: slog + OTEL bridge, panic recovery, request logger; PR #351
 - 2602240000 — Phase 3 / actions 9-10: OTEL metric instruments (counters, histograms, gauges); PR #351
 - 2602240000 — Phase 4 / actions 11-13: deploy ring buffer (deploy.go), POST/GET deploy endpoints, CI hook in chimney-deploy.yml with DEPLOY_TOKEN + outcome reporting; PR #351
+- 2602240000 — Phase 5 / actions 14-15: cache_invalidate.go with POST /api/cache/invalidate, INVALIDATE_TOKEN + INVALIDATE_ALL_ALLOWED guards, Dragonfly SCAN+DEL + memCache prefix sweep; compose.origin.yml env vars; PR #351
