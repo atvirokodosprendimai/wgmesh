@@ -1,9 +1,35 @@
 <a href="https://viberank.dev/apps/wgmesh" target="_blank" rel="noopener noreferrer"><img src="https://viberank.dev/badge?app=wgmesh&theme=dark" alt="wgmesh on VibeRank" /></a>
 <a href="https://www.producthunt.com/products/wgmesh?embed=true&amp;utm_source=badge-featured&amp;utm_medium=badge&amp;utm_campaign=badge-wgmesh" target="_blank" rel="noopener noreferrer"><img alt="wgmesh - Decentralized WireGuard mesh builder with DHT discovery | Product Hunt" width="250" height="54" src="https://api.producthunt.com/widgets/embed-image/v1/featured.svg?post_id=1081094&amp;theme=light&amp;t=1771444856938"></a>
 [![Chimney Deploy](https://github.com/atvirokodosprendimai/wgmesh/actions/workflows/chimney-deploy.yml/badge.svg)](https://github.com/atvirokodosprendimai/wgmesh/actions/workflows/chimney-deploy.yml)
-# WireGuard Mesh Builder
+# wgmesh — Share a Secret, Build a Mesh
 
-A Go-based tool for building and managing WireGuard mesh networks with support for NAT traversal, automatic endpoint detection, and incremental configuration updates.
+**Build encrypted mesh networks in minutes, not hours.** Generate a shared secret, run `wgmesh join` on each node, and let DHT discovery wire everything together — NAT traversal, endpoint detection, and route management included.
+
+## Why wgmesh?
+
+Setting up WireGuard between two machines is simple. Setting it up between *ten* is a nightmare of key exchanges, endpoint tracking, and config file juggling. Every time you add or remove a node, every other node's config needs updating.
+
+wgmesh solves this with two approaches:
+
+- **Decentralized mode** — nodes discover each other automatically via DHT using a shared secret. No coordination server, no manual config. Just `wgmesh join` and you're in the mesh.
+- **Centralized mode** — SSH into your fleet, deploy WireGuard configs, and manage the topology from a single state file. Diff-based updates mean minimal disruption.
+
+Both modes handle NAT traversal, route propagation, and persistence across reboots out of the box.
+
+## Quick Start
+
+```bash
+# Generate a secret (once)
+wgmesh init --secret
+
+# On every node — same secret, automatic discovery
+wgmesh join --secret "wgmesh://v1/<your-secret>"
+
+# Check status
+wgmesh status --secret "wgmesh://v1/<your-secret>"
+```
+
+That's it. Nodes find each other via DHT, exchange keys, and build the mesh. See [Usage](#usage) for centralized mode, route advertising, access control, and more.
 
 ## Features
 
@@ -101,24 +127,13 @@ docker-compose logs -f wgmesh-node
 
 See [DOCKER-COMPOSE.md](DOCKER-COMPOSE.md) for detailed documentation and advanced configurations.
 
-## Version Information
-
-To display the current version of wgmesh:
+### Verify Installation
 
 ```bash
-wgmesh version          # Using the version subcommand
-wgmesh --version        # Using the long version flag
-wgmesh -v              # Using the short version flag
+wgmesh version    # or: wgmesh --version / wgmesh -v
 ```
 
-Both the `version` subcommand and the `--version`/`-v` flags display version information. The version flags take priority over all other flags and subcommands, so you can use them even with other arguments:
-
-```bash
-wgmesh --version --help    # Shows version, ignores --help
-wgmesh -v join             # Shows version, ignores subcommand
-```
-
-## Quick Start
+## Usage
 
 ### Decentralized Mode (Secret-Based Discovery)
 
@@ -252,15 +267,15 @@ This will:
 ./wgmesh -deploy
 ```
 
-## Advanced Usage
+### Advanced Options
 
-### Custom State File
+#### Custom State File
 
 ```bash
 ./wgmesh -state /path/to/custom-state.json -list
 ```
 
-### Encrypted State File
+#### Encrypted State File
 
 Encrypt the mesh state file to protect private keys. The file will be AES-256-GCM encrypted and base64-encoded, making it safe to store in vaults.
 
@@ -303,7 +318,7 @@ vault kv get -field=state secret/wgmesh > /var/lib/wgmesh/mesh-state.json
 ./wgmesh --encrypt --list
 ```
 
-### Adding Routes for Networks Behind Nodes
+#### Adding Routes for Networks Behind Nodes
 
 Edit the `/var/lib/wgmesh/mesh-state.json` file and add routable networks to a node:
 
@@ -328,7 +343,7 @@ After editing, run `./wgmesh -deploy` to apply the changes.
 - Routes are added to both the live routing table and the persistent config file
 - If you remove a network from `routable_networks`, it will be automatically cleaned up from all nodes on the next deploy
 
-### Access Control and Network Segmentation
+#### Access Control and Network Segmentation
 
 wgmesh supports group-based access control in centralized mode, allowing you to segment your mesh network and control which nodes can communicate with each other.
 
@@ -862,7 +877,14 @@ wgmeshbuilder/
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit issues or pull requests.
+Contributions are welcome! Here's how to get started:
+
+1. **Fork** the repository
+2. **Create a branch** for your feature or fix (`git checkout -b my-feature`)
+3. **Build and test** locally: `go build -o wgmesh && go test ./...`
+4. **Submit a pull request** with a clear description of what changed and why
+
+Found a bug or have an idea? [Open an issue](https://github.com/atvirokodosprendimai/wgmesh/issues) — even small improvements are appreciated.
 
 ## License
 
