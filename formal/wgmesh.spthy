@@ -1,0 +1,346 @@
+theory wgmesh
+begin
+
+/*
+ * wgmesh Cryptographic Protocol — Tamarin Security Model
+ * ======================================================
+ *
+ * Run:
+ *   tamarin-prover --prove formal/wgmesh.spthy
+ *   tamarin-prover interactive formal/wgmesh.spthy   (browser UI)
+ *
+ * This model formally verifies five security properties of wgmesh's
+ * cryptographic layer against a Dolev-Yao network adversary.
+ * The adversary controls the network: it can observe, replay, inject,
+ * and reorder all traffic — but it does not start with the mesh secret.
+ *
+ * Protocols modelled:
+ *   1. Key derivation   — HKDF domain separation          (derive.go)
+ *   2. Peer messaging   — AES-256-GCM envelope            (envelope.go)
+ *   3. Membership token — HMAC-SHA256 with epoch          (membership.go)
+ *   4. Secret rotation  — HMAC-signed commitment          (rotation.go)
+ *
+ * Cryptographic model:
+ *   hkdf/3     — HKDF-SHA256 (free function, non-invertible)
+ *   hmac/2     — HMAC-SHA256 (free function, MAC-secure)
+ *   h/1        — SHA256 (one-way hash, builtin)
+ *   senc/sdec  — AES-256-GCM (authenticated symmetric encryption, builtin)
+ *
+ * Lemmas:
+ *   L1  gossip_key_secrecy          — derived key stays secret without secret
+ *   L2  message_authentication      — decryption implies sender knew the key
+ *   L3  membership_unforgeability   — admission requires knowing membershipKey
+ *   L4  rotation_authentic          — rotation accepted only if operator signed it
+ *   L5  post_rotation_key_secrecy   — old-secret leak does not expose new gossipKey
+ *   exec_* (exists-trace)           — non-vacuity checks
+ */
+
+builtins: symmetric-encryption, hashing
+
+functions: hkdf/3, hmac/2
+
+/*
+ * ================================================================
+ * MESH SETUP
+ * ================================================================
+ *
+ * The operator generates a fresh shared secret and distributes it
+ * out-of-band (e.g. via a secure channel) to all member nodes.
+ * This is modelled as !SharedSecret — a persistent fact that is
+ * available to legitimate nodes but never output to the network.
+ *
+ * Maps to: DeriveKeys() in derive.go
+ * Info strings below match the constants in derive.go:
+ *   hkdfInfoGossipKey    = "wgmesh-gossip-v1"
+ *   hkdfInfoMembership   = "wgmesh-membership-v1"
+ */
+
+rule Mesh_Create:
+    [ Fr(~secret) ]
+  --[ MeshCreated(~secret) ]->
+    [ !SharedSecret(~secret) ]
+
+rule Node_Init:
+  let
+    gk = hkdf(~secret, 'wgmesh-gossip-v1',      '32')
+    mk = hkdf(~secret, 'wgmesh-membership-v1',  '32')
+  in
+    [ !SharedSecret(~secret), Fr(~nid) ]
+  --[ NodeInited(~nid, ~secret, gk, mk) ]->
+    [ !NodeState(~nid, gk, mk) ]
+
+/*
+ * ================================================================
+ * ENVELOPE ENCRYPTION (peer-to-peer authenticated messaging)
+ * ================================================================
+ *
+ * Maps to: SealEnvelope / OpenEnvelopeRaw in envelope.go
+ *
+ * SealEnvelope:
+ *   nonce ← crypto/rand (12 bytes)
+ *   ciphertext ← AES-256-GCM.Seal(key=gossipKey, nonce, plaintext, aad=nil)
+ *   output ← {type, nonce, ciphertext}
+ *
+ * OpenEnvelopeRaw:
+ *   plaintext ← AES-256-GCM.Open(key=gossipKey, nonce, ciphertext)  // FAIL → reject
+ *   check: protocol == "wgmesh-v1"
+ *   check: |now - timestamp| ≤ 10 minutes                            // replay protection
+ *
+ * Tamarin modelling:
+ *   - senc/sdec provide authenticated encryption: In(senc(m, k)) can
+ *     only be satisfied if the adversary can supply senc(m, k), which
+ *     requires knowledge of k (the gossipKey).
+ *   - The fresh nonce ~nonce is included in the ciphertext and enforced
+ *     unique per receiver via NoDuplicateNonce — capturing the ±10-minute
+ *     timestamp replay check from OpenEnvelopeRaw.
+ *   - Message content ~msg is fresh (node-generated announcement); the
+ *     adversary cannot choose it, only forward or drop it.
+ */
+
+rule Node_Send:
+  let
+    env = senc(<~nonce, ~msg>, gk)
+  in
+    [ !NodeState(~nid, gk, mk), Fr(~nonce), Fr(~msg) ]
+  --[ Sent(~nid, ~msg, ~nonce, gk) ]->
+    [ Out(env) ]
+
+rule Node_Receive:
+    [ !NodeState(~nid, gk, mk), In(senc(<nonce, msg>, gk)) ]
+  --[ Received(~nid, msg, nonce), Authentic(~nid, gk, msg) ]->
+    [ ]
+
+/* Each nonce may be accepted at most once per receiving node. */
+restriction NoDuplicateNonce:
+  "All nid msg n #i #j.
+    Received(nid, msg, n) @ i & Received(nid, msg, n) @ j
+    ==> #i = #j"
+
+/*
+ * ================================================================
+ * MEMBERSHIP TOKEN PROTOCOL
+ * ================================================================
+ *
+ * Maps to: GenerateMembershipToken / ValidateMembershipToken in membership.go
+ *
+ *   token = HMAC-SHA256(membershipKey, pubkey || "|" || hourEpoch)
+ *
+ *   Validation accepts: current hour, previous hour, next hour (±1h clock skew).
+ *
+ * Tamarin modelling:
+ *   - token = hmac(mk, <~nid, ~epoch>)  where ~epoch is a fresh value
+ *     representing the shared hour epoch (both parties agree on it).
+ *   - The ±1h window is not modelled; MAC unforgeability is epoch-independent.
+ *   - Lighthouse derives mk from !SharedSecret — only holders of the secret
+ *     can generate or validate tokens.
+ */
+
+rule Node_Request_Admission:
+  let
+    token = hmac(mk, <~nid, ~epoch>)
+  in
+    [ !NodeState(~nid, gk, mk), Fr(~epoch) ]
+  --[ TokenCreated(~nid, mk, token, ~epoch) ]->
+    [ Out(<~nid, token, ~epoch>) ]
+
+rule Lighthouse_Admit:
+  let
+    mk       = hkdf(~secret, 'wgmesh-membership-v1', '32')
+    expected = hmac(mk, <claimedId, claimedEpoch>)
+  in
+    [ !SharedSecret(~secret), In(<claimedId, claimedToken, claimedEpoch>) ]
+  --[ Admitted(claimedId, ~secret), Eq(claimedToken, expected) ]->
+    [ !AdmittedNode(claimedId, ~secret) ]
+
+restriction Equality:
+  "All x y #i. Eq(x, y) @ i ==> x = y"
+
+/*
+ * ================================================================
+ * SECRET ROTATION
+ * ================================================================
+ *
+ * Maps to: GenerateRotationAnnouncement / ValidateRotationAnnouncement
+ *          / VerifyNewSecret in rotation.go
+ *
+ *   content   = hex(sha256(newSecret)) || "|" || gracePeriod || "|" || timestamp
+ *   signature = HMAC-SHA256(oldMembershipKey, content)
+ *
+ * Only sha256(newSecret) — not newSecret itself — is broadcast.
+ * ValidateRotationAnnouncement checks: HMAC(oldMk, content) == signature.
+ * VerifyNewSecret checks: sha256(candidate) == announcement.NewSecretHash.
+ *
+ * Tamarin modelling:
+ *   - content = <h(~newSecret), ~grace, ~ts>
+ *     h is one-way: adversary cannot invert h(~newSecret) to get ~newSecret.
+ *   - newSecret is distributed out-of-band; modelled as !SharedSecret(~newSecret)
+ *     (created by Operator_Rotate, never output to the network directly).
+ *   - Node_Accept_Rotation requires both: correct HMAC on the announcement
+ *     AND access to !SharedSecret(~newSecret) (out-of-band distribution).
+ */
+
+rule Operator_Rotate:
+  let
+    oldMk   = hkdf(~oldSecret, 'wgmesh-membership-v1', '32')
+    content = <h(~newSecret), ~grace, ~ts>
+    sig     = hmac(oldMk, content)
+  in
+    [ !SharedSecret(~oldSecret), Fr(~newSecret), Fr(~grace), Fr(~ts) ]
+  --[ RotationAnnounced(~oldSecret, ~newSecret) ]->
+    [ !SharedSecret(~newSecret),
+      !RotationPending(~oldSecret, ~newSecret),
+      Out(<content, sig>) ]
+
+rule Node_Accept_Rotation:
+  let
+    oldMk       = hkdf(~oldSecret, 'wgmesh-membership-v1', '32')
+    newGk       = hkdf(~newSecret, 'wgmesh-gossip-v1',     '32')
+    newMk       = hkdf(~newSecret, 'wgmesh-membership-v1', '32')
+    content     = <h(~newSecret), grace, ts>
+    expectedSig = hmac(oldMk, content)
+  in
+    [ !NodeState(~nid, _, oldMk),
+      !SharedSecret(~oldSecret),
+      !SharedSecret(~newSecret),
+      !RotationPending(~oldSecret, ~newSecret),
+      In(<content, claimedSig>) ]
+  --[ NodeRotated(~nid, ~oldSecret, ~newSecret),
+      Eq(claimedSig, expectedSig) ]->
+    [ !NodeState(~nid, newGk, newMk) ]
+
+/*
+ * Post-compromise oracle: models an adversary that learns a secret after
+ * the fact (e.g. extracted from a compromised node's disk).
+ * Used in L3 and L5 to reason about forward secrecy guarantees.
+ */
+rule Reveal_Secret:
+    [ !SharedSecret(~secret) ]
+  --[ Revealed(~secret) ]->
+    [ Out(~secret) ]
+
+/*
+ * ================================================================
+ * SECURITY LEMMAS
+ * ================================================================
+ */
+
+/*
+ * L1 — Gossip key secrecy
+ *
+ * The adversary can learn gk = hkdf(secret, 'wgmesh-gossip-v1', '32')
+ * only if it already knows the secret.  HKDF is modelled as a free
+ * function with no inverse: the adversary cannot work backwards from gk.
+ *
+ * Corresponds to: "A node without the shared secret cannot decrypt
+ * any peer announcement."
+ *
+ * Expected: VERIFIED
+ */
+lemma gossip_key_secrecy:
+  "All nid secret gk mk #i #j.
+      NodeInited(nid, secret, gk, mk) @ i & K(gk) @ j
+    ==> Ex #k. K(secret) @ k"
+
+/*
+ * L2 — Message authentication
+ *
+ * If a node marks an incoming message as Authentic (i.e. AES-GCM
+ * decryption succeeded), the envelope must have been produced by someone
+ * who knew the gossip key — and (by L1) that implies they knew the secret.
+ *
+ * Corresponds to: "Successful decryption authenticates the sender as a
+ * mesh member — the Dolev-Yao adversary cannot forge an envelope."
+ *
+ * Expected: VERIFIED
+ */
+lemma message_authentication:
+  "All nid gk msg #i.
+      Authentic(nid, gk, msg) @ i
+    ==> Ex nid2 secret mk2 #j.
+          NodeInited(nid2, secret, gk, mk2) @ j"
+
+/*
+ * L3 — Membership token unforgeability
+ *
+ * Lighthouse admission requires that the claimant ran Node_Request_Admission
+ * — i.e. they held the membership key mk = hkdf(secret, ...).
+ * Conditioned on the secret not being revealed: if the secret leaks,
+ * the adversary can trivially compute mk and forge any token.
+ *
+ * Corresponds to: "Only nodes possessing the shared secret can pass
+ * Lighthouse authentication."
+ *
+ * Expected: VERIFIED
+ */
+lemma membership_unforgeability:
+  "All claimedId secret #i.
+      Admitted(claimedId, secret) @ i
+      & not (Ex #r. Revealed(secret) @ r)
+    ==> Ex mk tok epoch #j.
+          TokenCreated(claimedId, mk, tok, epoch) @ j"
+
+/*
+ * L4 — Rotation authenticity
+ *
+ * Node_Accept_Rotation fires only when the announcement's HMAC signature
+ * validates against hmac(oldMk, content).  Since only Operator_Rotate
+ * produces such a signature (using oldMk derived from !SharedSecret),
+ * NodeRotated implies RotationAnnounced.
+ *
+ * Corresponds to: "An adversary without the old membership key cannot
+ * cause any honest node to switch keys via a forged announcement."
+ *
+ * Expected: VERIFIED
+ */
+lemma rotation_authentic:
+  "All nid old new #i.
+      NodeRotated(nid, old, new) @ i
+    ==> Ex #j. RotationAnnounced(old, new) @ j"
+
+/*
+ * L5 — Post-rotation forward secrecy (new key secrecy after old compromise)
+ *
+ * Even after the adversary learns the old secret (Reveal_Secret on old),
+ * it cannot derive the new gossip key.  The rotation announcement only
+ * contains h(~newSecret); h is one-way so ~newSecret is not recoverable.
+ *
+ * Conditioned on: new secret itself is not separately revealed.
+ *
+ * Corresponds to: "Compromising the pre-rotation secret does not expose
+ * post-rotation traffic — the new gossip key remains confidential."
+ *
+ * Expected: VERIFIED
+ */
+lemma post_rotation_key_secrecy:
+  "All old new #r #i.
+      Revealed(old) @ r
+      & RotationAnnounced(old, new) @ i
+      & not (Ex #s. Revealed(new) @ s)
+    ==> not (Ex #k. K(hkdf(new, 'wgmesh-gossip-v1', '32')) @ k)"
+
+/*
+ * ================================================================
+ * EXECUTABILITY — non-vacuity checks
+ *
+ * These exist-trace lemmas verify that the model admits at least one
+ * valid execution trace for each protocol flow.  If any of these fail,
+ * the corresponding rules are unreachable and the security lemmas above
+ * would be vacuously true.
+ * ================================================================
+ */
+
+lemma exec_send_receive [exists-trace]:
+  "Ex nidA nidB msg nonce gk #i #j.
+      Sent(nidA, msg, nonce, gk) @ i
+      & Received(nidB, msg, nonce) @ j"
+
+lemma exec_admission [exists-trace]:
+  "Ex id secret #i. Admitted(id, secret) @ i"
+
+lemma exec_rotation_announced [exists-trace]:
+  "Ex old new #i. RotationAnnounced(old, new) @ i"
+
+lemma exec_rotation_accepted [exists-trace]:
+  "Ex nid old new #i. NodeRotated(nid, old, new) @ i"
+
+end

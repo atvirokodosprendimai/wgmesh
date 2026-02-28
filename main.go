@@ -758,6 +758,7 @@ func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, err
 			for i, p := range rpcPeers {
 				result[i] = &rpc.PeerData{
 					WGPubKey:         p.WGPubKey,
+					Hostname:         p.Hostname,
 					MeshIP:           p.MeshIP,
 					Endpoint:         p.Endpoint,
 					LastSeen:         p.LastSeen,
@@ -774,6 +775,7 @@ func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, err
 			}
 			return &rpc.PeerData{
 				WGPubKey:         peer.WGPubKey,
+				Hostname:         peer.Hostname,
 				MeshIP:           peer.MeshIP,
 				Endpoint:         peer.Endpoint,
 				LastSeen:         peer.LastSeen,
@@ -870,7 +872,7 @@ func handlePeersList(client *rpc.Client) {
 		return
 	}
 
-	fmt.Printf("%-40s %-15s %-25s %-10s %s\n", "PUBLIC KEY", "MESH IP", "ENDPOINT", "LAST SEEN", "DISCOVERED VIA")
+	fmt.Printf("%-20s %-19s %-15s %-25s %-10s %s\n", "HOSTNAME", "PUBLIC KEY", "MESH IP", "ENDPOINT", "LAST SEEN", "DISCOVERED VIA")
 	fmt.Println(strings.Repeat("-", 120))
 
 	for _, peerData := range peersData {
@@ -883,8 +885,17 @@ func handlePeersList(client *rpc.Client) {
 		if !ok {
 			continue
 		}
-		if len(pubkey) > 40 {
-			pubkey = pubkey[:37] + "..."
+		pubkeyShort := pubkey
+		if len(pubkeyShort) > 16 {
+			pubkeyShort = pubkeyShort[:16] + "..."
+		}
+
+		hostname, _ := peer["hostname"].(string)
+		if hostname == "" {
+			hostname = pubkeyShort
+		}
+		if len(hostname) > 20 {
+			hostname = hostname[:17] + "..."
 		}
 
 		meshIP, _ := peer["mesh_ip"].(string)
@@ -908,7 +919,7 @@ func handlePeersList(client *rpc.Client) {
 			}
 		}
 
-		fmt.Printf("%-40s %-15s %-25s %-10s %s\n", pubkey, meshIP, endpoint, lastSeenStr, strings.Join(discoveredViaStr, ","))
+		fmt.Printf("%-20s %-19s %-15s %-25s %-10s %s\n", hostname, pubkeyShort, meshIP, endpoint, lastSeenStr, strings.Join(discoveredViaStr, ","))
 	}
 }
 

@@ -87,3 +87,6 @@ done
 
 echo "=== edge setup complete ==="
 docker compose -f "$DEPLOY_DIR/compose.edge.yml" --project-directory "$DEPLOY_DIR" ps
+echo "--- caddy logs (last 30) ---"
+sleep 3
+docker logs chimney-edge-caddy-1 --tail=30 2>&1 || true

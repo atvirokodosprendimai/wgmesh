@@ -131,6 +131,30 @@ echo "$INACTIVE" > "$ACTIVE_SLOT_FILE"
 # ── Clean up override ──
 rm -f "$DEPLOY_DIR/docker-compose.override.yml"
 
+# ── Start ancillary services ──
+# bluegreen.sh only manages chimney-blue and chimney-green.
+# Other services (coroot-node-agent, dragonfly, caddy, wgmesh, watchtower)
+# may have been added or updated in compose.origin.yml — bring them up now.
+# --no-recreate ensures running services are not disrupted.
+echo ""
+echo "Starting ancillary services (if any)..."
+ANCILLARY_SERVICES=$(docker compose \
+    -f "$DEPLOY_DIR/compose.origin.yml" \
+    --project-directory "$DEPLOY_DIR" \
+    config --services 2>/dev/null | grep -v "^chimney-" || true)
+
+if [ -n "$ANCILLARY_SERVICES" ]; then
+    echo "Ancillary services: $(echo "$ANCILLARY_SERVICES" | tr '\n' ' ')"
+    # shellcheck disable=SC2086
+    docker compose \
+        -f "$DEPLOY_DIR/compose.origin.yml" \
+        --project-directory "$DEPLOY_DIR" \
+        --env-file "$DEPLOY_DIR/.env" \
+        up -d --no-recreate $ANCILLARY_SERVICES
+else
+    echo "No ancillary services to start."
+fi
+
 echo ""
 echo "=== Blue/Green Deploy Complete ==="
 echo "Active slot: $INACTIVE (port $INACTIVE_PORT)"
