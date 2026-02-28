@@ -38,12 +38,15 @@ jobs:
             const fieldId = process.env.STATUS_FIELD_ID;
 
             // Label → column mapping (first match wins, order = priority)
+            // Pipeline labels take precedence over function labels
             const labelToColumn = [
               { labels: ['needs-review'],                       col: process.env.COL_REVIEW_CODE },
               { labels: ['approved-for-build', 'goose-implementation'], col: process.env.COL_BUILDING },
               { labels: ['spec-ready'],                         col: process.env.COL_REVIEW_SPEC },
               { labels: ['copilot-triaging', 'copilot-revising'], col: process.env.COL_SPEC_IN_PROGRESS },
               { labels: ['needs-triage'],                       col: process.env.COL_TRIAGE },
+              // Company function labels — route to Triage for initial handling
+              { labels: ['fn:dev', 'fn:ops', 'fn:gtm', 'fn:billing', 'fn:support', 'fn:legal', 'needs-human'], col: process.env.COL_TRIAGE },
             ];
 
             // Get the content node ID (issue or PR)
