@@ -1,16 +1,23 @@
 ---
-tldr: Autonomous company-in-a-repo that builds, markets, sells, and operates wgmesh as an AI service gateway — driven by an LLM control loop in GitHub Actions
+tldr: Autonomous company-in-a-repo that builds, markets, sells, and operates wgmesh as an AI service gateway — driven by an LLM control loop in GitHub Actions, built entirely in public
 ---
 
 # First Customer
 
-An autonomous company that runs itself through GitHub. An LLM agent executes a recurring control loop — observing the real state of the product, infrastructure, market presence, revenue, and support — then creates and prioritises work across all business functions. The existing agent pipeline (Copilot specs → Goose implementation → auto-merge) handles development. New loops handle operations, go-to-market, billing, and support. Humans provide capital and intervention when the loop requests it.
+An autonomous company that runs itself through a public GitHub repo. An LLM agent executes a recurring control loop — observing the real state of the product, infrastructure, market presence, revenue, and support — then creates and prioritises work across all business functions. The existing agent pipeline (Copilot specs → Goose implementation → auto-merge) handles development. New loops handle operations, go-to-market, billing, and support. Humans provide capital and intervention when the loop requests it.
+
+Everything is visible: the spec, the loop assessments, the funnel stage, the issues, the PRs, the decisions. This is deliberate — radical transparency is both the operating model and the marketing strategy.
 
 The goal: first paying customer within 3 months. A homelab LLM operator paying for managed mesh + ingress to expose AI services over HTTPS.
 
 ## Target
 
 wgmesh is technically mature but has no product layer, no company around it, and no revenue. The gap isn't code — it's everything else a business needs. This spec defines a system where that gap closes autonomously, with the LLM control loop as the operating brain and GitHub as the substrate.
+
+The public repo is the company. Anyone can watch the loop think, see what it prioritises, read its assessments, follow the funnel from zero to revenue. This transparency serves three purposes:
+1. **Trust** — potential customers see exactly how the product is built and operated
+2. **Marketing** — "autonomous company building in public" is a story people share
+3. **Accountability** — the loop's decisions are auditable by anyone, not just the founder
 
 ## Behaviour
 
@@ -84,6 +91,8 @@ The LLM outputs a structured assessment:
 - Issues to close or deprioritise (situation changed)
 - Requests for human intervention (if capital or decisions needed)
 
+The assessment is committed to the repo as `company/loop-history/YYMMDD-assessment.md` — **publicly visible by design**. Anyone following the repo can see the loop's reasoning, what it's prioritising, and why.
+
 Issues flow into the existing pipeline:
 - `fn:dev` → Copilot specs → Goose implements → auto-merge
 - `fn:ops` → operations playbooks / deploy workflows
@@ -91,6 +100,28 @@ Issues flow into the existing pipeline:
 - `fn:billing` → billing integration tasks
 - `fn:support` → customer communication tasks
 - `fn:legal` → compliance, terms of service, GDPR
+
+### Public/private boundary
+
+The repo is public. Everything the loop writes to the repo is public. This is the default and the intent. However, some data must stay private:
+
+**Public** (committed to repo):
+- Loop assessments, funnel stage, priorities, reasoning
+- Infrastructure health status (up/down, latency — not credentials)
+- Aggregate metrics: number of nodes, services, uptime percentage
+- Cost tracking: category-level spend (compute, DNS, etc.) — not invoice details
+- All code, specs, issues, PRs, decisions
+
+**Private** (GitHub Actions secrets + external stores only):
+- API keys, tokens, credentials (Hetzner, Stripe, DNS, LLM)
+- Customer PII: names, emails, payment details, mesh secrets
+- Exact revenue figures, invoice amounts, payment history
+- SSH keys, deploy credentials, webhook secrets
+- LLM API keys for the loop itself
+
+**Rule**: if in doubt, it's public. The loop must never write secrets or customer PII to committed files. Sensitive signals are passed to the LLM via environment variables from GitHub secrets, never persisted in the repo.
+
+The loop's assessment can reference private signals in aggregate ("revenue: growing" / "1 active customer" / "infra cost: under budget") without exposing exact numbers. The founder can optionally publish exact numbers — that's a human decision, not the loop's.
 
 ### What the customer gets
 
@@ -171,12 +202,25 @@ New automation for infrastructure management:
 
 ### Go-to-market function (`fn:gtm`)
 
-LLM-driven content and presence:
+The primary marketing channel is the repo itself. People will discover wgmesh by watching an autonomous company build itself in public.
+
+**The repo as marketing**:
+- Loop assessments are readable narratives, not just JSON — they tell the story of the company evolving
+- Issues and PRs show real work happening autonomously
+- The funnel progression is itself compelling content ("Day 30: the loop got us to Stage 2")
+- GitHub stars/follows/watchers are the top-of-funnel metric
+
+**Traditional GTM** (also loop-driven):
 - Landing page: static site in `site/` directory, deployed to Hetzner via GitHub Actions
-- Content generation: LLM writes blog posts, guides, comparison pages as PRs
+- Content generation: LLM writes blog posts, guides, comparison pages as PRs — all public, all reviewable
 - Install script: `curl -fsSL https://wgmesh.dev/install | sh` hosted on landing page
 - Quickstart: "Expose Ollama in 5 minutes" guide
-- Social: the loop can draft posts, but posting requires human approval (`needs-human`)
+- Social: the loop drafts posts as issues labeled `fn:gtm` + `needs-human`. Human reviews and posts. The draft itself is public — followers can see what's coming.
+
+**Launch moments** (the loop creates these when funnel stage transitions):
+- Stage 0 → 1: "We built an AI service gateway" — technical blog post
+- Stage 2 → 3: "An autonomous company just opened for business" — HN/Reddit launch
+- Stage 5: "Our first customer paid" — build-in-public milestone post
 
 ### Billing function (`fn:billing`)
 
@@ -190,11 +234,12 @@ Minimal viable billing:
 
 ### Support function (`fn:support`)
 
-GitHub Issues as support channel for first customer:
-- Customer files issue or emails
-- Email → GitHub Issue via webhook (Migadu → GitHub)
-- Loop triages support issues, creates `fn:dev` bugs if needed
+GitHub Issues as support channel — public by default, which means support quality is visible to prospective customers:
+- Customer files issue labeled `support`
+- Private support (PII, account-specific) via email (Migadu). Email content never committed to repo.
+- Loop triages public support issues, creates `fn:dev` bugs if needed
 - Direct support from human for customer #1 (personal network)
+- Good public support interactions double as trust signals and documentation
 
 ### Legal function (`fn:legal`)
 
@@ -229,12 +274,15 @@ company/
 
 ## Friction
 
-- **LLM quality**: The loop's effectiveness depends entirely on the LLM's ability to assess state and prioritise. Bad assessments compound. Mitigation: loop history enables human audit, `needs-human` label as escape valve.
+- **LLM quality**: The loop's effectiveness depends entirely on the LLM's ability to assess state and prioritise. Bad assessments compound. Mitigation: loop history enables human audit, `needs-human` label as escape valve. Public visibility means bad assessments are also visible — this is pressure toward quality.
 - **Signal availability**: Some signals (web analytics, social metrics) won't exist until those systems are set up. The loop must handle missing signals gracefully and prioritise creating them.
 - **Billing complexity**: EU payment processing has VAT/tax implications. Stripe handles most of this but the legal entity question is a hard human dependency.
 - **GitHub as substrate**: Running a full company through GitHub Issues is unconventional. Issue volume may become noisy. Mitigation: strict labeling, separate project boards per function.
 - **Cost control**: Autonomous spending (Hetzner, domains, services) needs guardrails. The loop should track costs and flag when approaching thresholds. Human approves any new recurring spend.
 - **Cold start**: The loop can't observe what doesn't exist yet. Early runs will mostly create foundational issues. This is expected — the funnel model handles it.
+- **Radical transparency risk**: Competitors can see the strategy, the funnel stage, the priorities. This is accepted. The bet is that execution speed (autonomous loop) outweighs strategy visibility. A company that runs itself is harder to copy than a strategy document.
+- **Secret leakage**: The loop writes to a public repo. A single mistake — an API key in an assessment, a customer email in an issue — is a public incident. Mitigation: the loop's system prompt explicitly prohibits writing secrets. The state collection step sanitises inputs before passing to the LLM. A pre-commit hook scans for common secret patterns.
+- **Public failure**: If the loop makes bad decisions, creates nonsensical issues, or the funnel stalls — everyone sees it. This is a feature, not a bug. Authentic building in public includes failure. But it does mean the loop should fail gracefully and explain its reasoning.
 
 ## Interactions
 
