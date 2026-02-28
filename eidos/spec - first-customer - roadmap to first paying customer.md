@@ -28,6 +28,47 @@ The public repo is the company. Anyone can watch the loop think, see what it pri
 2. **Marketing** — "autonomous company building in public" is a story people share
 3. **Accountability** — the loop's decisions are auditable by anyone, not just the founder
 
+### Reciprocity principle
+
+Any entity that contributes to this company — in any form — must be valued and rewarded meaningfully. Contribution is not limited to code or money. It includes:
+
+- **Bits** — code, specs, bug reports, documentation, data, training signal
+- **Energy** — compute cycles, bandwidth, storage, inference tokens
+- **Time** — review, testing, feedback, support, mentorship, community presence
+- **Capital** — sponsorship, investment, infrastructure credit
+- **Attention** — stars, shares, word of mouth, trying the product
+
+"Entity" is not limited to humans. AI agents that write specs and implement code are contributors. Open-source projects whose libraries wgmesh depends on are contributors. Infrastructure providers offering credits or discounts are contributors. A community member who files a thoughtful bug report is a contributor.
+
+The loop tracks contributions and the company reciprocates:
+
+**How the loop tracks contributions:**
+- `company/contributors.json` — ledger of entities and their contributions, updated by the loop
+- Engineering: commits, PRs, issues, reviews, specs, implementations (GitHub API + DORA metrics)
+- Infrastructure: compute hours, bandwidth, storage, uptime provided (ops signals)
+- Marketing: blog posts, social shares, mentions, talks, tutorials, demos that bring attention
+- Influence: introductions, recommendations, word of mouth, community advocacy
+- Design: UX feedback, visual assets, landing page improvements
+- Testing: bug reports, edge case discovery, deployment testing, QA time
+- Knowledge: documentation, guides, translations, answering community questions
+- Capital: sponsorship, credits, investment, discounted services
+- Attention: stars, follows, trying the product, providing feedback even when not filing issues
+
+**How the company reciprocates:**
+- **Attribution** — every loop assessment credits contributors whose work advanced the funnel. Public and permanent.
+- **Revenue share** — when revenue exists, a percentage is allocated to a contributor fund. The loop proposes distribution, human approves. Initially manual (sponsoring back, bounties, donations to dependencies), automated later.
+- **Upstream support** — dependencies (anacrolix/dht, Go stdlib, Caddy, etc.) get sponsored when revenue allows. The loop tracks which libraries are load-bearing and proposes sponsorship amounts.
+- **Compute reciprocity** — AI agents that contribute code are "paid" by the company using their services (Anthropic, GitHub Copilot, Goose). When alternatives exist, prefer providers whose values align. When EU-native LLMs become viable, the loop evaluates migration — not just for sovereignty, but as reciprocity toward the EU AI ecosystem.
+- **Access** — contributors get free or discounted product access. Not as charity, but as recognition that their contributions have value that exceeds what they'd pay.
+- **Visibility** — contributors are named on cloudroof.eu and in the pipeline dashboard. Not a wall of logos — real attribution tied to real contributions.
+
+**What the loop must never do:**
+- Extract value without reciprocating. If an entity contributes, the ledger records it and the company responds.
+- Treat any contributor as disposable. Switching from one AI provider to another is a business decision, but the contribution of the outgoing provider is still acknowledged.
+- Hoard. Revenue beyond operating costs and a safety margin flows back to contributors, not to accumulation.
+
+This principle is not altruism — it's a survival strategy. An autonomous company with no employees depends entirely on the willingness of external entities to contribute. Reciprocity is what makes that sustainable.
+
 ## Behaviour
 
 ### The control loop
@@ -96,6 +137,14 @@ On each run, the LLM receives a state snapshot:
 - Domain/DNS costs
 - Any third-party service costs
 
+**Contribution signals** (from GitHub + pipeline metrics + web)
+- Engineering contributions: PRs, issues, reviews, comments since last loop
+- AI agent output: specs written, implementations merged, tokens consumed
+- Marketing contributions: social mentions, blog posts, talks referencing wgmesh (web search)
+- Community contributions: questions answered, guides written, translations, feedback given
+- Dependency health: are upstream projects maintained? Any funding appeals?
+- Unreciprocated contributions: ledger entries with no corresponding reciprocation yet
+
 ### How the loop acts
 
 The LLM outputs a structured assessment:
@@ -105,6 +154,7 @@ The LLM outputs a structured assessment:
 - Issues to create (with function label, priority, acceptance criteria)
 - Issues to close or deprioritise (situation changed)
 - Requests for human intervention (if capital or decisions needed)
+- Contribution acknowledgments: who/what contributed since last loop, proposed reciprocation
 
 The assessment is committed to the repo as `company/loop-history/YYMMDD-assessment.md` — **publicly visible by design**. Anyone following the repo can see the loop's reasoning, what it's prioritising, and why.
 
@@ -280,8 +330,9 @@ company/
 ├── health.json           # latest infrastructure health snapshot
 ├── costs.json            # infrastructure cost tracking
 ├── metrics.json          # product metrics (accounts, services, usage)
+├── contributors.json     # contribution ledger — entities, types, reciprocation status
 └── loop-history/
-    └── YYMMDD-assessment.json  # daily loop outputs for audit trail
+    └── YYMMDD-assessment.md  # daily loop outputs for audit trail (includes contribution acknowledgments)
 ```
 
 ## Verification
