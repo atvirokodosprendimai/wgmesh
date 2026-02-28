@@ -371,6 +371,22 @@ company/
 
 ## Mapping
 
+Company loop (new):
+> [[.github/workflows/company-loop.yml]]
+> [[company/system-prompt.md]]
+> [[company/loop-state.json]]
+> [[company/contributors.json]]
+> [[company/costs.json]]
+> [[company/health.json]]
+> [[company/metrics.json]]
+> [[company/scripts/collect-github.sh]]
+> [[company/scripts/collect-infra.sh]]
+> [[company/scripts/collect-contributions.sh]]
+> [[company/scripts/sanitise.sh]]
+> [[.github/hooks/pre-commit-secret-scan]]
+> [[.github/labels.yml]]
+
+Existing pipeline:
 > [[.github/workflows/copilot-triage.yml]]
 > [[.github/workflows/goose-build.yml]]
 > [[.github/workflows/auto-merge.yml]]
@@ -378,6 +394,8 @@ company/
 > [[.github/workflows/board-sync.yml]]
 > [[.github/workflows/chimney-deploy.yml]]
 > [[.github/workflows/agent-metrics-report.yml]]
+
+Product:
 > [[cmd/chimney/main.go]]
 > [[cmd/lighthouse/main.go]]
 > [[pkg/lighthouse/api.go]]
