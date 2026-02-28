@@ -1,0 +1,19 @@
+{
+  "last_updated": null,
+  "product": {
+    "accounts": 0,
+    "active_meshes": 0,
+    "registered_services": 0,
+    "nodes": 0
+  },
+  "community": {
+    "github_stars": null,
+    "github_forks": null,
+    "open_issues": null,
+    "sponsorship_subscribers": 0
+  },
+  "revenue": {
+    "mrr_status": "pre-revenue",
+    "active_customers": 0
+  }
+}

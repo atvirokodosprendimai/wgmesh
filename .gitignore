@@ -19,6 +19,9 @@ mesh-state.json
 *.json.bak
 *.json
 
+# Allow company state files (public by design — see spec: first-customer)
+!company/**/*.json
+
 # Docker compose environment and data
 .env
 data/
