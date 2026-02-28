@@ -68,3 +68,32 @@
 - name: "complexity: high"
   color: "F9D0C4"
   description: "Significant effort, multiple components"
+
+# === Company Function Labels ===
+- name: "fn:dev"
+  color: "1D76DB"
+  description: "Development — flows into Copilot/Goose pipeline"
+
+- name: "fn:ops"
+  color: "5319E7"
+  description: "Operations — infrastructure, deployment, monitoring"
+
+- name: "fn:gtm"
+  color: "0E8A16"
+  description: "Go-to-market — marketing, content, landing page"
+
+- name: "fn:billing"
+  color: "FBCA04"
+  description: "Billing — payments, invoicing, accounts"
+
+- name: "fn:support"
+  color: "E99695"
+  description: "Customer support"
+
+- name: "fn:legal"
+  color: "D876E3"
+  description: "Legal — compliance, terms, privacy, entity"
+
+- name: needs-human
+  color: "B60205"
+  description: "Requires human decision, capital, or judgment"
