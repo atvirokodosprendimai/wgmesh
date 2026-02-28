@@ -12,7 +12,16 @@ The goal: first paying customer within 3 months. A homelab LLM operator paying f
 
 ## Target
 
-wgmesh is technically mature but has no product layer, no company around it, and no revenue. The gap isn't code — it's everything else a business needs. This spec defines a system where that gap closes autonomously, with the LLM control loop as the operating brain and GitHub as the substrate.
+wgmesh has more than code — it already has product and company infrastructure in motion:
+
+**What exists today:**
+- **cloudroof.eu** — product site live, positioning wgmesh as self-hosted anycast CDN using WireGuard + BGP. Covers architecture (two-leg edge nodes), pricing comparison ($15-20/mo vs vendor CDNs), setup guide. No billing integration yet.
+- **chimney.beerpub.dev** — agent pipeline dashboard. Tracks issues → specs → implementation → merge. Shows DORA metrics, business impact analysis, capability matrix (built vs missing features), customer factory funnel (acquisition → activation → revenue → retention), traction roadmap targeting $100K ARR (3-year MSC: 420 customers). Sponsorship tiers at $5/$25/$100/mo.
+- **Agent pipeline** — Copilot specs → Goose implements → auto-merge, with board sync, metrics, and undraft automation. Operational.
+- **Chimney proxy** — GitHub API caching proxy, deployed blue/green on Hetzner. Production infrastructure proving ground.
+- **Lighthouse** — CDN control plane with REST + xDS API, auth, DNS verification, health checks. Partially deployed.
+
+**The gap** is closing the loop between these pieces: the product site exists but can't take payments, the pipeline dashboard tracks progress but doesn't drive it, the customer factory funnel is visualised but not automated. This spec connects them — the LLM control loop reads the real state of all these systems and drives the funnel forward autonomously.
 
 The public repo is the company. Anyone can watch the loop think, see what it prioritises, read its assessments, follow the funnel from zero to revenue. This transparency serves three purposes:
 1. **Trust** — potential customers see exactly how the product is built and operated
@@ -34,20 +43,25 @@ The loop doesn't follow a fixed plan. It evolves a funnel — from "no product" 
 
 ### The funnel
 
-Stages the loop drives through, with transition criteria:
+Maps to the customer factory already visualised on chimney.beerpub.dev (acquisition → activation → revenue → retention), but expressed as stages the loop drives through with observable transition criteria:
 
-- **Stage 0: Foundation** — product doesn't exist yet
-  - Exit when: service registration + managed ingress work end-to-end in a test environment
+- **Stage 0: Foundation** — managed ingress product doesn't exist yet
+  - Already done: mesh networking, discovery, CLI, edge infra (Chimney), product site (cloudroof.eu), pipeline dashboard (chimney.beerpub.dev)
+  - Remaining: service registration CLI, Lighthouse evolution into managed ingress
+  - Exit when: `wgmesh service add` + managed ingress work end-to-end in a test environment
 - **Stage 1: Dogfood** — product works but only internally
-  - Exit when: wgmesh team uses it daily for own AI services, no critical bugs for 1 week
-- **Stage 2: Presence** — product works but nobody knows about it
-  - Exit when: landing page live, install one-liner works, quickstart guide published
+  - Exit when: wgmesh team uses managed ingress daily for own AI services, no critical bugs for 1 week
+- **Stage 2: Presence** — product works but nobody knows it does *this*
+  - cloudroof.eu exists but pitches anycast CDN, not AI service gateway. Needs repositioning or a dedicated landing path for the LLM operator persona.
+  - Exit when: AI gateway positioning live on cloudroof.eu, "expose Ollama in 5 minutes" quickstart published, install one-liner works
 - **Stage 3: Reachable** — people can find it but can't pay
-  - Exit when: billing integration live, pricing page exists, signup flow works
+  - Sponsorship tiers exist ($5/$25/$100) on chimney.beerpub.dev but no product billing. Need to connect Stripe (or EU alternative) to actual service accounts.
+  - Exit when: billing integration live, customer can sign up and get invoiced for managed ingress
 - **Stage 4: Pipeline** — people can pay but nobody has
   - Exit when: first customer onboarded from personal network
 - **Stage 5: Revenue** — first invoice paid
   - Exit when: payment received, retention signal (customer still active after 30 days)
+  - Traction roadmap on chimney.beerpub.dev updates to reflect real ARR
 
 ### What the loop observes
 
@@ -65,11 +79,12 @@ On each run, the LLM receives a state snapshot:
 - Deployment status (last deploy time, blue/green state)
 - Error rates, latency from Caddy/Lighthouse logs
 
-**Go-to-market signals** (from web + social)
-- Landing page: exists? deployed? analytics if available
+**Go-to-market signals** (from web + existing assets)
+- cloudroof.eu: is AI gateway content live? Analytics (Plausible/Umami) if available
+- chimney.beerpub.dev: dashboard metrics — capability matrix gaps, traction roadmap progress
 - GitHub stars, forks, traffic (API: `repos/{owner}/{repo}/traffic`)
+- Sponsorship tier subscribers (from chimney.beerpub.dev or GitHub Sponsors)
 - Content published: blog posts, guides, comparison pages
-- Social presence: accounts created, posts made
 
 **Revenue signals** (from billing)
 - Accounts created, active meshes, services registered
@@ -172,7 +187,9 @@ Default to EU-based services. When no EU option exists, use what's available and
 | Compute | Hetzner Cloud (Falkenstein, Nuremberg) | Yes | Already used for Chimney |
 | Edge proxy | Hetzner + Caddy | Yes | Evolve current Chimney infra |
 | DNS | Hetzner DNS or deSEC | Yes | deSEC is Berlin-based, free, API-driven |
-| Domain | registrar TBD | Yes | `.dev` domain via EU registrar |
+| Domain | registrar TBD | Yes | cloudroof.eu already registered. `.dev` domain via EU registrar if needed |
+| Product site | cloudroof.eu | Yes | Already live. Evolve, don't replace |
+| Pipeline dashboard | chimney.beerpub.dev | Yes | Already live on Hetzner. Feeds loop signals |
 | Billing | Stripe | No* | EU entity available, data in EU. {[!] Evaluate Mollie (NL) or Paddle (UK) as alternatives |
 | Email | Migadu (CH) or Mailgun EU | Yes | Transactional + support |
 | Analytics | Plausible (EU) or Umami (self-host) | Yes | Privacy-first, GDPR compliant, no cookie banner |
@@ -210,27 +227,33 @@ The primary marketing channel is the repo itself. People will discover wgmesh by
 - The funnel progression is itself compelling content ("Day 30: the loop got us to Stage 2")
 - GitHub stars/follows/watchers are the top-of-funnel metric
 
-**Traditional GTM** (also loop-driven):
-- Landing page: static site in `site/` directory, deployed to Hetzner via GitHub Actions
-- Content generation: LLM writes blog posts, guides, comparison pages as PRs — all public, all reviewable
-- Install script: `curl -fsSL https://wgmesh.dev/install | sh` hosted on landing page
-- Quickstart: "Expose Ollama in 5 minutes" guide
-- Social: the loop drafts posts as issues labeled `fn:gtm` + `needs-human`. Human reviews and posts. The draft itself is public — followers can see what's coming.
+**Existing assets to evolve** (not start from scratch):
+- cloudroof.eu already positions wgmesh with architecture diagrams, pricing comparison, setup guide. Add an AI gateway landing path alongside the CDN story — same product, different persona.
+- chimney.beerpub.dev already shows the pipeline, capability matrix, traction roadmap, sponsorship tiers. The loop should feed real funnel data back into this dashboard so it reflects live state, not static targets.
+- Sponsorship tiers ($5/$25/$100) already exist. These become the seed for product pricing — evolve from "support the project" to "pay for managed ingress."
+
+**New GTM** (loop-driven):
+- AI gateway content on cloudroof.eu: "Expose Ollama in 5 minutes" quickstart, comparison vs Tailscale Funnel / Cloudflare Tunnel / ngrok
+- Content generation: LLM writes blog posts, guides as PRs — all public, all reviewable
+- Install script: `curl -fsSL https://cloudroof.eu/install | sh`
+- Social: the loop drafts posts as issues labeled `fn:gtm` + `needs-human`. Human reviews and posts. The draft itself is public.
 
 **Launch moments** (the loop creates these when funnel stage transitions):
-- Stage 0 → 1: "We built an AI service gateway" — technical blog post
+- Stage 0 → 1: "We built an AI service gateway" — technical blog post on cloudroof.eu
 - Stage 2 → 3: "An autonomous company just opened for business" — HN/Reddit launch
 - Stage 5: "Our first customer paid" — build-in-public milestone post
 
 ### Billing function (`fn:billing`)
 
-Minimal viable billing:
-- Stripe (or EU alternative) integration via API
+Evolve from existing sponsorship tiers to product billing:
+- Sponsorship tiers ($5/$25/$100) on chimney.beerpub.dev are the starting point — reframe as product tiers with managed ingress allocation
+- Stripe (or EU alternative) integration via API for actual service billing
 - Account creation tied to mesh secret ownership
 - Usage metering: nodes, services, bandwidth through ingress
 - Invoice generation: monthly, automated
 - Payment webhook → `repository_dispatch` → loop observes revenue
-- For customer #1: can start with manual invoicing, automate in parallel
+- For customer #1: can start with manual invoicing or sponsorship tier, automate in parallel
+- Traction roadmap on chimney.beerpub.dev should update from real revenue data, not projections
 
 ### Support function (`fn:support`)
 
@@ -279,7 +302,7 @@ company/
 - **Billing complexity**: EU payment processing has VAT/tax implications. Stripe handles most of this but the legal entity question is a hard human dependency.
 - **GitHub as substrate**: Running a full company through GitHub Issues is unconventional. Issue volume may become noisy. Mitigation: strict labeling, separate project boards per function.
 - **Cost control**: Autonomous spending (Hetzner, domains, services) needs guardrails. The loop should track costs and flag when approaching thresholds. Human approves any new recurring spend.
-- **Cold start**: The loop can't observe what doesn't exist yet. Early runs will mostly create foundational issues. This is expected — the funnel model handles it.
+- **Cold start is warmer than it looks**: cloudroof.eu, chimney.beerpub.dev, the agent pipeline, Chimney, Lighthouse — significant infrastructure exists. The loop's first run can already observe real signals. The gap is narrower than a true cold start.
 - **Radical transparency risk**: Competitors can see the strategy, the funnel stage, the priorities. This is accepted. The bet is that execution speed (autonomous loop) outweighs strategy visibility. A company that runs itself is harder to copy than a strategy document.
 - **Secret leakage**: The loop writes to a public repo. A single mistake — an API key in an assessment, a customer email in an issue — is a public incident. Mitigation: the loop's system prompt explicitly prohibits writing secrets. The state collection step sanitises inputs before passing to the LLM. A pre-commit hook scans for common secret patterns.
 - **Public failure**: If the loop makes bad decisions, creates nonsensical issues, or the funnel stalls — everyone sees it. This is a feature, not a bug. Authentic building in public includes failure. But it does mean the loop should fail gracefully and explain its reasoning.
@@ -290,6 +313,9 @@ company/
 - Extends pipeline with new function labels and workflows
 - Evolves Lighthouse into the ingress product
 - Builds on Chimney deploy patterns for edge infrastructure
+- Reads from chimney.beerpub.dev dashboard (capability matrix, traction roadmap, DORA metrics) as input signals
+- Writes back to chimney.beerpub.dev by updating the data it serves (funnel stage, real revenue, feature status)
+- Evolves cloudroof.eu from CDN-only positioning to include AI gateway persona
 - State files in `company/` are the loop's memory across runs
 
 ## Mapping
@@ -300,9 +326,15 @@ company/
 > [[.github/workflows/spec-auto-approve.yml]]
 > [[.github/workflows/board-sync.yml]]
 > [[.github/workflows/chimney-deploy.yml]]
+> [[.github/workflows/agent-metrics-report.yml]]
+> [[cmd/chimney/main.go]]
 > [[cmd/lighthouse/main.go]]
 > [[pkg/lighthouse/api.go]]
 > [[deploy/chimney/bluegreen.sh]]
+
+External:
+> cloudroof.eu — product site
+> chimney.beerpub.dev — pipeline dashboard + traction roadmap
 
 ## Boundaries
 
