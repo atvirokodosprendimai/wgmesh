@@ -18,116 +18,61 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  collect-state:
-    name: Collect State Snapshot
+  loop:
+    name: Observe → Assess → Act
     runs-on: ubuntu-latest
-    outputs:
-      snapshot: ${{ steps.merge.outputs.snapshot }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      # ── Collect state ──────────────────────────────────────────
 
       - name: Collect GitHub signals
-        id: github
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          output=$(bash company/scripts/collect-github.sh)
-          echo "data<<GHEOF" >> "$GITHUB_OUTPUT"
-          echo "$output" >> "$GITHUB_OUTPUT"
-          echo "GHEOF" >> "$GITHUB_OUTPUT"
+        run: bash company/scripts/collect-github.sh > /tmp/github.json
 
       - name: Collect infrastructure signals
-        id: infra
-        run: |
-          output=$(bash company/scripts/collect-infra.sh)
-          echo "data<<INFRAEOF" >> "$GITHUB_OUTPUT"
-          echo "$output" >> "$GITHUB_OUTPUT"
-          echo "INFRAEOF" >> "$GITHUB_OUTPUT"
+        run: bash company/scripts/collect-infra.sh > /tmp/infra.json
 
       - name: Collect contribution signals
-        id: contributions
-        run: |
-          output=$(bash company/scripts/collect-contributions.sh)
-          echo "data<<CONTRIBEOF" >> "$GITHUB_OUTPUT"
-          echo "$output" >> "$GITHUB_OUTPUT"
-          echo "CONTRIBEOF" >> "$GITHUB_OUTPUT"
-
-      - name: Read loop state
-        id: loop_state
-        run: |
-          echo "data<<STATEEOF" >> "$GITHUB_OUTPUT"
-          cat company/loop-state.json >> "$GITHUB_OUTPUT"
-          echo "STATEEOF" >> "$GITHUB_OUTPUT"
+        run: bash company/scripts/collect-contributions.sh > /tmp/contributions.json
 
       - name: Read recent assessments
-        id: history
         run: |
-          echo "data<<HISTEOF" >> "$GITHUB_OUTPUT"
-          # Last 3 assessments for continuity
-          ls -t company/loop-history/*.md 2>/dev/null | head -3 | while read f; do
-            echo "--- $(basename "$f") ---"
-            cat "$f"
-            echo ""
-          done >> "$GITHUB_OUTPUT" 2>/dev/null || echo "No prior assessments." >> "$GITHUB_OUTPUT"
-          echo "HISTEOF" >> "$GITHUB_OUTPUT"
-
-      - name: Read costs (aggregate only)
-        id: costs
-        run: |
-          echo "data<<COSTEOF" >> "$GITHUB_OUTPUT"
-          cat company/costs.json >> "$GITHUB_OUTPUT"
-          echo "COSTEOF" >> "$GITHUB_OUTPUT"
+          {
+            ls -t company/loop-history/*.md 2>/dev/null | head -3 | while read f; do
+              echo "--- $(basename "$f") ---"
+              cat "$f"
+              echo ""
+            done
+          } > /tmp/history.txt 2>/dev/null || echo "No prior assessments." > /tmp/history.txt
 
       - name: Merge state snapshot
-        id: merge
         run: |
-          snapshot=$(jq -n \
-            --argjson github '${{ steps.github.outputs.data }}' \
-            --argjson infra '${{ steps.infra.outputs.data }}' \
-            --argjson contributions '${{ steps.contributions.outputs.data }}' \
-            --argjson loop_state '${{ steps.loop_state.outputs.data }}' \
-            --argjson costs '${{ steps.costs.outputs.data }}' \
-            '{github: $github, infrastructure: $infra, contributions: $contributions, loop_state: $loop_state, costs: $costs}')
-          echo "snapshot<<SNAPEOF" >> "$GITHUB_OUTPUT"
-          echo "$snapshot" >> "$GITHUB_OUTPUT"
-          echo "SNAPEOF" >> "$GITHUB_OUTPUT"
+          jq -n \
+            --slurpfile github /tmp/github.json \
+            --slurpfile infra /tmp/infra.json \
+            --slurpfile contributions /tmp/contributions.json \
+            --slurpfile loop_state company/loop-state.json \
+            --slurpfile costs company/costs.json \
+            '{
+              github: $github[0],
+              infrastructure: $infra[0],
+              contributions: $contributions[0],
+              loop_state: $loop_state[0],
+              costs: $costs[0]
+            }' > /tmp/snapshot.json
 
-  assess:
-    name: LLM Assessment
-    needs: collect-state
-    runs-on: ubuntu-latest
-    outputs:
-      assessment_json: ${{ steps.call_llm.outputs.assessment_json }}
-      assessment_md: ${{ steps.call_llm.outputs.assessment_md }}
-    steps:
-      - uses: actions/checkout@v4
+      # ── Assess ─────────────────────────────────────────────────
 
-      - name: Read system prompt
-        id: prompt
-        run: |
-          echo "data<<PROMPTEOF" >> "$GITHUB_OUTPUT"
-          cat company/system-prompt.md >> "$GITHUB_OUTPUT"
-          echo "PROMPTEOF" >> "$GITHUB_OUTPUT"
-
-      - name: Read recent history
-        id: history
-        run: |
-          echo "data<<HISTEOF" >> "$GITHUB_OUTPUT"
-          ls -t company/loop-history/*.md 2>/dev/null | head -3 | while read f; do
-            echo "--- $(basename "$f") ---"
-            cat "$f"
-            echo ""
-          done >> "$GITHUB_OUTPUT" 2>/dev/null || echo "No prior assessments." >> "$GITHUB_OUTPUT"
-          echo "HISTEOF" >> "$GITHUB_OUTPUT"
-
-      - name: Call LLM
-        id: call_llm
+      - name: Call LLM (or generate stub)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "::error::ANTHROPIC_API_KEY not set. Add it to repository secrets."
-            # Generate a stub assessment so the workflow doesn't fail on first run
+            echo "::warning::ANTHROPIC_API_KEY not set — generating stub assessment."
             today=$(date -u '+%Y-%m-%d')
             cat > /tmp/assessment.json <<STUBEOF
           {
@@ -146,23 +91,23 @@ jobs:
           }
           STUBEOF
           else
-            # Build the user message with state snapshot
+            # Build user message with state snapshot
             cat > /tmp/user_message.txt <<MSGEOF
           Here is the current state snapshot for your assessment:
 
           ## State Snapshot
-          ${{ needs.collect-state.outputs.snapshot }}
+          $(cat /tmp/snapshot.json)
 
           ## Recent Assessment History
-          ${{ steps.history.outputs.data }}
+          $(cat /tmp/history.txt)
 
           Please provide your assessment as a JSON object per the output format in your system prompt.
           MSGEOF
 
             # Call Anthropic API
             jq -n \
-              --arg system "$(cat company/system-prompt.md)" \
-              --arg user "$(cat /tmp/user_message.txt)" \
+              --rawfile system company/system-prompt.md \
+              --rawfile user /tmp/user_message.txt \
               '{
                 model: "claude-sonnet-4-6",
                 max_tokens: 4096,
@@ -183,17 +128,12 @@ jobs:
             # Extract JSON from response (may be wrapped in markdown code block)
             echo "$content" | sed -n '/^```json/,/^```$/p' | sed '1d;$d' > /tmp/assessment.json
             if [ ! -s /tmp/assessment.json ]; then
-              # Try direct JSON parse
               echo "$content" | jq . > /tmp/assessment.json 2>/dev/null || echo "$content" > /tmp/assessment.json
             fi
           fi
 
-          # Output the JSON
-          echo "assessment_json<<AJEOF" >> "$GITHUB_OUTPUT"
-          cat /tmp/assessment.json >> "$GITHUB_OUTPUT"
-          echo "AJEOF" >> "$GITHUB_OUTPUT"
-
-          # Generate markdown assessment
+      - name: Generate markdown assessment
+        run: |
           today=$(date -u '+%Y-%m-%d')
           stage=$(jq -r '.stage_name // "Unknown"' /tmp/assessment.json)
           narrative=$(jq -r '.assessment // "No assessment available."' /tmp/assessment.json)
@@ -222,33 +162,18 @@ jobs:
           ${human:-_Nothing this cycle._}
           MDEOF
 
-          echo "assessment_md<<AMDEOF" >> "$GITHUB_OUTPUT"
-          cat /tmp/assessment.md >> "$GITHUB_OUTPUT"
-          echo "AMDEOF" >> "$GITHUB_OUTPUT"
-
-  act:
-    name: Act on Assessment
-    needs: [collect-state, assess]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+      # ── Act ────────────────────────────────────────────────────
 
       - name: Save assessment to loop history
-        env:
-          ASSESSMENT_MD: ${{ needs.assess.outputs.assessment_md }}
         run: |
           today=$(date -u '+%Y%m%d')
-          echo "$ASSESSMENT_MD" > "company/loop-history/${today}-assessment.md"
+          cp /tmp/assessment.md "company/loop-history/${today}-assessment.md"
 
       - name: Update loop state
-        env:
-          ASSESSMENT_JSON: ${{ needs.assess.outputs.assessment_json }}
         run: |
           today=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
-          stage=$(echo "$ASSESSMENT_JSON" | jq -r '.funnel_stage // 0')
-          stage_name=$(echo "$ASSESSMENT_JSON" | jq -r '.stage_name // "Foundation"')
+          stage=$(jq -r '.funnel_stage // 0' /tmp/assessment.json)
+          stage_name=$(jq -r '.stage_name // "Foundation"' /tmp/assessment.json)
           prev_count=$(jq -r '.run_count // 0' company/loop-state.json)
           new_count=$((prev_count + 1))
 
@@ -278,14 +203,12 @@ jobs:
       - name: Create issues from assessment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ASSESSMENT_JSON: ${{ needs.assess.outputs.assessment_json }}
         run: |
-          echo "$ASSESSMENT_JSON" | jq -c '.issues_to_create // [] | .[]' | while read -r issue; do
+          jq -c '.issues_to_create // [] | .[]' /tmp/assessment.json | while read -r issue; do
             title=$(echo "$issue" | jq -r '.title')
             body=$(echo "$issue" | jq -r '.body')
             labels=$(echo "$issue" | jq -r '.labels | join(",")')
 
-            # Check if issue with same title already exists
             existing=$(gh issue list --search "$title" --state open --json number --jq 'length' 2>/dev/null || echo 0)
             if [ "$existing" = "0" ]; then
               gh issue create --title "$title" --body "$body" --label "$labels" || true
@@ -295,9 +218,8 @@ jobs:
       - name: Close issues from assessment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ASSESSMENT_JSON: ${{ needs.assess.outputs.assessment_json }}
         run: |
-          echo "$ASSESSMENT_JSON" | jq -c '.issues_to_close // [] | .[]' | while read -r item; do
+          jq -c '.issues_to_close // [] | .[]' /tmp/assessment.json | while read -r item; do
             number=$(echo "$item" | jq -r '.number')
             reason=$(echo "$item" | jq -r '.reason')
             gh issue close "$number" --comment "Closed by company loop: $reason" || true
@@ -306,21 +228,21 @@ jobs:
       - name: Create needs-human issue if requested
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ASSESSMENT_JSON: ${{ needs.assess.outputs.assessment_json }}
         run: |
-          human_requests=$(echo "$ASSESSMENT_JSON" | jq -c '.needs_human // [] | .[]')
-          if [ -n "$human_requests" ]; then
-            echo "$human_requests" | while read -r req; do
-              request=$(echo "$req" | jq -r '.request')
-              reason=$(echo "$req" | jq -r '.reason')
-              urgency=$(echo "$req" | jq -r '.urgency')
+          jq -c '.needs_human // [] | .[]' /tmp/assessment.json | while read -r req; do
+            request=$(echo "$req" | jq -r '.request')
+            reason=$(echo "$req" | jq -r '.reason')
+            urgency=$(echo "$req" | jq -r '.urgency')
 
-              existing=$(gh issue list --label "needs-human" --search "$request" --state open --json number --jq 'length' 2>/dev/null || echo 0)
-              if [ "$existing" = "0" ]; then
-                gh issue create \
-                  --title "[needs-human] $request" \
-                  --body "**Urgency**: $urgency\n\n**Reason**: $reason\n\n_Created by company control loop._" \
-                  --label "needs-human" || true
-              fi
-            done
-          fi
+            existing=$(gh issue list --label "needs-human" --search "$request" --state open --json number --jq 'length' 2>/dev/null || echo 0)
+            if [ "$existing" = "0" ]; then
+              gh issue create \
+                --title "[needs-human] $request" \
+                --body "**Urgency**: $urgency
+
+          **Reason**: $reason
+
+          _Created by company control loop._" \
+                --label "needs-human" || true
+            fi
+          done
