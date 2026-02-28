@@ -4,7 +4,7 @@ name: Chimney Infrastructure
 #
 #   Origins (blue/green deployment targets):
 #     chimney-nbg1  — cax11 arm64, nbg1 (primary EU origin)
-#     chimney-fsn1  — cax11 arm64, fsn1 (secondary EU origin)
+#     chimney-fsn1  — cax11 arm64, hel1 (secondary EU origin; fsn1 capacity unavailable)
 #
 #   Edges (watchtower auto-update):
 #     chimney-hel1  — cax11 arm64, hel1 (EU edge)
@@ -14,10 +14,11 @@ name: Chimney Infrastructure
 # can discover them automatically.
 #
 # Actions:
-#   provision  — create all servers (idempotent; skips existing ones)
+#   provision  — create all servers; origins self-bootstrap via cloud-init (no SSH needed)
+#                edge servers: run bootstrap after origins are healthy + WG mesh converged
 #   teardown   — delete all chimney servers
 #   status     — list servers and check SSH reachability
-#   bootstrap  — run setup scripts on existing servers (after rebuild)
+#   bootstrap  — run setup scripts on existing servers via SSH (after rebuild or for edges)
 
 on:
   workflow_dispatch:
@@ -50,10 +51,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Go
-        if: inputs.action == 'provision' || inputs.action == 'bootstrap'
+        if: inputs.action == 'bootstrap'
         uses: actions/setup-go@v5
         with:
-          go-version: "1.23.x"
+          go-version: "1.25.x"
           cache: true
 
       - name: Install hcloud CLI
@@ -79,8 +80,6 @@ jobs:
           set -euo pipefail
 
           PUB_KEY=$(cat ~/.ssh/chimney.pub)
-          printf '#cloud-config\nusers:\n  - name: root\n    ssh_authorized_keys:\n      - %s\n' \
-            "$PUB_KEY" > /tmp/cloud-init.yaml
 
           # Upload SSH key to Hetzner (idempotent)
           MD5_FP=$(ssh-keygen -E md5 -lf ~/.ssh/chimney.pub | awk '{print $2}' | sed 's/^MD5://')
@@ -89,14 +88,89 @@ jobs:
           if [ -z "$KEY_ID" ]; then
             hcloud ssh-key delete "chimney-deploy-key" 2>/dev/null || true
             hcloud ssh-key create --name "chimney-deploy-key" --public-key-from-file ~/.ssh/chimney.pub
+            KEY_ID=$(hcloud ssh-key list -o noheader -o columns=id,fingerprint 2>/dev/null \
+              | awk -v fp="$MD5_FP" '$2==fp{print $1}' | head -1)
           else
             echo "Reusing existing Hetzner SSH key $KEY_ID"
           fi
+          echo "Using Hetzner SSH key ID: $KEY_ID"
 
-          # Server definitions: name|location|type|arch
+          # Generate cloud-init for an origin server.
+          # All setup files are embedded as base64 blobs; setup-origin.sh runs
+          # on first boot via runcmd. No SSH needed from CI runners.
+          origin_cloud_init() {
+            echo "#cloud-config"
+            echo ""
+            echo "write_files:"
+            echo "  - path: /root/.ssh/authorized_keys"
+            printf "    content: |\n      %s\n" "$PUB_KEY"
+            echo "    permissions: '0600'"
+            echo "    owner: root:root"
+            echo "  - path: /etc/ssh/sshd_config.d/90-chimney.conf"
+            echo "    content: |"
+            echo "      PermitRootLogin yes"
+            echo "      AuthorizedKeysFile .ssh/authorized_keys"
+            echo "    permissions: '0644'"
+            for f in compose.origin.yml Caddyfile.origin bluegreen.sh setup-origin.sh; do
+              echo "  - path: /tmp/$f"
+              echo "    encoding: b64"
+              printf "    content: %s\n" "$(base64 deploy/chimney/$f | tr -d '\n')"
+              [[ "$f" == *.sh ]] && echo "    permissions: '0755'"
+            done
+            ENV_B64=$(printf 'GITHUB_TOKEN=%s\nWGMESH_SECRET=%s\n' \
+              '${{ secrets.PUSH_TOKEN }}' \
+              '${{ secrets.WGMESH_SECRET }}' | base64 | tr -d '\n')
+            echo "  - path: /tmp/.chimney-env"
+            echo "    encoding: b64"
+            printf "    content: %s\n" "$ENV_B64"
+            echo "    permissions: '0600'"
+            echo ""
+            echo "runcmd:"
+            echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys\""
+            echo "  - \"systemctl restart sshd\""
+            echo "  - \"bash -c 'set -a; . /tmp/.chimney-env; set +a; bash /tmp/setup-origin.sh > /var/log/chimney-setup.log 2>&1; rm -f /tmp/.chimney-env'\""
+          }
+
+          # Generate cloud-init for an edge server.
+          # Installs Docker and writes config files. The edge stack is started
+          # by the bootstrap action once origin WireGuard IPs are known.
+          edge_cloud_init() {
+            echo "#cloud-config"
+            echo ""
+            echo "write_files:"
+            echo "  - path: /root/.ssh/authorized_keys"
+            printf "    content: |\n      %s\n" "$PUB_KEY"
+            echo "    permissions: '0600'"
+            echo "    owner: root:root"
+            echo "  - path: /etc/ssh/sshd_config.d/90-chimney.conf"
+            echo "    content: |"
+            echo "      PermitRootLogin yes"
+            echo "      AuthorizedKeysFile .ssh/authorized_keys"
+            echo "    permissions: '0644'"
+            for f in compose.edge.yml Caddyfile.edge setup-edge.sh; do
+              echo "  - path: /tmp/$f"
+              echo "    encoding: b64"
+              printf "    content: %s\n" "$(base64 deploy/chimney/$f | tr -d '\n')"
+              [[ "$f" == *.sh ]] && echo "    permissions: '0755'"
+            done
+            ENV_B64=$(printf 'WGMESH_SECRET=%s\n' \
+              '${{ secrets.WGMESH_SECRET }}' | base64 | tr -d '\n')
+            echo "  - path: /tmp/.chimney-env"
+            echo "    encoding: b64"
+            printf "    content: %s\n" "$ENV_B64"
+            echo "    permissions: '0600'"
+            echo ""
+            echo "runcmd:"
+            echo "  - \"mkdir -p /root/.ssh && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys\""
+            echo "  - \"systemctl restart sshd\""
+            echo "  - curl -fsSL https://get.docker.com | sh"
+            echo "  - systemctl enable --now docker"
+          }
+
+          # Server definitions: name|location|type|arch|role
           SERVERS=(
             "chimney-nbg1|nbg1|cax11|arm64|origin"
-            "chimney-fsn1|fsn1|cax11|arm64|origin"
+            "chimney-fsn1|hel1|cax11|arm64|origin"
             "chimney-hel1|hel1|cax11|arm64|edge"
             "chimney-ash|ash|cpx11|amd64|edge"
           )
@@ -115,12 +189,19 @@ jobs:
             fi
 
             echo "Creating $name ($type, $loc, $arch, role=$role)..."
+            if [ "$role" = "origin" ]; then
+              origin_cloud_init > "/tmp/cloud-init-${name}.yaml"
+            else
+              edge_cloud_init > "/tmp/cloud-init-${name}.yaml"
+            fi
+
             hcloud server create \
               --name "$name" \
               --type "$type" \
               --image "ubuntu-24.04" \
               --location "$loc" \
-              --user-data-from-file /tmp/cloud-init.yaml \
+              --user-data-from-file "/tmp/cloud-init-${name}.yaml" \
+              --ssh-key "chimney-deploy-key" \
               --label "service=chimney" \
               --label "role=$role" \
               --label "arch=$arch" \
@@ -128,24 +209,12 @@ jobs:
 
             IP=$(hcloud server ip "$name")
             echo "Created $name: $IP"
-
-            echo "Waiting for SSH on $name ($IP)..."
-            for i in $(seq 1 90); do
-              if ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-                 -o ConnectTimeout=5 -o LogLevel=ERROR -i "$SSH_KEY_FILE" \
-                 "root@${IP}" "true" 2>/dev/null; then
-                echo "$name SSH ready after $((i * 10))s"
-                break
-              fi
-              [ $i -eq 90 ] && echo "ERROR: SSH timeout on $name" && exit 1
-              sleep 10
-            done
-
             echo "- **$name** ($IP): created ✓" >> "$GITHUB_STEP_SUMMARY"
           done
 
           echo "" >> "$GITHUB_STEP_SUMMARY"
-          echo "Run **bootstrap** action to install chimney on new servers." >> "$GITHUB_STEP_SUMMARY"
+          echo "Origins self-configure on first boot (~3–5 min). Check: \`cat /var/log/chimney-setup.log\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "Edges: run **bootstrap** once origins are healthy and WG mesh has converged." >> "$GITHUB_STEP_SUMMARY"
 
       # ──────────────── BOOTSTRAP ────────────────
       - name: Bootstrap servers
@@ -162,7 +231,7 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
             -ldflags="$LDFLAGS" -o chimney-linux-amd64 ./cmd/chimney/
 
-          SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR -i $SSH_KEY_FILE"
+          SCP="scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o PreferredAuthentications=publickey -o LogLevel=ERROR -i $SSH_KEY_FILE"
 
           # Discover origin servers
           ORIGINS=$(hcloud server list -l "service=chimney,role=origin" -o noheader -o columns=name,ipv4,type 2>/dev/null)
@@ -271,14 +340,31 @@ jobs:
         if: inputs.action == 'teardown'
         run: |
           set -euo pipefail
-          SERVERS=$(hcloud server list -l "service=chimney" -o noheader -o columns=name 2>/dev/null) || true
 
-          if [ -z "$SERVERS" ]; then
+          # Primary: servers labeled service=chimney (current convention)
+          LABELED=$(hcloud server list -l "service=chimney" -o noheader -o columns=name 2>/dev/null) || true
+
+          # Secondary: unlabeled stragglers matching chimney-* name pattern.
+          # These survive from provision cycles that predated the labeling
+          # convention and are the root cause of the stale DNS incident
+          # (postmortem 2602211013, action item 7).
+          UNLABELED=$(hcloud server list -o noheader -o columns=name 2>/dev/null \
+            | grep '^chimney-' \
+            | { comm -23 <(sort) <(echo "$LABELED" | sort); } ) || true
+
+          ALL_SERVERS=$(printf '%s\n%s\n' "$LABELED" "$UNLABELED" | grep -v '^$' | sort -u) || true
+
+          if [ -z "$ALL_SERVERS" ]; then
             echo "No chimney servers found."
             exit 0
           fi
 
-          for name in $SERVERS; do
+          if [ -n "$UNLABELED" ]; then
+            echo "WARNING: found unlabeled chimney-* servers (stale from prior provision):"
+            echo "$UNLABELED"
+          fi
+
+          for name in $ALL_SERVERS; do
             echo "Deleting $name..."
             hcloud server delete "$name"
           done

@@ -65,13 +65,16 @@ services:
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SLOT: blue
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://table.beerpub.dev/v1/traces"
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://table.beerpub.dev/v1/logs"
+      OTEL_SERVICE_NAME: "chimney"
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.slot=blue"
     ports:
       - "127.0.0.1:8081:8080"
     networks:
       - internal
     depends_on:
-      dragonfly:
-        condition: service_healthy
+      - dragonfly
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
       interval: 10s
@@ -91,13 +94,16 @@ services:
     environment:
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       SLOT: green
+      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: "https://table.beerpub.dev/v1/traces"
+      OTEL_EXPORTER_OTLP_LOGS_ENDPOINT: "https://table.beerpub.dev/v1/logs"
+      OTEL_SERVICE_NAME: "chimney"
+      OTEL_RESOURCE_ATTRIBUTES: "deployment.slot=green"
     ports:
       - "127.0.0.1:8082:8080"
     networks:
       - internal
     depends_on:
-      dragonfly:
-        condition: service_healthy
+      - dragonfly
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:8080/healthz || exit 1"]
       interval: 10s
@@ -110,20 +116,30 @@ services:
   caddy:
     image: caddy:2-alpine
     restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
+    network_mode: host
     volumes:
       - ./Caddyfile.origin:/etc/caddy/Caddyfile:ro
       - ./upstream.conf:/etc/caddy/upstream.conf:rw
       - caddy_data:/data
       - caddy_config:/config
-    networks:
-      - internal
     depends_on:
       - chimney-blue
       - chimney-green
+
+  coroot-node-agent:
+    image: ghcr.io/coroot/coroot-node-agent:latest
+    restart: unless-stopped
+    privileged: true
+    pid: host
+    volumes:
+      - /sys/kernel/tracing:/sys/kernel/tracing:rw
+      - /sys/kernel/debug:/sys/kernel/debug:rw
+      - /sys/fs/cgroup:/host/sys/fs/cgroup:ro
+    command:
+      - --cgroupfs-root=/host/sys/fs/cgroup
+      - --collector-endpoint=https://table.beerpub.dev
+    labels:
+      - "com.centurylinklabs.watchtower.enable=false"
 
   wgmesh:
     image: ghcr.io/atvirokodosprendimai/wgmesh:latest
