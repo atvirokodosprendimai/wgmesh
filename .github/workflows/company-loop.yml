@@ -116,20 +116,32 @@ jobs:
                 messages: [{role: "user", content: $user}]
               }' > /tmp/request.json
 
-            response=$(curl -sf \
+            http_code=$(curl -s -w '%{http_code}' -o /tmp/llm_response.json \
               -H "x-api-key: $ANTHROPIC_API_KEY" \
               -H "anthropic-version: 2023-06-01" \
               -H "content-type: application/json" \
               -d @/tmp/request.json \
               https://api.anthropic.com/v1/messages)
 
-            # Extract the text content
-            content=$(echo "$response" | jq -r '.content[0].text')
-
-            # Extract JSON from response (may be wrapped in markdown code block)
-            echo "$content" | sed -n '/^```json/,/^```$/p' | sed '1d;$d' > /tmp/assessment.json
-            if [ ! -s /tmp/assessment.json ]; then
-              echo "$content" | jq . > /tmp/assessment.json 2>/dev/null || echo "$content" > /tmp/assessment.json
+            if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+              content=$(jq -r '.content[0].text' /tmp/llm_response.json)
+              echo "$content" | sed -n '/^```json/,/^```$/p' | sed '1d;$d' > /tmp/assessment.json
+              if [ ! -s /tmp/assessment.json ]; then
+                echo "$content" | jq . > /tmp/assessment.json 2>/dev/null || echo "$content" > /tmp/assessment.json
+              fi
+            else
+              api_error=$(jq -r '.error.message // "unknown error"' /tmp/llm_response.json 2>/dev/null || echo "HTTP $http_code")
+              echo "::warning::Anthropic API returned HTTP $http_code: $api_error — falling back to stub."
+              today=$(date -u '+%Y-%m-%d')
+              jq -n --arg ts "${today}T08:00:00Z" --arg err "$api_error" '{
+                timestamp: $ts, funnel_stage: 0, stage_name: "Foundation",
+                runway: {monthly_burn_eur: null, months_remaining: null, survival_mode: false},
+                assessment: ("LLM call failed: " + $err + ". Falling back to stub assessment."),
+                blockers: [("Anthropic API error: " + $err)],
+                top_actions: [{rank: 1, action: "Fix Anthropic API access", function: "fn:ops", leverage: "Unblocks LLM assessments", cost: "cheap"}],
+                issues_to_create: [], issues_to_close: [], contributions: [], reciprocation_proposals: [],
+                needs_human: [{request: "Fix Anthropic API access", reason: $err, urgency: "blocking"}]
+              }' > /tmp/assessment.json
             fi
           fi
 
