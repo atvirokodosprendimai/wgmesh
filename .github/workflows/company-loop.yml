@@ -236,13 +236,10 @@ jobs:
 
             existing=$(gh issue list --label "needs-human" --search "$request" --state open --json number --jq 'length' 2>/dev/null || echo 0)
             if [ "$existing" = "0" ]; then
+              body=$(printf '**Urgency**: %s\n\n**Reason**: %s\n\n_Created by company control loop._' "$urgency" "$reason")
               gh issue create \
                 --title "[needs-human] $request" \
-                --body "**Urgency**: $urgency
-
-          **Reason**: $reason
-
-          _Created by company control loop._" \
+                --body "$body" \
                 --label "needs-human" || true
             fi
           done
