@@ -24,8 +24,6 @@ permissions:
   issues: write
 
 env:
-  GOOSE_PROVIDER: google
-  GOOSE_MODEL: gemini-2.0-flash
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
 
 jobs:
@@ -61,15 +59,9 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             if (context.eventName === 'workflow_dispatch') {
-              // workflow_dispatch already requires write access to trigger
               console.log(`Manual dispatch by @${context.actor}`);
               return;
             }
-
-            // For PR label events, verify the sender has write access
-            const pr = context.payload.pull_request;
-            console.log(`Spec PR branch: ${pr.head.ref}`);
-
             const sender = context.payload.sender;
             if (sender) {
               try {
@@ -77,8 +69,7 @@ jobs:
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   username: sender.login
-            });
-
+                });
                 if (!['admin', 'write'].includes(perm.permission)) {
                   core.setFailed(`Label applied by @${sender.login} who lacks write access (has: ${perm.permission})`);
                   return;
@@ -91,9 +82,6 @@ jobs:
             }
 
       # ── Setup ──────────────────────────────────────────
-      # PUSH_TOKEN is a PAT with 'repo' + 'workflow' scopes.
-      # Required because GITHUB_TOKEN cannot push workflow file changes.
-      # Falls back to GITHUB_TOKEN for non-workflow changes.
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -108,14 +96,11 @@ jobs:
 
       - name: Install Goose CLI
         run: |
-          # Using latest release. To pin, replace URL with:
-          #   releases/download/vX.Y.Z/download_cli.sh
           curl -fsSL "https://github.com/block/goose/releases/latest/download/download_cli.sh" \
             -o /tmp/goose-install.sh
           CONFIGURE=false bash /tmp/goose-install.sh
           rm /tmp/goose-install.sh
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          # Verify installation
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           $HOME/.local/bin/goose --version
 
       # ── Memory: setup and restore cache ─────────────────
@@ -126,44 +111,21 @@ jobs:
 
       - name: Install mem0 dependencies
         run: |
-          # Pin versions to prevent supply-chain attacks and ensure reproducible builds
           pip install --quiet \
             'mem0ai==1.0.4' \
             'litellm==1.81.13' \
             'sentence-transformers==5.2.3' \
             2>&1 || echo "::warning::mem0 pip install failed (non-fatal, memory features disabled)"
-          echo "mem0 dependencies installed"
 
-      # Restore mem0 vector DB cache.
-      # NOTE: We use cache/restore here and cache/save at end of job (if: always())
-      # because actions/cache@v4 does NOT support save-always. This ensures memories
-      # are persisted even when the job fails.
-      # The cache key is stable (not tied to go.sum) so dependency updates don't
-      # evict accumulated memories.
-      # Race condition on shared Qdrant DB is mitigated by the concurrency group
-      # above (cancel-in-progress: false) which serializes runs per issue.
       - name: Decrypt mem0 database after restore
         env:
           MEM0_ENCRYPTION_KEY: ${{ secrets.MEM0_ENCRYPTION_KEY }}
         run: |
-          # Only decrypt if encrypted file exists and key is set
           if [ -f "/tmp/mem0-encrypted.tar.gz.enc" ] && [ -n "$MEM0_ENCRYPTION_KEY" ]; then
-            echo "Decrypting mem0 database..."
-            # Decrypt and extract in one pass
             openssl enc -d -aes-256-cbc -pbkdf2 -iter 100000 \
               -pass env:MEM0_ENCRYPTION_KEY \
-              -in /tmp/mem0-encrypted.tar.gz.enc | \
-              tar xzf - -C /
-            
-            if [ -d "/tmp/mem0-qdrant" ]; then
-              echo "Decrypted: $(du -sh /tmp/mem0-qdrant | cut -f1)"
-            else
-              echo "::warning::Decryption failed or produced no output"
-            fi
-          elif [ -f "/tmp/mem0-encrypted.tar.gz.enc" ]; then
-            echo "::warning::Encrypted cache found but MEM0_ENCRYPTION_KEY not set, cannot decrypt"
-          else
-            echo "::notice::No encrypted cache found (using plaintext or first run)"
+              -in /tmp/mem0-encrypted.tar.gz.enc | tar xzf - -C /
+            [ -d "/tmp/mem0-qdrant" ] && echo "Decrypted: $(du -sh /tmp/mem0-qdrant | cut -f1)" || echo "::warning::Decryption failed"
           fi
 
       - name: Restore mem0 memory cache
@@ -192,11 +154,8 @@ jobs:
             let issueNumber, specBranch, specPRNumber;
 
             if (context.eventName === 'workflow_dispatch') {
-              // Manual trigger — inputs provided directly
               issueNumber = context.payload.inputs.issue_number;
               specPRNumber = context.payload.inputs.spec_pr_number;
-
-              // Look up the spec PR to find its branch (may be merged)
               const { data: pr } = await github.rest.pulls.get({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -205,10 +164,7 @@ jobs:
               specBranch = pr.head.ref;
               console.log(`Manual dispatch: issue #${issueNumber}, spec PR #${specPRNumber} (${pr.state})`);
             } else {
-              // PR label trigger — extract from PR context
               const pr = context.payload.pull_request;
-
-              // Prefer extracting issue number from the spec filename in PR changes.
               const files = await github.paginate(github.rest.pulls.listFiles, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
@@ -219,29 +175,16 @@ jobs:
               issueNumber = null;
               for (const file of files) {
                 const match = file.filename.match(/^specs\/issue-(\d+)-spec\.md$/);
-                if (match) {
-                  issueNumber = match[1];
-                  break;
-                }
+                if (match) { issueNumber = match[1]; break; }
               }
-
-              // Backward-compatible fallback for older PRs.
               if (!issueNumber) {
                 const titleMatch = pr.title.match(/Issue #(\d+)/);
-                if (titleMatch) {
-                  issueNumber = titleMatch[1];
-                }
+                if (titleMatch) issueNumber = titleMatch[1];
               }
-
               if (!issueNumber) {
-                core.setFailed(
-                  'Could not extract issue number from spec filename or PR title. ' +
-                  'Expected changed file like specs/issue-N-spec.md or title containing "Issue #N". ' +
-                  'PR title: ' + pr.title
-                );
+                core.setFailed('Could not extract issue number from spec filename or PR title.');
                 return;
               }
-
               specBranch = pr.head.ref;
               specPRNumber = String(pr.number);
             }
@@ -251,393 +194,100 @@ jobs:
             core.setOutput('spec_pr_number', specPRNumber);
             core.setOutput('impl_branch', `goose/issue-${issueNumber}`);
 
-            console.log(`Issue: #${issueNumber}`);
-            console.log(`Spec branch: ${specBranch}`);
-            console.log(`Spec PR: #${specPRNumber}`);
-
       - name: Fetch spec file
+        env:
+          SPEC_BRANCH: ${{ steps.spec.outputs.spec_branch }}
+          ISSUE_NUM: ${{ steps.spec.outputs.issue_number }}
         run: |
-          SPEC_FILE="specs/issue-${{ steps.spec.outputs.issue_number }}-spec.md"
-
-          # Check if spec file already exists on main (merged PR case)
-          if [ -f "$SPEC_FILE" ]; then
-            echo "Spec file found on main (already merged)"
-          else
-            # Try fetching from the spec branch
-            echo "Fetching spec from branch: ${{ steps.spec.outputs.spec_branch }}"
-            git fetch origin ${{ steps.spec.outputs.spec_branch }} 2>/dev/null || true
-            git checkout origin/${{ steps.spec.outputs.spec_branch }} -- "$SPEC_FILE" 2>/dev/null || true
+          SPEC_FILE="specs/issue-${ISSUE_NUM}-spec.md"
+          if [ ! -f "$SPEC_FILE" ]; then
+            git fetch origin "$SPEC_BRANCH" 2>/dev/null || true
+            git checkout "origin/$SPEC_BRANCH" -- "$SPEC_FILE" 2>/dev/null || true
           fi
-
           if [ ! -f "$SPEC_FILE" ]; then
             echo "::error::Spec file not found: $SPEC_FILE"
-            echo "Listing specs/ directory:"
-            ls -la specs/ 2>/dev/null || echo "specs/ directory does not exist"
             exit 1
           fi
-
           echo "Found spec file: $SPEC_FILE"
-          echo "--- Spec Content ---"
-          cat "$SPEC_FILE"
-          echo "--- End Spec ---"
 
       # ── Prepare implementation branch ──────────────────
       - name: Create implementation branch
+        env:
+          IMPL_BRANCH: ${{ steps.spec.outputs.impl_branch }}
         run: |
           git checkout main
-          BRANCH="${{ steps.spec.outputs.impl_branch }}"
-
-          # Delete remote branch if it exists (retry scenario)
-          if git ls-remote --heads origin "$BRANCH" | grep -q "refs/heads/${BRANCH}$"; then
-            echo "Remote branch '$BRANCH' exists, deleting for retry..."
-            git push origin --delete "$BRANCH"
+          if git ls-remote --heads origin "$IMPL_BRANCH" | grep -q "refs/heads/${IMPL_BRANCH}$"; then
+            git push origin --delete "$IMPL_BRANCH"
           fi
+          git checkout -b "$IMPL_BRANCH"
 
-          git checkout -b "$BRANCH"
-          echo "Created branch: $BRANCH"
-
-      # ── Build Goose instructions ─────────────────────────
-      - name: Build codebase context
-        run: |
-          # Generate type signatures for all packages so Goose knows the real API.
-          # This prevents "undefined: Foo" errors from guessing type names.
-          echo "=== Generating codebase context ==="
-
-          {
-            echo "# Codebase Type Reference"
-            echo ""
-            echo "These are the ACTUAL exported types, functions, and constants in each package."
-            echo "You MUST use these exact names — do NOT invent types that don't exist here."
-            echo ""
-
-            for pkg in pkg/*/; do
-              pkg_name=$(basename "$pkg")
-              echo "## Package: $pkg_name ($pkg)"
-              echo '```go'
-              # Extract exported type/func/const/var declarations
-              grep -rn '^type \|^func \|^const \|^var ' "$pkg"*.go 2>/dev/null \
-                | grep -v '_test.go' \
-                | grep -v '//' \
-                | sed 's|^.*/||' \
-                || echo "// no exported symbols"
-              echo '```'
-              echo ""
-            done
-          } > /tmp/codebase-context.md
-
-          echo "Context file: $(wc -l < /tmp/codebase-context.md) lines"
+      # ── Build context and run Goose ────────────────────
+      - name: Generate codebase context
+        run: bash company/scripts/goose-build-context.sh /tmp/codebase-context.md
 
       - name: Retrieve memories from past runs
+        env:
+          ISSUE_NUM: ${{ steps.spec.outputs.issue_number }}
         run: |
           python .github/scripts/mem0-retrieve.py \
-            "${{ steps.spec.outputs.issue_number }}" \
+            "$ISSUE_NUM" \
             /tmp/memory-context.md \
-            || echo "Memory retrieval failed (non-fatal), continuing..."
+            || echo "Memory retrieval failed (non-fatal)"
           if [ -s /tmp/memory-context.md ]; then
-            echo "=== Memory context ==="
-            cat /tmp/memory-context.md
-            echo "=== End memory context ==="
-          else
-            echo "No memories found for this issue"
-            touch /tmp/memory-context.md
+            echo "" >> /tmp/codebase-context.md
+            echo "## Memory from Past Runs" >> /tmp/codebase-context.md
+            cat /tmp/memory-context.md >> /tmp/codebase-context.md
           fi
 
-      - name: Build Goose instructions
-        run: |
-          ISSUE_NUM="${{ steps.spec.outputs.issue_number }}"
-          SPEC_FILE="specs/issue-${ISSUE_NUM}-spec.md"
-
-          cat > /tmp/goose-task.md << 'TASK_HEADER'
-          # Implementation Task for wgmesh
-
-          You are implementing code changes for the wgmesh project.
-          wgmesh is a Go 1.23 WireGuard mesh network builder.
-
-          ## Project Rules
-
-          - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
-          - Build: `go build ./...` (must succeed)
-          - Test: `go test ./...` (must pass)
-          - Lint: `go vet ./...` (must be clean)
-          - Format: code must be `gofmt` formatted
-          - Always handle errors with context wrapping: `if err != nil { return fmt.Errorf("context: %w", err) }`
-          - Use standard library where possible
-          - Do NOT modify files outside the scope of the specification below
-
-          ## CRITICAL: Use Real Types
-
-          Before writing ANY code, you MUST read the existing source files to understand:
-          - What types already exist (do NOT guess or invent type names)
-          - What fields structs have (do NOT assume fields exist)
-          - What function signatures look like (do NOT change existing signatures)
-
-          The codebase context below shows every exported symbol. Use ONLY these types.
-
-          TASK_HEADER
-
-          # Append codebase context
-          echo "" >> /tmp/goose-task.md
-          cat /tmp/codebase-context.md >> /tmp/goose-task.md
-          echo "" >> /tmp/goose-task.md
-
-          # Append memory context from past runs
-          if [ -s /tmp/memory-context.md ]; then
-            echo "" >> /tmp/goose-task.md
-            cat /tmp/memory-context.md >> /tmp/goose-task.md
-            echo "" >> /tmp/goose-task.md
-          fi
-
-          # Append AGENTS.md for coding conventions
-          if [ -f AGENTS.md ]; then
-            echo "## Coding Conventions (from AGENTS.md)" >> /tmp/goose-task.md
-            echo "" >> /tmp/goose-task.md
-            cat AGENTS.md >> /tmp/goose-task.md
-            echo "" >> /tmp/goose-task.md
-          fi
-
-          # Append the actual spec content
-          echo "## Specification" >> /tmp/goose-task.md
-          echo "" >> /tmp/goose-task.md
-          cat "$SPEC_FILE" >> /tmp/goose-task.md
-
-          cat >> /tmp/goose-task.md << 'TASK_FOOTER'
-
-          ## Implementation Checklist
-
-          Follow these steps IN ORDER. Do not skip steps.
-
-          1. Read the specification above thoroughly
-          2. Read EVERY file listed in "Affected Files" using `cat` — understand the real types and signatures
-          3. Read existing test files in the same packages to understand test patterns used
-          4. Implement the changes described in "Proposed Approach" using ONLY types that exist
-          5. Run `go build ./...` — if it fails, read the error, fix it, repeat until clean
-          6. Run `go test ./...` — if tests fail, read the error, fix it, repeat until clean
-          7. Run `go vet ./...` and fix any issues
-          8. Run `gofmt -w .` to fix formatting
-          9. Run `go build ./... && go test ./... && go vet ./...` one final time to confirm everything passes
-
-          IMPORTANT RULES:
-          - NEVER reference a type, field, or function that you haven't verified exists by reading the source
-          - If the spec suggests code that doesn't match the real codebase, adapt to match reality
-          - Test error messages must match EXACTLY what your code produces — use the same format strings
-          - If the spec classification is "wont-do" or "needs-info", do NOT implement anything
-
-          TASK_FOOTER
-
-          echo "Goose instructions written to /tmp/goose-task.md"
-          wc -l /tmp/goose-task.md
-
-      # ── Run Goose ──────────────────────────────────────
-      - name: Run Goose
+      - name: Run Goose with recipe
         id: goose
+        env:
+          GOOSE_DISABLE_SESSION_NAMING: "true"
+          GOOSE_MODE: "auto"
+          ISSUE_NUM: ${{ steps.spec.outputs.issue_number }}
         run: |
-          MAX_ATTEMPTS=3
-          BACKOFF=30  # initial delay in seconds
-          SUCCEEDED=false
+          SPEC_FILE="specs/issue-${ISSUE_NUM}-spec.md"
+          GOOSE_START=$(date +%s)
+          set +e
+          goose run \
+            --recipe .github/goose-recipes/wgmesh-implementation.yaml \
+            --params "spec_file=$SPEC_FILE" \
+            --no-session \
+            2>&1 | tee /tmp/goose-output.log
+          GOOSE_EXIT=$?
+          set -e
 
-          # ── Agent metrics: initialize ──
-          GOOSE_JOB_START=$(date +%s)
-          METRICS_FILE="/tmp/agent-metrics-goose.json"
-          ATTEMPTS_JSON="[]"
-          TOTAL_ATTEMPTS=0
+          GOOSE_END=$(date +%s)
+          echo "goose_exit=$GOOSE_EXIT" >> "$GITHUB_OUTPUT"
+          echo "goose_duration=$((GOOSE_END - GOOSE_START))" >> "$GITHUB_OUTPUT"
+          echo "goose_lines=$(wc -l < /tmp/goose-output.log)" >> "$GITHUB_OUTPUT"
 
-          for ATTEMPT in $(seq 1 $MAX_ATTEMPTS); do
-            echo "=== Goose attempt $ATTEMPT/$MAX_ATTEMPTS ==="
-            ATTEMPT_START=$(date +%s)
-
-            if [ "$ATTEMPT" -gt 1 ]; then
-              # On retry: keep Goose's changes but add error context.
-              # This lets Goose fix its own mistakes instead of starting over.
-              echo "Building fix instructions from previous failure..."
-
-              ERRORS=$({
-                echo "Your previous attempt had errors. Fix them:"
-                echo ""
-                echo "=== go build errors ==="
-                go build ./... 2>&1 || true
-                echo ""
-                echo "=== go test errors ==="
-                go test ./... 2>&1 | grep -E "^(---|FAIL|#|.*undefined|.*error)" | head -40 || true
-                echo ""
-                echo "=== go vet errors ==="
-                go vet ./... 2>&1 || true
-                echo ""
-                echo "Fix ALL errors above. Run go build, go test, go vet until clean."
-              })
-
-              cat > /tmp/goose-fix.md << FIXEOF
-          # Fix Implementation Errors (Attempt $ATTEMPT)
-
-          $ERRORS
-
-          Read the error messages carefully. Common mistakes:
-          - Using types/fields that don't exist — read the actual source file first
-          - Test expected strings not matching actual error format — use the same fmt.Errorf pattern
-          - Missing imports
-
-          Fix the code, then run: go build ./... && go test ./... && go vet ./... && gofmt -w .
-          FIXEOF
-
-              TASK_FILE="/tmp/goose-fix.md"
-            else
-              TASK_FILE="/tmp/goose-task.md"
-            fi
-
-            set +e
-            goose run \
-              --no-session \
-              --with-builtin "developer" \
-              -i "$TASK_FILE" \
-              --max-turns 50 \
-              2>&1 | tee /tmp/goose-output.log
-            GOOSE_EXIT=$?
-            set -e
-
-            echo "Goose finished with exit code: $GOOSE_EXIT"
-
-            # ── Check for non-recoverable errors (fail immediately) ──
-            # IMPORTANT: Goose reads and writes workflow files, so its output
-            # contains our grep patterns as literal text (with line numbers
-            # like "480: grep -i ..."). We strip ALL lines that contain
-            # "grep" or look like source code to avoid self-referential
-            # false positives.
+          # Recipe handles retry+checks natively.
+          # Non-zero exit = all retries exhausted.
+          if [ "$GOOSE_EXIT" -ne 0 ]; then
             CLEAN_LOG=$(grep -vE 'grep|\.yml|\.yaml|\.sh|^\s*#|^\s*//|^\d+:' /tmp/goose-output.log || true)
-
-            if echo "$CLEAN_LOG" | grep -qiE "401 unauthorized|authentication failed|invalid.{0,3}api.{0,3}key|api key is invalid"; then
-              echo "::error::Goose encountered authentication errors (non-recoverable)"
-              echo "$CLEAN_LOG" | grep -iE "401|authentication|api.key" | tail -5
-              exit 1
-            fi
-
-            if echo "$CLEAN_LOG" | grep -qi "unexpected argument"; then
-              echo "::error::Goose CLI argument error (non-recoverable)"
-              echo "$CLEAN_LOG" | grep -i "unexpected argument" | tail -5
-              exit 1
-            fi
-
-            # ── Check if output is suspiciously short ──
-            LINES=$(wc -l < /tmp/goose-output.log)
-            TOO_SHORT=false
-            if [ "$LINES" -lt 5 ]; then
-              TOO_SHORT=true
-            fi
-
-            # ── Success: meaningful output with completion signals ──
-            # Goose CLI often exits 1 even on successful completion,
-            # so we check output quality rather than relying on exit code alone.
-            # Goose may log rate-limit messages from the LLM provider mid-run
-            # (which it handles internally with its own retries) and still
-            # complete successfully. Check for positive success signals first
-            # to avoid treating a successful run as a rate-limit failure.
-            HAS_SUCCESS_SIGNALS=false
-            if grep -qE "(go build|go test|gofmt|go vet).*(succeeded|passed|pass|clean|no issues)" /tmp/goose-output.log || \
-               grep -qE "All (validation|acceptance|checks)" /tmp/goose-output.log || \
-               grep -qE "Implementation (complete|done|finished)" /tmp/goose-output.log; then
-              HAS_SUCCESS_SIGNALS=true
-            fi
-
-            if [ "$TOO_SHORT" = "false" ] && [ "$HAS_SUCCESS_SIGNALS" = "true" ]; then
-              echo "Goose completed on attempt $ATTEMPT (exit=$GOOSE_EXIT, success signals detected)"
-              ATTEMPT_END=$(date +%s)
-              ATTEMPTS_JSON=$(echo "$ATTEMPTS_JSON" | jq --argjson n "$ATTEMPT" --argjson d "$((ATTEMPT_END - ATTEMPT_START))" \
-                --argjson ec "$GOOSE_EXIT" --argjson ol "$LINES" --argjson rl "false" --arg oc "success" \
-                '. + [{"number":$n,"duration_seconds":$d,"exit_code":$ec,"output_lines":$ol,"rate_limited":$rl,"outcome":$oc}]') || true
-              TOTAL_ATTEMPTS=$ATTEMPT
-              SUCCEEDED=true
-              break
-            fi
-
-            # ── Check for rate limit errors (retryable) ──
-            # Only treated as failure when no success signals were found above.
-            # Use specific patterns to avoid false positives from source code
-            # line numbers (e.g. "429: fmt.Println()") or docs containing these words
-            RATE_LIMITED=false
-            if grep -qiE "rate.?limit.?(exceeded|hit|reached)|quota.?exceeded|resource.?exhausted|HTTP.?429|status.?429|too many requests" /tmp/goose-output.log; then
-              RATE_LIMITED=true
-            fi
-
-            # ── If no success signals and no rate limit, still accept long output ──
-            if [ "$TOO_SHORT" = "false" ] && [ "$RATE_LIMITED" = "false" ]; then
-              echo "Goose completed on attempt $ATTEMPT (exit=$GOOSE_EXIT, no errors detected)"
-              ATTEMPT_END=$(date +%s)
-              ATTEMPTS_JSON=$(echo "$ATTEMPTS_JSON" | jq --argjson n "$ATTEMPT" --argjson d "$((ATTEMPT_END - ATTEMPT_START))" \
-                --argjson ec "$GOOSE_EXIT" --argjson ol "$LINES" --argjson rl "false" --arg oc "success_no_signals" \
-                '. + [{"number":$n,"duration_seconds":$d,"exit_code":$ec,"output_lines":$ol,"rate_limited":$rl,"outcome":$oc}]') || true
-              TOTAL_ATTEMPTS=$ATTEMPT
-              SUCCEEDED=true
-              break
-            fi
-
-            # ── Parse retry delay from Goose output if available ──
-            SUGGESTED_DELAY=$(grep -oP 'retry in \K[0-9]+' /tmp/goose-output.log 2>/dev/null | tail -1)
-            if [ -n "$SUGGESTED_DELAY" ] && [ "$SUGGESTED_DELAY" -gt "$BACKOFF" ] 2>/dev/null; then
-              WAIT=$((SUGGESTED_DELAY + 5))  # add 5s buffer
+            if echo "$CLEAN_LOG" | grep -qiE "401 unauthorized|authentication failed|api key is invalid"; then
+              echo "::error::Authentication failure (non-recoverable)"
             else
-              WAIT=$BACKOFF
+              echo "::warning::Goose exited $GOOSE_EXIT"
             fi
-
-            # ── Log and sleep ──
-            # Determine attempt outcome for metrics
-            if [ "$RATE_LIMITED" = "true" ]; then
-              ATTEMPT_OUTCOME="rate_limited"
-              echo "::warning::Rate limited on attempt $ATTEMPT. Waiting ${WAIT}s before retry..."
-            elif [ "$TOO_SHORT" = "true" ]; then
-              ATTEMPT_OUTCOME="short_output"
-              echo "::warning::Suspiciously short output ($LINES lines) on attempt $ATTEMPT. Waiting ${WAIT}s..."
-            else
-              ATTEMPT_OUTCOME="error"
-              echo "::warning::Goose failed (exit=$GOOSE_EXIT) on attempt $ATTEMPT. Waiting ${WAIT}s..."
-            fi
-
-            # Record failed attempt metrics
-            ATTEMPT_END=$(date +%s)
-            ATTEMPTS_JSON=$(echo "$ATTEMPTS_JSON" | jq --argjson n "$ATTEMPT" --argjson d "$((ATTEMPT_END - ATTEMPT_START))" \
-              --argjson ec "$GOOSE_EXIT" --argjson ol "$LINES" --arg rl "$RATE_LIMITED" --arg oc "$ATTEMPT_OUTCOME" \
-              '. + [{"number":$n,"duration_seconds":$d,"exit_code":$ec,"output_lines":$ol,"rate_limited":($rl == "true"),"outcome":$oc}]') || true
-            TOTAL_ATTEMPTS=$ATTEMPT
-
-            sleep "$WAIT"
-            BACKOFF=$((BACKOFF * 2))
-          done
-
-          if [ "$SUCCEEDED" != "true" ]; then
-            TOTAL_ATTEMPTS=$MAX_ATTEMPTS
-            echo "::error::Goose failed after $MAX_ATTEMPTS attempts"
-            echo "--- Last 50 lines of Goose output ---"
-            tail -50 /tmp/goose-output.log
           fi
+          echo "goose_succeeded=$( [ $GOOSE_EXIT -eq 0 ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
 
-          # ── Agent metrics: export Goose run data ──
-          GOOSE_JOB_END=$(date +%s)
-          echo "goose_succeeded=$SUCCEEDED" >> $GITHUB_OUTPUT
-          echo "goose_total_attempts=$TOTAL_ATTEMPTS" >> $GITHUB_OUTPUT
-          echo "goose_duration=$((GOOSE_JOB_END - GOOSE_JOB_START))" >> $GITHUB_OUTPUT
-          echo "$ATTEMPTS_JSON" > /tmp/goose-attempts.json
-
-          if [ "$SUCCEEDED" != "true" ]; then
-            exit 1
-          fi
-
-      # ── Memory: save learnings from this run ────────────
+      # ── Memory: save learnings ─────────────────────────
       - name: Save memories from this run
         if: always()
+        env:
+          ISSUE_NUM: ${{ steps.spec.outputs.issue_number }}
         run: |
-          # Determine outcome: success requires changes AND passing build+test+vet
           if git diff --quiet && git diff --cached --quiet; then
             OUTCOME="failure"
-            echo "No code changes produced"
           elif go build ./... 2>/dev/null && go test ./... 2>/dev/null && go vet ./... 2>/dev/null; then
             OUTCOME="success"
           else
             OUTCOME="failure"
-            echo "Code changes present but build/test/vet failed"
           fi
-          echo "Run outcome: $OUTCOME"
-
-          python .github/scripts/mem0-save.py \
-            "${{ steps.spec.outputs.issue_number }}" \
-            /tmp/goose-output.log \
-            "$OUTCOME" \
+          python .github/scripts/mem0-save.py "$ISSUE_NUM" /tmp/goose-output.log "$OUTCOME" \
             || echo "Memory save failed (non-fatal)"
 
       - name: Encrypt mem0 database for caching
@@ -645,29 +295,14 @@ jobs:
         env:
           MEM0_ENCRYPTION_KEY: ${{ secrets.MEM0_ENCRYPTION_KEY }}
         run: |
-          # Only encrypt if the database directory exists and key is set
           if [ -d "/tmp/mem0-qdrant" ] && [ -n "$MEM0_ENCRYPTION_KEY" ]; then
-            echo "Encrypting mem0 database..."
-            # Create tarball and encrypt in one pass
             tar czf - /tmp/mem0-qdrant | \
               openssl enc -aes-256-cbc -salt -pbkdf2 -iter 100000 \
               -pass env:MEM0_ENCRYPTION_KEY \
               -out /tmp/mem0-encrypted.tar.gz.enc
-            
-            # Verify encrypted file was created
-            if [ -f "/tmp/mem0-encrypted.tar.gz.enc" ]; then
-              echo "Encrypted: $(du -h /tmp/mem0-encrypted.tar.gz.enc | cut -f1)"
-              # Remove plaintext to ensure only encrypted version is cached
-              rm -rf /tmp/mem0-qdrant
-            else
-              echo "::warning::Encryption failed, will cache plaintext as fallback"
-            fi
-          else
-            echo "::notice::Skipping encryption (database not found or key not set)"
+            [ -f "/tmp/mem0-encrypted.tar.gz.enc" ] && rm -rf /tmp/mem0-qdrant
           fi
 
-      # Save mem0 cache unconditionally so memories persist even on failure.
-      # This pairs with the cache/restore step earlier in the job.
       - name: Save mem0 memory cache
         if: always()
         uses: actions/cache/save@v4
@@ -677,124 +312,40 @@ jobs:
             /tmp/mem0-qdrant
           key: mem0-db-${{ github.repository }}-v1
 
-      # ── Validate implementation ───────────────────────
-      - name: Validate implementation
+      # ── Validate and commit ────────────────────────────
+      - name: Check for changes
         id: validate
         run: |
-          echo "=== Checking for changes ==="
           if git diff --quiet && git diff --cached --quiet; then
-            echo "has_changes=false" >> $GITHUB_OUTPUT
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
             echo "::warning::Goose did not produce any code changes"
-            exit 0
-          fi
-          echo "has_changes=true" >> $GITHUB_OUTPUT
-
-          VALIDATE_START=$(date +%s)
-          BUILD_PASSED=false; TEST_PASSED=false; VET_PASSED=false; FMT_PASSED=false
-          VALIDATION_FAILED=false
-
-          echo "=== Running go build ==="
-          BUILD_START=$(date +%s)
-          if go build ./...; then
-            BUILD_PASSED=true
           else
-            echo "::error::go build failed on Goose's changes"
-            VALIDATION_FAILED=true
-          fi
-          BUILD_DUR=$(( $(date +%s) - BUILD_START ))
-          echo "validate_build_passed=$BUILD_PASSED" >> $GITHUB_OUTPUT
-          echo "validate_build_duration=$BUILD_DUR" >> $GITHUB_OUTPUT
-
-          # Fail-fast: skip remaining checks if build failed (tests can't run)
-          if [ "$BUILD_PASSED" != "true" ]; then
-            echo "::error::Skipping test/vet/fmt — build failed"
-            echo "validate_test_passed=false" >> $GITHUB_OUTPUT
-            echo "validate_test_duration=0" >> $GITHUB_OUTPUT
-            echo "validate_vet_passed=false" >> $GITHUB_OUTPUT
-            echo "validate_fmt_passed=false" >> $GITHUB_OUTPUT
-          else
-            echo "=== Running go test ==="
-            TEST_START=$(date +%s)
-            if go test ./...; then
-              TEST_PASSED=true
-            else
-              echo "::error::go test failed on Goose's changes"
-              VALIDATION_FAILED=true
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+            DIFF_STAT=$(git diff --numstat origin/main 2>/dev/null || true)
+            if [ -n "$DIFF_STAT" ]; then
+              echo "diff_files=$(echo "$DIFF_STAT" | wc -l | tr -d ' ')" >> "$GITHUB_OUTPUT"
+              echo "diff_insertions=$(echo "$DIFF_STAT" | awk '{s+=$1}END{print s+0}')" >> "$GITHUB_OUTPUT"
+              echo "diff_deletions=$(echo "$DIFF_STAT" | awk '{s+=$2}END{print s+0}')" >> "$GITHUB_OUTPUT"
             fi
-            TEST_DUR=$(( $(date +%s) - TEST_START ))
-            echo "validate_test_passed=$TEST_PASSED" >> $GITHUB_OUTPUT
-            echo "validate_test_duration=$TEST_DUR" >> $GITHUB_OUTPUT
-
-            echo "=== Running go vet ==="
-            if go vet ./...; then
-              VET_PASSED=true
-            else
-              echo "::error::go vet failed on Goose's changes"
-              VALIDATION_FAILED=true
-            fi
-            echo "validate_vet_passed=$VET_PASSED" >> $GITHUB_OUTPUT
-
-            echo "=== Auto-formatting with gofmt ==="
-            gofmt -w .
-            UNFORMATTED=$(gofmt -l .)
-            if [ -z "$UNFORMATTED" ]; then
-              FMT_PASSED=true
-              echo "gofmt: all files formatted correctly"
-            else
-              echo "::error::gofmt found unformatted files even after gofmt -w: $UNFORMATTED"
-              VALIDATION_FAILED=true
-            fi
-            echo "validate_fmt_passed=$FMT_PASSED" >> $GITHUB_OUTPUT
           fi
 
-          VALIDATE_DUR=$(( $(date +%s) - VALIDATE_START ))
-          echo "validate_duration=$VALIDATE_DUR" >> $GITHUB_OUTPUT
-
-          # Collect diff stats for metrics (compare working tree against main)
-          DIFF_STAT=$(git diff --numstat origin/main 2>/dev/null || true)
-          if [ -n "$DIFF_STAT" ]; then
-            FILES_CHANGED=$(echo "$DIFF_STAT" | wc -l | tr -d ' ')
-            INSERTIONS=$(echo "$DIFF_STAT" | awk '{s+=$1}END{print s+0}')
-            DELETIONS=$(echo "$DIFF_STAT" | awk '{s+=$2}END{print s+0}')
-            TEST_INSERTIONS=$(echo "$DIFF_STAT" | grep '_test\.go' | awk '{s+=$1}END{print s+0}')
-            TEST_FILES=$(echo "$DIFF_STAT" | grep -c '_test\.go' || true)
-          else
-            FILES_CHANGED=0; INSERTIONS=0; DELETIONS=0; TEST_INSERTIONS=0; TEST_FILES=0
-          fi
-          echo "diff_files=$FILES_CHANGED" >> $GITHUB_OUTPUT
-          echo "diff_insertions=$INSERTIONS" >> $GITHUB_OUTPUT
-          echo "diff_deletions=$DELETIONS" >> $GITHUB_OUTPUT
-          echo "diff_test_files=$TEST_FILES" >> $GITHUB_OUTPUT
-          echo "diff_test_insertions=$TEST_INSERTIONS" >> $GITHUB_OUTPUT
-
-          if [ "$VALIDATION_FAILED" = "true" ]; then
-            echo "::error::Validation failed"
-            exit 1
-          fi
-
-          echo "All validation checks passed"
-
-      # ── Commit and push ────────────────────────────────
       - name: Commit and push
-        id: commit
         if: steps.validate.outputs.has_changes == 'true'
+        env:
+          ISSUE_NUM: ${{ steps.spec.outputs.issue_number }}
+          SPEC_PR: ${{ steps.spec.outputs.spec_pr_number }}
+          IMPL_BRANCH: ${{ steps.spec.outputs.impl_branch }}
         run: |
-          # Stage all changes except the spec file (it belongs to the spec PR)
           git add -A
-          # Unstage the spec file if it was added
-          git reset HEAD -- "specs/issue-${{ steps.spec.outputs.issue_number }}-spec.md" 2>/dev/null || true
-
+          git reset HEAD -- "specs/issue-${ISSUE_NUM}-spec.md" 2>/dev/null || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "impl: Issue #${ISSUE_NUM} - Goose implementation
 
-          git commit -m "impl: Issue #${{ steps.spec.outputs.issue_number }} - Goose implementation
-
-          Automated implementation based on specification from PR #${{ steps.spec.outputs.spec_pr_number }}.
-          Generated by Goose (block/goose) with ${{ env.GOOSE_MODEL }}.
-          Validated: go build, go test, go vet, gofmt all passed."
-
-          git push origin ${{ steps.spec.outputs.impl_branch }}
-          echo "Pushed implementation to ${{ steps.spec.outputs.impl_branch }}"
+          Automated implementation based on spec from PR #${SPEC_PR}.
+          Generated by Goose via recipe (wgmesh-implementation.yaml).
+          Validated: go build, go test, go vet passed (recipe retry checks)."
+          git push origin "$IMPL_BRANCH"
 
       # ── Create implementation PR ───────────────────────
       - name: Create implementation PR
@@ -807,7 +358,6 @@ jobs:
             const specPR = '${{ steps.spec.outputs.spec_pr_number }}';
             const implBranch = '${{ steps.spec.outputs.impl_branch }}';
 
-            // Create PR (ready for review)
             const { data: pr } = await github.rest.pulls.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -824,40 +374,21 @@ jobs:
                 `Based on specification from **PR #${specPR}**`,
                 ``,
                 `### Pipeline`,
-                ``,
                 `| Step | Status |`,
                 `|------|--------|`,
-                `| Issue created | #${issueNum} |`,
-                `| Copilot spec | PR #${specPR} |`,
-                `| Human approval | Approved |`,
+                `| Issue | #${issueNum} |`,
+                `| Spec | PR #${specPR} |`,
                 `| Goose implementation | This PR |`,
                 `| Human code review | **Pending** |`,
                 ``,
-                `### CI Validation (pre-PR)`,
-                ``,
-                `- [x] \`go build ./...\` passed`,
-                `- [x] \`go test ./...\` passed`,
-                `- [x] \`go vet ./...\` passed`,
-                `- [x] \`gofmt\` formatting verified`,
-                ``,
-                `### Downloads`,
-                ``,
-                `Build artifacts will be available once CI completes: **[Download artifacts](${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions?query=branch%3A${implBranch})**`,
+                `### Validation (recipe retry checks)`,
+                `- [x] \`go build ./...\``,
+                `- [x] \`go test ./...\``,
+                `- [x] \`go vet ./...\``,
                 ``,
                 `---`,
-                `*Generated by [Goose](https://github.com/block/goose) with ${process.env.GOOSE_MODEL}. Auto-merges after approval.*`,
+                `*Generated by [Goose](https://github.com/block/goose) via recipe.*`,
               ].join('\n')
-            });
-
-            // Enable auto-merge (merges automatically once reviews and checks pass)
-            await github.rest.pulls.merge({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr.number,
-              merge_method: 'squash',
-            }).catch(() => {
-              // Expected to fail if branch protection blocks immediate merge.
-              // Enable auto-merge via GraphQL instead.
             });
 
             await github.graphql(`
@@ -868,44 +399,24 @@ jobs:
               }
             `, { prId: pr.node_id });
 
-            console.log(`Auto-merge enabled for PR #${pr.number}`);
-
-            // Label the implementation PR
             await github.rest.issues.addLabels({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner: context.repo.owner, repo: context.repo.repo,
               issue_number: pr.number,
               labels: ['goose-implementation', 'needs-review']
             });
 
-            // Comment on the original issue
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner: context.repo.owner, repo: context.repo.repo,
               issue_number: parseInt(issueNum),
-              body: [
-                `Goose has created an implementation: **PR #${pr.number}**`,
-                ``,
-                `| Step | Link |`,
-                `|------|------|`,
-                `| Spec | PR #${specPR} |`,
-                `| Implementation | PR #${pr.number} |`,
-                ``,
-                `Please review the implementation PR.`,
-              ].join('\n')
+              body: `Goose implementation: **PR #${pr.number}** (spec: PR #${specPR})`
             });
 
-            // Also comment on the spec PR
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner: context.repo.owner, repo: context.repo.repo,
               issue_number: parseInt(specPR),
               body: `Implementation PR created: #${pr.number}`
             });
 
-            console.log(`Created implementation PR #${pr.number}`);
-
-      # ── Handle no-changes case ─────────────────────────
       - name: Report no changes
         if: steps.validate.outputs.has_changes == 'false'
         uses: actions/github-script@v7
@@ -913,64 +424,33 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const specPR = '${{ steps.spec.outputs.spec_pr_number }}';
-            const issueNum = '${{ steps.spec.outputs.issue_number }}';
-
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner: context.repo.owner, repo: context.repo.repo,
               issue_number: parseInt(specPR),
-              body: [
-                `**Goose did not produce any code changes.**`,
-                ``,
-                `This may mean:`,
-                `- The spec was classified as "wont-do" or "needs-info"`,
-                `- Goose could not determine what changes to make`,
-                `- The implementation ran into errors`,
-                ``,
-                `Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.`,
-              ].join('\n')
+              body: `**Goose did not produce any code changes.** Check the [workflow run](${process.env.GITHUB_SERVER_URL}/${context.repo.owner}/${context.repo.repo}/actions/runs/${process.env.GITHUB_RUN_ID}) for details.`
             });
 
-      # ── Agent metrics: write and upload ─────────────────
+      # ── Metrics ────────────────────────────────────────
       - name: Collect agent metrics
         if: always()
+        env:
+          ISSUE_NUM: ${{ steps.spec.outputs.issue_number }}
+          SPEC_PR: ${{ steps.spec.outputs.spec_pr_number }}
         run: |
-          ISSUE_NUM="${{ steps.spec.outputs.issue_number }}"
-          SPEC_PR="${{ steps.spec.outputs.spec_pr_number }}"
           METRICS_FILE="/tmp/agent-metrics-goose-${ISSUE_NUM}.json"
-
-          # Read attempts JSON (may not exist if job failed early)
-          if [ -f /tmp/goose-attempts.json ]; then
-            ATTEMPTS=$(cat /tmp/goose-attempts.json)
-          else
-            ATTEMPTS="[]"
-          fi
-
-          # Build metrics JSON
           jq -n \
             --argjson schema_version 1 \
             --arg stage "goose_build" \
             --arg issue_number "$ISSUE_NUM" \
             --arg spec_pr_number "$SPEC_PR" \
             --arg timestamp "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --arg model "${{ env.GOOSE_MODEL }}" \
             --arg goose_succeeded "${{ steps.goose.outputs.goose_succeeded }}" \
-            --arg total_attempts "${{ steps.goose.outputs.goose_total_attempts }}" \
             --arg goose_duration "${{ steps.goose.outputs.goose_duration }}" \
-            --argjson attempts "$ATTEMPTS" \
+            --arg goose_lines "${{ steps.goose.outputs.goose_lines }}" \
             --arg has_changes "${{ steps.validate.outputs.has_changes }}" \
-            --arg build_passed "${{ steps.validate.outputs.validate_build_passed }}" \
-            --arg test_passed "${{ steps.validate.outputs.validate_test_passed }}" \
-            --arg vet_passed "${{ steps.validate.outputs.validate_vet_passed }}" \
-            --arg fmt_passed "${{ steps.validate.outputs.validate_fmt_passed }}" \
-            --arg build_dur "${{ steps.validate.outputs.validate_build_duration }}" \
-            --arg test_dur "${{ steps.validate.outputs.validate_test_duration }}" \
-            --arg validate_dur "${{ steps.validate.outputs.validate_duration }}" \
             --arg diff_files "${{ steps.validate.outputs.diff_files }}" \
             --arg diff_ins "${{ steps.validate.outputs.diff_insertions }}" \
             --arg diff_del "${{ steps.validate.outputs.diff_deletions }}" \
-            --arg diff_test_files "${{ steps.validate.outputs.diff_test_files }}" \
-            --arg diff_test_ins "${{ steps.validate.outputs.diff_test_insertions }}" \
             '{
               schema_version: $schema_version,
               stage: $stage,
@@ -978,32 +458,17 @@ jobs:
               spec_pr_number: ($spec_pr_number | tonumber? // 0),
               timestamp: $timestamp,
               goose: {
-                model: $model,
-                total_attempts: ($total_attempts | tonumber? // 0),
                 succeeded: ($goose_succeeded == "true"),
                 duration_seconds: ($goose_duration | tonumber? // 0),
-                attempts: $attempts
+                output_lines: ($goose_lines | tonumber? // 0)
               },
-              validation: {
-                has_changes: ($has_changes == "true"),
-                build_passed: ($build_passed == "true"),
-                test_passed: ($test_passed == "true"),
-                vet_passed: ($vet_passed == "true"),
-                fmt_passed: ($fmt_passed == "true"),
-                build_duration_seconds: ($build_dur | tonumber? // 0),
-                test_duration_seconds: ($test_dur | tonumber? // 0),
-                total_duration_seconds: ($validate_dur | tonumber? // 0)
-              },
+              validation: { has_changes: ($has_changes == "true") },
               diff: {
                 files_changed: ($diff_files | tonumber? // 0),
                 insertions: ($diff_ins | tonumber? // 0),
-                deletions: ($diff_del | tonumber? // 0),
-                test_files_changed: ($diff_test_files | tonumber? // 0),
-                test_insertions: ($diff_test_ins | tonumber? // 0)
+                deletions: ($diff_del | tonumber? // 0)
               }
             }' > "$METRICS_FILE" || true
-
-          echo "=== Agent Metrics (Goose Build) ==="
           cat "$METRICS_FILE" 2>/dev/null || echo "Failed to generate metrics"
 
       - name: Upload agent metrics
