@@ -22,10 +22,13 @@ Goal: make the recipe + standalone scripts the source of truth, workflow becomes
 
 ## Phases
 
-### Phase 1 - Merge company-loop fix to main - status: open
+### Phase 1 - Merge company-loop fix to main - status: completed
 
-1. [ ] Create PR for `task/fix-company-loop-workflow` → `main`
-2. [ ] Merge (or get it merged) to unblock the daily schedule
+1. [x] Create PR for `task/fix-company-loop-workflow` → `main`
+   - => PR #354 already existed
+   - => addressed 2 Copilot review comments: fetch-depth: 0 and read -r
+2. [x] Merge (or get it merged) to unblock the daily schedule
+   - => merged as `1c709e7` via squash
 
 ### Phase 2 - Extract Goose task builder script - status: open
 
@@ -83,3 +86,4 @@ Apply same pattern: review workflow should also use recipe/scripts where applica
 
 ## Progress Log
 
+- 2603011230 — Phase 1 complete. PR #354 merged to main. Company loop unblocked.
