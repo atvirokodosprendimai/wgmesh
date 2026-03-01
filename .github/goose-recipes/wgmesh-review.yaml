@@ -14,7 +14,7 @@ instructions: |
   - Commit your changes with message: fix(review): address PR reviewer feedback
 
   ## Project Context
-  - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
+  - Language: Go 1.25, module: github.com/atvirokodosprendimai/wgmesh
   - Build: `go build ./...`
   - Test: `go test ./...`
   - Lint: `go vet ./...`
@@ -26,9 +26,9 @@ prompt: |
 
 parameters:
   - key: review_feedback
-    input_type: string
+    input_type: file
     requirement: required
-    description: "Structured review feedback from PR threads"
+    description: "Path to file containing structured review feedback from PR threads"
 
 extensions:
   - type: builtin
@@ -49,3 +49,11 @@ retry:
       command: "go test ./..."
     - type: shell
       command: "go vet ./..."
+    - type: shell
+      command: |
+        output=$(gofmt -l .)
+        if [ -n "$output" ]; then
+          echo "gofmt check failed:"
+          echo "$output"
+          exit 1
+        fi

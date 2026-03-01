@@ -26,11 +26,27 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
       pkg_name=$(basename "$pkg")
       echo "## Package: $pkg_name"
       echo '```go'
-      grep -rn '^type \|^func \|^const \|^var ' "$pkg"*.go 2>/dev/null \
+      symbols=$(grep -rn '^\(type\|func\|const\|var\) ' "$pkg"*.go 2>/dev/null \
         | grep -v '_test.go' \
-        | grep -v '//' \
-        | sed 's|^.*/||' \
-        || echo "// no exported symbols"
+        | awk '{
+            line = $0
+            code = line
+            sub(/^[^:]*:[0-9]+:/, "", code)
+            sub(/\/\/.*/, "", code)
+            if (code ~ /^(type|const|var)[ \t]+[A-Z]/) {
+              print line
+            } else if (code ~ /^func[ \t]+[A-Z]/) {
+              print line
+            } else if (code ~ /^func[ \t]+\([^)]*\)[ \t]+[A-Z]/) {
+              print line
+            }
+          }' \
+        | sed 's|^.*/||')
+      if [ -n "$symbols" ]; then
+        printf '%s\n' "$symbols"
+      else
+        echo "// no exported symbols"
+      fi
       echo '```'
       echo ""
     done
