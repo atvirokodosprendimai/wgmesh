@@ -161,7 +161,7 @@ jobs:
 
           goose run \
             --recipe .github/goose-recipes/wgmesh-review.yaml \
-            --params "review_feedback=$(cat /tmp/review-feedback.txt)" \
+            --params "review_feedback=/tmp/review-feedback.txt" \
             --no-session \
             2>&1 | tee /tmp/goose-review-output.log
 

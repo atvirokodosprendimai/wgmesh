@@ -271,6 +271,8 @@ jobs:
             else
               echo "::warning::Goose exited $GOOSE_EXIT"
             fi
+            # Fail the step so that jobs do not continue with a failed Goose run.
+            exit "$GOOSE_EXIT"
           fi
           echo "goose_succeeded=$( [ $GOOSE_EXIT -eq 0 ] && echo true || echo false )" >> "$GITHUB_OUTPUT"
 

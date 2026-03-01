@@ -6,7 +6,7 @@ instructions: |
   You are implementing changes for the wgmesh project, a Go-based WireGuard mesh network builder.
 
   ## Project Context
-  - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
+  - Language: Go 1.25, module: github.com/atvirokodosprendimai/wgmesh
   - Build: `go build ./...` must succeed
   - Test: `go test ./...` must pass
   - Lint: `go vet ./...` must be clean
