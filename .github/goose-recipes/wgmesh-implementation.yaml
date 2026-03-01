@@ -1,7 +1,8 @@
 version: "1.0.0"
 title: "wgmesh Implementation"
 description: "Implements code and/or documentation changes for wgmesh based on a specification"
-prompt: |
+
+instructions: |
   You are implementing changes for the wgmesh project, a Go-based WireGuard mesh network builder.
 
   ## Project Context
@@ -21,7 +22,7 @@ prompt: |
   - What fields structs have (do NOT assume fields exist)
   - What function signatures look like (do NOT change existing signatures)
 
-  The codebase context below shows every exported symbol. Use ONLY these types.
+  If a codebase context file exists at /tmp/codebase-context.md, read it first — it lists every exported symbol.
 
   ## Deliverables Checklist
 
@@ -32,29 +33,41 @@ prompt: |
   ## Implementation Steps
 
   1. Read the specification file thoroughly
-  2. Read EVERY file listed in "Affected Files" using `cat` — understand the real types and signatures
-  3. Read existing test files in the same packages to understand test patterns used
-  4. Implement the changes described in "Proposed Approach" using ONLY types that exist
-  5. Run `go build ./...` — if it fails, read the error, fix it, repeat until clean
-  6. Run `go test ./...` — if tests fail, read the error, fix it, repeat until clean
-  7. Run `go vet ./...` and fix any issues
-  8. Run `gofmt -w .` to fix formatting
-  9. Run `go build ./... && go test ./... && go vet ./...` one final time to confirm everything passes
+  2. If /tmp/codebase-context.md exists, read it to see all exported types
+  3. Read EVERY file listed in "Affected Files" using `cat` — understand the real types and signatures
+  4. Read existing test files in the same packages to understand test patterns used
+  5. Implement the changes described in "Proposed Approach" using ONLY types that exist
+  6. Run `go build ./...` — if it fails, read the error, fix it, repeat until clean
+  7. Run `go test ./...` — if tests fail, read the error, fix it, repeat until clean
+  8. Run `go vet ./...` and fix any issues
+  9. Run `gofmt -w .` to fix formatting
+  10. Run `go build ./... && go test ./... && go vet ./...` one final time to confirm everything passes
 
-  IMPORTANT: If the spec classification is "wont-do" or "needs-info", do NOT implement anything.
+  IMPORTANT:
+  - NEVER reference a type, field, or function that you haven't verified exists by reading the source
+  - If the spec suggests code that doesn't match the real codebase, adapt to match reality
+  - Test error messages must match EXACTLY what your code produces
+  - If the spec classification is "wont-do" or "needs-info", do NOT implement anything
+
+prompt: |
+  Implement the specification in {{ spec_file }}.
+  Read the spec file first, then follow the implementation steps in your instructions.
+
 parameters:
   - key: spec_file
     input_type: file
     requirement: required
     description: "Path to the specification file (specs/issue-N-spec.md)"
-context_files:
-  - .goosehints
-  - AGENTS.md
-extensions: []
+
+extensions:
+  - type: builtin
+    name: developer
+
 settings:
   goose_provider: "google"
   goose_model: "gemini-2.5-flash"
   max_turns: 50
+
 retry:
   max_retries: 2
   timeout_seconds: 300
