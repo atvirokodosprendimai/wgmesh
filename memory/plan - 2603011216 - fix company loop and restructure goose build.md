@@ -50,30 +50,30 @@ Extract the task-building logic from `goose-build.yml` into a standalone script 
    - => expanded prompt with real-types guidance
    - => commit: `815b923`
 
-### Phase 3 - Use native `goose run --recipe` - status: open
+### Phase 3 - Use native `goose run --recipe` - status: completed
 
 Research revealed Goose has native recipe execution with `goose run --recipe`.
 Recipe already supports retry+checks, model settings, extensions, and parameters.
-Our Phase 2 scripts (`goose-run.sh`, `goose-validate.sh`) duplicate what Goose does natively.
-New approach: make the recipe self-sufficient, workflow calls `goose run --recipe`.
 
-1. [ ] Rewrite recipe as self-sufficient artifact
-   - add `extensions: [{type: builtin, name: developer}]`
-   - add `parameters: [{key: spec_file, input_type: file, ...}]` with `{{ spec_file }}` in instructions
-   - set `retry.checks` for go build/test/vet
-   - keep `goose-build-task.sh` for codebase context generation (recipe can't do this)
-   - delete `goose-run.sh` and `goose-validate.sh` (Goose does this natively)
-2. [ ] Rewrite `goose-build.yml`
-   - replace ~400 lines of inline logic with:
-     - `goose-build-task.sh` to generate codebase context file
-     - `goose run --recipe .github/goose-recipes/wgmesh-implementation.yaml --params spec_file=<path> --no-session`
-   - add CI env vars: `GOOSE_DISABLE_SESSION_NAMING=true`, `GOOSE_MODE=auto`
-   - keep: checkout, Go setup, Goose install, mem0, spec extraction, branch creation, commit/push, PR creation, metrics
-   - post-run validation: `goose-validate.sh` for diff stats only (checks are done by recipe retry)
-3. [ ] Update `goose-review.yml`
-   - create `goose-recipes/wgmesh-review.yaml` for review tasks
-   - workflow builds review feedback, passes as parameter
-   - `goose run --recipe` replaces inline invocation
+1. [x] Rewrite recipe as self-sufficient artifact
+   - => added `extensions: [{type: builtin, name: developer}]`
+   - => added `parameters: [{key: spec_file, input_type: file}]` with `{{ spec_file }}` in prompt
+   - => split `instructions` (system) from `prompt` (initial message) per Goose spec
+   - => deleted `goose-run.sh` and `goose-validate.sh` (native retry handles this)
+   - => renamed `goose-build-task.sh` → `goose-build-context.sh` (just codebase types)
+   - => commit: `bc29185`
+2. [x] Rewrite `goose-build.yml`
+   - => 1016 → 481 lines (53% reduction)
+   - => single `goose run --recipe` call replaces inline retry loop + task builder
+   - => `GOOSE_MODE=auto`, `GOOSE_DISABLE_SESSION_NAMING=true` for CI
+   - => all untrusted inputs via env vars (injection safety)
+   - => commit: `23cd09c`
+3. [x] Update `goose-review.yml`
+   - => created `wgmesh-review.yaml` recipe
+   - => workflow passes review feedback as recipe parameter
+   - => added Go setup step for recipe retry checks
+   - => branch ref uses env var (injection safety)
+   - => commit: `96dc9ae`
 
 ### Phase 4 - Test and verify - status: open
 
@@ -98,3 +98,4 @@ New approach: make the recipe self-sufficient, workflow calls `goose run --recip
 - 2603011230 — Phase 1 complete. PR #354 merged to main. Company loop unblocked.
 - 2603011245 — Phase 2 complete. Three scripts + recipe update in `815b923`.
 - 2603011315 — Goose docs research: native `goose run --recipe` makes goose-run.sh and goose-validate.sh redundant. Adjusted Phase 3.
+- 2603011345 — Phase 3 complete. Recipe rewritten, goose-build.yml 53% smaller, goose-review.yml uses recipe, redundant scripts deleted.
