@@ -193,13 +193,29 @@ jobs:
           cat company/loop-state.json | bash company/scripts/sanitise.sh > /dev/null
 
       - name: Commit state
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
         run: |
           git config user.name "company-loop[bot]"
           git config user.email "company-loop[bot]@users.noreply.github.com"
           git add company/loop-state.json company/loop-history/
           git diff --cached --quiet && echo "No changes to commit" && exit 0
-          git commit -m "loop: daily assessment $(date -u '+%Y-%m-%d')"
-          git push
+
+          today=$(date -u '+%Y-%m-%d')
+          branch="loop/assessment-${today}-${GITHUB_RUN_ID}"
+          git checkout -b "$branch" origin/main
+          git commit -m "loop: daily assessment $today"
+          git push -u origin "$branch"
+
+          pr_url=$(gh pr create \
+            --title "loop: daily assessment $today" \
+            --body "Automated assessment from company control loop." \
+            --base main \
+            --head "$branch")
+          gh pr merge "$pr_url" --squash --admin --delete-branch
+
+          git checkout main
+          git pull origin main
 
       - name: Create issues from assessment
         env:
