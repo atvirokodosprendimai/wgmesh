@@ -11,7 +11,7 @@ since=$(date -u -v-7d '+%Y-%m-%d' 2>/dev/null || date -u -d '7 days ago' '+%Y-%m
 recent_authors=$(git log --since="$since" --format='%aN' 2>/dev/null | sort -u | jq -R . | jq -s .)
 
 # AI agent activity (count commits by bots in last 7 days)
-bot_commits=$(git log --since="$since" --format='%aN' 2>/dev/null | grep -ciE 'copilot|goose|github-actions|bot' || echo 0)
+bot_commits=$(git log --since="$since" --format='%aN' 2>/dev/null | { grep -ciE 'copilot|goose|github-actions|bot' || true; })
 
 # Direct dependencies count
 dep_count=$(grep -cE '^\t[a-z].*// indirect$' "$REPO_ROOT/go.mod" 2>/dev/null || echo 0)
