@@ -16,7 +16,7 @@
           pname = "wgmesh";
           version = "dev";
           src = ./.;
-          vendorHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="; # will be updated after first build
+          vendorHash = "sha256-bFoaLnxaURN0P27d7BV3O17sgqSBvfZCCgDJ3KiERQM=";
           subPackages = [ "." ];
           env.CGO_ENABLED = 0;
           ldflags = [ "-s" "-w" "-X main.version=dev" ];
