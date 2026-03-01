@@ -43,3 +43,4 @@ Thumbs.db
 __pycache__/
 # Added by goreleaser init:
 dist/
+vendor/
