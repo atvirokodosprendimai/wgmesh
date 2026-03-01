@@ -30,30 +30,25 @@ Goal: make the recipe + standalone scripts the source of truth, workflow becomes
 2. [x] Merge (or get it merged) to unblock the daily schedule
    - => merged as `1c709e7` via squash
 
-### Phase 2 - Extract Goose task builder script - status: open
+### Phase 2 - Extract Goose task builder script - status: completed
 
 Extract the task-building logic from `goose-build.yml` into a standalone script that reads the recipe.
 
-1. [ ] Create `company/scripts/goose-build-task.sh`
-   - reads recipe YAML via `yq` for prompt, settings, checks
-   - reads `.goosehints` for project context
-   - reads `AGENTS.md` for conventions
-   - builds `/tmp/goose-task.md` from recipe prompt + codebase context + spec file
-   - standalone: can be run locally with `./company/scripts/goose-build-task.sh specs/issue-42-spec.md`
-2. [ ] Create `company/scripts/goose-validate.sh`
-   - reads recipe YAML checks via `yq`
-   - runs each check command in sequence
-   - reports pass/fail per check
-   - outputs structured results (exit code + summary)
-3. [ ] Create `company/scripts/goose-run.sh`
-   - reads recipe settings (model, max_turns, retries)
-   - retry loop with backoff (currently inline in workflow)
-   - calls goose CLI with task file
-   - on retry, builds fix instructions from validation errors
-   - outputs metrics JSON
-4. [ ] Update recipe `wgmesh-implementation.yaml`
-   - ensure all settings are canonical: model, max_turns, retries, checks
-   - add `context_files` field listing `.goosehints`, `AGENTS.md`
+1. [x] Create `company/scripts/goose-build-task.sh`
+   - => reads recipe via yq for prompt, context_files, checks
+   - => generates codebase type context from pkg/*/
+   - => includes memory context if MEMORY_FILE env set
+   - => standalone: `./company/scripts/goose-build-task.sh specs/issue-42-spec.md`
+2. [x] Create `company/scripts/goose-validate.sh`
+   - => reads checks from recipe, runs each, outputs JSON summary with diff stats
+3. [x] Create `company/scripts/goose-run.sh`
+   - => reads provider, model, max_turns, retries from recipe
+   - => full retry loop with backoff, rate-limit detection, fix instructions on retry
+   - => outputs /tmp/goose-metrics.json
+4. [x] Update recipe `wgmesh-implementation.yaml`
+   - => added context_files: [.goosehints, AGENTS.md]
+   - => expanded prompt with real-types guidance
+   - => commit: `815b923`
 
 ### Phase 3 - Slim down goose-build.yml - status: open
 
@@ -87,3 +82,4 @@ Apply same pattern: review workflow should also use recipe/scripts where applica
 ## Progress Log
 
 - 2603011230 — Phase 1 complete. PR #354 merged to main. Company loop unblocked.
+- 2603011245 — Phase 2 complete. Three scripts + recipe update in `815b923`.
