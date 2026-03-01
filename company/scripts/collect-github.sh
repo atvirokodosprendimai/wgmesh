@@ -50,18 +50,28 @@ open_issues_total=$(echo "$repo_info" | jq '.open_issues_count // 0')
 recent_contributors=$(gh_get "repos/$REPO/commits?per_page=100" | \
   jq '[.[].author.login // .[].commit.author.name] | unique | length')
 
-cat <<EOF
-{
-  "source": "github",
-  "collected_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-  "issues_by_function_label": $issues_by_label,
-  "open_prs": $open_prs,
-  "merged_prs_7d": $merged_prs,
-  "latest_release": "$latest_release",
-  "ci_status": "$ci_status",
-  "stars": $stars,
-  "forks": $forks,
-  "open_issues_total": $open_issues_total,
-  "recent_contributors_30d": $recent_contributors
-}
-EOF
+# Build JSON safely with jq
+jq -n \
+  --arg collected_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --argjson issues_by_label "$issues_by_label" \
+  --argjson open_prs "${open_prs:-0}" \
+  --argjson merged_prs "${merged_prs:-0}" \
+  --arg latest_release "${latest_release:-none}" \
+  --arg ci_status "${ci_status:-unknown}" \
+  --argjson stars "${stars:-0}" \
+  --argjson forks "${forks:-0}" \
+  --argjson open_issues "${open_issues_total:-0}" \
+  --argjson contributors "${recent_contributors:-0}" \
+  '{
+    source: "github",
+    collected_at: $collected_at,
+    issues_by_function_label: $issues_by_label,
+    open_prs: $open_prs,
+    merged_prs_7d: $merged_prs,
+    latest_release: $latest_release,
+    ci_status: $ci_status,
+    stars: $stars,
+    forks: $forks,
+    open_issues_total: $open_issues,
+    recent_contributors_30d: $contributors
+  }'

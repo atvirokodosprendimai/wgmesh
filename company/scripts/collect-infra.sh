@@ -22,19 +22,20 @@ check_health() {
       latency_ms=$(( (end - start) / 1000000 ))
     fi
   fi
-  echo "{\"name\": \"$name\", \"url\": \"$url\", \"status\": \"$status\", \"latency_ms\": $latency_ms}"
+  jq -n --arg name "$name" --arg url "$url" --arg status "$status" --argjson latency "$latency_ms" \
+    '{name: $name, url: $url, status: $status, latency_ms: $latency}'
 }
 
 chimney=$(check_health "chimney" "https://chimney.beerpub.dev")
 cloudroof=$(check_health "cloudroof" "https://cloudroof.eu")
 
-cat <<EOF
-{
-  "source": "infrastructure",
-  "collected_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
-  "services": [
-    $chimney,
-    $cloudroof
-  ]
-}
-EOF
+# Build JSON safely with jq
+jq -n \
+  --arg collected_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+  --argjson chimney "$chimney" \
+  --argjson cloudroof "$cloudroof" \
+  '{
+    source: "infrastructure",
+    collected_at: $collected_at,
+    services: [$chimney, $cloudroof]
+  }'
