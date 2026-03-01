@@ -4,3 +4,7 @@ skills_list: true
 specs_and_concepts: true
 session_context: true
 context_tracking_max: 200000
+# mono-repo sub-part focus injection at session start
+mono_focus: true
+# persist pasted images as named observation files in memory/
+observation_images: true
