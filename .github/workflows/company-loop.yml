@@ -202,8 +202,8 @@ jobs:
           git diff --cached --quiet && echo "No changes to commit" && exit 0
 
           today=$(date -u '+%Y-%m-%d')
-          branch="loop/assessment-${today}"
-          git checkout -b "$branch"
+          branch="loop/assessment-${today}-${GITHUB_RUN_ID}"
+          git checkout -b "$branch" origin/main
           git commit -m "loop: daily assessment $today"
           git push -u origin "$branch"
 
