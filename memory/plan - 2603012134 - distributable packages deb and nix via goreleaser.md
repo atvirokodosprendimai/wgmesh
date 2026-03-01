@@ -16,22 +16,21 @@ status: active
 
 ## Phases
 
-### Phase 1 — goreleaser config + .deb/.rpm — status: open
+### Phase 1 — goreleaser config + .deb/.rpm — status: completed
 
-1. [ ] Add `.goreleaser.yml` with nfpm config
-   - builds: linux-amd64, linux-arm64, linux-armv7, darwin-amd64, darwin-arm64
-   - nfpm: .deb and .rpm for linux targets
-   - package contents: binary → `/usr/bin/wgmesh`, systemd unit → `/lib/systemd/system/wgmesh.service`, config dir → `/etc/wgmesh/`
-   - dependencies: wireguard-tools
-   - scripts: postinstall (systemd daemon-reload), preremove (stop service)
-2. [ ] Create standalone systemd unit file at `dist/wgmesh.service`
-   - based on existing template in `pkg/daemon/systemd.go` but static (reads from env file)
-3. [ ] Create packaging scripts: `dist/postinstall.sh`, `dist/preremove.sh`
-4. [ ] Replace `binary-build.yml` with goreleaser-based release workflow
-   - `goreleaser release` on tags
-   - `goreleaser build --snapshot` on main pushes (artifacts only, no publish)
-   - keep Homebrew tap update (goreleaser has native support)
-5. [ ] Test locally with `goreleaser build --snapshot --clean`
+1. [x] Add `.goreleaser.yml` with nfpm config
+   - => builds: linux-amd64, linux-arm64, linux-armv7, darwin-amd64, darwin-arm64
+   - => nfpm: .deb and .rpm with wireguard-tools dep, systemd unit, /etc/wgmesh/ and /var/lib/wgmesh/ dirs
+   - => `brews` section preserved (deprecated but functional — `homebrew_casks` has different schema for CLIs)
+2. [x] Create standalone systemd unit file at `packaging/wgmesh.service`
+   - => moved to `packaging/` to avoid conflict with goreleaser `dist/` output dir
+   - => static unit based on template in `pkg/daemon/systemd.go`, reads WGMESH_SECRET from env file
+3. [x] Create packaging scripts: `packaging/postinstall.sh`, `packaging/preremove.sh`
+4. [x] Replace `binary-build.yml` with goreleaser-based release workflow
+   - => `release.yml` — runs `goreleaser release --clean` on v* tags
+   - => removed old binary-build.yml (matrix build + manual Homebrew update)
+5. [x] Test locally with `goreleaser build --snapshot --clean`
+   - => all 5 targets built successfully
 
 ### Phase 2 — Nix flake — status: open
 
@@ -61,3 +60,6 @@ status: active
 ## Adjustments
 
 ## Progress Log
+
+- 2603012134 — Plan created
+- 2603012145 — Phase 1 complete. goreleaser config, packaging scripts, release workflow, snapshot build tested.
