@@ -1,17 +1,17 @@
 # Assessment: 2026-03-01
 
-**Stage**: Foundation | **Run**: 0
+**Stage**: Foundation | **Run**: 1
 
-First run — ANTHROPIC_API_KEY not configured. The loop infrastructure is deployed but cannot call the LLM yet. This is a needs-human blocker.
+LLM call failed: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.. Falling back to stub assessment.
 
 ## Blockers
-- ANTHROPIC_API_KEY not set in GitHub secrets
+- Anthropic API error: Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.
 
 ## Top Actions
-- **fn:ops**: Set ANTHROPIC_API_KEY in repo secrets (cheap)
+- **fn:ops**: Fix Anthropic API access (cheap)
 
 ## Contributions
 _None recorded this cycle._
 
 ## Needs Human
-- [blocking] Add ANTHROPIC_API_KEY to repository secrets
+- [blocking] Fix Anthropic API access
