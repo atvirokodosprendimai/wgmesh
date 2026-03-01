@@ -70,10 +70,10 @@ jobs:
 
       - name: Call LLM (or generate stub)
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
-          if [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "::warning::ANTHROPIC_API_KEY not set — generating stub assessment."
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::warning::OPENROUTER_API_KEY not set — generating stub assessment."
             today=$(date -u '+%Y-%m-%d')
             cat > /tmp/assessment.json <<STUBEOF
           {
@@ -81,14 +81,14 @@ jobs:
             "funnel_stage": 0,
             "stage_name": "Foundation",
             "runway": {"monthly_burn_eur": null, "months_remaining": null, "survival_mode": false},
-            "assessment": "First run — ANTHROPIC_API_KEY not configured. The loop infrastructure is deployed but cannot call the LLM yet. This is a needs-human blocker.",
-            "blockers": ["ANTHROPIC_API_KEY not set in GitHub secrets"],
-            "top_actions": [{"rank": 1, "action": "Set ANTHROPIC_API_KEY in repo secrets", "function": "fn:ops", "leverage": "Unblocks the entire control loop", "cost": "cheap"}],
+            "assessment": "First run — OPENROUTER_API_KEY not configured. The loop infrastructure is deployed but cannot call the LLM yet. This is a needs-human blocker.",
+            "blockers": ["OPENROUTER_API_KEY not set in GitHub secrets"],
+            "top_actions": [{"rank": 1, "action": "Set OPENROUTER_API_KEY in repo secrets", "function": "fn:ops", "leverage": "Unblocks the entire control loop", "cost": "cheap"}],
             "issues_to_create": [],
             "issues_to_close": [],
             "contributions": [],
             "reciprocation_proposals": [],
-            "needs_human": [{"request": "Add ANTHROPIC_API_KEY to repository secrets", "reason": "Loop cannot function without LLM access", "urgency": "blocking"}]
+            "needs_human": [{"request": "Add OPENROUTER_API_KEY to repository secrets", "reason": "Loop cannot function without LLM access", "urgency": "blocking"}]
           }
           STUBEOF
           else
@@ -105,33 +105,31 @@ jobs:
           Please provide your assessment as a JSON object per the output format in your system prompt.
           MSGEOF
 
-            # Call Anthropic API
+            # Call OpenRouter API (Anthropic-compatible)
             jq -n \
               --rawfile system company/system-prompt.md \
               --rawfile user /tmp/user_message.txt \
               '{
-                model: "claude-sonnet-4-6",
+                model: "anthropic/claude-sonnet-4",
                 max_tokens: 4096,
-                system: $system,
-                messages: [{role: "user", content: $user}]
+                messages: [{role: "system", content: $system}, {role: "user", content: $user}]
               }' > /tmp/request.json
 
             http_code=$(curl -s -w '%{http_code}' -o /tmp/llm_response.json \
-              -H "x-api-key: $ANTHROPIC_API_KEY" \
-              -H "anthropic-version: 2023-06-01" \
+              -H "Authorization: Bearer $OPENROUTER_API_KEY" \
               -H "content-type: application/json" \
               -d @/tmp/request.json \
-              https://api.anthropic.com/v1/messages)
+              https://openrouter.ai/api/v1/chat/completions)
 
             if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
-              content=$(jq -r '.content[0].text' /tmp/llm_response.json)
+              content=$(jq -r '.choices[0].message.content' /tmp/llm_response.json)
               echo "$content" | sed -n '/^```json/,/^```$/p' | sed '1d;$d' > /tmp/assessment.json
               if [ ! -s /tmp/assessment.json ]; then
                 echo "$content" | jq . > /tmp/assessment.json 2>/dev/null || echo "$content" > /tmp/assessment.json
               fi
             else
               api_error=$(jq -r '.error.message // "unknown error"' /tmp/llm_response.json 2>/dev/null || echo "HTTP $http_code")
-              echo "::warning::Anthropic API returned HTTP $http_code: $api_error — falling back to stub."
+              echo "::warning::OpenRouter API returned HTTP $http_code: $api_error — falling back to stub."
               today=$(date -u '+%Y-%m-%d')
               jq -n --arg ts "${today}T08:00:00Z" --arg err "$api_error" '{
                 timestamp: $ts, funnel_stage: 0, stage_name: "Foundation",
