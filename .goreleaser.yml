@@ -1,0 +1,105 @@
+version: 2
+
+project_name: wgmesh
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: wgmesh
+    main: .
+    binary: wgmesh
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      - goos: darwin
+        goarch: arm
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}"
+
+nfpms:
+  - id: packages
+    package_name: wgmesh
+    file_name_template: "{{ .ConventionalFileName }}"
+    vendor: atvirokodosprendimai
+    homepage: https://github.com/atvirokodosprendimai/wgmesh
+    maintainer: atvirokodosprendimai <atvirokodosprendimai@users.noreply.github.com>
+    description: |-
+      WireGuard mesh network — decentralized peer discovery and encrypted networking.
+      Zero-infrastructure anycast CDN built on WireGuard.
+    license: MIT
+    formats:
+      - deb
+      - rpm
+    bindir: /usr/bin
+    dependencies:
+      - wireguard-tools
+    recommends:
+      - iptables
+    contents:
+      - src: packaging/wgmesh.service
+        dst: /lib/systemd/system/wgmesh.service
+      - dst: /etc/wgmesh
+        type: dir
+        file_info:
+          mode: 0700
+      - dst: /var/lib/wgmesh
+        type: dir
+        file_info:
+          mode: 0750
+    scripts:
+      postinstall: packaging/postinstall.sh
+      preremove: packaging/preremove.sh
+
+brews:
+  - repository:
+      owner: atvirokodosprendimai
+      name: homebrew-tap
+      token: "{{ .Env.PUSH_TOKEN }}"
+    directory: Formula
+    name: wgmesh
+    homepage: https://github.com/atvirokodosprendimai/wgmesh
+    description: "WireGuard mesh network — decentralized peer discovery and encrypted networking"
+    license: MIT
+    install: |
+      bin.install "wgmesh"
+    test: |
+      system "#{bin}/wgmesh", "version"
+    commit_msg_template: "Update wgmesh formula to {{ .Tag }}"
+    skip_upload: auto
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  filters:
+    exclude:
+      - "^docs:"
+      - "^memory:"
+      - "^loop:"
+      - "^chore:"
+      - typo
+
+release:
+  github:
+    owner: atvirokodosprendimai
+    name: wgmesh
+  draft: false
+  prerelease: auto
+  name_template: "{{ .Tag }}"

@@ -41,3 +41,6 @@ go.work
 Thumbs.db
 .scannerwork/
 __pycache__/
+# Added by goreleaser init:
+dist/
+vendor/
