@@ -14,9 +14,9 @@ recent_authors=$(git log --since="$since" --format='%aN' 2>/dev/null | sort -u |
 bot_commits=$(git log --since="$since" --format='%aN' 2>/dev/null | { grep -ciE 'copilot|goose|github-actions|bot' || true; })
 
 # Direct dependencies count
-dep_count=$(grep -cE '^\t[a-z].*// indirect$' "$REPO_ROOT/go.mod" 2>/dev/null || echo 0)
-direct_dep_count=$(grep -cE '^\t[a-z]' "$REPO_ROOT/go.mod" 2>/dev/null || echo 0)
-direct_dep_count=$((direct_dep_count - dep_count))
+dep_count=$(grep -cE '^\t[a-z].*// indirect$' "$REPO_ROOT/go.mod" 2>/dev/null | tr -d '[:space:]' || echo 0)
+direct_dep_count=$(grep -cE '^\t[a-z]' "$REPO_ROOT/go.mod" 2>/dev/null | tr -d '[:space:]' || echo 0)
+direct_dep_count=$(( ${direct_dep_count:-0} - ${dep_count:-0} ))
 
 # Unreciprocated count from ledger
 unreciprocated=0
