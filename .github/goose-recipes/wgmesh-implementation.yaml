@@ -6,14 +6,22 @@ prompt: |
 
   ## Project Context
   - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
-  - Build: `go build` must succeed
+  - Build: `go build ./...` must succeed
   - Test: `go test ./...` must pass
   - Lint: `go vet ./...` must be clean
   - Format: code must be `gofmt` formatted
-  - Always handle errors with context wrapping
+  - Always handle errors with context wrapping: `if err != nil { return fmt.Errorf("context: %w", err) }`
+  - Use standard library where possible
+  - Do NOT modify files outside the scope of the specification
 
-  ## Specification
-  Read the specification file provided (spec_file parameter - Goose will read this automatically).
+  ## CRITICAL: Use Real Types
+
+  Before writing ANY code, you MUST read the existing source files to understand:
+  - What types already exist (do NOT guess or invent type names)
+  - What fields structs have (do NOT assume fields exist)
+  - What function signatures look like (do NOT change existing signatures)
+
+  The codebase context below shows every exported symbol. Use ONLY these types.
 
   ## Deliverables Checklist
 
@@ -24,19 +32,14 @@ prompt: |
   ## Implementation Steps
 
   1. Read the specification file thoroughly
-  2. If code changes needed:
-     - Explore relevant source files
-     - Implement changes following Go best practices
-     - Write/update unit tests
-     - Run `go build` and fix any errors
-     - Run `go test ./...` and fix any failures
-     - Run `go vet ./...` and fix any issues
-     - Run `gofmt -l .` and format if needed
-  3. If documentation changes needed:
-     - Update relevant docs/ files
-     - Add API documentation if needed
-     - Update README if surface area changed
-  4. Keep changes minimal - don't refactor unrelated code
+  2. Read EVERY file listed in "Affected Files" using `cat` — understand the real types and signatures
+  3. Read existing test files in the same packages to understand test patterns used
+  4. Implement the changes described in "Proposed Approach" using ONLY types that exist
+  5. Run `go build ./...` — if it fails, read the error, fix it, repeat until clean
+  6. Run `go test ./...` — if tests fail, read the error, fix it, repeat until clean
+  7. Run `go vet ./...` and fix any issues
+  8. Run `gofmt -w .` to fix formatting
+  9. Run `go build ./... && go test ./... && go vet ./...` one final time to confirm everything passes
 
   IMPORTANT: If the spec classification is "wont-do" or "needs-info", do NOT implement anything.
 parameters:
@@ -44,11 +47,13 @@ parameters:
     input_type: file
     requirement: required
     description: "Path to the specification file (specs/issue-N-spec.md)"
+context_files:
+  - .goosehints
+  - AGENTS.md
 extensions: []
 settings:
   goose_provider: "google"
   goose_model: "gemini-2.5-flash"
-  # 50 is generous for most tasks; reduce if using paid-tier models
   max_turns: 50
 retry:
   max_retries: 2
