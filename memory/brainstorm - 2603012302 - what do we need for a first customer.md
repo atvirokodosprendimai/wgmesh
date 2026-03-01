@@ -1,6 +1,6 @@
 ---
 tldr: Brainstorm on the shortest path from current state to first paying customer for wgmesh
-status: active
+status: complete
 ---
 
 # Brainstorm: What do we need for a first customer?
@@ -138,6 +138,9 @@ The [[spec - first-customer - roadmap to first paying customer]] defines the vis
 
 ## Next Steps
 
-What resonates?
-What's missing?
-Any directions to push further?
+**Selected:** 3 (Polar.sh) and 4 (find one person manually).
+
+- => #376 created for Polar.sh setup (needs-human)
+- => [[outreach - 2602240805 - stargazer dm template]] updated with personalised messages for all 5 targets
+- Swap sponsor links for Polar.sh checkout URLs once #376 is resolved
+- Send outreach now with GitHub Sponsors links (don't wait for Polar.sh)
