@@ -1,0 +1,335 @@
+Logo
+Logo
+Subscribe
+Sign in
+Home
+✨ Best of Growth Unhinged
+🎧 Podcast
+💎 Premium Perks
+🤝 Work with Kyle
+Archive
+About
+
+    Home
+    Posts
+    Becoming an AI-native operator
+
+Becoming an AI-native operator
+
+How to use Claude Cowork as your Chief of Staff, and what you still need to assemble
+Justin Norris
+Justin Norris
+
+Feb 25, 2026
+
+•
+
+19 min read
+
+Growth Unhinged is proudly supported by Turnstile
+
+After 15 years in B2B pricing, I’ve never seen things change as fast as right now. I sat down with Turnstile CEO Jordan Zamir to unpack how AI is forcing a reset in B2B pricing and what breaks operationally when you move faster than your quote-to-cash stack.
+
+We talked about what to put in place so quoting, billing, and reporting don’t turn into a monthly fire drill. We also walked through what that means for pricing models and the quote-to-cash infrastructure you need to run them cleanly. Of course, tools like Turnstile are here to help.
+Watch the webinar
+
+👋 Hi, it’s Kyle Poyar and welcome to Growth Unhinged, my weekly newsletter exploring the hidden playbooks behind the fastest-growing startups.
+
+Regular readers of this newsletter have seen plenty of stories about how to use AI for GTM: Deep Research, AI agents, hiring AI-native talent, and even 40+ real world AI GTM plays. With the tactics coming into focus, and with the rise of powerful new tools like Claude Cowork, I’ve been wondering what this means for GTM operators. What will work look like when it’s powered by AI, and how can we work with AI to have an unfair advantage.
+
+I turned to Justin Norris, senior director of GTM systems and AI at 360Learning as well as author of the AI Builders newsletter. Justin shares what Claude Cowork already means for GTM builders, how to use AI as your personal chief of staff, and a vision for knowledge work with AI.
+Subscribe
+Becoming an AI-native operator
+
+I already spend my workdays surrounded by AI.
+
+I do a morning check-in with an AI “Chief of Staff” in ChatGPT. I work on projects with a Dust assistant that has access to company systems and sources. I can spin up a coding agent to build workflows instead of pulling in a developer.
+
+And yet, I still spend hours each week copy-pasting from one window to another, updating docs, or manually adjusting slides based on AI feedback. I’m still the glue between systems that don’t really talk to each other.
+
+William Gibson famously said that the future is already here, it’s just not evenly distributed. That feels especially true of AI and knowledge work. For software developers, long-running, autonomous agentic workflows are becoming normal. For the rest of us, we’re in an awkward hybrid phase.
+
+That gap led me to start asking a more fundamental question: what should knowledge work actually look like in the age of AI?
+
+The recent release of Claude Cowork is a useful moment to examine that question. It’s one of the first serious attempts to bring agentic patterns into the broader knowledge work world. I don’t think it’s the full answer, but it’s a good first stab.
+
+More importantly, it’s a prompt to consider what a truly AI-native way of working might require and the leverage it could unlock. Not just faster output, but more time at altitude and better judgment on the work that actually compounds.
+What Claude Cowork is (and isn’t)
+
+Claude Cowork takes patterns from agentic software development and adapts them to the world of general knowledge work.
+
+Coding agents like Claude Code have been transformative because they give the model agency inside a developer’s working environment. They can read and write files, coordinate multi-step tasks, and stay engaged over longer stretches of work. For many developers, that shift from discussing the work to doing the work has unlocked significant productivity gains.
+
+Cowork is Anthropic’s effort to offer that same kind of agency to non-developers. Cowork runs inside the Claude Desktop app instead of the terminal and allows the model to plan and execute longer, multi-step tasks.
+
+You can use it to:
+
+    Create or edit local documents, spreadsheets, or presentations
+
+    Organize folders or clean up space on your hard drive
+
+    Retrieve and analyze data from external systems
+
+    Read Google Workspace files and email, manage your calendar, and more
+
+And of course it can also do all the tasks we generally associate with chat-based LLMs, like creating content, summarizing docs, and answering questions.
+
+It’s genuinely impressive. Where it really shines is when the task is reasonably well-defined and the goal is to move from intent to output with less friction.
+
+What it’s not is a one-stop shop for knowledge work.
+
+For example, I recently tried to use Cowork for a task that felt squarely in its wheelhouse: analyze a large set of Gong calls, classify them, and turn the insights into a Google Slides deck.
+
+The planning was solid. It understood the steps and was analytically capable of executing them. But the friction showed up in the last mile. There was no native or secure way to access Gong. Creating Google Slides required either browser automation or exporting a PowerPoint file and re-uploading it myself. I remained the integration layer.
+
+For more senior or leadership roles, the gaps go well beyond execution. They show up in the places where leverage actually matters most.
+How knowledge work actually works
+
+Execution is part of knowledge work, but it’s not the whole thing. Often, it’s not even the most important part.
+
+    The most critical work happens in the space around execution, not inside it. Writing the slide, drafting the doc, or producing the analysis—all that matters. But think how much time is spent gathering context, deciding which problems are worth solving, planning projects, anticipating org dynamics, and communicating.
+
+    Knowledge work is work with and for other people. Very little of it is done in isolation. Ideas are shaped in shared documents, challenged in meetings, refined through back-and-forth, and constrained by organizational dynamics. Success is not just about being right. It’s about building understanding, alignment, and momentum within a real decision structure.
+
+    That social reality has consequences for how the work is done. Unlike coding, which can largely live in a local environment and be validated mechanically, knowledge work happens in shared, collaborative systems by necessity. Docs, slides, tickets, dashboards, and threads are living coordination surfaces. They exist so other people can read them, react to them, and help decide what happens next.
+
+    As a result, most of the knowledge that matters doesn’t live on your local hard drive. It lives in cloud tools, shared workspaces, and systems of record. Doing the work well means constantly reading from and writing back to those shared sources of truth,  not just generating content in one place and pasting it somewhere else.
+
+This is where many execution-first AI tools start to feel like partial solutions. If AI is going to meaningfully augment knowledge work, it has to support all of its modalities and the collaborative environments where that work actually lives.
+
+Once you see that clearly, it becomes much easier to understand why simply porting execution-oriented agents into knowledge work isn’t the whole answer.
+A vision for AI-native knowledge work
+
+Let’s think about what a day would look like in an AI environment designed for knowledge work. For growth, ops, and revenue leaders in particular, this vision applies to roles that blend real execution with planning, prioritization, and coordination across people.
+Your interface
+
+Your day begins in an AI cockpit.
+
+The primary interface is conversational: just you and the assistant. You operate the system by typing, and increasingly by speaking, in natural language.
+
+Other apps don’t compete for attention. They come into focus only when needed, layered onto the conversation as contextual views that surface information or opportunities for action then fade back out.
+
+Where we are today: 5/10
+
+Our experience of AI is fragmented: chat-based sidecars, narrow in-app assistants, and execution-oriented agents all play separate roles. They don’t form a coherent operating surface. The human still has to move intent, context, and output between systems manually.
+
+Cowork and coding agents come closest to collapsing the gap between conversation and execution, but only when the work lives in local files. Once the work moves into shared, cloud-based tools, that illusion breaks.
+Planning and sensemaking
+
+The day starts with a briefing, but not one that simply lists meetings and tasks. It’s a Chief of Staff-level discussion. The assistant understands your priorities and the dynamics of the organization: unresolved threads from earlier conversations, stakeholders who may be misaligned, places where tension is likely to surface.
+
+You get clarity by talking through your priorities and blockers. The assistant helps you see around corners, surfacing risks, tradeoffs, and second-order effects.
+
+Where we are today: 7/10
+
+This mode of work is largely accessible today at an individual level. Chat-based assistants can already function as a Chief of Staff for planning, reflection, and prioritization, helping you think through objectives, blockers, and tradeoffs.
+
+The limitation is continuity. Context is shallow and fragile, often bounded by a session or a prompt window. You still rely on manual reminders, recent notes, or repeated re-explanation to reestablish shared understanding over time.
+
+More sophisticated memory systems are possible, but they typically require custom tooling and fall outside what’s easy to deploy in most corporate environments.
+Meeting analysis and follow-up
+
+As meetings happen, transcripts flow directly into the system. The assistant immediately follows up with analysis and action. What decisions were made? What risks emerged? Where is alignment still fragile?
+
+Notes are summarized and logged in shared documents or project tools. Follow-up communications are drafted and surfaced for approval. New information is folded back into an ever-evolving context, instead of disappearing into isolated notes.
+
+Where we are today: 6/10
+
+This is achievable today in a limited, individual context. With tools like Claude Code, exported transcripts, and local files, you can build a system that summarizes meetings, surfaces decisions, and drafts follow-ups reliably. This is workable for a consultant or solopreneur.
+
+The difficulty emerges in shared corporate environments. In practice, either significant custom infrastructure is required, or a human still has to move information between systems.
+Communication triage
+
+Your focus isn’t interrupted by a steady-stream of email alerts or Slack pings. The assistant runs background communication triage on your behalf.
+
+Simple information requests are handled autonomously because the assistant has the same context you do. Decisions are queued up with drafts, reviewed during dedicated windows of the day. Only truly urgent issues become interruptive.
+
+Where we are today: 6/10
+
+This is technically within reach, but fragile. Partial communication triage is possible, but assistants lack full context around priorities, relationships, and what truly warrants interruption.
+
+There is also no single control plane for communication. Email, Slack, tickets, and calendar live in separate systems, which means effective triage still requires bespoke workflows and human oversight. It can work for an enthusiast, but it’s hard to scale or trust day to day.
+Collaboration and artifacts
+
+Protected deep work blocks give you time to move the most important priorities forward.
+
+The assistant is connected to all your systems of action. It can do whatever you can do. No copy-pasting.
+
+It acts as a collaborator and sounding board. It speeds you up by doing tedious work. It also slows you down by challenging assumptions and pushing for clearer thinking.
+
+Routine administrative work largely disappears. There’s little ambiguity, and the system can handle it without constant supervision.
+
+Where we are today: 5/10
+
+We’re at a transition point. The limiting factor is no longer the models. Today’s best LLMs already handle autonomous, multi-step work in domains like coding that are as complex as anything described here.
+
+What’s missing is connective tissue. AI assistants are not yet first-class users of shared, collaborative systems. Editing a Google Slide or updating a live doc is still awkward or impossible. Many systems don’t offer full API or MCP access, which forces the human back into a GUI to move work forward.
+
+If your work lives in local files, this mode is real today. Once it moves into shared cloud tools, you’re often back to copy-pasting.
+The human role
+
+You’re not a passive or disengaged orchestrator. You’re actually more engaged, like collaborating with an intelligent colleague.
+
+The system absorbs the glue work that currently lives in inboxes, tabs, and half-finished documents. You remain responsible for judgment, direction, and taste.
+
+Your velocity improves, but more importantly, so does quality. This isn’t AI slop. You’re operating with more clarity, more continuity, and more intent.
+
+Where we are today: 7/10
+
+We’re closer here than in most other parts of the vision. For many knowledge workers, collaborating with LLMs already feels meaningfully different than it did a year ago. The experience is more continuous, more conversational, and genuinely helpful for thinking, not just producing output.
+
+The remaining gap is how much manual glue work is still required. Context has to be reintroduced, decisions re-explained, and intent carried across tools by the human. The collaboration is real, but it’s not yet self-sustaining.
+How to be an AI-native operator today
+
+Even within today’s constraints, a version of this way of working is already achievable for growth and revenue teams. It just isn’t delivered to you as a single product. You have to assemble it deliberately.
+
+Use a chat-based assistant as a Chief of Staff. This is what helps you operate at the right altitude: planning, prioritization, sensemaking, and reflection. This is the surface where you talk through objectives, pressure-test assumptions, and decide what actually matters. I describe my routine for this in detail below.
+
+Pair that with an execution-focused assistant that has access to systems and sources. This might be Claude Code, Cowork, or a tool like Dust, which is what we use internally. This is where real work gets delegated: coding, documentation, analysis, system configuration. For any non-trivial task, it’s worth asking, how much of this can I hand off? Not because AI is perfect, but because the boundary is still expanding, and you only discover it by pushing.
+
+For revenue teams specifically, this means an assistant that can pull pipeline data from your CRM, draft QBR slides with live numbers, and prep you for customer calls with full account history and recent support tickets.
+
+For example, a high-performing salesperson on my team has regular chats with our sales enablement assistant to plan her path to quota and execute on deals. She credits it with increasing her win rate by 65% and saving her eight hours per week.
+
+Finally, use assistants to absorb Tier 1 work. Questions, lookups, repetitive requests, and first drafts don’t need to land on a human by default. On my team, a Dust assistant connected to our internal systems acts as a first line of support, answering questions and handling some requests autonomously. A sales enablement assistant we built now handles thousands of interactions per month.
+Practical example: AI Chief of Staff
+
+Here’s a practical example of AI-native working you can apply today.
+
+People tend to be attracted to complex workflows, but this is intentionally very simple. All you need is a ChatGPT subscription or similar. At the same time, it’s probably the highest leverage use of AI in my day.
+What it is
+
+I call it the “Chief of Staff” routine. The goal is to provide yourself with the same type of decision support, critical thinking, and strategic clarity that a McKinsey-level Chief of Staff would provide.
+
+You interact with the Chief of Staff at the start and end of the day and at other points as needed. Its job is to spot failure points, see around corners, challenge thinking, and help surface what's most important.
+The set-up
+
+Create a project in Claude, ChatGPT, or your assistant of choice.
+
+Use this system prompt as a base:
+
+# Chief of Staff System Prompt
+
+You are **Justin’s Chief of Staff**.
+
+Your role is **not** task management or execution tracking. Your role is **strategic sensemaking, prioritization, and judgment**.
+
+You help Justin:
+
+ - See around corners
+ - Maintain clarity under ambiguity
+ - Weigh tradeoffs across competing constraints
+ - Prepare for high-stakes conversations
+ - Distinguish what matters from what is merely noisy
+ - Maintain confidence and coherence as scope expands
+
+You operate simultaneously at three levels:
+
+1. **Strategic** — company context, org dynamics, executive intent
+2. **Operational** — priorities, sequencing, capacity and constraints
+3. **Personal** — how Justin shows up as a leader
+
+See the full prompt here. 
+
+For premium subscribers: This has been added to the AI for GTM prompt library, which now includes 50+ AI for GTM prompts. Get it here.
+The daily routine
+
+Most similar agents I've seen focus on the mechanics of productivity—here’s what’s on your calendar, here’s your to-do list. This gives marginal productivity gains, but it’s more like an executive assistant.
+
+I want my Chief of Staff to help with strategic clarity, altitude, and sensemaking. The most important way to do that is for me to talk out loud.
+
+Morning briefing
+
+At the start of each day, I open a new chat window and paste in a summary from the previous day. This provides enough context for continuity without overloading the LLM with an endless chat.
+
+I then turn on a voice dictation app (I use Spokenly with a local model; Wispr Flow is another popular option) and start talking.
+
+    I review each meeting in my calendar, and articulate for myself what my objective is for that meeting—what do I want to be true at the end of the call?
+
+    I consider what my most important priority is for the day. This keeps me focused vs. drifting into reactive busy work.
+
+    I review major projects and tasks in our project management system and consider if there are any urgent blockers or actions I need to take.
+
+    I articulate anything weighing on my mind or that I feel uncertain about.
+
+The LLM then gives feedback and evaluation. Some is fluff, some is wrong, and some is genuinely useful insight. But much of the value in this routine is simply in the talking. There’s something about speaking out loud that brings mental clarity and intentionality.
+
+Check-ins
+
+I don’t use the Chief of Staff thread for detailed project work, but I will share strategically important meeting notes throughout the day to ask for evaluation and feedback. I also use it to revise critical communications for clarity.
+
+This all helps the LLM build a stronger image of the dynamics of the day.
+
+End-of-day wrap-up
+
+At the end of the day, I’ll again give a deliberately open-ended spoken reflection on the shape of the day, what was accomplished, where there are still open threads, and where I wish I had made different decisions.
+
+I’ll ask the LLM to provide an end-of-day summary, which I paste into a running Google Doc. This becomes the seed notes for the next day.
+Tips to make this work
+
+    Keep it simple and don’t over-engineer. When I first tried to build this, I focused on automating low-value activities like surfacing emails that needed replies. But the value of this process isn’t in automation. It’s offloading cognitive load and getting external perspective.
+
+    Find the model you vibe with. I’ve A/B tested multiple LLMs in this process, and continually prefer GPT. For all its well-known flaws (such as a tendency to be too affirming/sycophantic), it continually shows more emotional intelligence and organizational sophistication in my conversations.
+
+    Use a chat assistant, not an execution tool. The harness the model is wrapped in is just as important as which model you use. Execution-oriented tools are excellent for tasks, but they tend to make the model prefer less abstraction and be more tactical. For this exercise, you want an interface that’s optimized for discussion, ambiguity, and nuance.
+
+Embrace a different way of working
+
+None of this is seamless. There is still copy-pasting. But the outline of a different way of working is already visible.
+
+The risk of waiting is that the gap between AI-native operators and everyone else widens faster than expected. The developers who adopted coding agents early didn't just get faster, they started working at a different altitude entirely. The same divergence is coming for growth, ops, and revenue roles.
+
+If you design your workflow around the jobs you’re trying to do rather than the features you’re given, you can already operate much closer to the future than it might appear.
+
+Thanks for reading Growth Unhinged! To receive new posts and support my work, consider becoming a free or paid subscriber.
+Subscribe
+
+Reply
+Avatar
+
+ or  to participate
+Keep Reading
+What’s working in GTM right now
+
+Oct 29, 2025
+
+•
+
+13 min read
+What’s working in GTM right now
+
+New data from 195 GTM leaders in the 2025 State of B2B GTM report
+Kyle Poyar
+Kyle Poyar
+You should be playing with AI agents for marketing
+
+Jul 2, 2025
+
+•
+
+12 min read
+You should be playing with AI agents for marketing
+
+Inside a marketing org with no marketers, just 40 AI agents
+Kyle Poyar
+Kyle Poyar
+Your next job will require AI skills
+
+Aug 27, 2025
+
+•
+
+17 min read
+Your next job will require AI skills
+
+Leaders from Clay, Vercel, Wiz and Zapier on how to hire AI-native GTM talent (and how to get an AI-native job)
+Kyle Poyar
+Kyle Poyar
+Kyle Poyar’s Growth Unhinged
+
+© 2026 Growth Unhinged, LLC.
+Report abuse
+Privacy policy
+Terms of use
+Powered by beehiiv
+
