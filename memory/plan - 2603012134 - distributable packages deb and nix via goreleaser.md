@@ -32,14 +32,16 @@ status: active
 5. [x] Test locally with `goreleaser build --snapshot --clean`
    - => all 5 targets built successfully
 
-### Phase 2 — Nix flake — status: open
+### Phase 2 — Nix flake — status: completed
 
-1. [ ] Add `flake.nix` with package derivation
-   - buildGoModule with vendored deps or gomod2nix
-   - output: `packages.x86_64-linux.default`, `packages.aarch64-linux.default`
-   - NixOS module with systemd service option
-2. [ ] Add `flake.lock`
-3. [ ] Test with `nix build`
+1. [x] Add `flake.nix` with package derivation
+   - => buildGoModule with vendorHash (not vendor dir — kept vendor/ out of git)
+   - => `subPackages = [ "." ]` to avoid building cmd/chimney (has undefined refs)
+   - => outputs for all default systems via flake-utils
+   - => NixOS module with `services.wgmesh.enable`, `secretFile`, `extraArgs` options
+2. [x] Test with `nix build`
+   - => `nix flake check` passes, `nix build .#default` produces working binary
+   - => flake.lock auto-generated on first check
 
 ### Phase 3 — Verify end-to-end — status: open
 
@@ -63,3 +65,4 @@ status: active
 
 - 2603012134 — Plan created
 - 2603012145 — Phase 1 complete. goreleaser config, packaging scripts, release workflow, snapshot build tested.
+- 2603012200 — Phase 2 complete. Nix flake with vendorHash, NixOS module, `nix build` verified.
