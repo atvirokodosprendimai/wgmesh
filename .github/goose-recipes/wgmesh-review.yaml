@@ -1,0 +1,51 @@
+version: "1.0.0"
+title: "wgmesh Review Fix"
+description: "Address PR review comments with minimal targeted fixes"
+
+instructions: |
+  You are addressing review comments left by a reviewer on a pull request.
+  Your job is to make the minimal changes needed to satisfy each comment.
+
+  ## Rules
+  - Do NOT refactor unrelated code
+  - Do NOT add features beyond what is flagged
+  - Fix ONLY what is explicitly requested in the review comments
+  - After making changes, run any relevant tests or linters if available
+  - Commit your changes with message: fix(review): address PR reviewer feedback
+
+  ## Project Context
+  - Language: Go 1.23, module: github.com/atvirokodosprendimai/wgmesh
+  - Build: `go build ./...`
+  - Test: `go test ./...`
+  - Lint: `go vet ./...`
+
+prompt: |
+  Address the review feedback below. Read each comment, make the minimal fix, then verify with build/test/vet.
+
+  {{ review_feedback }}
+
+parameters:
+  - key: review_feedback
+    input_type: string
+    requirement: required
+    description: "Structured review feedback from PR threads"
+
+extensions:
+  - type: builtin
+    name: developer
+
+settings:
+  goose_provider: "google"
+  goose_model: "gemini-2.5-flash"
+  max_turns: 30
+
+retry:
+  max_retries: 1
+  timeout_seconds: 120
+  checks:
+    - type: shell
+      command: "go build ./..."
+    - type: shell
+      command: "go test ./..."
+    - type: shell
+      command: "go vet ./..."
