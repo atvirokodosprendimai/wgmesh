@@ -150,23 +150,28 @@ jobs:
           go-version: "1.25"
 
       - name: Run Goose review with recipe
+        id: goose
         if: steps.pr.outputs.skip != 'true'
         env:
           GOOSE_DISABLE_SESSION_NAMING: "true"
           GOOSE_MODE: "auto"
           REVIEW_FEEDBACK: ${{ steps.pr.outputs.feedback }}
         run: |
-          # Write feedback to file to avoid shell quoting issues with --params
+          # Write feedback to file — Goose reads it directly (not via template substitution)
           printf '%s\n' "$REVIEW_FEEDBACK" > /tmp/review-feedback.txt
 
-          goose run \
+          if goose run \
             --recipe .github/goose-recipes/wgmesh-review.yaml \
-            --params "review_feedback=/tmp/review-feedback.txt" \
             --no-session \
-            2>&1 | tee /tmp/goose-review-output.log
+            2>&1 | tee /tmp/goose-review-output.log; then
+            echo "goose_ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "goose_ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Goose exited with non-zero status"
+          fi
 
       - name: Commit and push changes
-        if: steps.pr.outputs.skip != 'true'
+        if: steps.pr.outputs.skip != 'true' && steps.goose.outputs.goose_ok == 'true'
         env:
           PR_NUM: ${{ github.event.inputs.pr_number }}
           PR_BRANCH: ${{ steps.pr.outputs.branch }}
@@ -186,9 +191,13 @@ jobs:
           github-token: ${{ secrets.PUSH_TOKEN }}
           script: |
             const prNumber = parseInt('${{ github.event.inputs.pr_number }}', 10);
+            const gooseOk = '${{ steps.goose.outputs.goose_ok }}' === 'true';
+            const body = gooseOk
+              ? '**Goose review pass complete.** Changes pushed to address reviewer comments.'
+              : '**Goose review failed.** Could not process review comments — manual attention needed.';
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: prNumber,
-              body: '**Goose review pass complete.** Changes pushed to address reviewer comments.'
+              body,
             });

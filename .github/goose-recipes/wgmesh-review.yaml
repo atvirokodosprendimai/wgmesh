@@ -20,15 +20,8 @@ instructions: |
   - Lint: `go vet ./...`
 
 prompt: |
-  Address the review feedback below. Read each comment, make the minimal fix, then verify with build/test/vet.
-
-  {{ review_feedback }}
-
-parameters:
-  - key: review_feedback
-    input_type: file
-    requirement: required
-    description: "Path to file containing structured review feedback from PR threads"
+  Address the review feedback in the file /tmp/review-feedback.txt.
+  Read the file first, then for each comment make the minimal fix and verify with build/test/vet.
 
 extensions:
   - type: builtin
