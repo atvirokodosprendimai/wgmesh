@@ -22,6 +22,9 @@ mesh-state.json
 # Allow company state files (public by design — see spec: first-customer)
 !company/**/*.json
 
+# Allow Nix flake lock (pinned dependencies)
+!flake.lock
+
 # Docker compose environment and data
 .env
 data/
