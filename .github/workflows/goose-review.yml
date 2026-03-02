@@ -16,7 +16,7 @@ permissions:
   pull-requests: write
 
 env:
-  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
   review:
@@ -29,10 +29,10 @@ jobs:
     steps:
       - name: Validate API key
         env:
-          KEY: ${{ secrets.GOOGLE_API_KEY }}
+          KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::error::GOOGLE_API_KEY secret is not configured."
+            echo "::error::OPENROUTER_API_KEY secret is not configured."
             exit 1
           fi
 
