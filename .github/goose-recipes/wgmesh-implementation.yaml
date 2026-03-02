@@ -64,8 +64,8 @@ extensions:
     name: developer
 
 settings:
-  goose_provider: "google"
-  goose_model: "gemini-2.5-flash"
+  goose_provider: "openrouter"
+  goose_model: "anthropic/claude-sonnet-4"
   max_turns: 50
 
 retry:
