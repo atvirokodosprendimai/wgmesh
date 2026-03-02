@@ -232,24 +232,44 @@ jobs:
 
                   // Dispatch goose-review to address Copilot feedback on the PR branch.
                   // Uses PUSH_TOKEN (PAT) because the GitHub App lacks actions:write permission.
+                  // Skip dispatch if goose-review is already running/queued for this PR.
                   if (copilotThreads.length > 0) {
                     try {
-                      const resp = await fetch(
-                        `https://api.github.com/repos/${owner}/${repo}/actions/workflows/goose-review.yml/dispatches`,
+                      // Check for in-progress or queued goose-review runs
+                      const runsResp = await fetch(
+                        `https://api.github.com/repos/${owner}/${repo}/actions/workflows/goose-review.yml/runs?status=in_progress&per_page=10`,
                         {
-                          method: 'POST',
                           headers: {
                             'Authorization': `Bearer ${process.env.PUSH_TOKEN}`,
                             'Accept': 'application/vnd.github+json',
-                            'Content-Type': 'application/json',
                           },
-                          body: JSON.stringify({ ref: 'main', inputs: { pr_number: String(prNumber) } }),
                         }
                       );
-                      if (resp.ok || resp.status === 204) {
-                        core.info(`PR #${prNumber}: dispatched goose-review to address ${copilotThreads.length} Copilot thread(s)`);
+                      const runsData = runsResp.ok ? await runsResp.json() : { workflow_runs: [] };
+                      const alreadyRunning = runsData.workflow_runs.some(
+                        r => r.status === 'in_progress' || r.status === 'queued'
+                      );
+
+                      if (alreadyRunning) {
+                        core.info(`PR #${prNumber}: goose-review already running, skipping dispatch`);
                       } else {
-                        core.warning(`PR #${prNumber}: goose-review dispatch failed: ${resp.status} ${await resp.text()}`);
+                        const resp = await fetch(
+                          `https://api.github.com/repos/${owner}/${repo}/actions/workflows/goose-review.yml/dispatches`,
+                          {
+                            method: 'POST',
+                            headers: {
+                              'Authorization': `Bearer ${process.env.PUSH_TOKEN}`,
+                              'Accept': 'application/vnd.github+json',
+                              'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({ ref: 'main', inputs: { pr_number: String(prNumber) } }),
+                          }
+                        );
+                        if (resp.ok || resp.status === 204) {
+                          core.info(`PR #${prNumber}: dispatched goose-review to address ${copilotThreads.length} Copilot thread(s)`);
+                        } else {
+                          core.warning(`PR #${prNumber}: goose-review dispatch failed: ${resp.status} ${await resp.text()}`);
+                        }
                       }
                     } catch (dispatchErr) {
                       core.warning(`PR #${prNumber}: could not dispatch goose-review: ${dispatchErr.message}`);
