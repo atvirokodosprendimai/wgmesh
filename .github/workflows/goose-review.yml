@@ -24,7 +24,7 @@ jobs:
     timeout-minutes: 30
     concurrency:
       group: goose-review-${{ github.event.inputs.pr_number }}
-      cancel-in-progress: true
+      cancel-in-progress: false
 
     steps:
       - name: Validate API key
