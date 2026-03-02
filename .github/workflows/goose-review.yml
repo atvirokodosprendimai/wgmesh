@@ -119,6 +119,11 @@ jobs:
           token: ${{ secrets.PUSH_TOKEN }}
           fetch-depth: 0
 
+      - name: Copy recipe from main before switching branches
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          cp .github/goose-recipes/wgmesh-review.yaml /tmp/wgmesh-review.yaml
+
       - name: Checkout PR branch
         if: steps.pr.outputs.skip != 'true'
         env:
@@ -126,6 +131,11 @@ jobs:
         run: |
           git fetch origin "$PR_BRANCH"
           git checkout "$PR_BRANCH"
+
+      - name: Use recipe from main
+        if: steps.pr.outputs.skip != 'true'
+        run: |
+          cp /tmp/wgmesh-review.yaml .github/goose-recipes/wgmesh-review.yaml
 
       - name: Configure git identity
         if: steps.pr.outputs.skip != 'true'
@@ -157,6 +167,8 @@ jobs:
           GOOSE_MODE: "auto"
           REVIEW_FEEDBACK: ${{ steps.pr.outputs.feedback }}
         run: |
+          set -o pipefail
+
           # Write feedback to file — Goose reads it directly (not via template substitution)
           printf '%s\n' "$REVIEW_FEEDBACK" > /tmp/review-feedback.txt
 
@@ -171,17 +183,23 @@ jobs:
           fi
 
       - name: Commit and push changes
+        id: push
         if: steps.pr.outputs.skip != 'true' && steps.goose.outputs.goose_ok == 'true'
         env:
           PR_NUM: ${{ github.event.inputs.pr_number }}
           PR_BRANCH: ${{ steps.pr.outputs.branch }}
         run: |
+          # Discard recipe overlay before committing (it came from main, not this branch)
+          git checkout -- .github/goose-recipes/ 2>/dev/null || true
+
           git add -A
           if git diff --cached --quiet; then
             echo "No changes made by Goose — review comments may already be addressed."
+            echo "changes=none" >> "$GITHUB_OUTPUT"
           else
             git commit -m "fix(review): address PR #${PR_NUM} reviewer feedback"
             git push origin "$PR_BRANCH"
+            echo "changes=pushed" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Comment on PR
@@ -192,9 +210,17 @@ jobs:
           script: |
             const prNumber = parseInt('${{ github.event.inputs.pr_number }}', 10);
             const gooseOk = '${{ steps.goose.outputs.goose_ok }}' === 'true';
-            const body = gooseOk
-              ? '**Goose review pass complete.** Changes pushed to address reviewer comments.'
-              : '**Goose review failed.** Could not process review comments — manual attention needed.';
+            const changes = '${{ steps.push.outputs.changes }}';
+
+            let body;
+            if (!gooseOk) {
+              body = '**Goose review failed.** Could not process review comments — manual attention needed.';
+            } else if (changes === 'pushed') {
+              body = '**Goose review complete.** Changes pushed to address reviewer comments.';
+            } else {
+              body = '**Goose review complete.** No changes needed — reviewer comments may already be addressed.';
+            }
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
