@@ -159,6 +159,11 @@ jobs:
         with:
           go-version: "1.25"
 
+      - name: Record pre-Goose HEAD
+        id: pre
+        if: steps.pr.outputs.skip != 'true'
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Run Goose review with recipe
         id: goose
         if: steps.pr.outputs.skip != 'true'
@@ -202,14 +207,29 @@ jobs:
           # Discard recipe overlay before committing (it came from main, not this branch)
           git checkout -- .github/goose-recipes/ 2>/dev/null || true
 
+          # Goose may have committed changes itself (via the developer extension).
+          # Check for both: new commits since pre-Goose HEAD, and uncommitted changes.
+          PRE_SHA="${{ steps.pre.outputs.sha }}"
+          has_new_commits=false
+          has_uncommitted=false
+
+          if [ "$(git rev-parse HEAD)" != "$PRE_SHA" ]; then
+            has_new_commits=true
+            echo "Goose created $(git rev-list --count "$PRE_SHA"..HEAD) commit(s)"
+          fi
+
           git add -A
-          if git diff --cached --quiet; then
-            echo "No changes made by Goose — review comments may already be addressed."
-            echo "changes=none" >> "$GITHUB_OUTPUT"
-          else
+          if ! git diff --cached --quiet; then
+            has_uncommitted=true
             git commit -m "fix(review): address PR #${PR_NUM} reviewer feedback"
+          fi
+
+          if [ "$has_new_commits" = true ] || [ "$has_uncommitted" = true ]; then
             git push origin "$PR_BRANCH"
             echo "changes=pushed" >> "$GITHUB_OUTPUT"
+          else
+            echo "No changes made by Goose — review comments may already be addressed."
+            echo "changes=none" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Comment on PR
