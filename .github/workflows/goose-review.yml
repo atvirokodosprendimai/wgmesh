@@ -172,14 +172,24 @@ jobs:
           # Write feedback to file — Goose reads it directly (not via template substitution)
           printf '%s\n' "$REVIEW_FEEDBACK" > /tmp/review-feedback.txt
 
-          if goose run \
+          # Goose sometimes hangs after completing work (doesn't exit despite --no-session).
+          # Use timeout to kill it after 45 min — the job timeout is 60 min, leaving 15 min
+          # for the commit/push/comment steps. Exit code 124 = timeout (treat as success if
+          # Goose made changes, since it completed work but just didn't exit).
+          exit_code=0
+          timeout 2700 goose run \
             --recipe .github/goose-recipes/wgmesh-review.yaml \
             --no-session \
-            2>&1 | tee /tmp/goose-review-output.log; then
+            2>&1 | tee /tmp/goose-review-output.log || exit_code=$?
+
+          if [ "$exit_code" -eq 0 ] || [ "$exit_code" -eq 124 ]; then
             echo "goose_ok=true" >> "$GITHUB_OUTPUT"
+            if [ "$exit_code" -eq 124 ]; then
+              echo "::warning::Goose timed out (likely hung after completing work)"
+            fi
           else
             echo "goose_ok=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::Goose exited with non-zero status"
+            echo "::warning::Goose exited with status $exit_code"
           fi
 
       - name: Commit and push changes
