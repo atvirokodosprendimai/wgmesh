@@ -59,9 +59,14 @@
               wants = [ "network-online.target" ];
               wantedBy = [ "multi-user.target" ];
 
+              script = ''
+                set -eu
+                export WGMESH_SECRET_FILE=${lib.escapeShellArg cfg.secretFile}
+                exec ${self.packages.${pkgs.system}.default}/bin/wgmesh join ${lib.escapeShellArgs cfg.extraArgs}
+              '';
+
               serviceConfig = {
                 Type = "simple";
-                ExecStart = "${self.packages.${pkgs.system}.default}/bin/wgmesh join --secret $(cat ${cfg.secretFile}) ${lib.concatStringsSep " " cfg.extraArgs}";
                 Restart = "always";
                 RestartSec = 5;
                 LimitNOFILE = 65535;
