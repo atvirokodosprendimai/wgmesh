@@ -2,7 +2,7 @@
   "last_updated": null,
   "currency": "EUR",
   "runway": {
-    "available_capital": null,
+    "available_capital": 2400,
     "monthly_burn": null,
     "months_remaining": null,
     "survival_mode": false,
