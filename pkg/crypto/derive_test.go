@@ -215,6 +215,32 @@ func TestDeriveMeshIPv6(t *testing.T) {
 	}
 }
 
+func TestMeshID(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-that-is-long-enough")
+	if err != nil {
+		t.Fatalf("DeriveKeys failed: %v", err)
+	}
+
+	meshID := keys.MeshID()
+
+	// Should be 12 hex characters (6 bytes)
+	if len(meshID) != 12 {
+		t.Errorf("MeshID should be 12 chars, got %d: %s", len(meshID), meshID)
+	}
+
+	// Should be deterministic
+	keys2, _ := DeriveKeys("test-secret-that-is-long-enough")
+	if meshID != keys2.MeshID() {
+		t.Error("MeshID is not deterministic")
+	}
+
+	// Different secrets should produce different mesh IDs
+	keys3, _ := DeriveKeys("different-secret-long-enough")
+	if meshID == keys3.MeshID() {
+		t.Error("Different secrets produced same MeshID")
+	}
+}
+
 func TestGossipPortRange(t *testing.T) {
 	// Test that gossip port is in expected range
 	keys, _ := DeriveKeys("test-secret-that-is-long-enough")

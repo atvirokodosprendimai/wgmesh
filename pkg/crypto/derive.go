@@ -3,6 +3,7 @@ package crypto
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
@@ -200,6 +201,12 @@ func DeriveMeshIPv6(meshPrefixV6 [8]byte, wgPubKey, secret string) string {
 	copy(ip[8:], iid[:])
 
 	return ip.String()
+}
+
+// MeshID returns a 12-character hex string derived from the NetworkID.
+// This is used in managed DNS names: <service>.<mesh-id>.wgmesh.dev
+func (dk *DerivedKeys) MeshID() string {
+	return hex.EncodeToString(dk.NetworkID[:6])
 }
 
 // deriveHKDF derives key material using HKDF-SHA256.
