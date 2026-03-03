@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -85,6 +86,12 @@ func serviceAddCmd() {
 		os.Exit(1)
 	}
 
+	// Validate protocol
+	if *protocol != "http" && *protocol != "https" {
+		fmt.Fprintf(os.Stderr, "Error: invalid protocol %q (must be http or https)\n", *protocol)
+		os.Exit(1)
+	}
+
 	// Parse local address
 	port, err := parseLocalAddr(localAddr)
 	if err != nil {
@@ -154,7 +161,11 @@ func serviceAddCmd() {
 
 	// Save to local state
 	servicesPath := filepath.Join(*stateDir, servicesFileName)
-	state, _ := mesh.LoadServices(servicesPath)
+	state, loadErr := mesh.LoadServices(servicesPath)
+	if loadErr != nil && !os.IsNotExist(loadErr) {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load existing services: %v\n", loadErr)
+		fmt.Fprintln(os.Stderr, "Creating fresh state — other registered services may be lost.")
+	}
 	state.Services[name] = mesh.ServiceEntry{
 		SiteID:       site.ID,
 		Name:         name,
@@ -280,7 +291,11 @@ func serviceRemoveCmd() {
 
 	// Look up site ID from local state
 	servicesPath := filepath.Join(*stateDir, servicesFileName)
-	state, _ := mesh.LoadServices(servicesPath)
+	state, loadErr := mesh.LoadServices(servicesPath)
+	if loadErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to load services: %v\n", loadErr)
+		os.Exit(1)
+	}
 
 	entry, ok := state.Services[name]
 	if !ok {
@@ -326,9 +341,10 @@ func resolveSecret(flagValue string) string {
 
 // resolveAccount loads or creates account configuration.
 func resolveAccount(path, apiKeyFlag string) (mesh.AccountConfig, error) {
-	// If flag provided, save and use it
+	// If flag provided, save and use it (preserve existing LighthouseURL)
 	if apiKeyFlag != "" {
-		acct := mesh.AccountConfig{APIKey: apiKeyFlag}
+		acct, _ := mesh.LoadAccount(path) // ignore error — may not exist yet
+		acct.APIKey = apiKeyFlag
 		if err := mesh.SaveAccount(path, acct); err != nil {
 			return acct, fmt.Errorf("failed to save account: %w", err)
 		}
@@ -344,20 +360,46 @@ func resolveAccount(path, apiKeyFlag string) (mesh.AccountConfig, error) {
 }
 
 // parseLocalAddr extracts the port number from a [host]:port address.
+// Supports formats: :PORT, HOST:PORT, [IPv6]:PORT
 func parseLocalAddr(addr string) (int, error) {
-	// Handle bare port like ":11434"
+	var portStr string
+
+	if strings.HasPrefix(addr, "[") {
+		// IPv6: [::1]:8080
+		_, portStr, err := net.SplitHostPort(addr)
+		if err != nil {
+			return 0, fmt.Errorf("invalid address: %w", err)
+		}
+		port, err := strconv.Atoi(portStr)
+		if err != nil {
+			return 0, fmt.Errorf("invalid port: %w", err)
+		}
+		return validatePort(port)
+	}
+
 	if strings.HasPrefix(addr, ":") {
-		return strconv.Atoi(addr[1:])
+		// Bare port: :11434
+		portStr = addr[1:]
+	} else if strings.Count(addr, ":") == 1 {
+		// host:port: 127.0.0.1:8080
+		portStr = addr[strings.LastIndex(addr, ":")+1:]
+	} else {
+		// Try as bare number
+		portStr = addr
 	}
 
-	// Handle host:port like "127.0.0.1:8080"
-	parts := strings.Split(addr, ":")
-	if len(parts) == 2 {
-		return strconv.Atoi(parts[1])
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, fmt.Errorf("invalid port %q: %w", portStr, err)
 	}
+	return validatePort(port)
+}
 
-	// Try as bare number
-	return strconv.Atoi(addr)
+func validatePort(port int) (int, error) {
+	if port < 1 || port > 65535 {
+		return 0, fmt.Errorf("port %d out of range (1-65535)", port)
+	}
+	return port, nil
 }
 
 // deriveMeshIPForService derives the mesh IP for service registration.
@@ -384,7 +426,7 @@ func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string) string {
 	// The user should run `join` first to establish the WG identity.
 	fmt.Fprintln(os.Stderr, "Warning: no local WireGuard identity found. Run 'wgmesh join' first for accurate mesh IP.")
 	fmt.Fprintln(os.Stderr, "Using derived placeholder — service may need re-registration after join.")
-	return crypto.DeriveMeshIP(keys.MeshSubnet, "unjoined-"+secret[:8], secret)
+	return crypto.DeriveMeshIP(keys.MeshSubnet, "unjoined", secret)
 }
 
 // extractServiceName extracts the service name from a domain like "ollama.abc123.wgmesh.dev".
