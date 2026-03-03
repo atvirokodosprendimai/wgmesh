@@ -6,6 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=-/etc/wgmesh/secret.env
+Environment=WGMESH_SECRET_FILE=/etc/wgmesh/secret
 ExecStart=/usr/bin/wgmesh join
 Restart=always
 RestartSec=5

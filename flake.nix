@@ -61,8 +61,8 @@
 
               script = ''
                 set -eu
-                secret="$(cat ${cfg.secretFile})"
-                exec ${self.packages.${pkgs.system}.default}/bin/wgmesh join --secret "$secret" ${lib.concatStringsSep " " cfg.extraArgs}
+                export WGMESH_SECRET_FILE=${lib.escapeShellArg cfg.secretFile}
+                exec ${self.packages.${pkgs.system}.default}/bin/wgmesh join ${lib.escapeShellArgs cfg.extraArgs}
               '';
 
               serviceConfig = {
