@@ -231,14 +231,36 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Fetch all open issue titles once for local dedup
+          gh issue list --state open --limit 100 --json title --jq '.[].title' > /tmp/open_issues.txt 2>/dev/null || touch /tmp/open_issues.txt
+
           jq -c '.issues_to_create // [] | .[]' /tmp/assessment.json | while read -r issue; do
             title=$(echo "$issue" | jq -r '.title')
             body=$(echo "$issue" | jq -r '.body')
             labels=$(echo "$issue" | jq -r '.labels | join(",")')
 
-            existing=$(gh issue list --search "$title" --state open --json number --jq 'length' 2>/dev/null || echo 0)
-            if [ "$existing" = "0" ]; then
+            # Extract key words for fuzzy matching (skip common filler words)
+            keywords=$(echo "$title" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '\n' | grep -v -E '^(the|a|an|in|on|for|to|of|and|or|is|set|add|configure|verify|check|update)$' | head -3)
+            match_count=0
+            while IFS= read -r existing_title; do
+              existing_lower=$(echo "$existing_title" | tr '[:upper:]' '[:lower:]')
+              hits=0
+              for kw in $keywords; do
+                if echo "$existing_lower" | grep -q "$kw"; then
+                  hits=$((hits + 1))
+                fi
+              done
+              if [ "$hits" -ge 2 ]; then
+                match_count=$((match_count + 1))
+                break
+              fi
+            done < /tmp/open_issues.txt
+
+            if [ "$match_count" = "0" ]; then
               gh issue create --title "$title" --body "$body" --label "$labels" || true
+              echo "$title" >> /tmp/open_issues.txt
+            else
+              echo "Skipping duplicate: $title"
             fi
           done
 
@@ -256,17 +278,42 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # Reuse open issues list (or fetch if not available)
+          if [ ! -f /tmp/open_issues.txt ]; then
+            gh issue list --state open --limit 100 --json title --jq '.[].title' > /tmp/open_issues.txt 2>/dev/null || touch /tmp/open_issues.txt
+          fi
+
           jq -c '.needs_human // [] | .[]' /tmp/assessment.json | while read -r req; do
             request=$(echo "$req" | jq -r '.request')
             reason=$(echo "$req" | jq -r '.reason')
             urgency=$(echo "$req" | jq -r '.urgency')
+            full_title="[needs-human] $request"
 
-            existing=$(gh issue list --label "needs-human" --search "$request" --state open --json number --jq 'length' 2>/dev/null || echo 0)
-            if [ "$existing" = "0" ]; then
+            # Fuzzy dedup against existing open issues
+            keywords=$(echo "$request" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '\n' | grep -v -E '^(the|a|an|in|on|for|to|of|and|or|is|set|add|configure|verify|check|update)$' | head -3)
+            match_count=0
+            while IFS= read -r existing_title; do
+              existing_lower=$(echo "$existing_title" | tr '[:upper:]' '[:lower:]')
+              hits=0
+              for kw in $keywords; do
+                if echo "$existing_lower" | grep -q "$kw"; then
+                  hits=$((hits + 1))
+                fi
+              done
+              if [ "$hits" -ge 2 ]; then
+                match_count=$((match_count + 1))
+                break
+              fi
+            done < /tmp/open_issues.txt
+
+            if [ "$match_count" = "0" ]; then
               body=$(printf '**Urgency**: %s\n\n**Reason**: %s\n\n_Created by company control loop._' "$urgency" "$reason")
               gh issue create \
-                --title "[needs-human] $request" \
+                --title "$full_title" \
                 --body "$body" \
                 --label "needs-human" || true
+              echo "$full_title" >> /tmp/open_issues.txt
+            else
+              echo "Skipping duplicate needs-human: $request"
             fi
           done
