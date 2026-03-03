@@ -278,9 +278,25 @@ func joinCmd() {
 	pprofAddr := fs.String("pprof", "", "Enable pprof HTTP server (e.g. localhost:6060)")
 	fs.Parse(os.Args[2:])
 
+	// If secret not provided via flag, try environment variables
+	if *secret == "" {
+		if envSecret := os.Getenv("WGMESH_SECRET"); envSecret != "" {
+			*secret = envSecret
+		} else if secretFile := os.Getenv("WGMESH_SECRET_FILE"); secretFile != "" {
+			secretBytes, err := os.ReadFile(secretFile)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error reading secret file %s: %v\n", secretFile, err)
+				os.Exit(1)
+			}
+			*secret = strings.TrimSpace(string(secretBytes))
+		}
+	}
+
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh join --secret <SECRET>")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET environment variable")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET_FILE environment variable")
 		os.Exit(1)
 	}
 
