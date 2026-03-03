@@ -288,7 +288,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
     </div>
   </div>
   <div style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem">
-    80% of effort goes to the single biggest constraint. Currently: <strong style="color:var(--yellow)">Edge Bootstrap CLI</strong> &mdash; lighthouse + Caddy config generation exist, need single-command edge setup (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a>).
+    80% of effort goes to the single biggest constraint. Currently: <strong style="color:var(--yellow)">End-to-end integration testing</strong> &mdash; all core capabilities implemented, need to verify managed ingress works end-to-end in a test environment (Stage 0 exit).
   </div>
 </div>
 
@@ -639,29 +639,29 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
           <td><code>pkg/lighthouse/sync.go</code></td>
           <td>&mdash;</td>
         </tr>
-        <tr style="background:rgba(248,81,73,0.05)">
-          <td><strong>Edge Bootstrap CLI</strong></td>
-          <td class="cap-blocked">&#10007; Not Started</td>
+        <tr>
+          <td>Edge Bootstrap CLI</td>
+          <td class="cap-done">&#10003; Implemented</td>
           <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a></td>
-          <td class="cap-blocked">YES &mdash; #1 blocker (NOW)</td>
+          <td>&mdash;</td>
         </tr>
-        <tr style="background:rgba(248,81,73,0.05)">
-          <td><strong>Origin Registration CLI</strong></td>
-          <td class="cap-blocked">&#10007; Not Started</td>
-          <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/259">#259</a></td>
-          <td class="cap-blocked">YES &mdash; #1 blocker (NOW)</td>
+        <tr>
+          <td>Origin Registration CLI</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>service.go</code>, <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/259">#259</a></td>
+          <td>&mdash;</td>
         </tr>
         <tr>
           <td>Edge Heartbeats</td>
-          <td class="cap-blocked">&#10007; Not Started</td>
+          <td class="cap-done">&#10003; Implemented</td>
           <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/247">#247</a></td>
-          <td class="cap-partial">Yes (NOW)</td>
+          <td>&mdash;</td>
         </tr>
         <tr>
           <td>HTTP Health Checks</td>
-          <td class="cap-blocked">&#10007; Not Started</td>
-          <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/248">#248</a></td>
-          <td class="cap-partial">Yes (NOW)</td>
+          <td class="cap-done">&#10003; Implemented</td>
+          <td><code>pkg/lighthouse/health.go</code>, <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/248">#248</a></td>
+          <td>&mdash;</td>
         </tr>
         <tr>
           <td>Origin Lockdown</td>
@@ -671,15 +671,15 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
         </tr>
         <tr>
           <td>GeoDNS Routing</td>
-          <td class="cap-blocked">&#10007; Not Started</td>
+          <td class="cap-done">&#10003; Implemented</td>
           <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/253">#253</a></td>
-          <td class="cap-later">Yes (NEXT phase)</td>
+          <td>&mdash;</td>
         </tr>
         <tr>
           <td>Multi-origin Failover</td>
-          <td class="cap-blocked">&#10007; Not Started</td>
+          <td class="cap-done">&#10003; Implemented</td>
           <td><a href="https://github.com/atvirokodosprendimai/wgmesh/issues/254">#254</a></td>
-          <td class="cap-later">Yes (NEXT phase)</td>
+          <td>&mdash;</td>
         </tr>
         <tr>
           <td>BGP Anycast</td>
