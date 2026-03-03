@@ -67,5 +67,5 @@ ssh root@node-address systemctl stop wg-quick@wg0
 ssh root@node-address systemctl disable wg-quick@wg0
 
 # Then redeploy
-./wgmesh -deploy
+wgmesh -deploy
 ```

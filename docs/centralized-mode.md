@@ -6,7 +6,7 @@ Configs are stored in a state file and deployed diff-based — only changes are 
 ## 1. Initialize a new mesh
 
 ```bash
-./wgmesh -init
+wgmesh -init
 ```
 
 This creates a `/var/lib/wgmesh/mesh-state.json` file with default settings:
@@ -18,9 +18,9 @@ This creates a `/var/lib/wgmesh/mesh-state.json` file with default settings:
 
 ```bash
 # Format: hostname:mesh_ip:ssh_host[:ssh_port]
-./wgmesh -add node1:10.99.0.1:192.168.1.10
-./wgmesh -add node2:10.99.0.2:203.0.113.50
-./wgmesh -add node3:10.99.0.3:198.51.100.20:2222
+wgmesh -add node1:10.99.0.1:192.168.1.10
+wgmesh -add node2:10.99.0.2:203.0.113.50
+wgmesh -add node3:10.99.0.3:198.51.100.20:2222
 ```
 
 - `hostname`: Node identifier (should match the actual hostname)
@@ -31,7 +31,7 @@ This creates a `/var/lib/wgmesh/mesh-state.json` file with default settings:
 ## 3. List nodes
 
 ```bash
-./wgmesh -list
+wgmesh -list
 ```
 
 Output:
@@ -56,7 +56,7 @@ Nodes:
 ## 4. Deploy configuration
 
 ```bash
-./wgmesh -deploy
+wgmesh -deploy
 ```
 
 This will:
@@ -74,8 +74,8 @@ This will:
 ## 5. Remove a node
 
 ```bash
-./wgmesh -remove node3
-./wgmesh -deploy
+wgmesh -remove node3
+wgmesh -deploy
 ```
 
 ## Advanced Options
@@ -83,7 +83,7 @@ This will:
 ### Custom State File
 
 ```bash
-./wgmesh -state /path/to/custom-state.json -list
+wgmesh -state /path/to/custom-state.json -list
 ```
 
 ### Encrypted State File
@@ -92,18 +92,18 @@ Encrypt the mesh state file to protect private keys. The file will be AES-256-GC
 
 ```bash
 # Initialize with encryption (asks for password twice)
-./wgmesh --encrypt -init
+wgmesh --encrypt -init
 Enter encryption password: ********
 Confirm password: ********
 
 # All operations require the password when using --encrypt
-./wgmesh --encrypt --add node1:10.99.0.1:192.168.1.10
+wgmesh --encrypt --add node1:10.99.0.1:192.168.1.10
 Enter encryption password: ********
 
-./wgmesh --encrypt --list
+wgmesh --encrypt --list
 Enter encryption password: ********
 
-./wgmesh --encrypt --deploy
+wgmesh --encrypt --deploy
 Enter encryption password: ********
 ```
 
@@ -126,7 +126,7 @@ vault kv put secret/wgmesh state=@/var/lib/wgmesh/mesh-state.json
 
 # Retrieve and use
 vault kv get -field=state secret/wgmesh > /var/lib/wgmesh/mesh-state.json
-./wgmesh --encrypt --list
+wgmesh --encrypt --list
 ```
 
 ### Adding Routes for Networks Behind Nodes
@@ -146,7 +146,7 @@ Edit the `/var/lib/wgmesh/mesh-state.json` file and add routable networks to a n
 }
 ```
 
-After editing, run `./wgmesh -deploy` to apply the changes.
+After editing, run `wgmesh -deploy` to apply the changes.
 
 **What happens:**
 - `node1` gets direct routes: `ip route add 192.168.10.0/24 dev wg0` and `ip route add 192.168.20.0/24 dev wg0`
@@ -191,3 +191,5 @@ The tool attempts authentication in this order:
 4. `~/.ssh/id_ecdsa`
 
 Ensure your SSH keys are added to the `authorized_keys` file on target hosts.
+
+**Security note:** The SSH client currently uses `InsecureIgnoreHostKey`, which skips host key verification. This means the tool does not verify the identity of remote hosts and is vulnerable to man-in-the-middle attacks. For production deployments, consider implementing proper host key verification using `known_hosts` files or pinned host keys.

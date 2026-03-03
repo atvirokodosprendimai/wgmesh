@@ -53,6 +53,10 @@ Nodes with public IPs are configured as endpoints for other nodes. Nodes behind 
 
 Deploying changes reads the current WireGuard state via `wg show dump`, calculates a diff against the desired state, and applies changes with `wg set` — no interface restart needed. Routes are managed the same way: stale routes are removed and new ones added in-place.
 
+### State Persistence
+
+Mesh state is persisted in `/var/lib/wgmesh/`. In centralized mode, the state file (`mesh-state.json`) holds the full topology including keys and node metadata. In decentralized mode, each node stores its keypair in `/var/lib/wgmesh/{interface}.json`. WireGuard configuration persists across reboots via systemd (`wg-quick@wg0.service`).
+
 ## Usage
 
 ### Decentralized Mode (Secret-Based Discovery)
@@ -172,7 +176,8 @@ wgmesh version
 - **Centralized mode**: Keys stored in `mesh-state.json` — use `--encrypt` for AES-256-GCM encryption. See [ENCRYPTION.md](ENCRYPTION.md).
 - **Decentralized mode**: Each node stores its keypair in `/var/lib/wgmesh/{interface}.json` with `0600` permissions.
 - WireGuard traffic is encrypted end-to-end.
-- The tool uses `InsecureIgnoreHostKey` for SSH — consider implementing proper host key verification for production.
+- **SSH authentication**: The tool tries the SSH agent first (`SSH_AUTH_SOCK`), then `~/.ssh/id_rsa`, `~/.ssh/id_ed25519`, and `~/.ssh/id_ecdsa`.
+- The tool currently uses `InsecureIgnoreHostKey` for SSH — consider implementing proper host key verification for production.
 
 ## Architecture
 

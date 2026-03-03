@@ -200,7 +200,7 @@ For each node, wgmesh evaluates policies to determine which peers to configure:
 Use the `-list` command to see groups, policies, and memberships:
 
 ```bash
-./wgmesh -list
+wgmesh -list
 ```
 
 Output:
@@ -245,7 +245,7 @@ Nodes:
 
 ## Validation and Warnings
 
-When you run `./wgmesh -deploy`, wgmesh validates the access control configuration:
+When you run `wgmesh -deploy`, wgmesh validates the access control configuration:
 
 **Validation checks**:
 - All group members must exist as nodes
