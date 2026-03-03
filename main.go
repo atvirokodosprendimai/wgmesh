@@ -68,6 +68,9 @@ func main() {
 		case "peers":
 			peersCmd()
 			return
+		case "service":
+			serviceCmd()
+			return
 		}
 	}
 
