@@ -127,6 +127,14 @@ The RPC socket is automatically created at:
 
 Override with `--socket-path` flag on `join` or `WGMESH_SOCKET` environment variable.
 
+### Testing Connectivity
+
+Use `test-peer` to verify direct UDP connectivity to another wgmesh node. Start `wgmesh join` on the remote peer, note its exchange port, then run:
+
+```bash
+wgmesh test-peer --secret "wgmesh://v1/<your-secret>" --peer <PEER_IP>:<EXCHANGE_PORT>
+```
+
 ## Installation
 
 ### Pre-built Binaries

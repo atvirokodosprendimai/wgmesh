@@ -250,7 +250,7 @@ When you run `wgmesh -deploy`, wgmesh validates the access control configuration
 **Validation checks**:
 - All group members must exist as nodes
 - All group names in policies must exist
-- Policies must have at least one `from_group` and one `to_group`
+- Policies must have at least one `from_groups` and one `to_groups`
 - No duplicate policy names
 - No duplicate members within a group
 
