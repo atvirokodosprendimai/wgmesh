@@ -22,8 +22,14 @@ func TestParseLocalAddr(t *testing.T) {
 		{":8080", 8080, false},
 		{"127.0.0.1:8080", 8080, false},
 		{"0.0.0.0:3000", 3000, false},
+		{"[::1]:8080", 8080, false},
+		{":65535", 65535, false},
+		{":1", 1, false},
 		{"abc", 0, true},
 		{":", 0, true},
+		{":0", 0, true},
+		{":70000", 0, true},
+		{":99999", 0, true},
 	}
 
 	for _, tt := range tests {
@@ -115,6 +121,26 @@ func TestResolveAccount(t *testing.T) {
 	}
 	if acct.APIKey != "cr_test123" {
 		t.Errorf("expected cr_test123 from disk, got %q", acct.APIKey)
+	}
+
+	// Updating API key preserves LighthouseURL
+	acctWithURL := mesh.AccountConfig{
+		APIKey:        "cr_test123",
+		LighthouseURL: "https://lighthouse.example.com",
+	}
+	pathWithURL := filepath.Join(dir, "account_url.json")
+	if err := mesh.SaveAccount(pathWithURL, acctWithURL); err != nil {
+		t.Fatalf("save account with URL: %v", err)
+	}
+	acct, err = resolveAccount(pathWithURL, "cr_newkey")
+	if err != nil {
+		t.Fatalf("resolveAccount updating key: %v", err)
+	}
+	if acct.APIKey != "cr_newkey" {
+		t.Errorf("expected cr_newkey, got %q", acct.APIKey)
+	}
+	if acct.LighthouseURL != "https://lighthouse.example.com" {
+		t.Errorf("expected LighthouseURL preserved, got %q", acct.LighthouseURL)
 	}
 
 	// Missing file without flag returns error
