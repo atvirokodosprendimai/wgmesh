@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -20,7 +21,7 @@ type Client struct {
 // NewClient creates a Lighthouse API client.
 func NewClient(baseURL, apiKey string) *Client {
 	return &Client{
-		baseURL: baseURL,
+		baseURL: strings.TrimRight(baseURL, "/"),
 		apiKey:  apiKey,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
@@ -120,8 +121,6 @@ func (c *Client) DeleteSite(id string) error {
 //  1. DNS SRV lookup: _lighthouse._tcp.<meshID>.wgmesh.dev
 //  2. Fallback: https://lighthouse.<meshID>.wgmesh.dev
 func DiscoverLighthouse(meshID string) (string, error) {
-	srvName := "_lighthouse._tcp." + meshID + ".wgmesh.dev"
-
 	_, addrs, err := net.LookupSRV("lighthouse", "tcp", meshID+".wgmesh.dev")
 	if err == nil && len(addrs) > 0 {
 		host := addrs[0].Target
@@ -133,7 +132,6 @@ func DiscoverLighthouse(meshID string) (string, error) {
 		return fmt.Sprintf("https://%s:%d", host, port), nil
 	}
 
-	_ = srvName // used in error context if needed
 	return fmt.Sprintf("https://lighthouse.%s.wgmesh.dev", meshID), nil
 }
 

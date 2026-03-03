@@ -2,9 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -93,8 +93,7 @@ func TestResolveSecret(t *testing.T) {
 	}
 
 	// Falls back to env
-	os.Setenv("WGMESH_SECRET", "env-value")
-	defer os.Unsetenv("WGMESH_SECRET")
+	t.Setenv("WGMESH_SECRET", "env-value")
 	got = resolveSecret("")
 	if got != "env-value" {
 		t.Errorf("expected env-value, got %q", got)
@@ -167,7 +166,11 @@ func TestServiceEndToEnd(t *testing.T) {
 		switch {
 		case r.Method == "POST" && r.URL.Path == "/v1/sites":
 			var req lighthouse.CreateSiteRequest
-			json.NewDecoder(r.Body).Decode(&req)
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				fmt.Fprintf(w, `{"detail":"invalid request body: %s"}`, err.Error())
+				return
+			}
 
 			site := lighthouse.Site{
 				ID:     lighthouse.GenerateID("site"),

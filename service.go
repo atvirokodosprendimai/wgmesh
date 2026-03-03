@@ -230,8 +230,10 @@ func serviceListCmd() {
 		servicesPath := filepath.Join(*stateDir, servicesFileName)
 		state, loadErr := mesh.LoadServices(servicesPath)
 		if loadErr != nil {
-			fmt.Fprintln(os.Stderr, "No services found (Lighthouse unreachable, no local state)")
-			os.Exit(0)
+			// LoadServices returns nil for not-exist, so any error here is
+			// a real problem (corruption, permission denied, etc.).
+			fmt.Fprintf(os.Stderr, "Error: failed to load local services: %v\n", loadErr)
+			os.Exit(1)
 		}
 		for _, entry := range state.Services {
 			sites = append(sites, lighthouse.Site{
@@ -332,11 +334,44 @@ func serviceRemoveCmd() {
 }
 
 // resolveSecret returns the secret from the flag or WGMESH_SECRET env var.
+// The value is normalized to strip any wgmesh:// URI wrapper.
 func resolveSecret(flagValue string) string {
 	if flagValue != "" {
-		return flagValue
+		return normalizeSecret(flagValue)
 	}
-	return os.Getenv("WGMESH_SECRET")
+	return normalizeSecret(os.Getenv("WGMESH_SECRET"))
+}
+
+// normalizeSecret strips the wgmesh:// URI prefix, optional version segment,
+// and query parameters so callers can pass secrets in either raw or URI form.
+// Example: "wgmesh://v1/K7x2...?relay=true" → "K7x2..."
+func normalizeSecret(input string) string {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return ""
+	}
+
+	const uriPrefix = "wgmesh://"
+	if !strings.HasPrefix(input, uriPrefix) {
+		return input
+	}
+
+	input = strings.TrimPrefix(input, uriPrefix)
+
+	// Strip optional version segment (e.g. "v1/")
+	parts := strings.SplitN(input, "/", 2)
+	if len(parts) == 2 {
+		input = parts[1]
+	} else {
+		input = parts[0]
+	}
+
+	// Strip query parameters
+	if idx := strings.Index(input, "?"); idx != -1 {
+		input = input[:idx]
+	}
+
+	return input
 }
 
 // resolveAccount loads or creates account configuration.
