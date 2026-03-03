@@ -8,6 +8,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -191,6 +192,7 @@ SUBCOMMANDS (decentralized mode):
   init --secret                 Generate a new mesh secret
 	join --secret <SECRET>        Join a mesh network
 	     [--mesh-subnet CIDR]    Custom mesh subnet (e.g. 192.168.100.0/24)
+	     [--account <cr_...>]    Save Lighthouse API key for service commands
 	     [--no-lan-discovery]     Disable LAN multicast discovery
 	     [--no-ipv6]              Ignore IPv6 endpoints for connectivity
 	     [--force-relay]          Prefer relay path for non-LAN peers
@@ -199,6 +201,7 @@ SUBCOMMANDS (decentralized mode):
   status --secret <SECRET>      Show mesh status
   qr --secret <SECRET>          Display secret as QR code (text)
 	install-service --secret ...  Install systemd service
+	     [--account <cr_...>]    Save Lighthouse API key for service commands
 	     [--no-lan-discovery]     Disable LAN multicast discovery in service
 	     [--no-ipv6]              Ignore IPv6 endpoints in service
 	     [--force-relay]          Prefer relay path in service
@@ -223,6 +226,7 @@ EXAMPLES:
   # Decentralized mode (automatic peer discovery):
   wgmesh init --secret                          # Generate a new mesh secret
   wgmesh join --secret "wgmesh://v1/K7x2..."    # Join mesh on this node
+  wgmesh join --secret "..." --account cr_123    # Join and save API key
   wgmesh join --secret "..." --privacy           # Join with Dandelion++ privacy
   wgmesh join --secret "..." --gossip            # Enable in-mesh gossip
 
@@ -269,6 +273,8 @@ func initCmd() {
 func joinCmd() {
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
+	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
+	stateDir := fs.String("state-dir", "/var/lib/wgmesh", "State directory for account config")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated list of routes to advertise")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
@@ -305,6 +311,18 @@ func joinCmd() {
 		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET environment variable")
 		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET_FILE environment variable")
 		os.Exit(1)
+	}
+
+	// Save account API key if provided
+	if *account != "" {
+		accountPath := filepath.Join(*stateDir, "account.json")
+		acct, _ := mesh.LoadAccount(accountPath) // ignore error — may not exist yet
+		acct.APIKey = *account
+		if err := mesh.SaveAccount(accountPath, acct); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save account: %v\n", err)
+		} else {
+			fmt.Println("Lighthouse API key saved for service commands.")
+		}
 	}
 
 	// Parse advertise routes
@@ -614,6 +632,8 @@ func formatIPv6Prefix(prefix [8]byte) string {
 func installServiceCmd() {
 	fs := flag.NewFlagSet("install-service", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
+	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
+	stateDir := fs.String("state-dir", "/var/lib/wgmesh", "State directory for account config")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
@@ -631,6 +651,18 @@ func installServiceCmd() {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh install-service --secret <SECRET>")
 		os.Exit(1)
+	}
+
+	// Save account API key if provided
+	if *account != "" {
+		accountPath := filepath.Join(*stateDir, "account.json")
+		acct, _ := mesh.LoadAccount(accountPath)
+		acct.APIKey = *account
+		if err := mesh.SaveAccount(accountPath, acct); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: failed to save account: %v\n", err)
+		} else {
+			fmt.Println("Lighthouse API key saved for service commands.")
+		}
 	}
 
 	var routes []string
