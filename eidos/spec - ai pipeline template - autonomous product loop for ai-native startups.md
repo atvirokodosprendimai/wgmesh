@@ -207,16 +207,12 @@ Every output is scanned before commit:
 > `.github/workflows/copilot-triage.yml`
 > `.github/workflows/approve-build.yml`
 > `.github/workflows/sync-labels.yml`
-> `wgmesh/.github/workflows/company-loop.yml` (to be migrated)
-> `wgmesh/company/` (to be migrated)
+> `.github/workflows/observation-loop.yml` (migrated and generalised)
+> `company/` (observation loop state and scripts)
 
 ## Future
 
-{[!] Migration plan — move `wgmesh/company/` and `company-loop.yml` into `ai-pipeline-template`}
-{[!] Rename observation workflow from `company-loop.yml` to `observation-loop.yml`}
-{[!] Generalise `system-prompt.md` — extract wgmesh-specific references into a customisation section}
-{[!] Add observation loop to `init.sh` setup flow}
-{[!] Documentation — README update reflecting the full loop, not just the action half}
+~~Migration, generalisation, init.sh, and documentation — completed via [[plan - 2603040954 - migrate observation loop to ai-pipeline-template]]~~
 {[?] GitHub Action extraction — package core logic as reusable Actions when patterns stabilise}
 {[?] Non-GitHub CI support — GitLab CI, Forgejo Actions}
 {[?] Dashboard view — static site generated from loop-history for visual tracking}
