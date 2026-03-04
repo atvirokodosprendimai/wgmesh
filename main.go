@@ -271,7 +271,7 @@ func joinCmd() {
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
 	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
-	stateDir := fs.String("state-dir", "/var/lib/wgmesh", "State directory for account config")
+	stateDir := fs.String("state-dir", defaultStateDir, "State directory for account config")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated list of routes to advertise")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
@@ -311,14 +311,7 @@ func joinCmd() {
 
 	// Save account API key if provided
 	if *account != "" {
-		accountPath := filepath.Join(*stateDir, "account.json")
-		acct, _ := mesh.LoadAccount(accountPath) // ignore error — may not exist yet
-		acct.APIKey = *account
-		if err := mesh.SaveAccount(accountPath, acct); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to save account: %v\n", err)
-		} else {
-			fmt.Println("Lighthouse API key saved for service commands.")
-		}
+		saveAccountAPIKey(*stateDir, *account)
 	}
 
 	// Parse advertise routes
@@ -617,12 +610,36 @@ func formatIPv6Prefix(prefix [8]byte) string {
 	)
 }
 
+// saveAccountAPIKey saves the provided API key to the account config file.
+// It properly handles missing vs corrupt files and includes the path in error messages.
+func saveAccountAPIKey(stateDir, apiKey string) {
+	accountPath := filepath.Join(stateDir, "account.json")
+	acct, err := mesh.LoadAccount(accountPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// No existing account file; start from an empty account.
+			acct = mesh.AccountConfig{}
+		} else {
+			fmt.Fprintf(os.Stderr, "Warning: failed to load existing account from %s: %v\n", accountPath, err)
+			fmt.Fprintln(os.Stderr, "Aborting account update to avoid overwriting potentially valid data.")
+			// Do not overwrite a potentially valid but unreadable account file.
+			return
+		}
+	}
+	acct.APIKey = apiKey
+	if err := mesh.SaveAccount(accountPath, acct); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to save account to %s: %v\n", accountPath, err)
+	} else {
+		fmt.Println("Lighthouse API key saved for service commands.")
+	}
+}
+
 // installServiceCmd handles the "install-service" subcommand
 func installServiceCmd() {
 	fs := flag.NewFlagSet("install-service", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
 	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
-	stateDir := fs.String("state-dir", "/var/lib/wgmesh", "State directory for account config")
+	stateDir := fs.String("state-dir", defaultStateDir, "State directory for account config")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
@@ -643,14 +660,7 @@ func installServiceCmd() {
 
 	// Save account API key if provided
 	if *account != "" {
-		accountPath := filepath.Join(*stateDir, "account.json")
-		acct, _ := mesh.LoadAccount(accountPath)
-		acct.APIKey = *account
-		if err := mesh.SaveAccount(accountPath, acct); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: failed to save account: %v\n", err)
-		} else {
-			fmt.Println("Lighthouse API key saved for service commands.")
-		}
+		saveAccountAPIKey(*stateDir, *account)
 	}
 
 	var routes []string
