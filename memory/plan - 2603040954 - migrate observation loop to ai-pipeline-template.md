@@ -64,24 +64,23 @@ Still in ai-pipeline-template repo.
 5. [x] Commit: generalised observation loop with placeholders
    - => commit `04d3709` — 14 files changed, 82 insertions, 309 deletions
 
-### Phase 3 - Update init.sh - status: open
+### Phase 3 - Update init.sh - status: done
 
-1. [ ] Add observation loop section to `init.sh`:
+1. [x] Add observation loop section to `init.sh`:
    - Ask: "Enable observation loop? [y/n]" (default: y)
-   - If yes, ask for:
-     - Observer LLM provider (openrouter/openai/anthropic/other)
-     - Observer model name
-     - Observer API key secret name
-     - Health check endpoints (comma-separated URLs)
-     - Available capital (EUR/year) for costs.json
-   - Replace `__PLACEHOLDER__` markers in `observation-loop.yml` and `system-prompt.md`
-   - Seed `company/health.json` with provided endpoints
+   - If yes, ask for: observer provider, model, key, API URL, health endpoints, available capital
+   - Replace `__PLACEHOLDER__` markers via existing PAIRS mechanism
+   - Seed `company/health.json` with provided endpoints (parses comma-separated URLs)
    - Seed `company/costs.json` with available capital
-2. [ ] If observation loop declined, remove `company/` and `observation-loop.yml`
-3. [ ] Update provider presets to include observer defaults:
-   - openrouter: model `anthropic/claude-sonnet-4`, key `OPENROUTER_API_KEY`
-   - openai: model `gpt-4o`, key `OPENAI_API_KEY`
-   - anthropic: model `claude-sonnet-4-20250514`, key `ANTHROPIC_API_KEY`
+   - => also added `.json` to FILES find pattern so state files get processed
+2. [x] If observation loop declined, remove `company/` and `observation-loop.yml`
+   - => clean removal in else branch
+3. [x] Update provider presets to include observer defaults:
+   - openrouter: model `anthropic/claude-sonnet-4`, key `OPENROUTER_API_KEY`, url openrouter.ai
+   - openai: model `gpt-4o`, key `OPENAI_API_KEY`, url api.openai.com
+   - anthropic: model `claude-sonnet-4-20250514`, key `ANTHROPIC_API_KEY`, url api.anthropic.com
+   - => added `get_observer_preset()` function with URL presets
+   - => commit `4e360d2`
 
 ### Phase 4 - Update documentation - status: open
 
@@ -134,3 +133,4 @@ Back in wgmesh repo.
 
 - 2603040954 — Phase 1 complete: cloned repo, copied all files, renamed workflow, merged labels. Commit `2bf13ff`.
 - 2603041010 — Phase 2 complete: generalised all files, reset state, replaced placeholders. Commit `04d3709`.
+- 2603041020 — Phase 3 complete: init.sh gains observer loop config, provider presets, health/cost seeding. Commit `4e360d2`.
