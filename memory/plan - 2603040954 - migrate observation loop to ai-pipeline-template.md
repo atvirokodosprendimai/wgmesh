@@ -1,6 +1,6 @@
 ---
 tldr: Move company/ and observation loop from wgmesh into ai-pipeline-template, generalise for any project
-status: open
+status: active
 ---
 
 # Plan: Migrate observation loop to ai-pipeline-template
@@ -14,19 +14,23 @@ status: open
 
 ## Phases
 
-### Phase 1 - Move files to ai-pipeline-template - status: open
+### Phase 1 - Move files to ai-pipeline-template - status: done
 
 All work in this phase happens in the `ai-pipeline-template` repo.
 
-1. [ ] Clone ai-pipeline-template locally, create branch `task/observation-loop`
-2. [ ] Copy observation loop files from wgmesh into template:
+1. [x] Clone ai-pipeline-template locally, create branch `task/observation-loop`
+   - => cloned to `/Users/coder/repo/ai-pipeline-template`
+   - => branch `task/observation-loop` created from `a0771fe`
+2. [x] Copy observation loop files from wgmesh into template:
    - `company/` → `company/` (all state files, scripts, loop-history)
    - `.github/workflows/company-loop.yml` → `.github/workflows/observation-loop.yml` (rename)
    - Function labels from wgmesh `.github/labels.yml` → merge into template `.github/labels.yml`
    - Commit as-is (faithful copy before any changes)
-3. [ ] Add `company/` to template `.gitignore` exception if needed
+   - => commit `2bf13ff` — 17 files, 1015 insertions
+3. [x] Add `company/` to template `.gitignore` exception if needed
    - Template already tracks `.github/` so workflows are fine
    - Verify state JSON files won't be ignored
+   - => no .gitignore exists in template — no action needed
 
 ### Phase 2 - Generalise for any project - status: open
 
@@ -124,3 +128,5 @@ Back in wgmesh repo.
 ## Adjustments
 
 ## Progress Log
+
+- 2603040954 — Phase 1 complete: cloned repo, copied all files, renamed workflow, merged labels. Commit `2bf13ff`.
