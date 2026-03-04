@@ -82,16 +82,19 @@ Still in ai-pipeline-template repo.
    - => added `get_observer_preset()` function with URL presets
    - => commit `4e360d2`
 
-### Phase 4 - Update documentation - status: open
+### Phase 4 - Update documentation - status: done
 
-1. [ ] Update `README.md`:
-   - Add "Observation Loop" section explaining the observe → assess → act cycle
-   - Update "How It Works" table to include observation phase
-   - Update "File Manifest" with `company/` directory
-   - Update "Prerequisites" to mention observer LLM key
-   - Add "Full Loop" diagram showing both halves connected
-2. [ ] Update pipeline flow diagram (`docs/pipeline-flow.d2`) to include observation loop
-3. [ ] Commit and push branch, open PR
+1. [x] Update `README.md`:
+   - Full rewrite — autonomous pipeline positioning, not just action half
+   - Added "The Full Loop" diagram, Observation Loop section, Agent Roles table
+   - Updated File Manifest with company/ directory
+   - Updated Prerequisites, LLM Providers (build + observer), Customization, FAQ
+2. [x] Update pipeline flow diagram (`docs/pipeline-flow.d2`) to include observation loop
+   - => added Phase 0 with collect→assess→act flow
+   - => added merge→observation feedback loop connection
+3. [x] Commit and push branch, open PR
+   - => commit `880345b`
+   - => PR: https://github.com/atvirokodosprendimai/ai-pipeline-template/pull/9
 
 ### Phase 5 - Clean up wgmesh - status: open
 
@@ -134,3 +137,4 @@ Back in wgmesh repo.
 - 2603040954 — Phase 1 complete: cloned repo, copied all files, renamed workflow, merged labels. Commit `2bf13ff`.
 - 2603041010 — Phase 2 complete: generalised all files, reset state, replaced placeholders. Commit `04d3709`.
 - 2603041020 — Phase 3 complete: init.sh gains observer loop config, provider presets, health/cost seeding. Commit `4e360d2`.
+- 2603041030 — Phase 4 complete: README rewritten, D2 diagram updated, PR #9 opened.
