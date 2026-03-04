@@ -32,34 +32,37 @@ All work in this phase happens in the `ai-pipeline-template` repo.
    - Verify state JSON files won't be ignored
    - => no .gitignore exists in template — no action needed
 
-### Phase 2 - Generalise for any project - status: open
+### Phase 2 - Generalise for any project - status: done
 
 Still in ai-pipeline-template repo.
 
-1. [ ] Replace wgmesh-specific content in `company/system-prompt.md` with `__PLACEHOLDER__` markers:
+1. [x] Replace wgmesh-specific content in `company/system-prompt.md` with `__PLACEHOLDER__` markers:
    - Product name/description → `__PROJECT_NAME__`, `__PROJECT_DESCRIPTION__`
    - Funnel stage details → keep structure, make stage descriptions generic with placeholder examples
    - Infrastructure endpoints → `__HEALTH_ENDPOINTS__`
    - Remove wgmesh-specific references (Chimney, cloudroof, Lighthouse, managed ingress)
    - Keep opinionated structure: funnel stages, frugality, reciprocity, public/private boundary
-2. [ ] Generalise collector scripts:
-   - `collect-github.sh` — already generic (uses `GITHUB_REPOSITORY`), verify no wgmesh assumptions
-   - `collect-infra.sh` — replace hardcoded endpoints with config read from `company/health.json`
-   - `collect-contributions.sh` — already generic, verify
-   - `sanitise.sh` — already generic, verify
-   - Remove `goose-build-context.sh` (build-specific, not observation)
-3. [ ] Replace secrets in `observation-loop.yml` with `__PLACEHOLDER__` patterns:
+   - => kept European-first constraint as-is (opinionated default)
+2. [x] Generalise collector scripts:
+   - `collect-github.sh` — removed hardcoded `atvirokodosprendimai/wgmesh` fallback, now requires `GITHUB_REPOSITORY`
+   - `collect-infra.sh` — now reads endpoints from `company/health.json` dynamically
+   - `collect-contributions.sh` — made language-agnostic (Go/Node/Python/Rust dep detection)
+   - `sanitise.sh` — already generic, no changes needed
+   - Removed `goose-build-context.sh` (build-specific, not observation)
+3. [x] Replace secrets in `observation-loop.yml` with `__PLACEHOLDER__` patterns:
    - `OPENROUTER_API_KEY` → `__OBSERVER_API_KEY_SECRET__`
-   - `PUSH_TOKEN` → keep as `PUSH_TOKEN` (GitHub standard)
+   - `PUSH_TOKEN` → kept as `PUSH_TOKEN` (GitHub standard)
    - LLM endpoint/model → `__OBSERVER_API_URL__`, `__OBSERVER_MODEL__`
-4. [ ] Reset state files to clean defaults:
+   - => env var in workflow uses `OBSERVER_API_KEY` (safe pattern per GH Actions security)
+4. [x] Reset state files to clean defaults:
    - `loop-state.json` → stage 0, run_count 0, no timestamps
-   - `costs.json` → empty structure with placeholders
+   - `costs.json` → empty structure, no provider-specific entries
    - `metrics.json` → empty structure
-   - `contributors.json` → empty array
-   - `health.json` → placeholder endpoints
-   - Clear `loop-history/` (keep `.gitkeep`)
-5. [ ] Commit: generalised observation loop with placeholders
+   - `contributors.json` → empty entities array
+   - `health.json` → empty endpoints array
+   - Cleared `loop-history/` (kept `.gitkeep`)
+5. [x] Commit: generalised observation loop with placeholders
+   - => commit `04d3709` — 14 files changed, 82 insertions, 309 deletions
 
 ### Phase 3 - Update init.sh - status: open
 
@@ -130,3 +133,4 @@ Back in wgmesh repo.
 ## Progress Log
 
 - 2603040954 — Phase 1 complete: cloned repo, copied all files, renamed workflow, merged labels. Commit `2bf13ff`.
+- 2603041010 — Phase 2 complete: generalised all files, reset state, replaced placeholders. Commit `04d3709`.
