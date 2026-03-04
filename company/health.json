@@ -1,8 +1,0 @@
-{
-  "last_check": null,
-  "services": {
-    "chimney": { "url": "https://chimney.beerpub.dev", "status": null },
-    "cloudroof": { "url": "https://cloudroof.eu", "status": null },
-    "lighthouse": { "url": null, "status": null, "note": "not yet deployed as managed ingress" }
-  }
-}

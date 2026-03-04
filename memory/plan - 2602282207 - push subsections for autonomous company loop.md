@@ -1,6 +1,10 @@
 ---
 tldr: Phased plan to implement the autonomous company control loop per the first-customer spec
+status: completed-migrated
 ---
+
+> **Migrated:** Company loop implementation moved to [ai-pipeline-template](https://github.com/atvirokodosprendimai/ai-pipeline-template).
+> See [[plan - 2603040954 - migrate observation loop to ai-pipeline-template]].
 
 # Plan: Push Autonomous Company Loop
 
