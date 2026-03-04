@@ -19,10 +19,10 @@ import (
 )
 
 const (
-	defaultStateDir   = "/var/lib/wgmesh"
-	servicesFileName  = "services.json"
-	accountFileName   = "account.json"
-	managedDomain     = "wgmesh.dev"
+	defaultStateDir  = "/var/lib/wgmesh"
+	servicesFileName = "services.json"
+	accountFileName  = "account.json"
+	managedDomain    = "wgmesh.dev"
 )
 
 var validServiceName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*[a-z0-9]$|^[a-z0-9]$`)
