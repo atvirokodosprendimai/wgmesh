@@ -96,21 +96,23 @@ Still in ai-pipeline-template repo.
    - => commit `880345b`
    - => PR: https://github.com/atvirokodosprendimai/ai-pipeline-template/pull/9
 
-### Phase 5 - Clean up wgmesh - status: open
+### Phase 5 - Clean up wgmesh - status: done
 
 Back in wgmesh repo.
 
-1. [ ] Remove `company/` directory from wgmesh
-   - Keep a note in commit message pointing to ai-pipeline-template
-2. [ ] Remove `.github/workflows/company-loop.yml`
-3. [ ] Remove function labels from `.github/labels.yml` (fn:dev, fn:ops, fn:gtm, fn:billing, fn:support, fn:legal, needs-human)
-4. [ ] Update `eidos/spec - first-customer - roadmap to first paying customer.md`:
-   - Add note that the company loop now lives in ai-pipeline-template
-   - Update any references to `company/` paths
-5. [ ] Remove or archive company loop plans from `memory/`:
-   - [[plan - 2602282207 - push subsections for autonomous company loop]] → mark completed/migrated
-   - [[plan - 2603011216 - fix company loop and restructure goose build]] → mark completed/migrated
-6. [ ] Commit: remove company loop (migrated to ai-pipeline-template)
+1. [x] Remove `company/` directory from wgmesh
+   - => 15 files removed (state files, scripts, system prompt, loop history)
+   - => commit message references ai-pipeline-template
+2. [x] Remove `.github/workflows/company-loop.yml`
+3. [x] Remove function labels from `.github/labels.yml` (fn:dev, fn:ops, fn:gtm, fn:billing, fn:support, fn:legal, needs-human)
+4. [x] Update `eidos/spec - first-customer - roadmap to first paying customer.md`:
+   - => added migration note pointing to ai-pipeline-template
+   - => updated Mapping section: company loop files replaced with template repo link
+5. [x] Remove or archive company loop plans from `memory/`:
+   - => [[plan - 2602282207 - push subsections for autonomous company loop]] marked `completed-migrated`
+   - => [[plan - 2603011216 - fix company loop and restructure goose build]] marked `completed-migrated`
+6. [x] Commit: remove company loop (migrated to ai-pipeline-template)
+   - => commit `992f294` — 20 files changed, 1029 deletions
 
 ### Phase 6 - Verify end-to-end - status: open
 
@@ -138,3 +140,4 @@ Back in wgmesh repo.
 - 2603041010 — Phase 2 complete: generalised all files, reset state, replaced placeholders. Commit `04d3709`.
 - 2603041020 — Phase 3 complete: init.sh gains observer loop config, provider presets, health/cost seeding. Commit `4e360d2`.
 - 2603041030 — Phase 4 complete: README rewritten, D2 diagram updated, PR #9 opened.
+- 2603041138 — Phase 5 complete: wgmesh cleaned up — company/, workflow, labels removed; spec updated; plans archived. Commit `992f294`.
