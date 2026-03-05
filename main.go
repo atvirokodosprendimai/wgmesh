@@ -614,9 +614,12 @@ func formatIPv6Prefix(prefix [8]byte) string {
 // It properly handles missing vs corrupt files and includes the path in error messages.
 func saveAccountAPIKey(stateDir, apiKey string) {
 	accountPath := filepath.Join(stateDir, "account.json")
+	
+	// Try to load existing account first
 	acct, err := mesh.LoadAccount(accountPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		// Check if it's a "file not found" error by checking the file directly
+		if _, statErr := os.Stat(accountPath); os.IsNotExist(statErr) {
 			// No existing account file; start from an empty account.
 			acct = mesh.AccountConfig{}
 		} else {
@@ -626,6 +629,7 @@ func saveAccountAPIKey(stateDir, apiKey string) {
 			return
 		}
 	}
+	
 	acct.APIKey = apiKey
 	if err := mesh.SaveAccount(accountPath, acct); err != nil {
 		fmt.Fprintf(os.Stderr, "Warning: failed to save account to %s: %v\n", accountPath, err)
