@@ -269,7 +269,6 @@ func main() {
 	mux.HandleFunc("/api/version", handleVersion)
 	mux.HandleFunc("/api/pipeline/summary", handlePipelineSummary)
 
-
 	fs := http.FileServer(http.Dir(*docsDir))
 	mux.Handle("/", fs)
 

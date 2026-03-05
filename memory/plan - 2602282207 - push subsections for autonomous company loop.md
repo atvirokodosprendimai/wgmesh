@@ -1,6 +1,10 @@
 ---
 tldr: Phased plan to implement the autonomous company control loop per the first-customer spec
+status: completed-migrated
 ---
+
+> **Migrated:** Company loop implementation moved to [ai-pipeline-template](https://github.com/atvirokodosprendimai/ai-pipeline-template).
+> See [[plan - 2603040954 - migrate observation loop to ai-pipeline-template]].
 
 # Plan: Push Autonomous Company Loop
 
@@ -68,7 +72,8 @@ The core `company-loop.yml` — ties everything together.
 
 Manual trigger, observe, fix.
 
-- [ ] Add `ANTHROPIC_API_KEY` to GitHub secrets (`needs-human`)
+- [x] Add `ANTHROPIC_API_KEY` to GitHub secrets (`needs-human`)
+  => Both `OPENROUTER_API_KEY` and `ANTHROPIC_API_KEY` already present. Implementation uses OpenRouter. See [[decision - 2603040808 - company loop uses openrouter not direct anthropic]].
 - [ ] Push branch to origin
 - [ ] Trigger `company-loop.yml` via workflow_dispatch
 - [ ] Verify: assessment created, loop-state updated, issues created, no secrets leaked

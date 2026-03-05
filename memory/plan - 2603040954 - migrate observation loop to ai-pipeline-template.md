@@ -1,0 +1,152 @@
+---
+tldr: Move company/ and observation loop from wgmesh into ai-pipeline-template, generalise for any project
+status: completed
+---
+
+# Plan: Migrate observation loop to ai-pipeline-template
+
+## Context
+
+- Spec: [[spec - ai pipeline template - autonomous product loop for ai-native startups]]
+- Source repo: `atvirokodosprendimai/wgmesh` (`company/`, `.github/workflows/company-loop.yml`)
+- Target repo: `atvirokodosprendimai/ai-pipeline-template`
+- Strategy: move everything first, then generalise (preserve git history of moved files)
+
+## Phases
+
+### Phase 1 - Move files to ai-pipeline-template - status: done
+
+All work in this phase happens in the `ai-pipeline-template` repo.
+
+1. [x] Clone ai-pipeline-template locally, create branch `task/observation-loop`
+   - => cloned to `/Users/coder/repo/ai-pipeline-template`
+   - => branch `task/observation-loop` created from `a0771fe`
+2. [x] Copy observation loop files from wgmesh into template:
+   - `company/` → `company/` (all state files, scripts, loop-history)
+   - `.github/workflows/company-loop.yml` → `.github/workflows/observation-loop.yml` (rename)
+   - Function labels from wgmesh `.github/labels.yml` → merge into template `.github/labels.yml`
+   - Commit as-is (faithful copy before any changes)
+   - => commit `2bf13ff` — 17 files, 1015 insertions
+3. [x] Add `company/` to template `.gitignore` exception if needed
+   - Template already tracks `.github/` so workflows are fine
+   - Verify state JSON files won't be ignored
+   - => no .gitignore exists in template — no action needed
+
+### Phase 2 - Generalise for any project - status: done
+
+Still in ai-pipeline-template repo.
+
+1. [x] Replace wgmesh-specific content in `company/system-prompt.md` with `__PLACEHOLDER__` markers:
+   - Product name/description → `__PROJECT_NAME__`, `__PROJECT_DESCRIPTION__`
+   - Funnel stage details → keep structure, make stage descriptions generic with placeholder examples
+   - Infrastructure endpoints → `__HEALTH_ENDPOINTS__`
+   - Remove wgmesh-specific references (Chimney, cloudroof, Lighthouse, managed ingress)
+   - Keep opinionated structure: funnel stages, frugality, reciprocity, public/private boundary
+   - => kept European-first constraint as-is (opinionated default)
+2. [x] Generalise collector scripts:
+   - `collect-github.sh` — removed hardcoded `atvirokodosprendimai/wgmesh` fallback, now requires `GITHUB_REPOSITORY`
+   - `collect-infra.sh` — now reads endpoints from `company/health.json` dynamically
+   - `collect-contributions.sh` — made language-agnostic (Go/Node/Python/Rust dep detection)
+   - `sanitise.sh` — already generic, no changes needed
+   - Removed `goose-build-context.sh` (build-specific, not observation)
+3. [x] Replace secrets in `observation-loop.yml` with `__PLACEHOLDER__` patterns:
+   - `OPENROUTER_API_KEY` → `__OBSERVER_API_KEY_SECRET__`
+   - `PUSH_TOKEN` → kept as `PUSH_TOKEN` (GitHub standard)
+   - LLM endpoint/model → `__OBSERVER_API_URL__`, `__OBSERVER_MODEL__`
+   - => env var in workflow uses `OBSERVER_API_KEY` (safe pattern per GH Actions security)
+4. [x] Reset state files to clean defaults:
+   - `loop-state.json` → stage 0, run_count 0, no timestamps
+   - `costs.json` → empty structure, no provider-specific entries
+   - `metrics.json` → empty structure
+   - `contributors.json` → empty entities array
+   - `health.json` → empty endpoints array
+   - Cleared `loop-history/` (kept `.gitkeep`)
+5. [x] Commit: generalised observation loop with placeholders
+   - => commit `04d3709` — 14 files changed, 82 insertions, 309 deletions
+
+### Phase 3 - Update init.sh - status: done
+
+1. [x] Add observation loop section to `init.sh`:
+   - Ask: "Enable observation loop? [y/n]" (default: y)
+   - If yes, ask for: observer provider, model, key, API URL, health endpoints, available capital
+   - Replace `__PLACEHOLDER__` markers via existing PAIRS mechanism
+   - Seed `company/health.json` with provided endpoints (parses comma-separated URLs)
+   - Seed `company/costs.json` with available capital
+   - => also added `.json` to FILES find pattern so state files get processed
+2. [x] If observation loop declined, remove `company/` and `observation-loop.yml`
+   - => clean removal in else branch
+3. [x] Update provider presets to include observer defaults:
+   - openrouter: model `anthropic/claude-sonnet-4`, key `OPENROUTER_API_KEY`, url openrouter.ai
+   - openai: model `gpt-4o`, key `OPENAI_API_KEY`, url api.openai.com
+   - anthropic: model `claude-sonnet-4-20250514`, key `ANTHROPIC_API_KEY`, url api.anthropic.com
+   - => added `get_observer_preset()` function with URL presets
+   - => commit `4e360d2`
+
+### Phase 4 - Update documentation - status: done
+
+1. [x] Update `README.md`:
+   - Full rewrite — autonomous pipeline positioning, not just action half
+   - Added "The Full Loop" diagram, Observation Loop section, Agent Roles table
+   - Updated File Manifest with company/ directory
+   - Updated Prerequisites, LLM Providers (build + observer), Customization, FAQ
+2. [x] Update pipeline flow diagram (`docs/pipeline-flow.d2`) to include observation loop
+   - => added Phase 0 with collect→assess→act flow
+   - => added merge→observation feedback loop connection
+3. [x] Commit and push branch, open PR
+   - => commit `880345b`
+   - => PR: https://github.com/atvirokodosprendimai/ai-pipeline-template/pull/9
+
+### Phase 5 - Clean up wgmesh - status: done
+
+Back in wgmesh repo.
+
+1. [x] Remove `company/` directory from wgmesh
+   - => 15 files removed (state files, scripts, system prompt, loop history)
+   - => commit message references ai-pipeline-template
+2. [x] Remove `.github/workflows/company-loop.yml`
+3. [x] Remove function labels from `.github/labels.yml` (fn:dev, fn:ops, fn:gtm, fn:billing, fn:support, fn:legal, needs-human)
+4. [x] Update `eidos/spec - first-customer - roadmap to first paying customer.md`:
+   - => added migration note pointing to ai-pipeline-template
+   - => updated Mapping section: company loop files replaced with template repo link
+5. [x] Remove or archive company loop plans from `memory/`:
+   - => [[plan - 2602282207 - push subsections for autonomous company loop]] marked `completed-migrated`
+   - => [[plan - 2603011216 - fix company loop and restructure goose build]] marked `completed-migrated`
+6. [x] Commit: remove company loop (migrated to ai-pipeline-template)
+   - => commit `992f294` — 20 files changed, 1029 deletions
+
+### Phase 6 - Verify end-to-end - status: done
+
+1. [x] In ai-pipeline-template: run `init.sh` with observation loop enabled, verify all placeholders replaced
+   - => ran in /tmp/test-pipeline-init with go + openrouter presets
+   - => zero remaining `__PLACEHOLDER__` markers after init
+   - => system-prompt.md, workflows, .goosehints all correctly populated
+   - => also verified disabled path: company/ and workflow cleanly removed
+2. [p] Trigger observation-loop.yml manually (stub mode, no API key) — verify stub assessment created
+   - => requires PR #9 merged and GitHub Actions dispatch — manual verification post-merge
+3. [p] Trigger observation-loop.yml with API key — verify LLM assessment created
+   - => same dependency as 6.2
+4. [p] Create a test issue → verify Copilot picks it up → approve → verify Goose builds
+   - => same dependency as 6.2
+5. [x] Verify wgmesh CI still passes without company/ directory
+   - => `make test` passes: all 12 packages OK
+
+## Verification
+
+- ai-pipeline-template contains both action and observation pipelines
+- `init.sh` configures both halves interactively
+- Observation loop runs successfully (stub + LLM modes)
+- Action pipeline still works (issue → spec → approve → build)
+- No wgmesh-specific content remains in the template
+- wgmesh repo is clean — no company/ directory, no company-loop workflow
+- README documents the full loop
+
+## Adjustments
+
+## Progress Log
+
+- 2603040954 — Phase 1 complete: cloned repo, copied all files, renamed workflow, merged labels. Commit `2bf13ff`.
+- 2603041010 — Phase 2 complete: generalised all files, reset state, replaced placeholders. Commit `04d3709`.
+- 2603041020 — Phase 3 complete: init.sh gains observer loop config, provider presets, health/cost seeding. Commit `4e360d2`.
+- 2603041030 — Phase 4 complete: README rewritten, D2 diagram updated, PR #9 opened.
+- 2603041138 — Phase 5 complete: wgmesh cleaned up — company/, workflow, labels removed; spec updated; plans archived. Commit `992f294`.
+- 2603041142 — Phase 6 complete (locally verifiable parts): init.sh works both paths, wgmesh tests pass. Workflow dispatch tests (6.2–6.4) postponed until PR #9 merged.
