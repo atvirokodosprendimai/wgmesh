@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -562,11 +563,31 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid path", http.StatusBadRequest)
 		return
 	}
-	if r.URL.RawQuery != "" {
-		ghURL += "?" + r.URL.RawQuery
+
+	// Normalize query string: sorted key order prevents cache-bust via reordering,
+	// and only known GitHub API params are forwarded to prevent token quota exhaustion.
+	allowedParams := map[string]bool{
+		"state": true, "per_page": true, "page": true, "sort": true,
+		"direction": true, "since": true, "until": true, "status": true,
+		"sha": true, "ref": true, "path": true,
+	}
+	filtered := make([]string, 0, len(r.URL.Query()))
+	for k, vs := range r.URL.Query() {
+		if allowedParams[k] {
+			for _, v := range vs {
+				filtered = append(filtered, k+"="+v)
+			}
+		}
+	}
+	// Sort for deterministic cache keys
+	sort.Strings(filtered)
+	normalizedQuery := strings.Join(filtered, "&")
+
+	if normalizedQuery != "" {
+		ghURL += "?" + normalizedQuery
 	}
 
-	cacheKey := ghPath + "?" + r.URL.RawQuery
+	cacheKey := ghPath + "?" + normalizedQuery
 	ctx := r.Context()
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("chimney.github_path", ghPath))
