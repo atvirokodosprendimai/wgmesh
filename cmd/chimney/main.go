@@ -47,10 +47,14 @@ import (
 const (
 	githubAPI     = "https://api.github.com"
 	defaultRepo   = "atvirokodosprendimai/wgmesh"
+	defaultOrg    = ""
 	maxCacheSize  = 500
 	clientTimeout = 10 * time.Second
 	redisTimeout  = 200 * time.Millisecond
 	cachePrefix   = "chimney:"
+
+	repoDiscoveryInterval = 15 * time.Minute
+	repoDiscoveryCacheTTL = 20 * time.Minute
 )
 
 // version and wgmeshVersion are set at build time via -ldflags.
@@ -83,6 +87,8 @@ var (
 
 	githubToken string
 	repo        string
+	org         string
+	reposExclude map[string]bool
 
 	httpClient = &http.Client{Timeout: clientTimeout}
 
@@ -95,7 +101,23 @@ var (
 	counterMu     sync.Mutex
 
 	panicsTotal atomic.Int64 // promoted to OTEL counter in Phase 3
+
+	// Org repo discovery state
+	discoveredRepos   []discoveredRepo
+	discoveredReposMu sync.RWMutex
 )
+
+// discoveredRepo holds metadata for a repo discovered via the GitHub org API.
+type discoveredRepo struct {
+	FullName    string `json:"full_name"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Language    string `json:"language"`
+	OpenIssues  int    `json:"open_issues_count"`
+	Archived    bool   `json:"archived"`
+	UpdatedAt   string `json:"updated_at"`
+	HTMLURL     string `json:"html_url"`
+}
 
 // --- Request metadata (Phase 2) ---
 
@@ -197,9 +219,25 @@ func requestLogger(next http.Handler) http.Handler {
 func main() {
 	addr := flag.String("addr", ":8080", "Listen address")
 	docsDir := flag.String("docs", "./docs", "Path to static dashboard files")
-	flag.StringVar(&repo, "repo", defaultRepo, "GitHub owner/repo")
+	flag.StringVar(&repo, "repo", defaultRepo, "GitHub owner/repo (fallback when -org is not set)")
+	flag.StringVar(&org, "org", defaultOrg, "GitHub org for dynamic repo discovery")
 	flag.StringVar(&redisAddr, "redis", "127.0.0.1:6379", "Dragonfly/Redis address")
 	flag.Parse()
+
+	// GITHUB_ORG env var overrides -org flag
+	if envOrg := os.Getenv("GITHUB_ORG"); envOrg != "" {
+		org = envOrg
+	}
+
+	// Parse GITHUB_REPOS_EXCLUDE into a set
+	reposExclude = make(map[string]bool)
+	if excl := os.Getenv("GITHUB_REPOS_EXCLUDE"); excl != "" {
+		for _, name := range strings.Split(excl, ",") {
+			if n := strings.TrimSpace(name); n != "" {
+				reposExclude[n] = true
+			}
+		}
+	}
 
 	// Set up OTEL telemetry providers. Non-fatal: if the collector is unreachable
 	// at startup the exporters will keep retrying in the background.
@@ -262,7 +300,17 @@ func main() {
 		}
 	}()
 
+	// Start org repo discovery if configured
+	if org != "" {
+		slog.Info("Org mode enabled — discovering repos", "org", org, "interval", repoDiscoveryInterval)
+		go discoverReposLoop(org)
+	} else {
+		slog.Info("Single-repo mode", "repo", repo)
+	}
+
 	mux := http.NewServeMux()
+	mux.HandleFunc("/api/github/org/repos", handleOrgRepos)
+	mux.HandleFunc("/api/github/org/activity", handleOrgActivity)
 	mux.HandleFunc("/api/github/", handleGitHubProxy)
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/api/cache/stats", handleCacheStats)
@@ -466,17 +514,44 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
-	ghPath := strings.TrimPrefix(r.URL.Path, "/api/github")
+// resolveGitHubURL determines the target GitHub API URL from the proxy path.
+// In org mode, paths like /api/github/{owner}/{repo}/pulls are allowed for any
+// discovered repo. In single-repo mode, the configured -repo is always used.
+func resolveGitHubURL(path string) (ghURL, cacheKey, ghPath string, ok bool) {
+	ghPath = strings.TrimPrefix(path, "/api/github")
 	if ghPath == "" {
 		ghPath = "/"
 	}
-	ghURL := fmt.Sprintf("%s/repos/%s%s", githubAPI, repo, ghPath)
+
+	// In org mode, try to extract owner/repo from path
+	if org != "" {
+		// Path: /{owner}/{repo}/... — check if this repo is discovered
+		parts := strings.SplitN(strings.TrimPrefix(ghPath, "/"), "/", 3)
+		if len(parts) >= 2 {
+			candidate := parts[0] + "/" + parts[1]
+			if isDiscoveredRepo(candidate) {
+				remainder := "/"
+				if len(parts) == 3 {
+					remainder = "/" + parts[2]
+				}
+				return fmt.Sprintf("%s/repos/%s%s", githubAPI, candidate, remainder),
+					ghPath, ghPath, true
+			}
+		}
+	}
+
+	// Fallback: use configured repo
+	return fmt.Sprintf("%s/repos/%s%s", githubAPI, repo, ghPath),
+		ghPath, ghPath, true
+}
+
+func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
+	ghURL, cacheKey, ghPath, _ := resolveGitHubURL(r.URL.Path)
 	if r.URL.RawQuery != "" {
 		ghURL += "?" + r.URL.RawQuery
 	}
 
-	cacheKey := ghPath + "?" + r.URL.RawQuery
+	cacheKey = cacheKey + "?" + r.URL.RawQuery
 	ctx := r.Context()
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("chimney.github_path", ghPath))
@@ -821,6 +896,254 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 	if _, err := w.Write(body); err != nil {
 		slog.ErrorContext(ctx, "writing /api/pipeline/summary", "error", err)
 	}
+}
+
+// --- org repo discovery ---
+
+// discoverReposLoop polls the GitHub org API on a fixed interval and updates
+// the discoveredRepos list. Runs as a background goroutine.
+func discoverReposLoop(orgName string) {
+	// Fetch immediately on startup
+	discoverRepos(orgName)
+
+	ticker := time.NewTicker(repoDiscoveryInterval)
+	defer ticker.Stop()
+	for range ticker.C {
+		discoverRepos(orgName)
+	}
+}
+
+func discoverRepos(orgName string) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	url := fmt.Sprintf("%s/orgs/%s/repos?type=public&per_page=100&sort=updated", githubAPI, orgName)
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		slog.Error("repo discovery: build request", "error", err)
+		return
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "chimney/1.0 (cloudroof.eu)")
+	if githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+githubToken)
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		slog.Error("repo discovery: fetch", "error", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		slog.Error("repo discovery: GitHub error", "status", resp.StatusCode, "body", string(body))
+		return
+	}
+
+	var ghRepos []struct {
+		FullName    string `json:"full_name"`
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Language    string `json:"language"`
+		OpenIssues  int    `json:"open_issues_count"`
+		Archived    bool   `json:"archived"`
+		UpdatedAt   string `json:"updated_at"`
+		HTMLURL     string `json:"html_url"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&ghRepos); err != nil {
+		slog.Error("repo discovery: decode", "error", err)
+		return
+	}
+
+	repos := make([]discoveredRepo, 0, len(ghRepos))
+	for _, r := range ghRepos {
+		if r.Archived {
+			continue
+		}
+		if reposExclude[r.Name] || reposExclude[r.FullName] {
+			continue
+		}
+		repos = append(repos, discoveredRepo{
+			FullName:    r.FullName,
+			Name:        r.Name,
+			Description: r.Description,
+			Language:    r.Language,
+			OpenIssues:  r.OpenIssues,
+			Archived:    r.Archived,
+			UpdatedAt:   r.UpdatedAt,
+			HTMLURL:     r.HTMLURL,
+		})
+	}
+
+	discoveredReposMu.Lock()
+	discoveredRepos = repos
+	discoveredReposMu.Unlock()
+
+	slog.Info("repo discovery complete", "org", org, "repos", len(repos))
+}
+
+// isDiscoveredRepo checks if a full_name (owner/repo) is in the discovered list.
+func isDiscoveredRepo(fullName string) bool {
+	discoveredReposMu.RLock()
+	defer discoveredReposMu.RUnlock()
+	for _, r := range discoveredRepos {
+		if r.FullName == fullName {
+			return true
+		}
+	}
+	return false
+}
+
+// getDiscoveredRepos returns a snapshot of the current discovered repos.
+func getDiscoveredRepos() []discoveredRepo {
+	discoveredReposMu.RLock()
+	defer discoveredReposMu.RUnlock()
+	out := make([]discoveredRepo, len(discoveredRepos))
+	copy(out, discoveredRepos)
+	return out
+}
+
+// handleOrgRepos returns the list of discovered repos for the configured org.
+func handleOrgRepos(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+
+	if org == "" {
+		// Single-repo mode: return the configured repo as the only entry
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"org":   "",
+			"mode":  "single-repo",
+			"repos": []map[string]string{{"full_name": repo, "name": strings.SplitN(repo, "/", 2)[1]}},
+		})
+		return
+	}
+
+	repos := getDiscoveredRepos()
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"org":   org,
+		"mode":  "org",
+		"repos": repos,
+	})
+}
+
+// handleOrgActivity returns aggregated activity (open PRs) across all discovered repos.
+func handleOrgActivity(w http.ResponseWriter, r *http.Request) {
+	const cacheKey = "__org_activity__"
+	const cacheTTL = 2 * time.Minute
+
+	ctx := r.Context()
+
+	// Serve cached if fresh
+	if entry, ok, _ := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
+		counterMu.Lock()
+		cacheHits++
+		counterMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("X-Cache-Age", fmt.Sprintf("%.0f", time.Since(entry.FetchedAt).Seconds()))
+		w.Write(entry.Body)
+		return
+	}
+
+	counterMu.Lock()
+	cacheMisses++
+	counterMu.Unlock()
+
+	repos := getDiscoveredRepos()
+	if len(repos) == 0 && org == "" {
+		// Single-repo fallback
+		repos = []discoveredRepo{{FullName: repo, Name: strings.SplitN(repo, "/", 2)[1]}}
+	}
+
+	type repoPR struct {
+		Repo     string `json:"repo"`
+		Number   int    `json:"number"`
+		Title    string `json:"title"`
+		User     string `json:"user"`
+		URL      string `json:"html_url"`
+		Created  string `json:"created_at"`
+		Updated  string `json:"updated_at"`
+		Draft    bool   `json:"draft"`
+	}
+
+	type orgActivity struct {
+		Org       string   `json:"org"`
+		RepoCount int      `json:"repo_count"`
+		OpenPRs   []repoPR `json:"open_prs"`
+		FetchedAt string   `json:"fetched_at"`
+	}
+
+	activity := orgActivity{
+		Org:       org,
+		RepoCount: len(repos),
+		FetchedAt: time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Fetch open PRs for each repo (sequential to stay within rate limits)
+	for _, rp := range repos {
+		url := fmt.Sprintf("%s/repos/%s/pulls?state=open&per_page=30", githubAPI, rp.FullName)
+		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+		if err != nil {
+			continue
+		}
+		req.Header.Set("Accept", "application/vnd.github+json")
+		req.Header.Set("User-Agent", "chimney/1.0 (cloudroof.eu)")
+		if githubToken != "" {
+			req.Header.Set("Authorization", "Bearer "+githubToken)
+		}
+
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			slog.WarnContext(ctx, "org/activity: fetch PRs", "repo", rp.FullName, "error", err)
+			continue
+		}
+
+		var prs []struct {
+			Number  int    `json:"number"`
+			Title   string `json:"title"`
+			HTMLURL string `json:"html_url"`
+			Created string `json:"created_at"`
+			Updated string `json:"updated_at"`
+			Draft   bool   `json:"draft"`
+			User    struct {
+				Login string `json:"login"`
+			} `json:"user"`
+		}
+		json.NewDecoder(resp.Body).Decode(&prs)
+		resp.Body.Close()
+
+		for _, pr := range prs {
+			activity.OpenPRs = append(activity.OpenPRs, repoPR{
+				Repo:    rp.Name,
+				Number:  pr.Number,
+				Title:   pr.Title,
+				User:    pr.User.Login,
+				URL:     pr.HTMLURL,
+				Created: pr.Created,
+				Updated: pr.Updated,
+				Draft:   pr.Draft,
+			})
+		}
+	}
+
+	body, err := json.Marshal(activity)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+
+	cacheSet(ctx, cacheKey, &cachedResponse{
+		Body:       body,
+		StatusCode: http.StatusOK,
+		Headers:    map[string]string{"Content-Type": "application/json"},
+		FetchedAt:  time.Now(),
+	}, cacheTTL)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Write(body)
 }
 
 // --- multi-handler for slog ---
