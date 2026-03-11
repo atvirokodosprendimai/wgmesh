@@ -212,7 +212,10 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
 <body>
 
 <div class="header">
-  <h1>wgmesh Agent Pipeline</h1>
+  <h1 id="dashboard-title">wgmesh Agent Pipeline</h1>
+  <select id="repo-selector" style="font-size:0.8125rem;padding:0.25rem 0.5rem;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--fg);display:none" title="Switch repo">
+    <option value="">All repos</option>
+  </select>
   <span class="subtitle">Autonomous AI coding pipeline — issue to merge</span>
   <div style="margin-left:auto;text-align:right">
     <span class="refresh-info">Auto-refreshes every 5m &middot; <span id="last-update">loading...</span></span>
@@ -712,6 +715,53 @@ const DIRECT_API = `https://api.github.com/repos/${OWNER}/${REPO}`;
 let API = CHIMNEY_PROXY;
 let usingProxy = true;
 
+// --- Org-level repo discovery ---
+let orgMode = false;
+let orgRepos = [];
+let selectedRepo = ''; // empty = all repos (aggregate view)
+
+async function discoverRepos() {
+  try {
+    const res = await fetch(`${window.location.origin}/api/github/org/repos`, { cache: 'no-store' });
+    if (!res.ok) return;
+    const data = await res.json();
+    orgRepos = data.repos || [];
+    orgMode = data.mode === 'org';
+
+    const sel = document.getElementById('repo-selector');
+    if (orgMode && orgRepos.length > 1) {
+      sel.style.display = '';
+      // Clear existing options beyond "All repos"
+      while (sel.options.length > 1) sel.remove(1);
+      for (const r of orgRepos) {
+        const opt = document.createElement('option');
+        opt.value = r.full_name;
+        opt.textContent = r.name + (r.language ? ` (${r.language})` : '');
+        sel.appendChild(opt);
+      }
+      sel.value = selectedRepo;
+    }
+  } catch (e) {
+    console.warn('repo discovery failed:', e.message);
+  }
+}
+
+// Repo selector change handler
+document.getElementById('repo-selector').addEventListener('change', function() {
+  selectedRepo = this.value;
+  const titleEl = document.getElementById('dashboard-title');
+  if (selectedRepo) {
+    const name = selectedRepo.split('/')[1];
+    titleEl.textContent = `${name} Pipeline`;
+  } else {
+    titleEl.textContent = orgMode ? `${OWNER} Org Pipeline` : 'wgmesh Agent Pipeline';
+  }
+  // Re-fetch with new repo context
+  fetchCount = 0;
+  fetchAll();
+  fetchPipelineSummary();
+});
+
 let rateLimitRemaining = null;
 let rateLimitReset = null;
 let paused = false;
@@ -767,7 +817,10 @@ function switchToDirectAPI() {
 // Uses chimney proxy (authenticated, server-cached) with fallback to direct GitHub API.
 async function ghFetch(path) {
   if (paused) throw new Error('Rate limited — waiting for reset');
-  const url = `${API}${path}`;
+  // In org mode with a selected repo, prefix path with owner/repo
+  // so chimney proxy routes to the correct GitHub repo.
+  const repoPrefix = (orgMode && selectedRepo) ? `/${selectedRepo}` : '';
+  const url = `${API}${repoPrefix}${path}`;
   const headers = { 'Accept': 'application/vnd.github+json' };
 
   // Add If-None-Match header if we have a cached ETag for this path
@@ -1555,6 +1608,8 @@ function renderMem0(gooseRuns) {
 }
 
 // ── Init ──
+discoverRepos(); // discover org repos (updates selector if org mode)
+setInterval(discoverRepos, 900000); // refresh repo list every 15min
 fetchAll();
 fetchPipelineSummary(); // chimney-native endpoint — no GitHub rate limit cost
 setInterval(fetchAll, REFRESH_MS); // 5 min — reduces API call volume to stay within unauthenticated rate limits
