@@ -1,7 +1,7 @@
 ---
 title: "docs: FAQ — why arbitrary strings work as mesh secrets"
 type: docs
-status: active
+status: completed
 date: 2026-03-11
 ---
 
@@ -37,13 +37,13 @@ This plan adds FAQ documentation explaining how secrets work and a warning when 
 
 ## Acceptance Criteria
 
-- [ ] FAQ section in `docs/FAQ.md`: "How do mesh secrets work?"
+- [x] FAQ section in `docs/FAQ.md`: "How do mesh secrets work?"
   - Why any string >= 16 chars works
   - What the secret derives (all 10 parameters, briefly)
   - Why different secrets = completely separate meshes
   - Why user-chosen passphrases are risky (HKDF vs password KDFs)
   - Recommendation to use `wgmesh init --secret`
-- [ ] Warning printed to stderr when secret lacks `wgmesh://v1/` prefix
+- [x] Warning printed to stderr when secret lacks `wgmesh://v1/` prefix
   - Suggests the secret is user-chosen rather than auto-generated
   - Recommends `wgmesh init --secret` for cryptographically strong generation
   - Does NOT block operation — informational only
