@@ -53,6 +53,7 @@ const (
 	cachePrefix   = "chimney:"
 
 	repoDiscoveryInterval = 15 * time.Minute
+	maxResponseBody       = 10 << 20 // 10 MB — safety cap on upstream reads
 )
 
 // version and wgmeshVersion are set at build time via -ldflags.
@@ -101,8 +102,9 @@ var (
 	panicsTotal atomic.Int64 // promoted to OTEL counter in Phase 3
 
 	// Org repo discovery state
-	discoveredRepos   []discoveredRepo
-	discoveredReposMu sync.RWMutex
+	discoveredRepos    []discoveredRepo
+	discoveredRepoSet  map[string]bool // O(1) lookup by full_name
+	discoveredReposMu  sync.RWMutex
 )
 
 // discoveredRepo holds metadata for a repo discovered via the GitHub org API.
@@ -221,6 +223,12 @@ func main() {
 	flag.StringVar(&redisAddr, "redis", "127.0.0.1:6379", "Dragonfly/Redis address")
 	flag.Parse()
 
+	// Validate repo flag format (must be "owner/repo")
+	if !strings.Contains(repo, "/") || strings.Count(repo, "/") != 1 {
+		slog.Error("invalid -repo flag: must be 'owner/repo'", "repo", repo)
+		os.Exit(1)
+	}
+
 	// GITHUB_ORG env var overrides -org flag
 	if envOrg := os.Getenv("GITHUB_ORG"); envOrg != "" {
 		org = envOrg
@@ -298,9 +306,11 @@ func main() {
 	}()
 
 	// Start org repo discovery if configured
+	discoveryCtx, discoveryCancel := context.WithCancel(context.Background())
+	defer discoveryCancel()
 	if org != "" {
 		slog.Info("Org mode enabled — discovering repos", "org", org, "interval", repoDiscoveryInterval)
-		go discoverReposLoop(org)
+		go discoverReposLoop(discoveryCtx, org)
 	} else {
 		slog.Info("Single-repo mode", "repo", repo)
 	}
@@ -345,6 +355,8 @@ func main() {
 	}()
 
 	<-sigCh
+	slog.Info("shutdown: stopping repo discovery")
+	discoveryCancel()
 	slog.Info("shutdown: draining in-flight telemetry")
 	{
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -512,11 +524,16 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 // resolveGitHubURL determines the target GitHub API URL from the proxy path.
 // In org mode, paths like /api/github/{owner}/{repo}/pulls are allowed for any
 // discovered repo. In single-repo mode, the configured -repo is always used.
-// Returns the full GitHub API URL and a cache key derived from the path.
-func resolveGitHubURL(path string) (ghURL, cacheKey string) {
+// Returns the full GitHub API URL, a cache key, and whether the path is valid.
+func resolveGitHubURL(path string) (ghURL, cacheKey string, ok bool) {
 	ghPath := strings.TrimPrefix(path, "/api/github")
 	if ghPath == "" {
 		ghPath = "/"
+	}
+
+	// Reject path traversal attempts to prevent SSRF
+	if strings.Contains(ghPath, "..") {
+		return "", "", false
 	}
 
 	// In org mode, try to extract owner/repo from path
@@ -530,17 +547,21 @@ func resolveGitHubURL(path string) (ghURL, cacheKey string) {
 				if len(parts) == 3 {
 					remainder = "/" + parts[2]
 				}
-				return fmt.Sprintf("%s/repos/%s%s", githubAPI, candidate, remainder), ghPath
+				return fmt.Sprintf("%s/repos/%s%s", githubAPI, candidate, remainder), ghPath, true
 			}
 		}
 	}
 
 	// Fallback: use configured repo
-	return fmt.Sprintf("%s/repos/%s%s", githubAPI, repo, ghPath), ghPath
+	return fmt.Sprintf("%s/repos/%s%s", githubAPI, repo, ghPath), ghPath, true
 }
 
 func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
-	ghURL, ghPath := resolveGitHubURL(r.URL.Path)
+	ghURL, ghPath, ok := resolveGitHubURL(r.URL.Path)
+	if !ok {
+		http.Error(w, "invalid path", http.StatusBadRequest)
+		return
+	}
 	if r.URL.RawQuery != "" {
 		ghURL += "?" + r.URL.RawQuery
 	}
@@ -646,7 +667,7 @@ func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 	if err != nil {
 		fetchSpan.RecordError(err)
 		fetchSpan.SetStatus(codes.Error, "read body")
@@ -778,7 +799,7 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 			return fmt.Errorf("fetch %s: %w", path, err)
 		}
 		defer resp.Body.Close()
-		body, err := io.ReadAll(resp.Body)
+		body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 		if err != nil {
 			return fmt.Errorf("read %s: %w", path, err)
 		}
@@ -895,15 +916,21 @@ func handlePipelineSummary(w http.ResponseWriter, r *http.Request) {
 // --- org repo discovery ---
 
 // discoverReposLoop polls the GitHub org API on a fixed interval and updates
-// the discoveredRepos list. Runs as a background goroutine.
-func discoverReposLoop(orgName string) {
+// the discoveredRepos list. Runs as a background goroutine. Exits when ctx is cancelled.
+func discoverReposLoop(ctx context.Context, orgName string) {
 	// Fetch immediately on startup
 	discoverRepos(orgName)
 
 	ticker := time.NewTicker(repoDiscoveryInterval)
 	defer ticker.Stop()
-	for range ticker.C {
-		discoverRepos(orgName)
+	for {
+		select {
+		case <-ctx.Done():
+			slog.Info("repo discovery loop stopped")
+			return
+		case <-ticker.C:
+			discoverRepos(orgName)
+		}
 	}
 }
 
@@ -931,7 +958,7 @@ func discoverRepos(orgName string) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBody))
 		slog.Error("repo discovery: GitHub error", "status", resp.StatusCode, "body", string(body))
 		return
 	}
@@ -957,23 +984,24 @@ func discoverRepos(orgName string) {
 		repos = append(repos, r.discoveredRepo)
 	}
 
+	repoSet := make(map[string]bool, len(repos))
+	for _, r := range repos {
+		repoSet[r.FullName] = true
+	}
+
 	discoveredReposMu.Lock()
 	discoveredRepos = repos
+	discoveredRepoSet = repoSet
 	discoveredReposMu.Unlock()
 
 	slog.Info("repo discovery complete", "org", org, "repos", len(repos))
 }
 
-// isDiscoveredRepo checks if a full_name (owner/repo) is in the discovered list.
+// isDiscoveredRepo checks if a full_name (owner/repo) is in the discovered set. O(1).
 func isDiscoveredRepo(fullName string) bool {
 	discoveredReposMu.RLock()
 	defer discoveredReposMu.RUnlock()
-	for _, r := range discoveredRepos {
-		if r.FullName == fullName {
-			return true
-		}
-	}
-	return false
+	return discoveredRepoSet[fullName]
 }
 
 // getDiscoveredRepos returns a snapshot of the current discovered repos.
