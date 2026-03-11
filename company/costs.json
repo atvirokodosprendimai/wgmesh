@@ -1,19 +1,19 @@
 {
-  "last_updated": null,
+  "last_updated": "2026-03-11",
   "currency": "EUR",
   "runway": {
     "available_capital": 2400,
-    "monthly_burn": null,
-    "months_remaining": null,
+    "monthly_burn": 242,
+    "months_remaining": 9.9,
     "survival_mode": false,
-    "note": "Human must set available_capital. Loop calculates the rest."
+    "note": "Compute is USD-denominated (~20 USD/mo). All others EUR. Loop recalculates each run."
   },
   "categories": {
-    "compute": { "provider": "Hetzner", "monthly_estimate": null },
-    "dns": { "provider": null, "monthly_estimate": null },
-    "domains": { "provider": null, "monthly_estimate": null },
-    "llm": { "provider": "Anthropic", "monthly_estimate": null },
-    "ci": { "provider": "GitHub Actions", "monthly_estimate": null }
+    "compute": { "provider": "Hetzner", "monthly_estimate": 20, "note": "USD — VPS for chimney + cloudroof" },
+    "dns": { "provider": "bundled", "monthly_estimate": 0 },
+    "domains": { "provider": null, "monthly_estimate": 2, "note": "beerpub.dev, cloudroof.eu — annual amortised" },
+    "llm": { "provider": "OpenRouter/Anthropic", "monthly_estimate": 200, "note": "daily loop + goose pipeline + dev" },
+    "ci": { "provider": "GitHub Actions", "monthly_estimate": 20 }
   },
   "principle": "Can this be zero? > Can this be cheap? > Is this necessary?"
 }
