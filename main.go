@@ -1,10 +1,8 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -636,7 +634,7 @@ func saveAccountAPIKey(stateDir, apiKey string) {
 	// Try to load existing account first
 	acct, err := mesh.LoadAccount(accountPath)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+		if os.IsNotExist(err) {
 			// No existing account file; start from an empty account.
 			acct = mesh.AccountConfig{}
 		} else {
