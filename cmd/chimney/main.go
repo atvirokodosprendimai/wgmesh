@@ -47,14 +47,12 @@ import (
 const (
 	githubAPI     = "https://api.github.com"
 	defaultRepo   = "atvirokodosprendimai/wgmesh"
-	defaultOrg    = ""
 	maxCacheSize  = 500
 	clientTimeout = 10 * time.Second
 	redisTimeout  = 200 * time.Millisecond
 	cachePrefix   = "chimney:"
 
 	repoDiscoveryInterval = 15 * time.Minute
-	repoDiscoveryCacheTTL = 20 * time.Minute
 )
 
 // version and wgmeshVersion are set at build time via -ldflags.
@@ -114,7 +112,6 @@ type discoveredRepo struct {
 	Description string `json:"description"`
 	Language    string `json:"language"`
 	OpenIssues  int    `json:"open_issues_count"`
-	Archived    bool   `json:"archived"`
 	UpdatedAt   string `json:"updated_at"`
 	HTMLURL     string `json:"html_url"`
 }
@@ -220,7 +217,7 @@ func main() {
 	addr := flag.String("addr", ":8080", "Listen address")
 	docsDir := flag.String("docs", "./docs", "Path to static dashboard files")
 	flag.StringVar(&repo, "repo", defaultRepo, "GitHub owner/repo (fallback when -org is not set)")
-	flag.StringVar(&org, "org", defaultOrg, "GitHub org for dynamic repo discovery")
+	flag.StringVar(&org, "org", "", "GitHub org for dynamic repo discovery")
 	flag.StringVar(&redisAddr, "redis", "127.0.0.1:6379", "Dragonfly/Redis address")
 	flag.Parse()
 
@@ -310,13 +307,11 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/github/org/repos", handleOrgRepos)
-	mux.HandleFunc("/api/github/org/activity", handleOrgActivity)
 	mux.HandleFunc("/api/github/", handleGitHubProxy)
 	mux.HandleFunc("/healthz", handleHealthz)
 	mux.HandleFunc("/api/cache/stats", handleCacheStats)
 	mux.HandleFunc("/api/version", handleVersion)
 	mux.HandleFunc("/api/pipeline/summary", handlePipelineSummary)
-
 
 	fs := http.FileServer(http.Dir(*docsDir))
 	mux.Handle("/", fs)
@@ -517,8 +512,9 @@ func handleHealthz(w http.ResponseWriter, r *http.Request) {
 // resolveGitHubURL determines the target GitHub API URL from the proxy path.
 // In org mode, paths like /api/github/{owner}/{repo}/pulls are allowed for any
 // discovered repo. In single-repo mode, the configured -repo is always used.
-func resolveGitHubURL(path string) (ghURL, cacheKey, ghPath string, ok bool) {
-	ghPath = strings.TrimPrefix(path, "/api/github")
+// Returns the full GitHub API URL and a cache key derived from the path.
+func resolveGitHubURL(path string) (ghURL, cacheKey string) {
+	ghPath := strings.TrimPrefix(path, "/api/github")
 	if ghPath == "" {
 		ghPath = "/"
 	}
@@ -534,24 +530,22 @@ func resolveGitHubURL(path string) (ghURL, cacheKey, ghPath string, ok bool) {
 				if len(parts) == 3 {
 					remainder = "/" + parts[2]
 				}
-				return fmt.Sprintf("%s/repos/%s%s", githubAPI, candidate, remainder),
-					ghPath, ghPath, true
+				return fmt.Sprintf("%s/repos/%s%s", githubAPI, candidate, remainder), ghPath
 			}
 		}
 	}
 
 	// Fallback: use configured repo
-	return fmt.Sprintf("%s/repos/%s%s", githubAPI, repo, ghPath),
-		ghPath, ghPath, true
+	return fmt.Sprintf("%s/repos/%s%s", githubAPI, repo, ghPath), ghPath
 }
 
 func handleGitHubProxy(w http.ResponseWriter, r *http.Request) {
-	ghURL, cacheKey, ghPath, _ := resolveGitHubURL(r.URL.Path)
+	ghURL, ghPath := resolveGitHubURL(r.URL.Path)
 	if r.URL.RawQuery != "" {
 		ghURL += "?" + r.URL.RawQuery
 	}
 
-	cacheKey = cacheKey + "?" + r.URL.RawQuery
+	cacheKey := ghPath + "?" + r.URL.RawQuery
 	ctx := r.Context()
 	span := trace.SpanFromContext(ctx)
 	span.SetAttributes(attribute.String("chimney.github_path", ghPath))
@@ -942,15 +936,10 @@ func discoverRepos(orgName string) {
 		return
 	}
 
+	// Decode into a temporary struct that includes Archived for filtering.
 	var ghRepos []struct {
-		FullName    string `json:"full_name"`
-		Name        string `json:"name"`
-		Description string `json:"description"`
-		Language    string `json:"language"`
-		OpenIssues  int    `json:"open_issues_count"`
-		Archived    bool   `json:"archived"`
-		UpdatedAt   string `json:"updated_at"`
-		HTMLURL     string `json:"html_url"`
+		discoveredRepo
+		Archived bool `json:"archived"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&ghRepos); err != nil {
 		slog.Error("repo discovery: decode", "error", err)
@@ -965,16 +954,7 @@ func discoverRepos(orgName string) {
 		if reposExclude[r.Name] || reposExclude[r.FullName] {
 			continue
 		}
-		repos = append(repos, discoveredRepo{
-			FullName:    r.FullName,
-			Name:        r.Name,
-			Description: r.Description,
-			Language:    r.Language,
-			OpenIssues:  r.OpenIssues,
-			Archived:    r.Archived,
-			UpdatedAt:   r.UpdatedAt,
-			HTMLURL:     r.HTMLURL,
-		})
+		repos = append(repos, r.discoveredRepo)
 	}
 
 	discoveredReposMu.Lock()
@@ -1026,124 +1006,6 @@ func handleOrgRepos(w http.ResponseWriter, r *http.Request) {
 		"mode":  "org",
 		"repos": repos,
 	})
-}
-
-// handleOrgActivity returns aggregated activity (open PRs) across all discovered repos.
-func handleOrgActivity(w http.ResponseWriter, r *http.Request) {
-	const cacheKey = "__org_activity__"
-	const cacheTTL = 2 * time.Minute
-
-	ctx := r.Context()
-
-	// Serve cached if fresh
-	if entry, ok, _ := cacheGet(ctx, cacheKey); ok && time.Since(entry.FetchedAt) < cacheTTL {
-		counterMu.Lock()
-		cacheHits++
-		counterMu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("X-Cache-Age", fmt.Sprintf("%.0f", time.Since(entry.FetchedAt).Seconds()))
-		w.Write(entry.Body)
-		return
-	}
-
-	counterMu.Lock()
-	cacheMisses++
-	counterMu.Unlock()
-
-	repos := getDiscoveredRepos()
-	if len(repos) == 0 && org == "" {
-		// Single-repo fallback
-		repos = []discoveredRepo{{FullName: repo, Name: strings.SplitN(repo, "/", 2)[1]}}
-	}
-
-	type repoPR struct {
-		Repo     string `json:"repo"`
-		Number   int    `json:"number"`
-		Title    string `json:"title"`
-		User     string `json:"user"`
-		URL      string `json:"html_url"`
-		Created  string `json:"created_at"`
-		Updated  string `json:"updated_at"`
-		Draft    bool   `json:"draft"`
-	}
-
-	type orgActivity struct {
-		Org       string   `json:"org"`
-		RepoCount int      `json:"repo_count"`
-		OpenPRs   []repoPR `json:"open_prs"`
-		FetchedAt string   `json:"fetched_at"`
-	}
-
-	activity := orgActivity{
-		Org:       org,
-		RepoCount: len(repos),
-		FetchedAt: time.Now().UTC().Format(time.RFC3339),
-	}
-
-	// Fetch open PRs for each repo (sequential to stay within rate limits)
-	for _, rp := range repos {
-		url := fmt.Sprintf("%s/repos/%s/pulls?state=open&per_page=30", githubAPI, rp.FullName)
-		req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("Accept", "application/vnd.github+json")
-		req.Header.Set("User-Agent", "chimney/1.0 (cloudroof.eu)")
-		if githubToken != "" {
-			req.Header.Set("Authorization", "Bearer "+githubToken)
-		}
-
-		resp, err := httpClient.Do(req)
-		if err != nil {
-			slog.WarnContext(ctx, "org/activity: fetch PRs", "repo", rp.FullName, "error", err)
-			continue
-		}
-
-		var prs []struct {
-			Number  int    `json:"number"`
-			Title   string `json:"title"`
-			HTMLURL string `json:"html_url"`
-			Created string `json:"created_at"`
-			Updated string `json:"updated_at"`
-			Draft   bool   `json:"draft"`
-			User    struct {
-				Login string `json:"login"`
-			} `json:"user"`
-		}
-		json.NewDecoder(resp.Body).Decode(&prs)
-		resp.Body.Close()
-
-		for _, pr := range prs {
-			activity.OpenPRs = append(activity.OpenPRs, repoPR{
-				Repo:    rp.Name,
-				Number:  pr.Number,
-				Title:   pr.Title,
-				User:    pr.User.Login,
-				URL:     pr.HTMLURL,
-				Created: pr.Created,
-				Updated: pr.Updated,
-				Draft:   pr.Draft,
-			})
-		}
-	}
-
-	body, err := json.Marshal(activity)
-	if err != nil {
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	cacheSet(ctx, cacheKey, &cachedResponse{
-		Body:       body,
-		StatusCode: http.StatusOK,
-		Headers:    map[string]string{"Content-Type": "application/json"},
-		FetchedAt:  time.Now(),
-	}, cacheTTL)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Write(body)
 }
 
 // --- multi-handler for slog ---
