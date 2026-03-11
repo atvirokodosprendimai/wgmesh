@@ -64,6 +64,11 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		return nil, fmt.Errorf("failed to derive keys: %w", err)
 	}
 
+	// Validate interface name before applying defaults.
+	if err := ValidateInterfaceName(opts.InterfaceName); err != nil {
+		return nil, fmt.Errorf("invalid interface name: %w", err)
+	}
+
 	// Set defaults
 	ifaceName := opts.InterfaceName
 	if ifaceName == "" {
