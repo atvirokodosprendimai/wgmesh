@@ -1024,7 +1024,7 @@ async function fetchPipelineSummary() {
     if (mergeEl && data.last_merged_pr) {
       const pr = data.last_merged_pr;
       const when = pr.merged_at ? new Date(pr.merged_at).toLocaleDateString() : '';
-      mergeEl.innerHTML = `<a href="https://github.com/atvirokodosprendimai/wgmesh/pull/${pr.number}" target="_blank" rel="noopener noreferrer">#${pr.number}</a> ${when}`;
+      mergeEl.innerHTML = `<a href="https://github.com/atvirokodosprendimai/wgmesh/pull/${escAttr(pr.number)}" target="_blank" rel="noopener noreferrer">#${escHtml(pr.number)}</a> ${escHtml(when)}`;
     }
   } catch (e) {
     console.warn('pipeline/summary fetch failed (local dev?):', e.message);
