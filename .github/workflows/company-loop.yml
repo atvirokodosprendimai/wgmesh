@@ -156,7 +156,7 @@ jobs:
           cat > /tmp/assessment.md <<MDEOF
           # Assessment: $today
 
-          **Stage**: $stage | **Run**: $(jq -r '.run_count // 0' company/loop-state.json)
+          **Stage**: $stage | **Run**: $(( $(jq -r '.run_count // 0' company/loop-state.json) + 1 ))
 
           $narrative
 
