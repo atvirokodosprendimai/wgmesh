@@ -31,6 +31,13 @@ ReadWritePaths=/var/lib/wgmesh
 WantedBy=multi-user.target
 `
 
+// shellQuoteSystemd wraps s in single quotes for safe interpolation into
+// shell commands (the systemd unit's ExecStart uses sh -c). Any embedded
+// single quotes are escaped as '\''.
+func shellQuoteSystemd(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // SystemdServiceConfig holds configuration for generating the systemd service
 type SystemdServiceConfig struct {
 	Secret              string
@@ -65,7 +72,8 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	args := []string{cfg.BinaryPath, "join", "--secret", "${WGMESH_SECRET}"}
 
 	if cfg.InterfaceName != "" && cfg.InterfaceName != DefaultInterface {
-		args = append(args, "--interface", cfg.InterfaceName)
+		// Shell-quote the interface name because ExecStart runs inside sh -c.
+		args = append(args, "--interface", shellQuoteSystemd(cfg.InterfaceName))
 	}
 	if cfg.ListenPort != 0 && cfg.ListenPort != DefaultWGPort {
 		args = append(args, "--listen-port", fmt.Sprintf("%d", cfg.ListenPort))

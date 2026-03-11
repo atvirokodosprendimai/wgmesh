@@ -6,8 +6,15 @@ import (
 	"os/exec"
 	"strings"
 
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ifname"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 )
+
+// shellQuote wraps s in single quotes for safe interpolation into shell
+// commands. Any embedded single quotes are escaped as '\''.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // wgPath is the absolute path to the wg binary, resolved once at package init.
 // Falls back to "wg" (PATH lookup at exec time) if LookPath fails.
@@ -58,37 +65,46 @@ type PeerTransfer struct {
 // ApplyFullConfiguration creates a fresh WireGuard interface on the remote host
 // and applies the given full configuration over SSH.
 func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig) error {
-	fmt.Println("  Creating fresh WireGuard configuration...")
-
-	if _, err := client.Run(fmt.Sprintf("ip link del %s 2>/dev/null || true", iface)); err != nil {
+	// Defense-in-depth: validate before interpolating into shell commands.
+	if err := ifname.Validate(iface); err != nil {
+		return fmt.Errorf("invalid interface name: %w", err)
 	}
 
-	if _, err := client.Run(fmt.Sprintf("ip link add %s type wireguard", iface)); err != nil {
+	fmt.Println("  Creating fresh WireGuard configuration...")
+
+	// Shell-quote iface in all client.Run calls (defense-in-depth).
+	qi := shellQuote(iface)
+
+	if _, err := client.Run(fmt.Sprintf("ip link del %s 2>/dev/null || true", qi)); err != nil {
+	}
+
+	if _, err := client.Run(fmt.Sprintf("ip link add %s type wireguard", qi)); err != nil {
 		return fmt.Errorf("failed to create interface: %w", err)
 	}
 
 	tmpKeyFile := fmt.Sprintf("/tmp/wg-key-%s", iface)
+	qk := shellQuote(tmpKeyFile)
 	if err := client.WriteFile(tmpKeyFile, []byte(config.Interface.PrivateKey), 0600); err != nil {
 		return fmt.Errorf("failed to write private key: %w", err)
 	}
-	defer client.Run(fmt.Sprintf("rm -f %s", tmpKeyFile))
+	defer client.Run(fmt.Sprintf("rm -f %s", qk))
 
 	cmd := fmt.Sprintf("wg set %s private-key %s listen-port %d",
-		iface, tmpKeyFile, config.Interface.ListenPort)
+		qi, qk, config.Interface.ListenPort)
 	if _, err := client.Run(cmd); err != nil {
 		return fmt.Errorf("failed to set interface config: %w", err)
 	}
 
-	if _, err := client.Run(fmt.Sprintf("ip addr add %s dev %s", config.Interface.Address, iface)); err != nil {
+	if _, err := client.Run(fmt.Sprintf("ip addr add %s dev %s", config.Interface.Address, qi)); err != nil {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}
 
-	if _, err := client.Run(fmt.Sprintf("ip link set %s up", iface)); err != nil {
+	if _, err := client.Run(fmt.Sprintf("ip link set %s up", qi)); err != nil {
 		return fmt.Errorf("failed to bring interface up: %w", err)
 	}
 
 	for _, peer := range config.Peers {
-		peerCmd := fmt.Sprintf("wg set %s peer %s", iface, peer.PublicKey)
+		peerCmd := fmt.Sprintf("wg set %s peer %s", qi, peer.PublicKey)
 
 		if peer.Endpoint != "" {
 			peerCmd += fmt.Sprintf(" endpoint %s", peer.Endpoint)

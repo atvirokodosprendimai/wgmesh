@@ -27,8 +27,8 @@ func TestGenerateSystemdUnit(t *testing.T) {
 	if !strings.Contains(unit, "/usr/local/bin/wgmesh") {
 		t.Error("Unit should contain binary path")
 	}
-	if !strings.Contains(unit, "--interface wg1") {
-		t.Error("Unit should contain interface flag")
+	if !strings.Contains(unit, "--interface 'wg1'") {
+		t.Error("Unit should contain shell-quoted interface flag")
 	}
 	if !strings.Contains(unit, "--listen-port 51821") {
 		t.Error("Unit should contain listen port flag")

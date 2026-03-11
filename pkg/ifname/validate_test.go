@@ -1,4 +1,4 @@
-package daemon
+package ifname
 
 import (
 	"runtime"
@@ -6,9 +6,9 @@ import (
 	"testing"
 )
 
-func TestValidateInterfaceName(t *testing.T) {
+func TestValidate(t *testing.T) {
 	t.Run("empty string uses default", func(t *testing.T) {
-		if err := ValidateInterfaceName(""); err != nil {
+		if err := Validate(""); err != nil {
 			t.Errorf("unexpected error: %v", err)
 		}
 	})
@@ -27,7 +27,7 @@ func TestValidateInterfaceName(t *testing.T) {
 	}
 	for _, tt := range pathTraversal {
 		t.Run("path_traversal/"+tt.name, func(t *testing.T) {
-			err := ValidateInterfaceName(tt.input)
+			err := Validate(tt.input)
 			if err == nil {
 				t.Fatalf("expected error for %q", tt.input)
 			}
@@ -39,7 +39,7 @@ func TestValidateInterfaceName(t *testing.T) {
 
 	// ── Null bytes (all platforms) ──────────────────────────────
 	t.Run("null byte", func(t *testing.T) {
-		err := ValidateInterfaceName("wg0\x00evil")
+		err := Validate("wg0\x00evil")
 		if err == nil {
 			t.Fatal("expected error for null byte")
 		}
@@ -64,14 +64,14 @@ func TestValidateInterfaceName(t *testing.T) {
 	}
 	for _, tt := range shellMeta {
 		t.Run("shell_meta/"+tt.name, func(t *testing.T) {
-			if err := ValidateInterfaceName(tt.input); err == nil {
+			if err := Validate(tt.input); err == nil {
 				t.Errorf("expected error for %q", tt.input)
 			}
 		})
 	}
 }
 
-func TestValidateInterfaceName_Linux(t *testing.T) {
+func TestValidate_Linux(t *testing.T) {
 	if runtime.GOOS == "darwin" {
 		t.Skip("Linux-specific tests")
 	}
@@ -89,7 +89,7 @@ func TestValidateInterfaceName_Linux(t *testing.T) {
 	}
 	for _, tt := range valid {
 		t.Run("valid/"+tt.name, func(t *testing.T) {
-			if err := ValidateInterfaceName(tt.input); err != nil {
+			if err := Validate(tt.input); err != nil {
 				t.Errorf("unexpected error for %q: %v", tt.input, err)
 			}
 		})
@@ -107,7 +107,7 @@ func TestValidateInterfaceName_Linux(t *testing.T) {
 	}
 	for _, tt := range invalid {
 		t.Run("invalid/"+tt.name, func(t *testing.T) {
-			err := ValidateInterfaceName(tt.input)
+			err := Validate(tt.input)
 			if err == nil {
 				t.Fatalf("expected error for %q", tt.input)
 			}
@@ -118,7 +118,7 @@ func TestValidateInterfaceName_Linux(t *testing.T) {
 	}
 }
 
-func TestValidateInterfaceName_Darwin(t *testing.T) {
+func TestValidate_Darwin(t *testing.T) {
 	if runtime.GOOS != "darwin" {
 		t.Skip("macOS-specific tests")
 	}
@@ -133,7 +133,7 @@ func TestValidateInterfaceName_Darwin(t *testing.T) {
 	}
 	for _, tt := range valid {
 		t.Run("valid/"+tt.name, func(t *testing.T) {
-			if err := ValidateInterfaceName(tt.input); err != nil {
+			if err := Validate(tt.input); err != nil {
 				t.Errorf("unexpected error for %q: %v", tt.input, err)
 			}
 		})
@@ -153,7 +153,7 @@ func TestValidateInterfaceName_Darwin(t *testing.T) {
 	}
 	for _, tt := range invalid {
 		t.Run("invalid/"+tt.name, func(t *testing.T) {
-			err := ValidateInterfaceName(tt.input)
+			err := Validate(tt.input)
 			if err == nil {
 				t.Fatalf("expected error for %q", tt.input)
 			}
