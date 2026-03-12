@@ -89,41 +89,46 @@ emit_event() {
 
 # Shared SSH options — single source of truth for all remote commands.
 # ConnectTimeout=10s, keepalive every 15s with 4 retries (~60s dead session kill).
-_ssh_opts() {
-    echo -o StrictHostKeyChecking=no \
-         -o UserKnownHostsFile=/dev/null \
-         -o ConnectTimeout=10 \
-         -o ServerAliveInterval=15 \
-         -o ServerAliveCountMax=4 \
-         -o LogLevel=ERROR \
-         -i "$SSH_KEY_FILE"
+# Populated lazily (SSH_KEY_FILE must be set before first use).
+SSH_OPTS=()
+_ensure_ssh_opts() {
+    [ ${#SSH_OPTS[@]} -gt 0 ] && return
+    SSH_OPTS=(
+        -o StrictHostKeyChecking=no
+        -o UserKnownHostsFile=/dev/null
+        -o ConnectTimeout=10
+        -o ServerAliveInterval=15
+        -o ServerAliveCountMax=4
+        -o LogLevel=ERROR
+        -i "$SSH_KEY_FILE"
+    )
 }
 
 # Run a command on a remote node via SSH.
 # Usage: run_on <node-name> <command...>
 run_on() {
+    _ensure_ssh_opts
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
-    # shellcheck disable=SC2046
-    ssh $(_ssh_opts) "root@${ip}" "$@"
+    ssh "${SSH_OPTS[@]}" "root@${ip}" "$@"
 }
 
 # Run a command on a remote node, tolerating failure.
 # Always returns 0 — errors are silently swallowed.
 run_on_ok() {
+    _ensure_ssh_opts
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
-    # shellcheck disable=SC2046
-    ssh $(_ssh_opts) "root@${ip}" "$@" 2>/dev/null || true
+    ssh "${SSH_OPTS[@]}" "root@${ip}" "$@" 2>/dev/null || true
 }
 
 # Copy a file to a remote node.
 # Usage: copy_to <node-name> <local-path> <remote-path>
 copy_to() {
+    _ensure_ssh_opts
     local node="$1" src="$2" dst="$3"
     local ip="${NODE_IPS[$node]}"
-    # shellcheck disable=SC2046
-    scp $(_ssh_opts) "$src" "root@${ip}:${dst}"
+    scp "${SSH_OPTS[@]}" "$src" "root@${ip}:${dst}"
 }
 
 # Run a command on ALL nodes in parallel, wait for all.
