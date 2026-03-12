@@ -178,25 +178,52 @@ jobs:
 
           RECIPE=".github/goose-recipes/wgmesh-review.yaml"
 
-          # OpenRouter handles provider routing and failover via BYOK keys.
-          # No bash cascade needed — configure BYOK keys in OpenRouter dashboard.
-          goose_ok=false
-          goose_code=0
-          timeout 2700 goose run \
-            --recipe "$RECIPE" \
-            --no-session \
-            2>&1 | tee /tmp/goose-review-output.log || goose_code=$?
+          # Model cascade via OpenRouter: GLM-5 (cheap) → Claude Sonnet (fallback).
+          # Both use the same OPENROUTER_API_KEY — no extra secrets needed.
+          run_goose() {
+            local model="$1" label="$2"
+            echo "::group::Trying $label"
 
-          if [ "$goose_code" -eq 0 ] || [ "$goose_code" -eq 124 ]; then
-            goose_ok=true
-            [ "$goose_code" -eq 124 ] && echo "::warning::Goose timed out (likely hung after completing work)"
-          else
-            echo "::warning::Goose exited with status $goose_code"
-            # Log last 20 lines for debugging
+            sed -i "s|goose_model:.*|goose_model: \"$model\"|" "$RECIPE"
+
+            local code=0
+            timeout 2700 goose run \
+              --recipe "$RECIPE" \
+              --no-session \
+              2>&1 | tee /tmp/goose-review-output.log || code=$?
+
+            # Check for credit/auth/model errors
+            if grep -qiE '(add more credits|insufficient.*(funds|credits|balance)|rate.limit|unauthorized|api.key.not.found|model.*not.*found|not.*available)' /tmp/goose-review-output.log; then
+              echo "::warning::$label: error detected, trying next model"
+              echo "::endgroup::"
+              return 1
+            fi
+
+            if [ "$code" -eq 0 ] || [ "$code" -eq 124 ]; then
+              [ "$code" -eq 124 ] && echo "::warning::Goose timed out (likely hung after completing work)"
+              echo "::endgroup::"
+              return 0
+            fi
+
+            echo "::warning::$label: Goose exited with status $code"
             tail -20 /tmp/goose-review-output.log
+            echo "::endgroup::"
+            return 1
+          }
+
+          goose_ok=false
+
+          # Cascade: GLM-5 (fast, cheap) → Claude Sonnet (proven fallback)
+          if run_goose "z-ai/glm-5" "GLM-5"; then
+            goose_ok=true
+          elif run_goose "anthropic/claude-sonnet-4" "Claude Sonnet"; then
+            goose_ok=true
           fi
 
           echo "goose_ok=$goose_ok" >> "$GITHUB_OUTPUT"
+          if [ "$goose_ok" = false ]; then
+            echo "::warning::All models failed"
+          fi
 
       - name: Commit and push changes
         id: push
