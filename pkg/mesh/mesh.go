@@ -32,12 +32,12 @@ func InitializeWithNetwork(stateFile, network string) error {
 
 	meshNetwork := "10.99.0.0/16"
 	if network != "" {
-		// Validate the CIDR
-		_, _, err := net.ParseCIDR(network)
+		// Validate and normalize the CIDR (host bits are zeroed by ParseCIDR)
+		_, parsedNet, err := net.ParseCIDR(network)
 		if err != nil {
 			return fmt.Errorf("invalid network CIDR %q: %w", network, err)
 		}
-		meshNetwork = network
+		meshNetwork = parsedNet.String()
 	}
 
 	m := &Mesh{

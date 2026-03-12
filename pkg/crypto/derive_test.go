@@ -338,6 +338,23 @@ func TestDeriveMeshIPInSubnetTooSmall(t *testing.T) {
 	}
 }
 
+func TestDeriveMeshIPInSubnetRejectsIPv6(t *testing.T) {
+	for _, cidr := range []string{"fd00::/64", "2001:db8::/32", "::1/128"} {
+		_, subnet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			t.Fatalf("failed to parse %s: %v", cidr, err)
+		}
+		_, err = DeriveMeshIPInSubnet(subnet, "pubkey", "test-secret-that-is-long-enough")
+		if err == nil {
+			t.Errorf("Expected error for IPv6 subnet %s, got nil", cidr)
+		}
+		_, err = DeriveMeshIPInSubnetWithNonce(subnet, "pubkey", "test-secret-that-is-long-enough", 1)
+		if err == nil {
+			t.Errorf("Expected error for IPv6 subnet %s with nonce, got nil", cidr)
+		}
+	}
+}
+
 func TestDeriveMeshIPInSubnetNoNetworkOrBroadcast(t *testing.T) {
 	_, subnet, _ := net.ParseCIDR("192.168.100.0/24")
 	secret := "test-secret-that-is-long-enough"

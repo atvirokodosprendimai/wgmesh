@@ -6,11 +6,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"runtime"
 	"strings"
-
-	"net"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
