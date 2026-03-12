@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"fmt"
+	"net"
 	"testing"
 	"time"
 )
@@ -238,6 +239,189 @@ func TestMeshID(t *testing.T) {
 	keys3, _ := DeriveKeys("different-secret-long-enough")
 	if meshID == keys3.MeshID() {
 		t.Error("Different secrets produced same MeshID")
+	}
+}
+
+func TestDeriveMeshIPInSubnet24(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR("192.168.100.0/24")
+	secret := "test-secret-that-is-long-enough"
+
+	ip1, err := DeriveMeshIPInSubnet(subnet, "pubkey1", secret)
+	if err != nil {
+		t.Fatalf("DeriveMeshIPInSubnet failed: %v", err)
+	}
+
+	// Must be within 192.168.100.1 - 192.168.100.254
+	parsed := net.ParseIP(ip1)
+	if parsed == nil {
+		t.Fatalf("Invalid IP: %s", ip1)
+	}
+	if !subnet.Contains(parsed) {
+		t.Errorf("IP %s not in subnet %s", ip1, subnet)
+	}
+
+	var a, b, c, d int
+	fmt.Sscanf(ip1, "%d.%d.%d.%d", &a, &b, &c, &d)
+	if a != 192 || b != 168 || c != 100 {
+		t.Errorf("Expected 192.168.100.x, got %s", ip1)
+	}
+	if d < 1 || d > 254 {
+		t.Errorf("Last octet should be in [1,254], got %d", d)
+	}
+
+	// Deterministic
+	ip2, _ := DeriveMeshIPInSubnet(subnet, "pubkey1", secret)
+	if ip1 != ip2 {
+		t.Errorf("Not deterministic: %s vs %s", ip1, ip2)
+	}
+
+	// Different pubkeys → different IPs
+	ip3, _ := DeriveMeshIPInSubnet(subnet, "pubkey2", secret)
+	if ip1 == ip3 {
+		t.Error("Different pubkeys should produce different IPs")
+	}
+}
+
+func TestDeriveMeshIPInSubnet16(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR("10.42.0.0/16")
+	secret := "test-secret-that-is-long-enough"
+
+	ip, err := DeriveMeshIPInSubnet(subnet, "pubkey1", secret)
+	if err != nil {
+		t.Fatalf("DeriveMeshIPInSubnet failed: %v", err)
+	}
+
+	parsed := net.ParseIP(ip)
+	if !subnet.Contains(parsed) {
+		t.Errorf("IP %s not in subnet %s", ip, subnet)
+	}
+
+	var a, b int
+	fmt.Sscanf(ip, "%d.%d.", &a, &b)
+	if a != 10 || b != 42 {
+		t.Errorf("Expected 10.42.x.y, got %s", ip)
+	}
+}
+
+func TestDeriveMeshIPInSubnet28(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR("172.16.5.0/28")
+	secret := "test-secret-that-is-long-enough"
+
+	// /28 = 16 addresses, 14 usable hosts
+	for i := 0; i < 100; i++ {
+		pubkey := fmt.Sprintf("pubkey-%d", i)
+		ip, err := DeriveMeshIPInSubnet(subnet, pubkey, secret)
+		if err != nil {
+			t.Fatalf("DeriveMeshIPInSubnet failed for %s: %v", pubkey, err)
+		}
+		parsed := net.ParseIP(ip)
+		if !subnet.Contains(parsed) {
+			t.Errorf("IP %s not in subnet %s (pubkey=%s)", ip, subnet, pubkey)
+		}
+
+		var a, b, c, d int
+		fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d)
+		// In /28 from .0, network=.0 broadcast=.15, hosts .1-.14
+		if d < 1 || d > 14 {
+			t.Errorf("IP %s out of /28 host range [1,14] (pubkey=%s)", ip, pubkey)
+		}
+	}
+}
+
+func TestDeriveMeshIPInSubnetTooSmall(t *testing.T) {
+	for _, cidr := range []string{"10.0.0.0/31", "10.0.0.0/32"} {
+		_, subnet, _ := net.ParseCIDR(cidr)
+		_, err := DeriveMeshIPInSubnet(subnet, "pubkey", "test-secret-that-is-long-enough")
+		if err == nil {
+			t.Errorf("Expected error for subnet %s", cidr)
+		}
+	}
+}
+
+func TestDeriveMeshIPInSubnetRejectsIPv6(t *testing.T) {
+	for _, cidr := range []string{"fd00::/64", "2001:db8::/32", "::1/128"} {
+		_, subnet, err := net.ParseCIDR(cidr)
+		if err != nil {
+			t.Fatalf("failed to parse %s: %v", cidr, err)
+		}
+		_, err = DeriveMeshIPInSubnet(subnet, "pubkey", "test-secret-that-is-long-enough")
+		if err == nil {
+			t.Errorf("Expected error for IPv6 subnet %s, got nil", cidr)
+		}
+		_, err = DeriveMeshIPInSubnetWithNonce(subnet, "pubkey", "test-secret-that-is-long-enough", 1)
+		if err == nil {
+			t.Errorf("Expected error for IPv6 subnet %s with nonce, got nil", cidr)
+		}
+	}
+}
+
+func TestDeriveMeshIPInSubnetNoNetworkOrBroadcast(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR("192.168.100.0/24")
+	secret := "test-secret-that-is-long-enough"
+
+	for i := 0; i < 1000; i++ {
+		pubkey := fmt.Sprintf("pubkey-%d", i)
+		ip, err := DeriveMeshIPInSubnet(subnet, pubkey, secret)
+		if err != nil {
+			t.Fatalf("failed: %v", err)
+		}
+		var a, b, c, d int
+		fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d)
+		if d == 0 || d == 255 {
+			t.Errorf("Generated network/broadcast address: %s (pubkey=%s)", ip, pubkey)
+		}
+	}
+}
+
+func TestDeriveMeshIPInSubnetWithNonce(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR("192.168.100.0/24")
+	secret := "test-secret-that-is-long-enough"
+	pubkey := "pubkey1"
+
+	ip0, _ := DeriveMeshIPInSubnet(subnet, pubkey, secret)
+	ip1, err := DeriveMeshIPInSubnetWithNonce(subnet, pubkey, secret, 1)
+	if err != nil {
+		t.Fatalf("DeriveMeshIPInSubnetWithNonce failed: %v", err)
+	}
+
+	// Nonce should produce a different IP
+	if ip0 == ip1 {
+		t.Error("Nonce=1 should produce different IP than base derivation")
+	}
+
+	// Must still be in subnet
+	parsed := net.ParseIP(ip1)
+	if !subnet.Contains(parsed) {
+		t.Errorf("Nonce IP %s not in subnet %s", ip1, subnet)
+	}
+
+	// Deterministic
+	ip1b, _ := DeriveMeshIPInSubnetWithNonce(subnet, pubkey, secret, 1)
+	if ip1 != ip1b {
+		t.Error("Nonce derivation not deterministic")
+	}
+}
+
+func TestParseSubnetOrDefault(t *testing.T) {
+	// Empty → nil
+	subnet, err := ParseSubnetOrDefault("")
+	if err != nil || subnet != nil {
+		t.Errorf("Empty should return nil, got %v err=%v", subnet, err)
+	}
+
+	// Valid CIDR
+	subnet, err = ParseSubnetOrDefault("192.168.100.0/24")
+	if err != nil {
+		t.Fatalf("ParseSubnetOrDefault failed: %v", err)
+	}
+	if subnet.String() != "192.168.100.0/24" {
+		t.Errorf("Expected 192.168.100.0/24, got %s", subnet)
+	}
+
+	// Invalid CIDR
+	_, err = ParseSubnetOrDefault("not-a-cidr")
+	if err == nil {
+		t.Error("Expected error for invalid CIDR")
 	}
 }
 

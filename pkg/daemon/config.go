@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"runtime"
 	"strings"
@@ -36,6 +37,7 @@ type Config struct {
 	DisableIPv6     bool
 	ForceRelay      bool
 	DisablePunching bool
+	CustomSubnet    *net.IPNet // User-specified mesh subnet (nil = use derived)
 }
 
 // DaemonOpts holds options for the daemon
@@ -52,6 +54,7 @@ type DaemonOpts struct {
 	DisableIPv6         bool
 	ForceRelay          bool
 	DisablePunching     bool
+	MeshSubnet          string // Custom mesh subnet CIDR (e.g. "192.168.100.0/24")
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -96,6 +99,24 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		logLevel = "info"
 	}
 
+	// Parse and validate custom subnet if provided
+	customSubnet, err := crypto.ParseSubnetOrDefault(opts.MeshSubnet)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mesh subnet: %w", err)
+	}
+	if customSubnet != nil {
+		if customSubnet.IP.To4() == nil {
+			return nil, fmt.Errorf("mesh subnet must be an IPv4 CIDR, got %q", customSubnet.String())
+		}
+		ones, bits := customSubnet.Mask.Size()
+		if bits != 32 {
+			return nil, fmt.Errorf("mesh subnet must be an IPv4 CIDR, got %q", customSubnet.String())
+		}
+		if bits-ones < 2 {
+			return nil, fmt.Errorf("mesh subnet /%d is too small (need at least /30 for 2 host addresses)", ones)
+		}
+	}
+
 	return &Config{
 		Secret:          secret,
 		Keys:            keys,
@@ -110,7 +131,18 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		DisableIPv6:     opts.DisableIPv6,
 		ForceRelay:      opts.ForceRelay,
 		DisablePunching: opts.DisablePunching,
+		CustomSubnet:    customSubnet,
 	}, nil
+}
+
+// PrefixLen returns the prefix length for the mesh subnet.
+// Uses CustomSubnet mask if set, otherwise defaults to 16.
+func (c *Config) PrefixLen() int {
+	if c.CustomSubnet != nil {
+		ones, _ := c.CustomSubnet.Mask.Size()
+		return ones
+	}
+	return 16
 }
 
 // GenerateSecret generates a new random mesh secret

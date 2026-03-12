@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"net"
 	"testing"
 )
 
@@ -77,17 +78,48 @@ func TestDeriveMeshIPWithCollisionCheck(t *testing.T) {
 
 	existingIPs := map[string]string{} // No existing IPs
 
-	ip := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs)
+	// Legacy mode (nil custom subnet)
+	ip := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs, nil)
 	if ip == "" {
 		t.Error("Expected non-empty IP")
 	}
 
 	// Test with a collision
 	existingIPs[ip] = "other-pubkey"
-	ip2 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs)
+	ip2 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs, nil)
 
 	// Should get a different IP due to nonce
 	if ip == ip2 {
 		t.Error("Should derive different IP when collision exists")
+	}
+}
+
+func TestDeriveMeshIPWithCollisionCheckCustomSubnet(t *testing.T) {
+	meshSubnet := [2]byte{42, 0}
+	secret := "test-secret-that-is-long-enough"
+	_, customSubnet, _ := net.ParseCIDR("192.168.100.0/24")
+
+	existingIPs := map[string]string{}
+
+	ip := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs, customSubnet)
+	if ip == "" {
+		t.Error("Expected non-empty IP")
+	}
+
+	// Must be in custom subnet
+	parsed := net.ParseIP(ip)
+	if !customSubnet.Contains(parsed) {
+		t.Errorf("IP %s not in custom subnet %s", ip, customSubnet)
+	}
+
+	// Test collision within custom subnet
+	existingIPs[ip] = "other-pubkey"
+	ip2 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs, customSubnet)
+	if ip == ip2 {
+		t.Error("Should derive different IP when collision exists")
+	}
+	parsed2 := net.ParseIP(ip2)
+	if !customSubnet.Contains(parsed2) {
+		t.Errorf("Collision-resolved IP %s not in custom subnet %s", ip2, customSubnet)
 	}
 }
