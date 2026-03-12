@@ -310,7 +310,15 @@ func (d *Daemon) initLocalNode() error {
 	if err == nil && node != nil {
 		d.localNode = node
 		// Derive mesh IP from pubkey
-		d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
+		if d.config.CustomSubnet != nil {
+			ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret)
+			if err != nil {
+				return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
+			}
+			d.localNode.MeshIP = ip
+		} else {
+			d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
+		}
 		d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret)
 		d.localNode.RoutableNetworks = d.config.AdvertiseRoutes
 		d.localNode.Introducer = d.config.Introducer
@@ -325,7 +333,16 @@ func (d *Daemon) initLocalNode() error {
 	}
 
 	// Derive mesh IP from public key
-	meshIP := crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, publicKey, d.config.Secret)
+	var meshIP string
+	if d.config.CustomSubnet != nil {
+		ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, publicKey, d.config.Secret)
+		if err != nil {
+			return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
+		}
+		meshIP = ip
+	} else {
+		meshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, publicKey, d.config.Secret)
+	}
 	meshIPv6 := crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, publicKey, d.config.Secret)
 
 	d.localNode = &LocalNode{
@@ -388,8 +405,13 @@ func (d *Daemon) setupWireGuard() error {
 		return fmt.Errorf("failed to configure interface: %w", err)
 	}
 
-	// Set IP address
-	if err := setInterfaceAddress(d.config.InterfaceName, d.localNode.MeshIP+"/16"); err != nil {
+	// Set IP address with correct prefix length
+	prefixLen := 16 // default for derived /16 subnet
+	if d.config.CustomSubnet != nil {
+		ones, _ := d.config.CustomSubnet.Mask.Size()
+		prefixLen = ones
+	}
+	if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.MeshIP, prefixLen)); err != nil {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}
 	if d.localNode.MeshIPv6 != "" {
