@@ -111,7 +111,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 				ip, err := crypto.DeriveMeshIPInSubnetWithNonce(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
 				if err != nil {
 					log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet: %v — keeping current IP", err)
-					return
+					continue
 				}
 				newIP = ip
 			} else {
@@ -127,7 +127,9 @@ func (d *Daemon) CheckAndResolveCollisions() {
 		} else {
 			// The loser is a remote peer - update our expectation of their IP
 			newIP := ResolveCollision(collision, d.config.Keys.MeshSubnet, d.config.Secret, d.config.CustomSubnet)
-			log.Printf("[Collision] Remote peer %s should re-derive to %s", safeKeyPrefix(loser.WGPubKey), newIP)
+			if newIP != "" {
+				log.Printf("[Collision] Remote peer %s should re-derive to %s", safeKeyPrefix(loser.WGPubKey), newIP)
+			}
 		}
 	}
 }
