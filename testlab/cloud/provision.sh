@@ -105,6 +105,8 @@ provision_vms() {
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=5 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=4 \
             -o LogLevel=ERROR \
             -i "$SSH_KEY_FILE" \
             "root@${ip}" "true"
