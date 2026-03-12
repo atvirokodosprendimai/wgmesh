@@ -203,6 +203,85 @@ func DeriveMeshIPv6(meshPrefixV6 [8]byte, wgPubKey, secret string) string {
 	return ip.String()
 }
 
+// DeriveMeshIPInSubnet derives a deterministic mesh IP within an arbitrary subnet.
+// The host part is computed as: hash(wgPubKey + secret) mod (hostSpace - 2) + 1,
+// skipping the network (.0) and broadcast (last) addresses.
+// Returns an error if the subnet is too small (fewer than 2 host bits).
+func DeriveMeshIPInSubnet(subnet *net.IPNet, wgPubKey, secret string) (string, error) {
+	ones, bits := subnet.Mask.Size()
+	hostBits := bits - ones
+	if hostBits < 2 {
+		return "", fmt.Errorf("subnet /%d too small: need at least 2 host bits (/%d max)", ones, bits-2)
+	}
+
+	// Number of usable host addresses (exclude network and broadcast)
+	maxHosts := (uint64(1) << hostBits) - 2
+
+	input := wgPubKey + secret
+	hash := sha256.Sum256([]byte(input))
+
+	// Use first 8 bytes of hash for host number to support large subnets
+	hostNum := binary.BigEndian.Uint64(hash[:8]) % maxHosts
+	hostNum += 1 // skip network address
+
+	// Copy the network address and add the host number
+	ip := make(net.IP, len(subnet.IP))
+	copy(ip, subnet.IP)
+
+	// Apply host number to the IP bytes (big-endian addition from the right)
+	remaining := hostNum
+	for i := len(ip) - 1; i >= 0 && remaining > 0; i-- {
+		sum := uint64(ip[i]) + (remaining & 0xFF)
+		ip[i] = byte(sum & 0xFF)
+		remaining = (remaining >> 8) + (sum >> 8)
+	}
+
+	return ip.String(), nil
+}
+
+// DeriveMeshIPInSubnetWithNonce derives a mesh IP within an arbitrary subnet
+// using a collision avoidance nonce. Used when the primary derivation collides.
+func DeriveMeshIPInSubnetWithNonce(subnet *net.IPNet, wgPubKey, secret string, nonce int) (string, error) {
+	ones, bits := subnet.Mask.Size()
+	hostBits := bits - ones
+	if hostBits < 2 {
+		return "", fmt.Errorf("subnet /%d too small: need at least 2 host bits (/%d max)", ones, bits-2)
+	}
+
+	maxHosts := (uint64(1) << hostBits) - 2
+
+	input := fmt.Sprintf("%d:%s|%d:%s|nonce=%d", len(wgPubKey), wgPubKey, len(secret), secret, nonce)
+	hash := sha256.Sum256([]byte(input))
+
+	hostNum := binary.BigEndian.Uint64(hash[:8]) % maxHosts
+	hostNum += 1
+
+	ip := make(net.IP, len(subnet.IP))
+	copy(ip, subnet.IP)
+
+	remaining := hostNum
+	for i := len(ip) - 1; i >= 0 && remaining > 0; i-- {
+		sum := uint64(ip[i]) + (remaining & 0xFF)
+		ip[i] = byte(sum & 0xFF)
+		remaining = (remaining >> 8) + (sum >> 8)
+	}
+
+	return ip.String(), nil
+}
+
+// ParseSubnetOrDefault parses a CIDR string into a net.IPNet.
+// If cidr is empty, returns nil (caller should use legacy derivation).
+func ParseSubnetOrDefault(cidr string) (*net.IPNet, error) {
+	if cidr == "" {
+		return nil, nil
+	}
+	_, subnet, err := net.ParseCIDR(cidr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid subnet CIDR %q: %w", cidr, err)
+	}
+	return subnet, nil
+}
+
 // MeshID returns a 12-character hex string derived from the NetworkID.
 // This is used in managed DNS names: <service>.<mesh-id>.wgmesh.dev
 func (dk *DerivedKeys) MeshID() string {
