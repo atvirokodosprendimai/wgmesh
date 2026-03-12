@@ -95,15 +95,31 @@ func TestNewConfigDefaultInterfaceName(t *testing.T) {
 }
 
 func TestNewConfigExplicitInterfaceName(t *testing.T) {
+	// Use an OS-appropriate custom name (macOS requires utunN pattern).
+	customName := "custom0"
+	if runtime.GOOS == "darwin" {
+		customName = "utun99"
+	}
+
 	cfg, err := NewConfig(DaemonOpts{
 		Secret:        testConfigSecret,
-		InterfaceName: "custom0",
+		InterfaceName: customName,
 	})
 	if err != nil {
 		t.Fatalf("NewConfig failed: %v", err)
 	}
 
-	if cfg.InterfaceName != "custom0" {
-		t.Errorf("expected interface custom0, got %s", cfg.InterfaceName)
+	if cfg.InterfaceName != customName {
+		t.Errorf("expected interface %s, got %s", customName, cfg.InterfaceName)
+	}
+}
+
+func TestNewConfigRejectsInvalidInterfaceName(t *testing.T) {
+	_, err := NewConfig(DaemonOpts{
+		Secret:        testConfigSecret,
+		InterfaceName: "../evil",
+	})
+	if err == nil {
+		t.Fatal("expected error for path-traversal interface name")
 	}
 }
