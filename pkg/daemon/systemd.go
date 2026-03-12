@@ -51,6 +51,7 @@ type SystemdServiceConfig struct {
 	ForceRelay          bool
 	DisablePunching     bool
 	Introducer          bool
+	MeshSubnet          string
 	BinaryPath          string
 }
 
@@ -101,6 +102,9 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	}
 	if cfg.Introducer {
 		args = append(args, "--introducer")
+	}
+	if cfg.MeshSubnet != "" {
+		args = append(args, "--mesh-subnet", cfg.MeshSubnet)
 	}
 
 	data := struct {
