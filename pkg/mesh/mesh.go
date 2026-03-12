@@ -37,6 +37,12 @@ func InitializeWithNetwork(stateFile, network string) error {
 		if err != nil {
 			return fmt.Errorf("invalid network CIDR %q: %w", network, err)
 		}
+		// Enforce IPv4-only networks
+		ipv4 := parsedNet.IP.To4()
+		if ipv4 == nil {
+			return fmt.Errorf("invalid network CIDR %q: only IPv4 networks are supported", network)
+		}
+		parsedNet.IP = ipv4 // normalize to 4-byte form
 		meshNetwork = parsedNet.String()
 	}
 

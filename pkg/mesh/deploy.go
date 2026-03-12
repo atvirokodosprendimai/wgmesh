@@ -251,7 +251,10 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 	// Extract prefix length from mesh network CIDR
 	prefixLen := 16 // default
 	if m.Network != "" {
-		if _, parsedNet, err := net.ParseCIDR(m.Network); err == nil {
+		_, parsedNet, err := net.ParseCIDR(m.Network)
+		if err != nil {
+			fmt.Printf("Warning: invalid mesh network CIDR %q, using default /16: %v\n", m.Network, err)
+		} else {
 			ones, _ := parsedNet.Mask.Size()
 			prefixLen = ones
 		}

@@ -105,7 +105,13 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		return nil, fmt.Errorf("invalid mesh subnet: %w", err)
 	}
 	if customSubnet != nil {
+		if customSubnet.IP.To4() == nil {
+			return nil, fmt.Errorf("mesh subnet must be an IPv4 CIDR, got %q", customSubnet.String())
+		}
 		ones, bits := customSubnet.Mask.Size()
+		if bits != 32 {
+			return nil, fmt.Errorf("mesh subnet must be an IPv4 CIDR, got %q", customSubnet.String())
+		}
 		if bits-ones < 2 {
 			return nil, fmt.Errorf("mesh subnet /%d is too small (need at least /30 for 2 host addresses)", ones)
 		}
