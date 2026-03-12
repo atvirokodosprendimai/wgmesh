@@ -83,6 +83,7 @@ func main() {
 		listSimple = flag.Bool("list-simple", false, "List all nodes in simple format (hostname ip)")
 		deploy     = flag.Bool("deploy", false, "Deploy configuration to all nodes")
 		init       = flag.Bool("init", false, "Initialize new mesh")
+		network    = flag.String("network", "", "Custom mesh network CIDR for init (default: 10.99.0.0/16)")
 		encrypt    = flag.Bool("encrypt", false, "Encrypt state file with password (asks for password)")
 	)
 
@@ -113,7 +114,7 @@ func main() {
 	}
 
 	if *init {
-		if err := mesh.Initialize(*stateFile); err != nil {
+		if err := mesh.InitializeWithNetwork(*stateFile, *network); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to initialize mesh: %v\n", err)
 			os.Exit(1)
 		}

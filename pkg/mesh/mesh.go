@@ -19,14 +19,30 @@ func SetEncryptionPassword(password string) {
 }
 
 func Initialize(stateFile string) error {
+	return InitializeWithNetwork(stateFile, "")
+}
+
+// InitializeWithNetwork creates a new mesh state with a custom network CIDR.
+// If network is empty, defaults to 10.99.0.0/16.
+func InitializeWithNetwork(stateFile, network string) error {
 	hostname, err := os.Hostname()
 	if err != nil {
 		return fmt.Errorf("failed to get hostname: %w", err)
 	}
 
+	meshNetwork := "10.99.0.0/16"
+	if network != "" {
+		// Validate the CIDR
+		_, _, err := net.ParseCIDR(network)
+		if err != nil {
+			return fmt.Errorf("invalid network CIDR %q: %w", network, err)
+		}
+		meshNetwork = network
+	}
+
 	m := &Mesh{
 		InterfaceName: "wg0",
-		Network:       "10.99.0.0/16",
+		Network:       meshNetwork,
 		ListenPort:    51820,
 		Nodes:         make(map[string]*Node),
 		LocalHostname: hostname,
