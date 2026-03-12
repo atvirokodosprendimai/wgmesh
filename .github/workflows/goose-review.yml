@@ -17,6 +17,7 @@ permissions:
 
 env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  ZAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
 
 jobs:
   review:
@@ -27,13 +28,15 @@ jobs:
       cancel-in-progress: true
 
     steps:
-      - name: Validate API key
+      - name: Validate API keys
         run: |
-          if [ -z "$OPENROUTER_API_KEY" ]; then
-            echo "::error::OPENROUTER_API_KEY secret not configured"
+          has_key=false
+          [ -n "$ZAI_API_KEY" ] && has_key=true && echo "Z.ai API key: configured"
+          [ -n "$OPENROUTER_API_KEY" ] && has_key=true && echo "OpenRouter API key: configured"
+          if [ "$has_key" = false ]; then
+            echo "::error::No API keys configured (need ZAI_API_KEY or OPENROUTER_API_KEY)"
             exit 1
           fi
-          echo "OpenRouter API key: configured (BYOK routing handles provider failover)"
 
       - name: Fetch PR metadata and unresolved Copilot threads
         id: pr
@@ -163,7 +166,7 @@ jobs:
         if: steps.pr.outputs.skip != 'true'
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Run Goose review via OpenRouter
+      - name: Run Goose review with model cascade
         id: goose
         if: steps.pr.outputs.skip != 'true'
         env:
@@ -178,12 +181,14 @@ jobs:
 
           RECIPE=".github/goose-recipes/wgmesh-review.yaml"
 
-          # Model cascade via OpenRouter: GLM-5 (cheap) → Claude Sonnet (fallback).
-          # Both use the same OPENROUTER_API_KEY — no extra secrets needed.
+          # Cascade: GLM-5 via Z.ai direct (subscription) → Claude Sonnet via OpenRouter.
+          # Z.ai exposes an OpenAI-compatible API, so Goose uses the "openai" provider
+          # with OPENAI_HOST pointed at Z.ai's coding endpoint.
           run_goose() {
-            local model="$1" label="$2"
-            echo "::group::Trying $label"
+            local provider="$1" model="$2" label="$3"
+            echo "::group::Trying $label ($provider/$model)"
 
+            sed -i "s|goose_provider:.*|goose_provider: \"$provider\"|" "$RECIPE"
             sed -i "s|goose_model:.*|goose_model: \"$model\"|" "$RECIPE"
 
             local code=0
@@ -194,7 +199,9 @@ jobs:
 
             # Check for credit/auth/model errors
             if grep -qiE '(add more credits|insufficient.*(funds|credits|balance)|rate.limit|unauthorized|api.key.not.found|model.*not.*found|not.*available)' /tmp/goose-review-output.log; then
-              echo "::warning::$label: error detected, trying next model"
+              echo "::warning::$label: error detected, trying next provider"
+              git checkout -- . 2>/dev/null || true
+              git clean -fd 2>/dev/null || true
               echo "::endgroup::"
               return 1
             fi
@@ -207,22 +214,34 @@ jobs:
 
             echo "::warning::$label: Goose exited with status $code"
             tail -20 /tmp/goose-review-output.log
+            git checkout -- . 2>/dev/null || true
+            git clean -fd 2>/dev/null || true
             echo "::endgroup::"
             return 1
           }
 
           goose_ok=false
 
-          # Cascade: GLM-5 (fast, cheap) → Claude Sonnet (proven fallback)
-          if run_goose "z-ai/glm-5" "GLM-5"; then
-            goose_ok=true
-          elif run_goose "anthropic/claude-sonnet-4" "Claude Sonnet"; then
-            goose_ok=true
+          # 1. GLM-5 via Z.ai direct (OpenAI-compatible, uses GLM Coding Plan subscription)
+          if [ -n "$ZAI_API_KEY" ]; then
+            export OPENAI_API_KEY="$ZAI_API_KEY"
+            export OPENAI_HOST="https://api.z.ai/api/coding/paas/v4"
+            if run_goose "openai" "glm-5" "Z.ai GLM-5"; then
+              goose_ok=true
+            fi
+            unset OPENAI_API_KEY OPENAI_HOST
+          fi
+
+          # 2. Claude Sonnet via OpenRouter (fallback)
+          if [ "$goose_ok" = false ] && [ -n "$OPENROUTER_API_KEY" ]; then
+            if run_goose "openrouter" "anthropic/claude-sonnet-4" "OpenRouter Claude Sonnet"; then
+              goose_ok=true
+            fi
           fi
 
           echo "goose_ok=$goose_ok" >> "$GITHUB_OUTPUT"
           if [ "$goose_ok" = false ]; then
-            echo "::warning::All models failed"
+            echo "::warning::All providers failed"
           fi
 
       - name: Commit and push changes
