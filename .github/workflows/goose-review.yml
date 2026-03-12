@@ -17,7 +17,6 @@ permissions:
 
 env:
   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-  ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
 
 jobs:
   review:
@@ -28,15 +27,13 @@ jobs:
       cancel-in-progress: true
 
     steps:
-      - name: Validate API keys
+      - name: Validate API key
         run: |
-          has_key=false
-          [ -n "$OPENROUTER_API_KEY" ] && has_key=true && echo "OpenRouter API key: configured"
-          [ -n "$ANTHROPIC_API_KEY" ] && has_key=true && echo "Anthropic API key: configured"
-          if [ "$has_key" = false ]; then
-            echo "::error::No LLM API keys configured (need OPENROUTER_API_KEY or ANTHROPIC_API_KEY)"
+          if [ -z "$OPENROUTER_API_KEY" ]; then
+            echo "::error::OPENROUTER_API_KEY secret not configured"
             exit 1
           fi
+          echo "OpenRouter API key: configured (BYOK routing handles provider failover)"
 
       - name: Fetch PR metadata and unresolved Copilot threads
         id: pr
@@ -166,7 +163,7 @@ jobs:
         if: steps.pr.outputs.skip != 'true'
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Run Goose review with provider cascade
+      - name: Run Goose review via OpenRouter
         id: goose
         if: steps.pr.outputs.skip != 'true'
         env:
@@ -181,80 +178,25 @@ jobs:
 
           RECIPE=".github/goose-recipes/wgmesh-review.yaml"
 
-          # Provider cascade: try OpenRouter first, fall back to Anthropic direct.
-          # Each attempt: run Goose with a 2-min probe to check for credit/auth errors,
-          # then if the probe succeeds, run the full 45-min session.
-          run_goose() {
-            local provider="$1" model="$2" label="$3"
-            echo "::group::Trying $label ($provider/$model)"
-
-            # Patch recipe with this provider/model
-            sed -i "s|goose_provider:.*|goose_provider: \"$provider\"|" "$RECIPE"
-            sed -i "s|goose_model:.*|goose_model: \"$model\"|" "$RECIPE"
-
-            # Quick probe: run for 2 min to check for credit/auth errors
-            local probe_code=0
-            timeout 120 goose run \
-              --recipe "$RECIPE" \
-              --no-session \
-              2>&1 | tee /tmp/goose-review-output.log || probe_code=$?
-
-            # Check for credit/auth errors in output
-            if grep -qiE '(add more credits|insufficient.*(funds|credits|balance)|rate.limit|unauthorized|api.key.not.found)' /tmp/goose-review-output.log; then
-              echo "::warning::$label: credit/auth error detected, trying next provider"
-              echo "::endgroup::"
-              return 1
-            fi
-
-            # If probe timed out (124), Goose is working — it just needs more time.
-            # If probe exited 0, Goose finished quickly. Either way, check for changes.
-            if [ "$probe_code" -eq 0 ] || [ "$probe_code" -eq 124 ]; then
-              if [ "$probe_code" -eq 124 ]; then
-                echo "Goose is working, continuing with full timeout..."
-                # Goose was killed by probe timeout — reset and run with full timeout.
-                # Restore pre-Goose state to avoid partial work.
-                git checkout -- . 2>/dev/null || true
-                git clean -fd 2>/dev/null || true
-
-                local full_code=0
-                timeout 2700 goose run \
-                  --recipe "$RECIPE" \
-                  --no-session \
-                  2>&1 | tee /tmp/goose-review-output.log || full_code=$?
-
-                if [ "$full_code" -eq 0 ] || [ "$full_code" -eq 124 ]; then
-                  [ "$full_code" -eq 124 ] && echo "::warning::Goose timed out (likely hung after completing work)"
-                  echo "::endgroup::"
-                  return 0
-                else
-                  echo "::warning::$label: Goose exited with status $full_code"
-                  echo "::endgroup::"
-                  return 1
-                fi
-              fi
-              # probe_code 0 means Goose finished within 2 min
-              echo "::endgroup::"
-              return 0
-            fi
-
-            echo "::warning::$label: Goose exited with status $probe_code"
-            echo "::endgroup::"
-            return 1
-          }
-
+          # OpenRouter handles provider routing and failover via BYOK keys.
+          # No bash cascade needed — configure BYOK keys in OpenRouter dashboard.
           goose_ok=false
+          goose_code=0
+          timeout 2700 goose run \
+            --recipe "$RECIPE" \
+            --no-session \
+            2>&1 | tee /tmp/goose-review-output.log || goose_code=$?
 
-          # Cascade: OpenRouter → Anthropic direct
-          if [ -n "$OPENROUTER_API_KEY" ] && run_goose "openrouter" "anthropic/claude-sonnet-4" "OpenRouter"; then
+          if [ "$goose_code" -eq 0 ] || [ "$goose_code" -eq 124 ]; then
             goose_ok=true
-          elif [ -n "$ANTHROPIC_API_KEY" ] && run_goose "anthropic" "claude-sonnet-4-20250514" "Anthropic"; then
-            goose_ok=true
+            [ "$goose_code" -eq 124 ] && echo "::warning::Goose timed out (likely hung after completing work)"
+          else
+            echo "::warning::Goose exited with status $goose_code"
+            # Log last 20 lines for debugging
+            tail -20 /tmp/goose-review-output.log
           fi
 
           echo "goose_ok=$goose_ok" >> "$GITHUB_OUTPUT"
-          if [ "$goose_ok" = false ]; then
-            echo "::warning::All providers failed"
-          fi
 
       - name: Commit and push changes
         id: push
