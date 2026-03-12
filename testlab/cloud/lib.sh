@@ -95,6 +95,8 @@ run_on() {
     ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o ConnectTimeout=10 \
+        -o ServerAliveInterval=15 \
+        -o ServerAliveCountMax=4 \
         -o LogLevel=ERROR \
         -i "$SSH_KEY_FILE" \
         "root@${ip}" "$@"
@@ -108,6 +110,8 @@ run_on_ok() {
     ssh -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
         -o ConnectTimeout=10 \
+        -o ServerAliveInterval=15 \
+        -o ServerAliveCountMax=4 \
         -o LogLevel=ERROR \
         -i "$SSH_KEY_FILE" \
         "root@${ip}" "$@" 2>/dev/null || true
@@ -120,6 +124,9 @@ copy_to() {
     local ip="${NODE_IPS[$node]}"
     scp -o StrictHostKeyChecking=no \
         -o UserKnownHostsFile=/dev/null \
+        -o ConnectTimeout=10 \
+        -o ServerAliveInterval=15 \
+        -o ServerAliveCountMax=4 \
         -o LogLevel=ERROR \
         -i "$SSH_KEY_FILE" \
         "$src" "root@${ip}:${dst}"
