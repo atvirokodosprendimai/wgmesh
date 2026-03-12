@@ -1,9 +1,24 @@
 name: Release
 
+# Gate: only release after Hetzner integration tests pass.
+# Previously triggered directly on tag push, which allowed releases
+# to publish while integration tests were still running (or failing).
+
 on:
-  push:
-    tags:
-      - 'v*.*.*'
+  workflow_run:
+    workflows: ["Hetzner Integration Tests"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.2.1) — required for manual dispatch'
+        required: true
+        type: string
+      skip_integration_check:
+        description: 'Skip integration test gate (emergency only)'
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -12,14 +27,35 @@ jobs:
   release:
     name: GoReleaser
     runs-on: ubuntu-latest
+    # Only run if:
+    # 1. Integration tests completed successfully on a version tag, OR
+    # 2. Manual dispatch with explicit bypass
+    if: >-
+      (github.event_name == 'workflow_run'
+       && github.event.workflow_run.conclusion == 'success'
+       && startsWith(github.event.workflow_run.head_branch, 'v'))
+      || (github.event_name == 'workflow_dispatch'
+          && github.event.inputs.skip_integration_check == 'true')
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # workflow_run context defaults to the default branch;
+          # we must explicitly checkout the tag ref.
+          ref: ${{ github.event.workflow_run.head_branch || github.event.inputs.tag }}
 
       - uses: actions/setup-go@v5
         with:
           go-version: '1.25'
+
+      - name: Verify tag ref
+        run: |
+          TAG="${{ github.event.workflow_run.head_branch || github.event.inputs.tag }}"
+          echo "Releasing tag: $TAG"
+          if ! git describe --tags --exact-match HEAD 2>/dev/null; then
+            echo "::error::HEAD is not a tag — aborting release"
+            exit 1
+          fi
 
       - uses: goreleaser/goreleaser-action@v6
         with:
