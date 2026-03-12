@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
@@ -247,10 +248,19 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	// Extract prefix length from mesh network CIDR
+	prefixLen := 16 // default
+	if m.Network != "" {
+		if _, parsedNet, err := net.ParseCIDR(m.Network); err == nil {
+			ones, _ := parsedNet.Mask.Size()
+			prefixLen = ones
+		}
+	}
+
 	config := &WireGuardConfig{
 		Interface: WGInterface{
 			PrivateKey: node.PrivateKey,
-			Address:    fmt.Sprintf("%s/16", node.MeshIP.String()),
+			Address:    fmt.Sprintf("%s/%d", node.MeshIP.String(), prefixLen),
 			ListenPort: node.ListenPort,
 		},
 		Peers: make([]WGPeer, 0),
