@@ -87,19 +87,25 @@ emit_event() {
 # SSH helpers
 # ---------------------------------------------------------------------------
 
+# Shared SSH options — single source of truth for all remote commands.
+# ConnectTimeout=10s, keepalive every 15s with 4 retries (~60s dead session kill).
+_ssh_opts() {
+    echo -o StrictHostKeyChecking=no \
+         -o UserKnownHostsFile=/dev/null \
+         -o ConnectTimeout=10 \
+         -o ServerAliveInterval=15 \
+         -o ServerAliveCountMax=4 \
+         -o LogLevel=ERROR \
+         -i "$SSH_KEY_FILE"
+}
+
 # Run a command on a remote node via SSH.
 # Usage: run_on <node-name> <command...>
 run_on() {
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
-    ssh -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -o ConnectTimeout=10 \
-        -o ServerAliveInterval=15 \
-        -o ServerAliveCountMax=4 \
-        -o LogLevel=ERROR \
-        -i "$SSH_KEY_FILE" \
-        "root@${ip}" "$@"
+    # shellcheck disable=SC2046
+    ssh $(_ssh_opts) "root@${ip}" "$@"
 }
 
 # Run a command on a remote node, tolerating failure.
@@ -107,14 +113,8 @@ run_on() {
 run_on_ok() {
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
-    ssh -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -o ConnectTimeout=10 \
-        -o ServerAliveInterval=15 \
-        -o ServerAliveCountMax=4 \
-        -o LogLevel=ERROR \
-        -i "$SSH_KEY_FILE" \
-        "root@${ip}" "$@" 2>/dev/null || true
+    # shellcheck disable=SC2046
+    ssh $(_ssh_opts) "root@${ip}" "$@" 2>/dev/null || true
 }
 
 # Copy a file to a remote node.
@@ -122,14 +122,8 @@ run_on_ok() {
 copy_to() {
     local node="$1" src="$2" dst="$3"
     local ip="${NODE_IPS[$node]}"
-    scp -o StrictHostKeyChecking=no \
-        -o UserKnownHostsFile=/dev/null \
-        -o ConnectTimeout=10 \
-        -o ServerAliveInterval=15 \
-        -o ServerAliveCountMax=4 \
-        -o LogLevel=ERROR \
-        -i "$SSH_KEY_FILE" \
-        "$src" "root@${ip}:${dst}"
+    # shellcheck disable=SC2046
+    scp $(_ssh_opts) "$src" "root@${ip}:${dst}"
 }
 
 # Run a command on ALL nodes in parallel, wait for all.
@@ -261,20 +255,15 @@ wg_handshake_age() {
 }
 
 # Count active WG peers (with handshake < 180s) on a node.
+# Uses awk instead of a while-read pipe to avoid subshell variable loss.
 wg_active_peer_count() {
     local node="$1"
     run_on "$node" "
         now=\$(date +%s)
-        count=0
-        wg show $WG_INTERFACE dump 2>/dev/null | tail -n +2 | while IFS=$'\t' read -r pubkey psk endpoint aips handshake rx tx ka; do
-            if [ \"\$handshake\" -gt 0 ] 2>/dev/null; then
-                age=\$(( now - handshake ))
-                if [ \$age -lt 180 ]; then
-                    count=\$(( count + 1 ))
-                fi
-            fi
-        done
-        echo \$count
+        wg show $WG_INTERFACE dump 2>/dev/null | tail -n +2 | awk -F'\t' -v now=\"\$now\" '
+            \$6 > 0 && (now - \$6) < 180 { count++ }
+            END { print count+0 }
+        '
     " 2>/dev/null
 }
 
@@ -670,10 +659,14 @@ run_test() {
     tmpfile=$(mktemp)
     emit_event "test_start" "$id" "name=$name"
 
-    # Stream output in real-time while also capturing it
+    # Stream output in real-time while also capturing it.
+    # IMPORTANT: use process substitution (not a pipe) so the function runs
+    # in the CURRENT shell — this preserves global variables like NODE_MESH_IPS
+    # that test functions may modify via populate_mesh_ips.
     set +e
-    "$func" "$@" 2>&1 | tee "$tmpfile"
-    rc=${PIPESTATUS[0]}
+    "$func" "$@" > >(tee "$tmpfile") 2>&1
+    rc=$?
+    wait  # ensure tee flushes before we read tmpfile
     set -e
 
     local output

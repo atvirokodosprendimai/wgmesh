@@ -29,6 +29,16 @@
 
 set -euo pipefail
 
+# Validate a value is a positive integer.
+# Usage: _validate_int <value> <label>
+_validate_int() {
+    local val="$1" label="$2"
+    if ! [[ "$val" =~ ^[0-9]+$ ]]; then
+        log_error "chaos: invalid $label '$val' (must be a positive integer)"
+        return 1
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # tc netem impairments (applied to eth0 / default interface)
 # ---------------------------------------------------------------------------
@@ -90,10 +100,8 @@ chaos_apply() {
     case "$type" in
         loss)
             local pct="${1:?loss percent required}"
-            if ! [[ "$pct" =~ ^[0-9]+$ ]] || [ "$pct" -lt 0 ] || [ "$pct" -gt 100 ]; then
-                log_error "chaos: invalid loss percent '$pct' (must be 0-100)"
-                return 1
-            fi
+            _validate_int "$pct" "loss percent" || return 1
+            [ "$pct" -gt 100 ] && { log_error "chaos: loss percent '$pct' exceeds 100"; return 1; }
             if [ "${pct}" -ge 50 ]; then
                 # For severe loss: apply qdisc AND schedule auto-clear in a
                 # SINGLE SSH command.  This avoids a second SSH call that would
@@ -107,7 +115,9 @@ chaos_apply() {
             ;;
         delay)
             local ms="${1:?delay ms required}"
+            _validate_int "$ms" "delay ms" || return 1
             local jitter="${2:-0}"
+            _validate_int "$jitter" "jitter ms" || return 1
             if [ "$jitter" -gt 0 ] 2>/dev/null; then
                 run_on "$node" "tc qdisc add dev $iface root netem delay ${ms}ms ${jitter}ms distribution normal"
             else
@@ -117,22 +127,27 @@ chaos_apply() {
             ;;
         throttle)
             local kbit="${1:?kbit required}"
+            _validate_int "$kbit" "throttle kbit" || return 1
             run_on "$node" "tc qdisc add dev $iface root tbf rate ${kbit}kbit burst 32kbit latency 400ms"
             log_info "chaos: $node — throttled to ${kbit}kbit on $iface"
             ;;
         reorder)
             local pct="${1:?reorder percent required}"
+            _validate_int "$pct" "reorder percent" || return 1
             local corr="${2:-50}"
+            _validate_int "$corr" "reorder correlation" || return 1
             run_on "$node" "tc qdisc add dev $iface root netem delay 10ms reorder ${pct}% ${corr}%"
             log_info "chaos: $node — ${pct}% reorder (corr=${corr}%) on $iface"
             ;;
         duplicate)
             local pct="${1:?duplicate percent required}"
+            _validate_int "$pct" "duplicate percent" || return 1
             run_on "$node" "tc qdisc add dev $iface root netem duplicate ${pct}%"
             log_info "chaos: $node — ${pct}% duplication on $iface"
             ;;
         corrupt)
             local pct="${1:?corrupt percent required}"
+            _validate_int "$pct" "corrupt percent" || return 1
             run_on "$node" "tc qdisc add dev $iface root netem corrupt ${pct}%"
             log_info "chaos: $node — ${pct}% corruption on $iface"
             ;;
@@ -287,6 +302,7 @@ chaos_heal_partition() {
 # Skew the system clock forward by N minutes.
 chaos_skew_clock() {
     local node="$1" minutes="$2"
+    _validate_int "$minutes" "clock skew minutes" || return 1
     run_on "$node" "timedatectl set-ntp false && date -s '+${minutes} minutes'"
     log_info "chaos: $node — clock skewed +${minutes}min"
 }
