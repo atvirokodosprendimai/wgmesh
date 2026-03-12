@@ -101,8 +101,8 @@ provision_vms() {
     for name in "${names[@]}"; do
         local ip
         ip=$(hcloud server ip "$name")
-        # shellcheck disable=SC2046
-        wait_for "SSH on $name ($ip)" 120 ssh $(_ssh_opts) "root@${ip}" "true"
+        _ensure_ssh_opts
+        wait_for "SSH on $name ($ip)" 120 ssh "${SSH_OPTS[@]}" "root@${ip}" "true"
     done
 
     log_info "All VMs reachable via SSH"
