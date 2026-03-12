@@ -103,7 +103,7 @@ run_on() {
 }
 
 # Run a command on a remote node, tolerating failure.
-# Returns the exit code without aborting.
+# Always returns 0 — errors are silently swallowed.
 run_on_ok() {
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
