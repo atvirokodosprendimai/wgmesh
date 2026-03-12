@@ -1161,6 +1161,7 @@ if should_run_tier 1; then
     run_test T3  "IPv6 mesh connectivity"        test_t3_ipv6
     run_test T4  "Cross-DC latency sanity"       test_t4_cross_dc_latency
     log_info "Tier 1 data plane gate..."
+    populate_mesh_ips  # re-discover IPs at tier level (run_test may lose globals)
     verify_data_plane
     collect_all_pprof  # baseline profiles after first mesh formation
     TIER_END_EPOCH[1]=$(date +%s)
@@ -1184,6 +1185,7 @@ if should_run_tier 2; then
     run_test T9  "Introducer crash"              test_t9_introducer_crash
     run_test T10 "Introducer rejoin"             test_t10_introducer_rejoin
     log_info "Tier 2 data plane gate..."
+    populate_mesh_ips  # re-discover IPs at tier level (run_test may lose globals)
     verify_data_plane
     TIER_END_EPOCH[2]=$(date +%s)
     emit_event "tier_end" "tier_2"
@@ -1209,6 +1211,7 @@ if should_run_tier 3; then
     run_test T18 "Packet reordering 25%"         test_t18_reorder
     run_test T19 "Packet duplication 30%"        test_t19_duplicate
     log_info "Tier 3 data plane gate..."
+    populate_mesh_ips  # re-discover IPs at tier level (run_test may lose globals)
     verify_data_plane
     TIER_END_EPOCH[3]=$(date +%s)
     emit_event "tier_end" "tier_3"
@@ -1230,6 +1233,7 @@ if should_run_tier 4; then
     run_test T23 "Introducer partition"          test_t23_introducer_partition
     run_test T24 "Asymmetric partition"          test_t24_asymmetric
     log_info "Tier 4 data plane gate..."
+    populate_mesh_ips  # re-discover IPs at tier level (run_test may lose globals)
     verify_data_plane
     TIER_END_EPOCH[4]=$(date +%s)
     emit_event "tier_end" "tier_4"
@@ -1249,6 +1253,7 @@ if should_run_tier 5; then
     run_test T26 "Symmetric NAT"                 test_t26_symmetric_nat
     run_test T27 "Mixed NAT topology"            test_t27_mixed_nat
     log_info "Tier 5 data plane gate..."
+    populate_mesh_ips  # re-discover IPs at tier level (run_test may lose globals)
     verify_data_plane
     TIER_END_EPOCH[5]=$(date +%s)
     emit_event "tier_end" "tier_5"
@@ -1276,6 +1281,7 @@ if should_run_tier 6; then
     run_test T37 "GOODBYE forgery resistance"    test_t37_goodbye_forgery
     run_test T38 "Stale cache resurrection"      test_t38_stale_cache
     log_info "Tier 6 data plane gate..."
+    populate_mesh_ips  # re-discover IPs at tier level (run_test may lose globals)
     verify_data_plane
     TIER_END_EPOCH[6]=$(date +%s)
     emit_event "tier_end" "tier_6"
@@ -1295,6 +1301,7 @@ if should_run_tier 7; then
     run_test T40 "10-min chaos soak"             test_t40_chaos_soak
     run_test T41 "15-min long soak with churn"   test_t41_long_soak
     log_info "Tier 7 data plane gate..."
+    populate_mesh_ips  # re-discover IPs at tier level (run_test may lose globals)
     verify_data_plane_full   # final comprehensive benchmark
     collect_all_pprof  # final profiles after full test suite
     TIER_END_EPOCH[7]=$(date +%s)
