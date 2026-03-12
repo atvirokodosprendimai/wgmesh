@@ -6,10 +6,10 @@
     "monthly_burn": 242,
     "months_remaining": 9.9,
     "survival_mode": false,
-    "note": "Compute is USD-denominated (~20 USD/mo). All others EUR. Loop recalculates each run."
+    "note": "Compute is USD-denominated (~20 USD/mo). All others EUR. Runway values here are maintained manually; the loop only reads them and writes loop-state.json + loop-history/."
   },
   "categories": {
-    "compute": { "provider": "Hetzner", "monthly_estimate": 20, "note": "USD — VPS for chimney + cloudroof" },
+    "compute": { "provider": "Hetzner", "monthly_estimate": 18, "note": "~20 USD/mo converted to EUR — VPS for chimney + cloudroof" },
     "dns": { "provider": "bundled", "monthly_estimate": 0 },
     "domains": { "provider": null, "monthly_estimate": 2, "note": "beerpub.dev, cloudroof.eu — annual amortised" },
     "llm": { "provider": "OpenRouter/Anthropic", "monthly_estimate": 200, "note": "daily loop + goose pipeline + dev" },
