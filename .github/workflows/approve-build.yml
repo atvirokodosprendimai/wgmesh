@@ -262,3 +262,14 @@ jobs:
             }
 
             console.log(`Triggered Copilot revision for issue #${issueNumber}`);
+
+  # ──────────────────────────────────────────────────────
+  # Non-spec PR: Changes Requested → no-op (handled by auto-merge)
+  # ──────────────────────────────────────────────────────
+  changes-requested-non-spec:
+    if: >-
+      github.event.review.state == 'changes_requested' &&
+      !contains(github.event.pull_request.title, 'spec:')
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "Changes requested on non-spec PR — Copilot threads handled by auto-merge workflow"
