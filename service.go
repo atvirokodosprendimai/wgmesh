@@ -55,6 +55,7 @@ func serviceCmd() {
 func serviceAddCmd() {
 	fs := flag.NewFlagSet("service add", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET)")
+	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	protocol := fs.String("protocol", "http", "Origin protocol: http or https")
 	healthPath := fs.String("health-path", "/", "Health check path")
 	healthInterval := fs.Duration("health-interval", 30*time.Second, "Health check interval")
@@ -137,7 +138,12 @@ func serviceAddCmd() {
 	// to indicate which mesh this belongs to. The Lighthouse can resolve the
 	// actual mesh IP from the origin field.
 	// For now, use "auto" to let Lighthouse figure it out, or derive from local WG interface.
-	meshIP := deriveMeshIPForService(keys, resolvedSecret)
+	customSubnet, err := crypto.ParseSubnetOrDefault(*meshSubnet)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet)
 
 	// Create site via Lighthouse
 	client := lighthouse.NewClient(lighthouseURL, acct.APIKey)
@@ -440,7 +446,8 @@ func validatePort(port int) (int, error) {
 // deriveMeshIPForService derives the mesh IP for service registration.
 // Uses the local WireGuard public key if available, otherwise generates
 // a deterministic key from the secret for registration purposes.
-func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string) string {
+// If customSubnet is non-nil, uses subnet-aware derivation.
+func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubnet *net.IPNet) string {
 	// Try to read the local node's WG pubkey from the persisted state
 	// This matches how the daemon derives its mesh IP
 	iface := "wg0"
@@ -451,6 +458,14 @@ func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string) string {
 			PublicKey string `json:"public_key"`
 		}
 		if json.Unmarshal(data, &nodeState) == nil && nodeState.PublicKey != "" {
+			if customSubnet != nil {
+				ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, nodeState.PublicKey, secret)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: failed to derive mesh IP in custom subnet: %v\n", err)
+					return crypto.DeriveMeshIP(keys.MeshSubnet, nodeState.PublicKey, secret)
+				}
+				return ip
+			}
 			return crypto.DeriveMeshIP(keys.MeshSubnet, nodeState.PublicKey, secret)
 		}
 	}
@@ -461,6 +476,14 @@ func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string) string {
 	// The user should run `join` first to establish the WG identity.
 	fmt.Fprintln(os.Stderr, "Warning: no local WireGuard identity found. Run 'wgmesh join' first for accurate mesh IP.")
 	fmt.Fprintln(os.Stderr, "Using derived placeholder — service may need re-registration after join.")
+	if customSubnet != nil {
+		ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, "unjoined", secret)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: failed to derive placeholder IP in custom subnet: %v\n", err)
+			return crypto.DeriveMeshIP(keys.MeshSubnet, "unjoined", secret)
+		}
+		return ip
+	}
 	return crypto.DeriveMeshIP(keys.MeshSubnet, "unjoined", secret)
 }
 
