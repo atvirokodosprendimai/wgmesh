@@ -368,13 +368,11 @@ mesh_transfer() {
     run_on "$from" "nc -w 10 $to_ip $port < /tmp/mesh-tx.bin" 2>/dev/null || true
 
     # Wait for the receiver nc to exit (it exits when the sender closes the
-    # TCP connection and all data is written).  Then sync to flush buffers.
-    local wait_count=0
-    while [ -n "$nc_pid" ] && run_on "$to" "kill -0 $nc_pid 2>/dev/null" 2>/dev/null && [ "$wait_count" -lt 30 ]; do
-        sleep 1
-        ((wait_count++))
-    done
-    run_on_ok "$to" "sync" 2>/dev/null
+    # TCP connection and all data is written).  Uses a single SSH session
+    # with an internal timeout to avoid repeated SSH calls per second.
+    if [ -n "$nc_pid" ]; then
+        run_on "$to" "timeout 30 sh -c 'while kill -0 $nc_pid 2>/dev/null; do sleep 1; done'" 2>/dev/null || true
+    fi
 
     # Get receiver checksum
     local dst_hash
