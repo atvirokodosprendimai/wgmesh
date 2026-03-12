@@ -10,6 +10,8 @@ import (
 	"runtime"
 	"strings"
 
+	"net"
+
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
 
@@ -36,6 +38,7 @@ type Config struct {
 	DisableIPv6     bool
 	ForceRelay      bool
 	DisablePunching bool
+	CustomSubnet    *net.IPNet // User-specified mesh subnet (nil = use derived)
 }
 
 // DaemonOpts holds options for the daemon
@@ -52,6 +55,7 @@ type DaemonOpts struct {
 	DisableIPv6         bool
 	ForceRelay          bool
 	DisablePunching     bool
+	MeshSubnet          string // Custom mesh subnet CIDR (e.g. "192.168.100.0/24")
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -96,6 +100,12 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		logLevel = "info"
 	}
 
+	// Parse custom subnet if provided
+	customSubnet, err := crypto.ParseSubnetOrDefault(opts.MeshSubnet)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mesh subnet: %w", err)
+	}
+
 	return &Config{
 		Secret:          secret,
 		Keys:            keys,
@@ -110,6 +120,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		DisableIPv6:     opts.DisableIPv6,
 		ForceRelay:      opts.ForceRelay,
 		DisablePunching: opts.DisablePunching,
+		CustomSubnet:    customSubnet,
 	}, nil
 }
 

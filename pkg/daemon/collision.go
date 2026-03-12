@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"net"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
@@ -54,11 +55,19 @@ func DeterministicWinner(peer1, peer2 *PeerInfo) (*PeerInfo, *PeerInfo) {
 	return peer2, peer1
 }
 
-// ResolveCollision resolves a mesh IP collision by re-deriving the loser's IP with a nonce
-func ResolveCollision(collision CollisionInfo, meshSubnet [2]byte, secret string) string {
+// ResolveCollision resolves a mesh IP collision by re-deriving the loser's IP with a nonce.
+// If customSubnet is non-nil, uses subnet-aware derivation; otherwise uses legacy derivation.
+func ResolveCollision(collision CollisionInfo, meshSubnet [2]byte, secret string, customSubnet *net.IPNet) string {
 	_, loser := DeterministicWinner(collision.Peer1, collision.Peer2)
 
-	// Re-derive mesh IP with nonce
+	if customSubnet != nil {
+		ip, err := crypto.DeriveMeshIPInSubnetWithNonce(customSubnet, loser.WGPubKey, secret, 1)
+		if err != nil {
+			log.Printf("[Collision] Failed to derive IP in custom subnet: %v", err)
+			return DeriveMeshIPWithNonce(meshSubnet, loser.WGPubKey, secret, 1)
+		}
+		return ip
+	}
 	return DeriveMeshIPWithNonce(meshSubnet, loser.WGPubKey, secret, 1)
 }
 
@@ -96,17 +105,31 @@ func (d *Daemon) CheckAndResolveCollisions() {
 
 		// If we are the loser, re-derive our IP
 		if loser.WGPubKey == d.localNode.WGPubKey {
-			newIP := DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
+			var newIP string
+			prefixLen := 16 // default
+			if d.config.CustomSubnet != nil {
+				ip, err := crypto.DeriveMeshIPInSubnetWithNonce(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
+				if err != nil {
+					log.Printf("[Collision] Failed to derive IP in custom subnet: %v", err)
+					newIP = DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
+				} else {
+					newIP = ip
+					ones, _ := d.config.CustomSubnet.Mask.Size()
+					prefixLen = ones
+				}
+			} else {
+				newIP = DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
+			}
 			log.Printf("[Collision] We lost collision, re-deriving mesh IP: %s -> %s", d.localNode.MeshIP, newIP)
 			d.localNode.MeshIP = newIP
 
-			// Reconfigure WireGuard with new IP
-			if err := setInterfaceAddress(d.config.InterfaceName, newIP+"/16"); err != nil {
+			// Reconfigure WireGuard with new IP using correct prefix length
+			if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, prefixLen)); err != nil {
 				log.Printf("[Collision] Failed to update interface address: %v", err)
 			}
 		} else {
 			// The loser is a remote peer - update our expectation of their IP
-			newIP := ResolveCollision(collision, d.config.Keys.MeshSubnet, d.config.Secret)
+			newIP := ResolveCollision(collision, d.config.Keys.MeshSubnet, d.config.Secret, d.config.CustomSubnet)
 			log.Printf("[Collision] Remote peer %s should re-derive to %s", safeKeyPrefix(loser.WGPubKey), newIP)
 		}
 	}
@@ -120,16 +143,37 @@ func safeKeyPrefix(key string) string {
 	return key
 }
 
-// DeriveMeshIPWithCollisionCheck derives a mesh IP and checks for collisions
-func DeriveMeshIPWithCollisionCheck(meshSubnet [2]byte, wgPubKey, secret string, existingIPs map[string]string) string {
-	ip := crypto.DeriveMeshIP(meshSubnet, wgPubKey, secret)
+// DeriveMeshIPWithCollisionCheck derives a mesh IP and checks for collisions.
+// If customSubnet is non-nil, uses subnet-aware derivation.
+func DeriveMeshIPWithCollisionCheck(meshSubnet [2]byte, wgPubKey, secret string, existingIPs map[string]string, customSubnet *net.IPNet) string {
+	var ip string
+	if customSubnet != nil {
+		derived, err := crypto.DeriveMeshIPInSubnet(customSubnet, wgPubKey, secret)
+		if err != nil {
+			log.Printf("[Collision] Failed to derive IP in custom subnet: %v, falling back", err)
+			ip = crypto.DeriveMeshIP(meshSubnet, wgPubKey, secret)
+		} else {
+			ip = derived
+		}
+	} else {
+		ip = crypto.DeriveMeshIP(meshSubnet, wgPubKey, secret)
+	}
 
 	// Check for collision
 	for nonce := 1; nonce <= 10; nonce++ {
 		if owner, exists := existingIPs[ip]; !exists || owner == wgPubKey {
 			return ip
 		}
-		ip = DeriveMeshIPWithNonce(meshSubnet, wgPubKey, secret, nonce)
+		if customSubnet != nil {
+			derived, err := crypto.DeriveMeshIPInSubnetWithNonce(customSubnet, wgPubKey, secret, nonce)
+			if err != nil {
+				ip = DeriveMeshIPWithNonce(meshSubnet, wgPubKey, secret, nonce)
+			} else {
+				ip = derived
+			}
+		} else {
+			ip = DeriveMeshIPWithNonce(meshSubnet, wgPubKey, secret, nonce)
+		}
 	}
 
 	return ip
