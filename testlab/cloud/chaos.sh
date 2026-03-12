@@ -90,11 +90,15 @@ chaos_apply() {
     case "$type" in
         loss)
             local pct="${1:?loss percent required}"
-            if [ "${pct}" -ge 50 ] 2>/dev/null; then
+            if ! [[ "$pct" =~ ^[0-9]+$ ]] || [ "$pct" -lt 0 ] || [ "$pct" -gt 100 ]; then
+                log_error "chaos: invalid loss percent '$pct' (must be 0-100)"
+                return 1
+            fi
+            if [ "${pct}" -ge 50 ]; then
                 # For severe loss: apply qdisc AND schedule auto-clear in a
                 # SINGLE SSH command.  This avoids a second SSH call that would
                 # go through the already-impaired network.
-                run_on "$node" "tc qdisc add dev $iface root netem loss ${pct}% && bash -c 'echo \$\$ > /tmp/chaos-autoclear.pid; sleep $autoclear_secs; tc qdisc del dev $iface root 2>/dev/null; rm -f /tmp/chaos-autoclear.pid' </dev/null >/dev/null 2>&1 &"
+                run_on "$node" "tc qdisc add dev $iface root netem loss ${pct}% && bash -c 'echo \$\$ > /tmp/chaos-autoclear.pid; (sleep $autoclear_secs; tc qdisc del dev $iface root 2>/dev/null; rm -f /tmp/chaos-autoclear.pid) </dev/null >/dev/null 2>&1 &'"
                 log_info "chaos: $node — ${pct}% packet loss on $iface (auto-clear in ${autoclear_secs}s)"
             else
                 run_on "$node" "tc qdisc add dev $iface root netem loss ${pct}%"
