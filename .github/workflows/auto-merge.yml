@@ -235,9 +235,12 @@ jobs:
                   // Skip dispatch if goose-review is already running/queued for this PR.
                   if (copilotThreads.length > 0) {
                     try {
-                      // Check for in-progress or queued goose-review runs
+                      // Check for in-progress, queued, OR recently-dispatched goose-review runs.
+                      // Multiple auto-merge triggers can fire simultaneously (schedule + workflow_run),
+                      // causing a TOCTOU race where each checks before any dispatch has started.
+                      // The 10-minute window covers this race and the cron interval.
                       const runsResp = await fetch(
-                        `https://api.github.com/repos/${owner}/${repo}/actions/workflows/goose-review.yml/runs?status=in_progress&per_page=10`,
+                        `https://api.github.com/repos/${owner}/${repo}/actions/workflows/goose-review.yml/runs?per_page=10`,
                         {
                           headers: {
                             'Authorization': `Bearer ${process.env.PUSH_TOKEN}`,
@@ -246,12 +249,15 @@ jobs:
                         }
                       );
                       const runsData = runsResp.ok ? await runsResp.json() : { workflow_runs: [] };
-                      const alreadyRunning = runsData.workflow_runs.some(
-                        r => r.status === 'in_progress' || r.status === 'queued'
-                      );
+                      const recentCutoff = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+                      const alreadyHandled = runsData.workflow_runs.some(r => {
+                        const isActive = r.status === 'in_progress' || r.status === 'queued';
+                        const isRecentlyCreated = r.created_at > recentCutoff;
+                        return isActive || isRecentlyCreated;
+                      });
 
-                      if (alreadyRunning) {
-                        core.info(`PR #${prNumber}: goose-review already running, skipping dispatch`);
+                      if (alreadyHandled) {
+                        core.info(`PR #${prNumber}: goose-review already running or recently dispatched, skipping`);
                       } else {
                         const resp = await fetch(
                           `https://api.github.com/repos/${owner}/${repo}/actions/workflows/goose-review.yml/dispatches`,
