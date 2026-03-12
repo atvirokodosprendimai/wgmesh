@@ -181,6 +181,7 @@ FLAGS:
   -list            List all nodes
   -deploy          Deploy configuration to all nodes
   -init            Initialize new mesh state file
+  -network <CIDR>  Custom mesh network for init (default: 10.99.0.0/16)
   -encrypt         Encrypt state file with password
 
 SUBCOMMANDS (centralized mode):
