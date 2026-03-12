@@ -34,6 +34,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 
 # Detect the primary network interface on a node (cached per-node).
+# Returns non-zero if detection fails.
 declare -A _CHAOS_IFACE_CACHE=()
 _get_iface() {
     local node="$1"
@@ -43,8 +44,13 @@ _get_iface() {
     fi
     local iface
     iface=$(run_on "$node" "ip route show default | awk '/default/ {print \$5}' | head -1")
-    _CHAOS_IFACE_CACHE["$node"]="$iface"
-    echo "$iface"
+    if [ -n "$iface" ]; then
+        _CHAOS_IFACE_CACHE["$node"]="$iface"
+        echo "$iface"
+        return
+    fi
+    echo "chaos.sh: failed to detect default network interface on node '${node}'" >&2
+    return 1
 }
 
 # Apply a tc netem impairment.
@@ -75,16 +81,25 @@ chaos_apply() {
     # Clear any existing qdisc first
     run_on_ok "$node" "tc qdisc del dev $iface root 2>/dev/null"
 
-    # Determine if we need an auto-clear safety net (severe loss >=50%)
-    local need_autoclear=false
+    # Validate and resolve auto-clear timeout for severe impairments
     local autoclear_secs="${CHAOS_AUTOCLEAR_SECS:-240}"
+    if ! [[ "$autoclear_secs" =~ ^[0-9]+$ ]] || [ "$autoclear_secs" -le 0 ]; then
+        autoclear_secs=240
+    fi
 
     case "$type" in
         loss)
             local pct="${1:?loss percent required}"
-            run_on "$node" "tc qdisc add dev $iface root netem loss ${pct}%"
-            log_info "chaos: $node — ${pct}% packet loss on $iface"
-            [ "${pct}" -ge 50 ] 2>/dev/null && need_autoclear=true
+            if [ "${pct}" -ge 50 ] 2>/dev/null; then
+                # For severe loss: apply qdisc AND schedule auto-clear in a
+                # SINGLE SSH command.  This avoids a second SSH call that would
+                # go through the already-impaired network.
+                run_on "$node" "tc qdisc add dev $iface root netem loss ${pct}% && bash -c 'echo \$\$ > /tmp/chaos-autoclear.pid; sleep $autoclear_secs; tc qdisc del dev $iface root 2>/dev/null; rm -f /tmp/chaos-autoclear.pid' </dev/null >/dev/null 2>&1 &"
+                log_info "chaos: $node — ${pct}% packet loss on $iface (auto-clear in ${autoclear_secs}s)"
+            else
+                run_on "$node" "tc qdisc add dev $iface root netem loss ${pct}%"
+                log_info "chaos: $node — ${pct}% packet loss on $iface"
+            fi
             ;;
         delay)
             local ms="${1:?delay ms required}"
@@ -122,14 +137,6 @@ chaos_apply() {
             return 1
             ;;
     esac
-
-    # Schedule remote auto-clear for severe impairments.  The background
-    # process runs ON the impaired node itself (no SSH needed to trigger it).
-    # chaos_clear still attempts immediate removal — the timer is a backstop.
-    if [ "$need_autoclear" = true ]; then
-        run_on_ok "$node" "bash -c 'echo \$\$ > /tmp/chaos-autoclear.pid; sleep $autoclear_secs; tc qdisc del dev $iface root 2>/dev/null; rm -f /tmp/chaos-autoclear.pid' </dev/null >/dev/null 2>&1 &"
-        log_info "chaos: $node — auto-clear safety net in ${autoclear_secs}s"
-    fi
 }
 
 # Remove all tc netem impairments from a node.
