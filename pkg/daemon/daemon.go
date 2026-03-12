@@ -406,12 +406,7 @@ func (d *Daemon) setupWireGuard() error {
 	}
 
 	// Set IP address with correct prefix length
-	prefixLen := 16 // default for derived /16 subnet
-	if d.config.CustomSubnet != nil {
-		ones, _ := d.config.CustomSubnet.Mask.Size()
-		prefixLen = ones
-	}
-	if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.MeshIP, prefixLen)); err != nil {
+	if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.MeshIP, d.config.PrefixLen())); err != nil {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}
 	if d.localNode.MeshIPv6 != "" {
