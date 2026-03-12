@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"strings"
@@ -58,10 +59,21 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 	// Parse secret from URI format if needed
 	secret := parseSecret(opts.Secret)
 
+	// Warn if secret looks user-chosen rather than auto-generated.
+	if opts.Secret != "" && !strings.HasPrefix(strings.TrimSpace(opts.Secret), "wgmesh://") {
+		log.Printf("[WARN] Secret does not use wgmesh:// format — it may have low entropy. " +
+			"Use 'wgmesh init --secret' to generate a cryptographically strong secret.")
+	}
+
 	// Derive all keys
 	keys, err := crypto.DeriveKeys(secret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive keys: %w", err)
+	}
+
+	// Validate interface name before applying defaults.
+	if err := ValidateInterfaceName(opts.InterfaceName); err != nil {
+		return nil, fmt.Errorf("invalid interface name: %w", err)
 	}
 
 	// Set defaults
