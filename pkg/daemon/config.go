@@ -100,10 +100,16 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		logLevel = "info"
 	}
 
-	// Parse custom subnet if provided
+	// Parse and validate custom subnet if provided
 	customSubnet, err := crypto.ParseSubnetOrDefault(opts.MeshSubnet)
 	if err != nil {
 		return nil, fmt.Errorf("invalid mesh subnet: %w", err)
+	}
+	if customSubnet != nil {
+		ones, bits := customSubnet.Mask.Size()
+		if bits-ones < 2 {
+			return nil, fmt.Errorf("mesh subnet /%d is too small (need at least /30 for 2 host addresses)", ones)
+		}
 	}
 
 	return &Config{
@@ -122,6 +128,16 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		DisablePunching: opts.DisablePunching,
 		CustomSubnet:    customSubnet,
 	}, nil
+}
+
+// PrefixLen returns the prefix length for the mesh subnet.
+// Uses CustomSubnet mask if set, otherwise defaults to 16.
+func (c *Config) PrefixLen() int {
+	if c.CustomSubnet != nil {
+		ones, _ := c.CustomSubnet.Mask.Size()
+		return ones
+	}
+	return 16
 }
 
 // GenerateSecret generates a new random mesh secret

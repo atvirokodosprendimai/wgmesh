@@ -63,8 +63,9 @@ func ResolveCollision(collision CollisionInfo, meshSubnet [2]byte, secret string
 	if customSubnet != nil {
 		ip, err := crypto.DeriveMeshIPInSubnetWithNonce(customSubnet, loser.WGPubKey, secret, 1)
 		if err != nil {
-			log.Printf("[Collision] Failed to derive IP in custom subnet: %v", err)
-			return DeriveMeshIPWithNonce(meshSubnet, loser.WGPubKey, secret, 1)
+			log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet: %v", err)
+			// Do NOT fall back to legacy derivation — that would put the IP in the wrong address space
+			return ""
 		}
 		return ip
 	}
@@ -106,17 +107,13 @@ func (d *Daemon) CheckAndResolveCollisions() {
 		// If we are the loser, re-derive our IP
 		if loser.WGPubKey == d.localNode.WGPubKey {
 			var newIP string
-			prefixLen := 16 // default
 			if d.config.CustomSubnet != nil {
 				ip, err := crypto.DeriveMeshIPInSubnetWithNonce(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
 				if err != nil {
-					log.Printf("[Collision] Failed to derive IP in custom subnet: %v", err)
-					newIP = DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
-				} else {
-					newIP = ip
-					ones, _ := d.config.CustomSubnet.Mask.Size()
-					prefixLen = ones
+					log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet: %v — keeping current IP", err)
+					return
 				}
+				newIP = ip
 			} else {
 				newIP = DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
 			}
@@ -124,7 +121,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			d.localNode.MeshIP = newIP
 
 			// Reconfigure WireGuard with new IP using correct prefix length
-			if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, prefixLen)); err != nil {
+			if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, d.config.PrefixLen())); err != nil {
 				log.Printf("[Collision] Failed to update interface address: %v", err)
 			}
 		} else {
@@ -150,11 +147,10 @@ func DeriveMeshIPWithCollisionCheck(meshSubnet [2]byte, wgPubKey, secret string,
 	if customSubnet != nil {
 		derived, err := crypto.DeriveMeshIPInSubnet(customSubnet, wgPubKey, secret)
 		if err != nil {
-			log.Printf("[Collision] Failed to derive IP in custom subnet: %v, falling back", err)
-			ip = crypto.DeriveMeshIP(meshSubnet, wgPubKey, secret)
-		} else {
-			ip = derived
+			log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet: %v", err)
+			return ""
 		}
+		ip = derived
 	} else {
 		ip = crypto.DeriveMeshIP(meshSubnet, wgPubKey, secret)
 	}
@@ -167,10 +163,10 @@ func DeriveMeshIPWithCollisionCheck(meshSubnet [2]byte, wgPubKey, secret string,
 		if customSubnet != nil {
 			derived, err := crypto.DeriveMeshIPInSubnetWithNonce(customSubnet, wgPubKey, secret, nonce)
 			if err != nil {
-				ip = DeriveMeshIPWithNonce(meshSubnet, wgPubKey, secret, nonce)
-			} else {
-				ip = derived
+				log.Printf("[Collision] CRITICAL: Failed to derive IP with nonce in custom subnet: %v", err)
+				return ""
 			}
+			ip = derived
 		} else {
 			ip = DeriveMeshIPWithNonce(meshSubnet, wgPubKey, secret, nonce)
 		}
