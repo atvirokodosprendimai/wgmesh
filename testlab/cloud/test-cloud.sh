@@ -474,15 +474,15 @@ test_t14_loss_80() {
     local node
     node=$(_pick_node)
 
-    # Auto-clear fires at 180s as backup (same as soak duration).
-    # This ensures the impairment is removed even if chaos_clear can't SSH in.
-    CHAOS_AUTOCLEAR_SECS=180 chaos_apply "$node" loss 80
+    # Auto-clear fires at 170s — 10s BEFORE the soak ends — so the
+    # impairment is already gone when chaos_clear runs, avoiding SSH hangs.
+    CHAOS_AUTOCLEAR_SECS=170 chaos_apply "$node" loss 80
     sleep 180
 
     # Node will be evicted — expected.
-    # chaos_clear may fail if SSH is still degraded; auto-clear handles it.
+    # Auto-clear should have already fired; chaos_clear is a no-op safety check.
     chaos_clear "$node"
-    sleep 10  # Brief settle after clear (auto-clear may have already fired)
+    sleep 10
     restart_mesh_node "$node"
     verify_full_mesh 180
     scan_logs_for_errors
