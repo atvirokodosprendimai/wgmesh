@@ -15,7 +15,7 @@ Cut the stable v0.2.0 release of wgmesh — promoting v0.2.0-rc1 to stable with 
 
 ### Features
 - **Service CLI** (`service add/list/remove`) — register local services for managed ingress via Lighthouse (#398)
-- **Custom mesh subnet** (`--mesh-subnet` / `--network`) — user-defined IPv6 subnet instead of derived (#425)
+- **Custom mesh subnet** (`--mesh-subnet` / `--network`) — user-defined mesh IPv4 subnet (CIDR) instead of derived (#425)
 - **Chimney multi-repo dashboard** — org-level repo discovery with aggregate endpoints (#424)
 - **Interface name validation** + shell injection hardening (#422)
 - **Polar.sh checkout links** — swap sponsor links to Polar.sh (#423)
@@ -63,13 +63,13 @@ All 5 PRs currently pass CI and are mergeable (verified 2026-03-12).
 - [x] .rpm packages present (x86_64, aarch64, armv7hl)
 - [x] Checksums file attached
 - [x] Homebrew tap updated (`atvirokodosprendimai/homebrew-tap`)
-- [ ] Docker image pushed to `ghcr.io/atvirokodosprendimai/wgmesh:v0.2.0` and `:latest` (build in progress)
+- [x] Docker image pushed to `ghcr.io/atvirokodosprendimai/wgmesh:v0.2.0` and `:latest`
 - [x] Spot-check: download one binary, verify `wgmesh --version` shows `0.2.0`
 
 ### Phase 5: Post-Release
 
-- [ ] Verify `nix run github:atvirokodosprendimai/wgmesh` still works (flake.nix vendorHash may need update if deps changed)
-- [ ] Update any deployment references to v0.2.0
+- [x] Verify `nix run github:atvirokodosprendimai/wgmesh` — vendorHash unchanged, no new deps added since v0.2.0-rc1
+- [x] Deployment references — bluegreen.sh uses `:latest` Docker tag, auto-updated
 
 ## Skipped PRs
 
