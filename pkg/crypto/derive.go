@@ -203,15 +203,40 @@ func DeriveMeshIPv6(meshPrefixV6 [8]byte, wgPubKey, secret string) string {
 	return ip.String()
 }
 
-// DeriveMeshIPInSubnet derives a deterministic mesh IP within an arbitrary subnet.
-// The host part is computed as: hash(wgPubKey + secret) mod (hostSpace - 2) + 1,
-// skipping the network (.0) and broadcast (last) addresses.
-// Returns an error if the subnet is too small (fewer than 2 host bits).
-func DeriveMeshIPInSubnet(subnet *net.IPNet, wgPubKey, secret string) (string, error) {
+// validateIPv4Subnet checks that the subnet is IPv4 and has enough host bits.
+func validateIPv4Subnet(subnet *net.IPNet) (int, error) {
 	ones, bits := subnet.Mask.Size()
+	if bits != 32 {
+		return 0, fmt.Errorf("only IPv4 subnets are supported for mesh IP derivation (got %d-bit)", bits)
+	}
 	hostBits := bits - ones
 	if hostBits < 2 {
-		return "", fmt.Errorf("subnet /%d too small: need at least 2 host bits (/%d max)", ones, bits-2)
+		return 0, fmt.Errorf("subnet /%d too small: need at least 2 host bits (/30 max)", ones)
+	}
+	return hostBits, nil
+}
+
+// addHostNum adds a host number to a network base IP (big-endian byte addition).
+func addHostNum(base net.IP, hostNum uint64) net.IP {
+	ip := make(net.IP, len(base))
+	copy(ip, base)
+	remaining := hostNum
+	for i := len(ip) - 1; i >= 0 && remaining > 0; i-- {
+		sum := uint64(ip[i]) + (remaining & 0xFF)
+		ip[i] = byte(sum & 0xFF)
+		remaining = (remaining >> 8) + (sum >> 8)
+	}
+	return ip
+}
+
+// DeriveMeshIPInSubnet derives a deterministic mesh IP within an arbitrary IPv4 subnet.
+// The host part is computed as: hash(wgPubKey + secret) mod (hostSpace - 2) + 1,
+// skipping the network (.0) and broadcast (last) addresses.
+// Returns an error if the subnet is IPv6 or too small (fewer than 2 host bits).
+func DeriveMeshIPInSubnet(subnet *net.IPNet, wgPubKey, secret string) (string, error) {
+	hostBits, err := validateIPv4Subnet(subnet)
+	if err != nil {
+		return "", err
 	}
 
 	// Number of usable host addresses (exclude network and broadcast)
@@ -224,28 +249,15 @@ func DeriveMeshIPInSubnet(subnet *net.IPNet, wgPubKey, secret string) (string, e
 	hostNum := binary.BigEndian.Uint64(hash[:8]) % maxHosts
 	hostNum += 1 // skip network address
 
-	// Copy the network address and add the host number
-	ip := make(net.IP, len(subnet.IP))
-	copy(ip, subnet.IP)
-
-	// Apply host number to the IP bytes (big-endian addition from the right)
-	remaining := hostNum
-	for i := len(ip) - 1; i >= 0 && remaining > 0; i-- {
-		sum := uint64(ip[i]) + (remaining & 0xFF)
-		ip[i] = byte(sum & 0xFF)
-		remaining = (remaining >> 8) + (sum >> 8)
-	}
-
-	return ip.String(), nil
+	return addHostNum(subnet.IP, hostNum).String(), nil
 }
 
-// DeriveMeshIPInSubnetWithNonce derives a mesh IP within an arbitrary subnet
+// DeriveMeshIPInSubnetWithNonce derives a mesh IP within an arbitrary IPv4 subnet
 // using a collision avoidance nonce. Used when the primary derivation collides.
 func DeriveMeshIPInSubnetWithNonce(subnet *net.IPNet, wgPubKey, secret string, nonce int) (string, error) {
-	ones, bits := subnet.Mask.Size()
-	hostBits := bits - ones
-	if hostBits < 2 {
-		return "", fmt.Errorf("subnet /%d too small: need at least 2 host bits (/%d max)", ones, bits-2)
+	hostBits, err := validateIPv4Subnet(subnet)
+	if err != nil {
+		return "", err
 	}
 
 	maxHosts := (uint64(1) << hostBits) - 2
@@ -256,17 +268,7 @@ func DeriveMeshIPInSubnetWithNonce(subnet *net.IPNet, wgPubKey, secret string, n
 	hostNum := binary.BigEndian.Uint64(hash[:8]) % maxHosts
 	hostNum += 1
 
-	ip := make(net.IP, len(subnet.IP))
-	copy(ip, subnet.IP)
-
-	remaining := hostNum
-	for i := len(ip) - 1; i >= 0 && remaining > 0; i-- {
-		sum := uint64(ip[i]) + (remaining & 0xFF)
-		ip[i] = byte(sum & 0xFF)
-		remaining = (remaining >> 8) + (sum >> 8)
-	}
-
-	return ip.String(), nil
+	return addHostNum(subnet.IP, hostNum).String(), nil
 }
 
 // ParseSubnetOrDefault parses a CIDR string into a net.IPNet.
