@@ -13,7 +13,7 @@ PR #439 (merged) added solution docs for v0.2.1 release issues. Copilot left 3 r
 
 ## Acceptance Criteria
 
-- [ ] **Comment 1** — `custom-subnet-silent-fallback-and-missed-callsites.md`: Align prose and code snippet in Solution §1 — prose says fallback was to `DeriveMeshIP`, but snippet shows `DeriveMeshIPWithNonce`. Both should reference the same function name.
+- [x] **Comment 1** — `custom-subnet-silent-fallback-and-missed-callsites.md`: Align prose and code snippet to both reference `DeriveMeshIPWithNonce` (the actual fallback function in collision.go).
 - [ ] **Comment 2** — `goreleaser-dual-tag-same-commit-conflict.md` Root Cause: Update to reflect that `release.yml` uses `git describe --tags --exact-match HEAD`, not bare `git describe --tags`. Clarify that `--exact-match` can still pass when multiple tags point at HEAD, and recommend validating the exact tag name matches the intended release.
 - [ ] **Comment 3** — `goreleaser-dual-tag-same-commit-conflict.md` cleanup script: Make the `for` loop resilient to `set -e` by adding `|| true` to each command so the snippet is safe to paste into strict-mode scripts.
 

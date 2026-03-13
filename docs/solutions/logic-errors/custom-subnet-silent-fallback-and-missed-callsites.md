@@ -25,7 +25,7 @@ modules:
 
 When implementing `--mesh-subnet` (custom IPv4 CIDR for mesh IP derivation), multiple bugs were introduced across the initial implementation and survived the first round of code review:
 
-1. **Silent fallback to legacy derivation** — When `DeriveMeshIPInSubnet` failed (e.g., invalid subnet), collision resolution code silently fell back to `DeriveMeshIP` which always produces `10.x.x.x` addresses. A node configured with `--mesh-subnet 192.168.100.0/24` would silently get a `10.x.x.x` IP, making it unreachable.
+1. **Silent fallback to legacy derivation** — When `DeriveMeshIPInSubnet` failed (e.g., invalid subnet), collision resolution code silently fell back to `DeriveMeshIPWithNonce` which always produces `10.x.x.x` addresses. A node configured with `--mesh-subnet 192.168.100.0/24` would silently get a `10.x.x.x` IP, making it unreachable.
 
 2. **IPv6 overflow** — `uint64(1) << hostBits` wraps to 0 when `hostBits >= 64` (any IPv6 subnet), producing `maxHosts = 0 - 2 = 18446744073709551614` (wrapping underflow). The modulus then produces effectively random results instead of an error.
 
@@ -49,7 +49,7 @@ Secondary: **plan listed 11 files but self-review only checked 10** — `service
 // BEFORE (wrong): falls back to 10.x.x.x on error
 if err != nil {
     log.Printf("[Collision] Failed to derive IP in custom subnet: %v", err)
-    return DeriveMeshIP(secret, loser.WGPubKey)  // silently switches address space!
+    return DeriveMeshIPWithNonce(meshSubnet, loser.WGPubKey, secret, 1)  // silently switches address space!
 }
 
 // AFTER (correct): return empty string, don't silently switch address space
