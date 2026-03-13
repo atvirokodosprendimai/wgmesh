@@ -581,9 +581,10 @@ func TestHandleGoodbye_BoundaryConditions(t *testing.T) {
 	}
 }
 
-// TestExchangeWithPeer_RefusesSelfEndpoint verifies that ExchangeWithPeer
-// returns an error when the target address matches the node's own public IP.
-func TestExchangeWithPeer_RefusesSelfEndpoint(t *testing.T) {
+// TestExchangeWithPeer_LogsWarningForOwnIP verifies that ExchangeWithPeer
+// logs a warning (but does NOT hard-refuse) when the target IP matches the
+// node's own public IP. This allows same-NAT/CGNAT peers to still connect.
+func TestExchangeWithPeer_LogsWarningForOwnIP(t *testing.T) {
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-self-punch-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -598,18 +599,24 @@ func TestExchangeWithPeer_RefusesSelfEndpoint(t *testing.T) {
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
 
-	// Try to punch to own public IP (different port — simulates gossip loop)
-	_, err = pe.ExchangeWithPeer("159.195.25.129:52790")
-	if err == nil {
-		t.Fatal("expected error when punching to own endpoint, got nil")
+	// Use a closed UDP conn so WriteToUDP fails fast (no 4s timeout)
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(err.Error(), "refusing to punch to own endpoint") {
-		t.Errorf("unexpected error: %v", err)
+	conn.Close() // close immediately — write will fail fast
+	pe.conn = conn
+
+	// Punch to own public IP — should NOT be hard-refused (soft warning only).
+	// Will fail with send error on the closed conn, which is expected.
+	_, err = pe.ExchangeWithPeer("159.195.25.129:52790")
+	if err != nil && strings.Contains(err.Error(), "refusing to punch") {
+		t.Errorf("ExchangeWithPeer should not hard-refuse own IP (same-NAT peers share IP): %v", err)
 	}
 }
 
 // TestExchangeWithPeer_AllowsDifferentIP verifies that ExchangeWithPeer
-// does NOT block punching to a different IP (regression guard).
+// does NOT warn or block punching to a different IP (regression guard).
 func TestExchangeWithPeer_AllowsDifferentIP(t *testing.T) {
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-self-punch-2"})
 	if err != nil {
@@ -625,27 +632,24 @@ func TestExchangeWithPeer_AllowsDifferentIP(t *testing.T) {
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
 
-	// Bind a real UDP socket so ExchangeWithPeer doesn't panic on nil conn.
-	// The send will fail (unreachable host) but that's fine — we're testing
-	// that the self-endpoint guard does NOT fire for a different IP.
+	// Use a closed UDP conn so WriteToUDP fails fast (no 4s timeout)
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	conn.Close() // close immediately — write will fail fast
 	pe.conn = conn
 
-	// Punching to a different IP should NOT be refused. It will timeout
-	// (unreachable host), but the error must not be the self-connection guard.
+	// Punching to a different IP should work without any self-connection concern.
 	_, err = pe.ExchangeWithPeer("203.0.113.42:51820")
-	if err != nil && strings.Contains(err.Error(), "refusing to punch to own endpoint") {
+	if err != nil && strings.Contains(err.Error(), "refusing to punch") {
 		t.Errorf("should not refuse punch to different IP: %v", err)
 	}
 }
 
-// TestGetKnownPeers_ExcludesSelf verifies that getKnownPeers filters out
-// the local node from the advertised peer list.
-func TestGetKnownPeers_ExcludesSelf(t *testing.T) {
+// TestGetKnownPeers_ExcludesSelfAndEmpty verifies that getKnownPeers filters
+// out both the local node and empty-pubkey entries from the advertised peer list.
+func TestGetKnownPeers_ExcludesSelfAndEmpty(t *testing.T) {
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-known-peers-self-1"})
 	if err != nil {
 		t.Fatal(err)
@@ -657,11 +661,16 @@ func TestGetKnownPeers_ExcludesSelf(t *testing.T) {
 		MeshIP:   "10.0.0.1",
 	}
 
-	// Add local node and a remote peer to the peer store
+	// Add local node, an empty-key entry, and a remote peer to the peer store
 	peerStore.Update(&daemon.PeerInfo{
 		WGPubKey: "local-pubkey-abc",
 		MeshIP:   "10.0.0.1",
 		Endpoint: "159.195.25.129:51820",
+	}, "dht")
+	peerStore.Update(&daemon.PeerInfo{
+		WGPubKey: "",
+		MeshIP:   "10.0.0.99",
+		Endpoint: "198.51.100.1:51820",
 	}, "dht")
 	peerStore.Update(&daemon.PeerInfo{
 		WGPubKey: "remote-pubkey-xyz",
@@ -675,6 +684,9 @@ func TestGetKnownPeers_ExcludesSelf(t *testing.T) {
 	for _, kp := range known {
 		if kp.WGPubKey == "local-pubkey-abc" {
 			t.Error("getKnownPeers() should not include self (local-pubkey-abc)")
+		}
+		if kp.WGPubKey == "" {
+			t.Error("getKnownPeers() should not include empty-pubkey entries")
 		}
 	}
 
