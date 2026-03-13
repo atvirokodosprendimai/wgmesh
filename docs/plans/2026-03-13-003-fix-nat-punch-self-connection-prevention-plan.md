@@ -110,28 +110,23 @@ func (d *DHTDiscovery) controlEndpointForPeer(peer crypto.KnownPeer) string {
 
 ## Acceptance Criteria
 
-- [x] Node does not attempt NAT punching to its own public IP
-- [x] `getKnownPeers()` excludes self from advertised peer list
-- [x] `controlEndpointForPeer()` rejects endpoints matching own public IP
+- [x] Self-connection prevented via WGPubKey checks at `controlEndpointForPeer()` and `getKnownPeers()`
+- [x] `ExchangeWithPeer()` logs a warning (not a hard block) when target IP matches own public IP — preserves same-NAT/CGNAT peer connectivity
+- [x] `getKnownPeers()` excludes both self (by WGPubKey) and empty-pubkey entries from advertised peer list
+- [x] `controlEndpointForPeer()` rejects control endpoint when peer WGPubKey equals local node
 - [x] Existing self-prevention checks remain in place (defense in depth)
 - [x] Unit tests for self-connection prevention in each fixed function
-- [x] No regression in legitimate NAT punching between different nodes
+- [x] No regression in legitimate NAT punching between different nodes or same-NAT peers
 
 ## Context
 
-### Why the IP check (not just WGPubKey check)?
+### Why WGPubKey check (not IP check)?
 
-The WGPubKey check covers the case where self is explicitly in the peer store. But the IP check covers edge cases where:
-- A peer behind the same NAT gateway has the same public IP (though different port)
-- Endpoint IP is known but WGPubKey mapping is stale or missing
+Two nodes behind the same NAT/CGNAT share a public IP but have different ports and different WGPubKeys. A hard block by IP would break legitimate same-NAT peer connectivity. Therefore:
 
-Both checks together provide defense in depth.
-
-### Note on same-NAT peers
-
-Two nodes behind the same NAT gateway will share a public IP but have different ports. The self-check should compare IP only (not IP:port) for the self case, but must NOT block same-NAT peers (different WGPubKey, same IP, different port). The WGPubKey check is primary; the IP check is supplementary for when the peer is definitively self.
-
-**Revised approach**: Use WGPubKey as the primary self-check. Only use IP comparison as a log warning, not a hard block, to avoid false positives with same-NAT peers.
+- **WGPubKey check** is the primary self-filter (hard block) — used in `controlEndpointForPeer()` and `getKnownPeers()`
+- **IP match** in `ExchangeWithPeer()` is a log warning only — alerts operators to possible self-connection without blocking same-NAT peers
+- The real prevention happens upstream: `controlEndpointForPeer()` returns `""` for self, so `tryRendezvousForPeer()` never reaches `ExchangeWithPeer()` with a self endpoint
 
 ## Sources
 
