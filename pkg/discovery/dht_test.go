@@ -211,3 +211,41 @@ func TestIsPublicIPv6(t *testing.T) {
 		})
 	}
 }
+
+// TestControlEndpointForPeer_RejectsSelf verifies that controlEndpointForPeer
+// returns empty string when the peer is the local node (self-connection prevention).
+func TestControlEndpointForPeer_RejectsSelf(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-control-self-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	localNode := &daemon.LocalNode{
+		WGPubKey: "local-pubkey-self",
+		MeshIP:   "10.0.0.1",
+	}
+	localNode.SetEndpoint("159.195.25.129:51820")
+
+	d, err := NewDHTDiscovery(context.Background(), cfg, localNode, daemon.NewPeerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Self peer — should return empty
+	selfPeer := &daemon.PeerInfo{
+		WGPubKey: "local-pubkey-self",
+		Endpoint: "159.195.25.129:51820",
+	}
+	if got := d.controlEndpointForPeer(selfPeer); got != "" {
+		t.Errorf("controlEndpointForPeer(self) = %q, want empty", got)
+	}
+
+	// Remote peer — should return a valid control endpoint
+	remotePeer := &daemon.PeerInfo{
+		WGPubKey: "remote-pubkey-other",
+		Endpoint: "203.0.113.42:51820",
+	}
+	if got := d.controlEndpointForPeer(remotePeer); got == "" {
+		t.Error("controlEndpointForPeer(remote) = empty, want non-empty")
+	}
+}

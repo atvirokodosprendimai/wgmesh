@@ -1126,6 +1126,11 @@ func (d *DHTDiscovery) controlEndpointForPeer(peer *daemon.PeerInfo) string {
 		return ""
 	}
 
+	// Prevent self-connection: don't return control endpoint for own node
+	if peer.WGPubKey == d.localNode.WGPubKey {
+		return ""
+	}
+
 	d.mu.RLock()
 	if endpoint, ok := d.controlPeers[peer.WGPubKey]; ok {
 		d.mu.RUnlock()

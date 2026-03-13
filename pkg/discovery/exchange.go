@@ -440,6 +440,16 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		return nil, fmt.Errorf("failed to resolve address: %w", err)
 	}
 
+	// Prevent punching to own public endpoint (self-connection prevention)
+	ownEndpoint := pe.localNode.GetEndpoint()
+	if ownEndpoint != "" {
+		ownHost, _, splitErr := net.SplitHostPort(ownEndpoint)
+		if splitErr == nil && ownHost == remoteAddr.IP.String() {
+			log.Printf("[NAT] Skipping punch to own public IP %s", remoteAddr.IP)
+			return nil, fmt.Errorf("refusing to punch to own endpoint %s", addrStr)
+		}
+	}
+
 	replyCh := make(chan *daemon.PeerInfo, 1)
 	pe.setPendingReplyChannel(remoteAddr.String(), replyCh)
 	defer pe.clearPendingReplyChannel(remoteAddr.String())
@@ -1028,12 +1038,18 @@ func controlEndpointFromPeerEndpoint(endpoint string, controlPort int) string {
 	return net.JoinHostPort(host, strconv.Itoa(controlPort))
 }
 
-// getKnownPeers returns a list of known peers for sharing with other nodes
+// getKnownPeers returns a list of known peers for sharing with other nodes.
+// Filters out the local node to prevent self-advertisement via gossip.
 func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 	peers := pe.peerStore.GetActive()
 	knownPeers := make([]crypto.KnownPeer, 0, len(peers))
 
 	for _, p := range peers {
+		// Don't advertise self — prevents gossip loop where own endpoint
+		// is sent back to self and triggers self-connection attempts
+		if p.WGPubKey == pe.localNode.WGPubKey {
+			continue
+		}
 		knownPeers = append(knownPeers, crypto.KnownPeer{
 			WGPubKey:   p.WGPubKey,
 			Hostname:   p.Hostname,
