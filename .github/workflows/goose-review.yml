@@ -229,9 +229,10 @@ jobs:
           # 1. GLM-5 via Z.ai direct (GLM Coding Plan subscription)
           if [ "$goose_ok" = false ] && [ -n "$ZAI_API_KEY" ]; then
             export OPENAI_API_KEY="$ZAI_API_KEY"
-            export OPENAI_HOST="https://api.z.ai/api/coding/paas/v4"
+            export OPENAI_HOST="https://api.z.ai"
+            export OPENAI_BASE_PATH="/api/coding/paas/v4"
             run_goose "openai" "glm-5" "Z.ai GLM-5" && goose_ok=true
-            unset OPENAI_API_KEY OPENAI_HOST
+            unset OPENAI_API_KEY OPENAI_HOST OPENAI_BASE_PATH
           fi
 
           # 2. GPT-5.4 via OpenRouter (BYOK: OpenAI key)
