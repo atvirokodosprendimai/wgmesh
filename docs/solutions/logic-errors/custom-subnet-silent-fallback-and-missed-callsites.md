@@ -49,7 +49,7 @@ Secondary: **plan listed 11 files but self-review only checked 10** — `service
 // BEFORE (wrong): falls back to 10.x.x.x on error
 if err != nil {
     log.Printf("[Collision] Failed to derive IP in custom subnet: %v", err)
-    return DeriveMeshIPWithNonce(meshSubnet, loser.WGPubKey, secret, 1)
+    return DeriveMeshIP(secret, loser.WGPubKey)  // silently switches address space!
 }
 
 // AFTER (correct): return empty string, don't silently switch address space
