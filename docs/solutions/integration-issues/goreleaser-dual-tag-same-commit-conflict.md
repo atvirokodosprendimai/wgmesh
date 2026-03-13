@@ -43,10 +43,15 @@ After cleaning up rc tags, `gh workflow run release.yml -f tag=v0.2.1 -f skip_in
 
 Before tagging a final release, delete all `-rc*` tags on the same commit.
 Consider automating this in the release workflow: add a step that removes rc tags matching the release version before GoReleaser runs.
-Additionally, the tag verification step should validate that the *exact* intended tag matches the describe output — not just that *some* tag exists on HEAD:
+Additionally, the tag verification step should validate that the *exact* intended tag matches the describe output — not just that *some* tag exists on HEAD.
+In `release.yml`, `$TAG` is already set from the workflow input. Use the existing `if !` pattern to avoid bash `-e` issues with `$(...)`:
 
 ```bash
-DESCRIBED=$(git describe --tags --exact-match HEAD 2>/dev/null)
+# TAG is set earlier: TAG="${{ github.event.inputs.tag }}"
+if ! DESCRIBED=$(git describe --tags --exact-match HEAD 2>/dev/null); then
+  echo "::error::HEAD is not a tag — aborting release"
+  exit 1
+fi
 if [ "$DESCRIBED" != "$TAG" ]; then
   echo "::error::Expected tag $TAG but found $DESCRIBED"
   exit 1
