@@ -290,6 +290,68 @@ jobs:
             echo "changes=none" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Resolve Copilot review threads
+        if: steps.pr.outputs.skip != 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const prNumber = parseInt('${{ github.event.inputs.pr_number }}', 10);
+            const gooseOk = '${{ steps.goose.outputs.goose_ok }}' === 'true';
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+
+            // Only resolve threads if Goose succeeded (pushed changes or found nothing to change).
+            // If Goose failed, leave threads unresolved for manual attention.
+            if (!gooseOk) {
+              core.info('Goose failed — leaving threads unresolved for manual review');
+              return;
+            }
+
+            // Re-fetch threads to get current state (Goose may have resolved some)
+            const prGql = await github.graphql(`
+              query($owner: String!, $repo: String!, $number: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  pullRequest(number: $number) {
+                    reviewThreads(first: 100) {
+                      nodes {
+                        id
+                        isResolved
+                        comments(first: 1) {
+                          nodes { author { login } }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            `, { owner, repo, number: prNumber });
+
+            const threads = prGql.repository.pullRequest.reviewThreads.nodes;
+            const unresolvedCopilot = threads.filter(t => {
+              if (t.isResolved) return false;
+              const login = t.comments.nodes[0]?.author?.login || '';
+              return login.includes('copilot') || login.includes('bot');
+            });
+
+            core.info(`Resolving ${unresolvedCopilot.length} Copilot thread(s)`);
+
+            for (const thread of unresolvedCopilot) {
+              try {
+                await github.graphql(`
+                  mutation($threadId: ID!) {
+                    resolveReviewThread(input: { threadId: $threadId }) {
+                      thread { isResolved }
+                    }
+                  }
+                `, { threadId: thread.id });
+              } catch (err) {
+                core.warning(`Failed to resolve thread ${thread.id}: ${err.message}`);
+              }
+            }
+
+            core.info(`Resolved ${unresolvedCopilot.length} Copilot thread(s) on PR #${prNumber}`);
+
       - name: Comment on PR
         if: steps.pr.outputs.skip != 'true'
         uses: actions/github-script@v7
@@ -304,9 +366,9 @@ jobs:
             if (!gooseOk) {
               body = '**Goose review failed.** Could not process review comments — manual attention needed.';
             } else if (changes === 'pushed') {
-              body = '**Goose review complete.** Changes pushed to address reviewer comments.';
+              body = '**Goose review complete.** Changes pushed to address reviewer comments. Copilot threads resolved.';
             } else {
-              body = '**Goose review complete.** No changes needed — reviewer comments may already be addressed.';
+              body = '**Goose review complete.** No changes needed — reviewer comments already addressed. Copilot threads resolved.';
             }
 
             await github.rest.issues.createComment({
