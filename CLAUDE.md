@@ -42,10 +42,13 @@ All wire messages use `crypto.SealEnvelope`/`OpenEnvelope` (AES-256-GCM with der
 
 The `daemon` package doesn't import `discovery`. Instead, `pkg/discovery/init.go` registers a factory via `daemon.SetDHTDiscoveryFactory()` in its `init()`. The main binary triggers this with `_ "github.com/.../pkg/discovery"`. The daemon only knows the `DiscoveryLayer` interface (`Start()/Stop()`).
 
-### Additional Binaries
+### Extracted Repos
 
-- `cmd/chimney/` — GitHub API caching proxy / dashboard server (OTel instrumented)
-- `cmd/lighthouse/` — CDN control plane with REST API, Dragonfly store, xDS/Envoy sync
+- **chimney** — GitHub API caching proxy / dashboard server → [github.com/atvirokodosprendimai/chimney](https://github.com/atvirokodosprendimai/chimney)
+- **lighthouse** — CDN control plane with REST API, Dragonfly store, xDS/Envoy sync → [github.com/atvirokodosprendimai/lighthouse](https://github.com/atvirokodosprendimai/lighthouse)
+- **lighthouse-go** — Go client SDK for the Lighthouse API → [github.com/atvirokodosprendimai/lighthouse-go](https://github.com/atvirokodosprendimai/lighthouse-go)
+
+The `wgmesh service` subcommand imports `lighthouse-go` SDK to talk to the Lighthouse API.
 
 ### RPC
 

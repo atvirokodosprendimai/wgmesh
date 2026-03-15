@@ -116,11 +116,11 @@ This is a follow-up decision — doesn't block extraction.
 
 ### Migration order
 
-1. Publish `lighthouse-go` client SDK (extract from `pkg/lighthouse/client.go` + types)
-2. Update `service.go` to import the SDK
-3. Move `cmd/lighthouse/` + `pkg/lighthouse/` server code to lighthouse repo
-4. Remove from wgmesh, update specs
+1. ~~Publish `lighthouse-go` client SDK (extract from `pkg/lighthouse/client.go` + types)~~ — done: v0.1.0 published
+2. ~~Update `service.go` to import the SDK~~ — done: `2e36371`
+3. ~~Move `cmd/lighthouse/` + `pkg/lighthouse/` server code to lighthouse repo~~ — done: v0.1.0 published
+4. ~~Remove from wgmesh, update specs~~ — done: server code removed, `pkg/ratelimit` kept (shared with discovery)
 
 ## Status
 
-decided
+complete
