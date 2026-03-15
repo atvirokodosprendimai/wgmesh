@@ -5,7 +5,6 @@ go 1.25.5
 require (
 	github.com/anacrolix/dht/v2 v2.23.0
 	github.com/atvirokodosprendimai/lighthouse-go v0.1.0
-	github.com/redis/go-redis/v9 v9.18.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/term v0.39.0
 )
@@ -30,12 +29,9 @@ require (
 	github.com/anacrolix/torrent v1.48.1-0.20230103142631-c20f73d53e9f // indirect
 	github.com/benbjohnson/immutable v0.4.1-0.20221220213129-8932b999621d // indirect
 	github.com/bradfitz/iter v0.0.0-20191230175014-e8f45d346db8 // indirect
-	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
 	github.com/rs/dnscache v0.0.0-20211102005908-e0241e321417 // indirect
-	go.uber.org/atomic v1.11.0 // indirect
 	golang.org/x/exp v0.0.0-20221217163422-3c43f8badb15 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
