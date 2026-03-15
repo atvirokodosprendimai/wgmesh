@@ -77,7 +77,7 @@ func main() {
 
 	// Original CLI mode
 	var (
-		stateFile  = flag.String("state", "/var/lib/wgmesh/mesh-state.json", "Path to mesh state file")
+		stateFile  = flag.String("state", filepath.Join(defaultStateDir, "mesh-state.json"), "Path to mesh state file")
 		addNode    = flag.String("add", "", "Add node (format: hostname:ip:ssh_host[:ssh_port])")
 		removeNode = flag.String("remove", "", "Remove node by hostname")
 		list       = flag.Bool("list", false, "List all nodes")
@@ -176,7 +176,7 @@ func printUsage() {
 
 FLAGS:
   --version, -v               Show version information
-  -state <file>    Path to mesh state file (default: /var/lib/wgmesh/mesh-state.json)
+  -state <file>    Path to mesh state file (default: ` + filepath.Join(defaultStateDir, "mesh-state.json") + `)
   -add <spec>      Add node (format: hostname:ip:ssh_host[:ssh_port])
   -remove <name>   Remove node by hostname
   -list            List all nodes
@@ -314,9 +314,7 @@ func joinCmd() {
 	}
 
 	// Save account API key if provided
-	if *account != "" {
-		saveAccountAPIKey(*stateDir, *account)
-	}
+	handleAccountFlag(*stateDir, *account)
 
 	// Parse advertise routes
 	var routes []string
@@ -621,6 +619,13 @@ func formatIPv6Prefix(prefix [8]byte) string {
 	)
 }
 
+// handleAccountFlag processes the --account flag by saving the API key if provided.
+func handleAccountFlag(stateDir, apiKey string) {
+	if apiKey != "" {
+		saveAccountAPIKey(stateDir, apiKey)
+	}
+}
+
 // saveAccountAPIKey saves the provided API key to the account config file.
 // It properly handles missing vs corrupt files and includes the path in error messages.
 func saveAccountAPIKey(stateDir, apiKey string) {
@@ -629,8 +634,7 @@ func saveAccountAPIKey(stateDir, apiKey string) {
 	// Try to load existing account first
 	acct, err := mesh.LoadAccount(accountPath)
 	if err != nil {
-		// Check if it's a "file not found" error by checking the file directly
-		if _, statErr := os.Stat(accountPath); os.IsNotExist(statErr) {
+		if os.IsNotExist(err) {
 			// No existing account file; start from an empty account.
 			acct = mesh.AccountConfig{}
 		} else {
@@ -675,9 +679,7 @@ func installServiceCmd() {
 	}
 
 	// Save account API key if provided
-	if *account != "" {
-		saveAccountAPIKey(*stateDir, *account)
-	}
+	handleAccountFlag(*stateDir, *account)
 
 	var routes []string
 	if *advertiseRoutes != "" {

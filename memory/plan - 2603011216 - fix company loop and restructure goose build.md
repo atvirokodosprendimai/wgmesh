@@ -1,7 +1,10 @@
 ---
 tldr: Fix company-loop jq failure on main and deeply restructure goose-build.yml so Goose recipe is the portable artifact
-status: completed
+status: completed-migrated
 ---
+
+> **Migrated:** Company loop moved to [ai-pipeline-template](https://github.com/atvirokodosprendimai/ai-pipeline-template).
+> See [[plan - 2603040954 - migrate observation loop to ai-pipeline-template]].
 
 # Plan: Fix Company Loop and Restructure Goose Build
 

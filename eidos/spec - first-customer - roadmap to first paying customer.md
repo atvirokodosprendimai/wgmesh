@@ -69,6 +69,11 @@ The loop tracks contributions and the company reciprocates:
 
 This principle is not altruism — it's a survival strategy. An autonomous company with no employees depends entirely on the willingness of external entities to contribute. Reciprocity is what makes that sustainable.
 
+## Migration Note
+
+The company control loop (`company/`, `company-loop.yml`, function labels) has been migrated to [ai-pipeline-template](https://github.com/atvirokodosprendimai/ai-pipeline-template) as a generalised, reusable observation loop.
+This spec retains the full vision; the implementation now lives in the template repo.
+
 ## Behaviour
 
 ### The control loop
@@ -371,20 +376,8 @@ company/
 
 ## Mapping
 
-Company loop (new):
-> [[.github/workflows/company-loop.yml]]
-> [[company/system-prompt.md]]
-> [[company/loop-state.json]]
-> [[company/contributors.json]]
-> [[company/costs.json]]
-> [[company/health.json]]
-> [[company/metrics.json]]
-> [[company/scripts/collect-github.sh]]
-> [[company/scripts/collect-infra.sh]]
-> [[company/scripts/collect-contributions.sh]]
-> [[company/scripts/sanitise.sh]]
-> [[.github/hooks/pre-commit-secret-scan]]
-> [[.github/labels.yml]]
+Company loop (migrated to ai-pipeline-template):
+> See https://github.com/atvirokodosprendimai/ai-pipeline-template
 
 Existing pipeline:
 > [[.github/workflows/copilot-triage.yml]]
