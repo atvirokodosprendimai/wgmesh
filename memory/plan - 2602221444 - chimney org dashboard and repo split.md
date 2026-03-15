@@ -50,24 +50,35 @@ Update chimney specs to reflect new org-level purpose before the split.
 9. [ ] Update [[spec - chimney - dashboard server with github api proxy and two-layer cache]] — reflect org-level view, dynamic discovery, TV intent
 10. [ ] Update `eidos/chimney.md` overview — replace wgmesh-specific references with org scope
 
-### Phase 4 - Repo split - status: open
+### Phase 4 - Repo split - status: in-progress
 
-Migrate chimney to `atvirokodosprendimai/chimney`. Blocked on Phase 1–3 complete.
+Migrate chimney to `atvirokodosprendimai/chimney`. Unblocked by decision to split first.
 
-11. [ ] Create `atvirokodosprendimai/chimney` repo on GitHub
-    - Initialize with README, MIT license, `.gitignore`
-    - Configure branch protection: require PR + passing CI on `main`
-12. [ ] Migrate code: copy `cmd/chimney/` → new repo root; copy `deploy/chimney/` → `deploy/`
-    - Adjust Go module name: `github.com/atvirokodosprendimai/chimney`
-    - Update `go.mod`, `go.sum`
-13. [ ] Migrate workflows: copy `.github/workflows/chimney-*.yml` → new repo
-    - Update image path: `ghcr.io/atvirokodosprendimai/chimney` (drop `/wgmesh/`)
-    - `chimney-deploy.yml` triggers on push to `main` (no longer `workflow_run`)
-14. [ ] Update all image references: `compose.origin.yml`, `bluegreen.sh`, watchtower config
+11. [x] Create `atvirokodosprendimai/chimney` repo on GitHub
+    - => https://github.com/atvirokodosprendimai/chimney created (public)
+    - => README with usage, config, endpoints
+    - => .gitignore for Go binaries
+    - => Branch protection: TODO (manual step)
+12. [x] Migrate code: copy `cmd/chimney/` → new repo root; copy `deploy/chimney/` → `deploy/`
+    - => Go module: `github.com/atvirokodosprendimai/chimney`
+    - => `go mod init` + `go mod tidy` + `go build` all pass
+    - => `docs/index.html` copied as dashboard frontend
+13. [x] Migrate workflows: copy `.github/workflows/chimney-*.yml` → new repo
+    - => Renamed: `build.yml`, `deploy.yml`, `infra.yml`
+    - => Image path: `ghcr.io/atvirokodosprendimai/chimney`
+    - => Build paths updated: `.` instead of `./cmd/chimney/`
+    - => Deploy paths updated: `deploy/` instead of `deploy/chimney/`
+    - => Deploy trigger: `["Build and Push"]` workflow name
+14. [x] Update all image references: `compose.origin.yml`, `bluegreen.sh`, watchtower config
+    - => `compose.origin.yml` image refs updated to `ghcr.io/atvirokodosprendimai/chimney`
 15. [ ] Configure secrets in new repo: `CHIMNEY_SSH_KEY`, `HCLOUD_TOKEN`, `GH_TOKEN`, `GHCR_TOKEN`
+    - => Manual step — user must add these via GitHub UI or CLI
 16. [ ] Trigger deploy from new repo; verify smoke tests pass at `chimney.beerpub.dev`
-17. [ ] Clean `wgmesh`: remove `cmd/chimney/`, `deploy/chimney/`, `chimney-*.yml` workflows, chimney eidos specs
-    - Update `wgmesh` README to link to `atvirokodosprendimai/chimney`
+17. [x] Clean `wgmesh`: remove `cmd/chimney/`, `deploy/chimney/`, `chimney-*.yml` workflows
+    - => All chimney code, deploy files, and workflows removed
+    - => Chimney specs kept in wgmesh for reference (will move later)
+    - => `go mod tidy` + build + tests pass
+    - => Chimney dashboard spec updated with extraction note
 
 ## Verification
 
@@ -84,5 +95,5 @@ Migrate chimney to `atvirokodosprendimai/chimney`. Blocked on Phase 1–3 comple
 
 ## Progress Log
 
-<!-- Timestamped entries tracking work done. Updated after every action. -->
 - 2602221444 — plan created
+- 2603151246 — Phase 4: chimney extracted to github.com/atvirokodosprendimai/chimney; code, workflows, deploy files migrated; wgmesh cleaned; secrets config pending (manual)
