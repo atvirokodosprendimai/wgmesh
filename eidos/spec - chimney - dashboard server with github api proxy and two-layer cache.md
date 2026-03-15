@@ -123,7 +123,13 @@ Response shape: `{wgmesh_version, open_issues, open_prs, last_merged_pr, recent_
 - Edge Caddy — receives `ETag` response headers; caches at the edge; sends `If-None-Match` on revalidation.
 - `cmd/lighthouse/main.go` — optionally starts `pkg/proxy.Proxy` alongside the lighthouse API.
 
+## Extraction
+
+> **Extracted to:** [github.com/atvirokodosprendimai/chimney](https://github.com/atvirokodosprendimai/chimney)
+>
+> This spec describes code that now lives in its own repo. It remains here for reference until chimney's own spec system is established.
+
 ## Mapping
 
-> [[cmd/chimney/main.go]]
-> [[pkg/proxy/proxy.go]]
+> `github.com/atvirokodosprendimai/chimney` — main.go (formerly `cmd/chimney/main.go`)
+> [[pkg/proxy/proxy.go]] — will move with lighthouse extraction
