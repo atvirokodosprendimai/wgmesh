@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/atvirokodosprendimai/wgmesh/pkg/lighthouse"
+	lighthouse "github.com/atvirokodosprendimai/lighthouse-go"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 )
 
@@ -154,6 +154,7 @@ func TestResolveAccount(t *testing.T) {
 func TestServiceEndToEnd(t *testing.T) {
 	// Track sites in memory
 	sites := make(map[string]lighthouse.Site)
+	siteCounter := 0
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check auth
@@ -172,8 +173,9 @@ func TestServiceEndToEnd(t *testing.T) {
 				return
 			}
 
+			siteCounter++
 			site := lighthouse.Site{
-				ID:     lighthouse.GenerateID("site"),
+				ID:     fmt.Sprintf("site_%d", siteCounter),
 				Domain: req.Domain,
 				Origin: req.Origin,
 				Status: lighthouse.SiteStatusPendingDNS,

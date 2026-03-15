@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
-	"github.com/atvirokodosprendimai/wgmesh/pkg/lighthouse"
+	lighthouse "github.com/atvirokodosprendimai/lighthouse-go"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 )
 
