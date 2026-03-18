@@ -24,18 +24,19 @@ import (
 )
 
 const (
-	ReconcileInterval    = 5 * time.Second
-	StatusInterval       = 30 * time.Second
-	RelayCandidateMaxAge = 90 * time.Second
-	StaleCleanupInterval = 1 * time.Minute
-	HealthCheckInterval  = 20 * time.Second
-	HandshakeStaleAfter  = 150 * time.Second
-	MeshProbeInterval    = 1 * time.Second
-	MeshProbeDialTimeout = 1200 * time.Millisecond // Increased from 800ms for cross-DC tolerance
-	MeshProbeFailLimit   = 8
-	MeshProbePortOffset  = 2000
-	TemporaryOfflineTTL  = 30 * time.Second
-	soBindToDevice       = 25 // Linux SO_BINDTODEVICE
+	ReconcileInterval      = 5 * time.Second
+	StatusInterval         = 30 * time.Second
+	RelayCandidateMaxAge   = 90 * time.Second
+	StaleCleanupInterval   = 1 * time.Minute
+	HealthCheckInterval    = 20 * time.Second
+	HandshakeStaleAfter    = 150 * time.Second
+	MeshProbeInterval      = 1 * time.Second
+	MeshProbeDialTimeout   = 1200 * time.Millisecond // Increased from 800ms for cross-DC tolerance
+	MeshProbeFailLimit     = 8
+	MeshProbePortOffset    = 2000
+	TemporaryOfflineTTL    = 30 * time.Second
+	soBindToDevice         = 25                      // Linux SO_BINDTODEVICE
+	RelayHysteresisThreshold = 3                     // Require 3 consecutive stable cycles before switching relay→direct
 )
 
 type peerProbeSession struct {
@@ -52,6 +53,7 @@ type Daemon struct {
 	appliedMu              sync.Mutex
 	relayRoutes            map[string]string // target pubkey -> relay pubkey
 	relayMu                sync.RWMutex
+	directStableCycles     map[string]int    // pubkey -> consecutive cycles with working direct path (relay hysteresis)
 	localSubnetsFn         func() []*net.IPNet
 	peerHealthFailures     map[string]int
 	lastPeerTransferTotal  map[string]uint64
@@ -186,6 +188,7 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		peerStore:              NewPeerStore(),
 		lastAppliedPeerConfigs: make(map[string]string),
 		relayRoutes:            make(map[string]string),
+		directStableCycles:     make(map[string]int),
 		localSubnetsFn:         detectLocalSubnets,
 		peerHealthFailures:     make(map[string]int),
 		lastPeerTransferTotal:  make(map[string]uint64),
@@ -457,9 +460,10 @@ func (d *Daemon) reconcileLoop() {
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
 	peers := d.peerStore.GetActive()
-	desired, relayRoutes := d.buildDesiredPeerConfigs(peers)
+	desired, relayRoutes, directStable := d.buildDesiredPeerConfigs(peers)
 	d.relayMu.Lock()
 	d.relayRoutes = relayRoutes
+	d.directStableCycles = directStable
 	d.relayMu.Unlock()
 	if err := d.applyDesiredPeerConfigs(desired); err != nil {
 		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
@@ -480,9 +484,15 @@ type desiredPeerConfig struct {
 	allowed map[string]struct{}
 }
 
-func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desiredPeerConfig, map[string]string) {
+func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
+	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	return d.buildDesiredPeerConfigsWithHandshakes(peers, handshakes)
+}
+
+func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handshakes map[string]int64) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
 	desired := make(map[string]*desiredPeerConfig)
 	relayRoutes := make(map[string]string)
+	newDirectStable := make(map[string]int)
 	relayCandidates := make([]*PeerInfo, 0)
 	now := time.Now()
 	localSubnets := d.getLocalSubnets()
@@ -499,8 +509,8 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desired
 		}
 	}
 
-	// Query WG handshake times to detect unreachable peers
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	prevRelayRoutes := d.currentRelayRoutesSnapshot()
+	prevDirectStable := d.directStableCyclesSnapshot()
 
 	for _, p := range peers {
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" || p.MeshIP == "" {
@@ -510,7 +520,22 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desired
 			continue
 		}
 
-		if d.shouldRelayPeerWithSubnets(p, relayCandidates, handshakes, localSubnets) {
+		shouldRelay := d.shouldRelayPeerWithSubnets(p, relayCandidates, handshakes, localSubnets)
+
+		// Hysteresis: don't switch relay→direct without N consecutive stable cycles.
+		// This prevents route flapping when NAT punching intermittently succeeds.
+		_, wasRelayed := prevRelayRoutes[p.WGPubKey]
+		if wasRelayed && !shouldRelay {
+			n := prevDirectStable[p.WGPubKey] + 1
+			if n < RelayHysteresisThreshold {
+				// Hold relay route; direct path not yet stable enough to trust
+				shouldRelay = true
+				newDirectStable[p.WGPubKey] = n
+			}
+			// else: hysteresis satisfied — allow transition to direct
+		}
+
+		if shouldRelay {
 			relay := d.selectRelayForPeer(p, relayCandidates)
 			if relay != nil {
 				relayRoutes[p.WGPubKey] = relay.WGPubKey
@@ -540,7 +565,7 @@ func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desired
 		}
 	}
 
-	return desired, relayRoutes
+	return desired, relayRoutes, newDirectStable
 }
 
 // shouldRelayPeer decides whether traffic to a peer should be routed via
@@ -1268,6 +1293,7 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	d.appliedMu.Unlock()
 	d.relayMu.Lock()
 	delete(d.relayRoutes, peer.WGPubKey)
+	delete(d.directStableCycles, peer.WGPubKey)
 	d.relayMu.Unlock()
 	d.healthMu.Lock()
 	delete(d.peerHealthFailures, peer.WGPubKey)

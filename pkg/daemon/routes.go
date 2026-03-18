@@ -63,6 +63,16 @@ func (d *Daemon) currentRelayRoutesSnapshot() map[string]string {
 	return out
 }
 
+func (d *Daemon) directStableCyclesSnapshot() map[string]int {
+	d.relayMu.RLock()
+	defer d.relayMu.RUnlock()
+	out := make(map[string]int, len(d.directStableCycles))
+	for k, v := range d.directStableCycles {
+		out[k] = v
+	}
+	return out
+}
+
 func getCurrentRoutes(iface string) ([]routes.Entry, error) {
 	cmd := cmdExecutor.Command("ip", "route", "show", "dev", iface)
 	output, err := cmd.Output()

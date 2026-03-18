@@ -2,9 +2,11 @@ package daemon
 
 import (
 	"fmt"
+	"net"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
@@ -264,4 +266,171 @@ func TestApplyRouteDiff_AddFailure(t *testing.T) {
 			t.Errorf("unexpected error message: %v", err)
 		}
 	})
+}
+
+// makeRelayTestDaemon creates a minimal Daemon for hysteresis/relay route tests.
+// The relay candidate has pubkey "relay1" and the target peer has pubkey "peer1".
+// An empty &Config{} is used intentionally: these unit tests exercise relay
+// decision logic which only reads config.Introducer, config.ForceRelay, and
+// config.DisableIPv6 — all zero-valued to match the default (no-force) scenario.
+func makeRelayTestDaemon() *Daemon {
+	return &Daemon{
+		config: &Config{},
+		localNode: &LocalNode{
+			WGPubKey: "local1",
+			NATType:  "symmetric",
+		},
+		relayRoutes:        make(map[string]string),
+		directStableCycles: make(map[string]int),
+		temporaryOffline:   make(map[string]time.Time),
+		localSubnetsFn:     func() []*net.IPNet { return nil },
+	}
+}
+
+// TestSyncPeerRoutes_RelayNotRemovedOnIntermittentDirect verifies that when a peer
+// is currently relay-routed and the direct path appears to be working (fresh handshake),
+// the relay route is NOT removed until the direct path is stable for
+// RelayHysteresisThreshold consecutive reconcile cycles.
+func TestSyncPeerRoutes_RelayNotRemovedOnIntermittentDirect(t *testing.T) {
+	t.Parallel()
+
+	d := makeRelayTestDaemon()
+
+	relay := &PeerInfo{
+		WGPubKey:   "relay1",
+		MeshIP:     "10.0.0.10",
+		Endpoint:   "1.2.3.4:51820",
+		Introducer: true,
+		LastSeen:   time.Now(),
+	}
+	target := &PeerInfo{
+		WGPubKey: "peer1",
+		MeshIP:   "10.0.0.20",
+		NATType:  "symmetric",
+	}
+	peers := []*PeerInfo{relay, target}
+
+	// Seed an existing relay route — simulates prior relay being active.
+	d.relayMu.Lock()
+	d.relayRoutes["peer1"] = "relay1"
+	d.relayMu.Unlock()
+
+	// Fresh handshake — direct path looks good.
+	freshHS := map[string]int64{"peer1": time.Now().Add(-10 * time.Second).Unix()}
+
+	// Reconcile cycles 1 through (threshold-1): relay must be kept.
+	for cycle := 1; cycle < RelayHysteresisThreshold; cycle++ {
+		_, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, freshHS)
+		d.relayMu.Lock()
+		d.relayRoutes = relayRoutes
+		d.directStableCycles = directStable
+		d.relayMu.Unlock()
+
+		if _, stillRelayed := relayRoutes["peer1"]; !stillRelayed {
+			t.Errorf("cycle %d: relay route was removed before hysteresis threshold (%d)", cycle, RelayHysteresisThreshold)
+		}
+		stableCount := directStable["peer1"]
+		if stableCount != cycle {
+			t.Errorf("cycle %d: directStableCycles = %d, want %d", cycle, stableCount, cycle)
+		}
+	}
+
+	// Reconcile cycle at threshold: relay must be dropped.
+	_, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, freshHS)
+	d.relayMu.Lock()
+	d.relayRoutes = relayRoutes
+	d.directStableCycles = directStable
+	d.relayMu.Unlock()
+
+	if _, stillRelayed := relayRoutes["peer1"]; stillRelayed {
+		t.Errorf("relay route was not dropped after %d stable cycles", RelayHysteresisThreshold)
+	}
+}
+
+// TestSyncPeerRoutes_RelayRestoredAfterDirectFailure verifies that when a direct
+// path fails (stale WG handshake + symmetric NAT), the relay route is established
+// within one reconcile cycle.
+func TestSyncPeerRoutes_RelayRestoredAfterDirectFailure(t *testing.T) {
+	t.Parallel()
+
+	d := makeRelayTestDaemon()
+
+	relay := &PeerInfo{
+		WGPubKey:   "relay1",
+		MeshIP:     "10.0.0.10",
+		Endpoint:   "1.2.3.4:51820",
+		Introducer: true,
+		LastSeen:   time.Now(),
+	}
+	target := &PeerInfo{
+		WGPubKey: "peer1",
+		MeshIP:   "10.0.0.20",
+		NATType:  "symmetric",
+	}
+	peers := []*PeerInfo{relay, target}
+
+	// Stale handshake — direct path has broken.
+	staleHS := map[string]int64{"peer1": time.Now().Add(-5 * time.Minute).Unix()}
+
+	_, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, staleHS)
+	d.relayMu.Lock()
+	d.relayRoutes = relayRoutes
+	d.directStableCycles = directStable
+	d.relayMu.Unlock()
+
+	if _, relayed := relayRoutes["peer1"]; !relayed {
+		t.Error("relay route was not established within one cycle after direct path failure")
+	}
+}
+
+// TestSyncPeerRoutes_GatewayFlap verifies that rapid gateway changes (direct ↔ relay)
+// do not produce oscillating route diffs: the hysteresis counter must absorb the
+// direct appearance and only switch once the path is sustainably stable.
+func TestSyncPeerRoutes_GatewayFlap(t *testing.T) {
+	t.Parallel()
+
+	d := makeRelayTestDaemon()
+
+	relay := &PeerInfo{
+		WGPubKey:   "relay1",
+		MeshIP:     "10.0.0.10",
+		Endpoint:   "1.2.3.4:51820",
+		Introducer: true,
+		LastSeen:   time.Now(),
+	}
+	target := &PeerInfo{
+		WGPubKey: "peer1",
+		MeshIP:   "10.0.0.20",
+		NATType:  "symmetric",
+	}
+	peers := []*PeerInfo{relay, target}
+
+	// Start with an established relay route.
+	d.relayMu.Lock()
+	d.relayRoutes["peer1"] = "relay1"
+	d.relayMu.Unlock()
+
+	// Simulate alternating fresh/stale handshakes across multiple cycles.
+	for cycle := 0; cycle < 6; cycle++ {
+		var hs map[string]int64
+		if cycle%2 == 0 {
+			// Even cycle: fresh handshake (direct seems available)
+			hs = map[string]int64{"peer1": time.Now().Add(-10 * time.Second).Unix()}
+		} else {
+			// Odd cycle: stale handshake (direct fails again)
+			hs = map[string]int64{"peer1": time.Now().Add(-5 * time.Minute).Unix()}
+		}
+
+		_, newRelay, newDirect := d.buildDesiredPeerConfigsWithHandshakes(peers, hs)
+		d.relayMu.Lock()
+		d.relayRoutes = newRelay
+		d.directStableCycles = newDirect
+		d.relayMu.Unlock()
+
+		// With alternating direct/stale, relay should never fully drop below
+		// the hysteresis threshold — peer must always remain relayed.
+		if _, relayed := newRelay["peer1"]; !relayed {
+			t.Errorf("cycle %d: relay dropped unexpectedly during gateway flap", cycle)
+		}
+	}
 }
