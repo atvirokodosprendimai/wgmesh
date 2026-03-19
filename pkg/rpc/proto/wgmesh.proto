@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package wgmesh.rpc;
+
+option go_package = "github.com/atvirokodosprendimai/wgmesh/pkg/rpc/proto;rpcpb";
+
+// PeerInfo represents a single WireGuard mesh peer.
+message PeerInfo {
+  string pubkey = 1 [json_name = "pubkey"];
+  string hostname = 2 [json_name = "hostname"];
+  string mesh_ip = 3 [json_name = "mesh_ip"];
+  string endpoint = 4 [json_name = "endpoint"];
+  string last_seen = 5 [json_name = "last_seen"];
+  repeated string discovered_via = 6 [json_name = "discovered_via"];
+  repeated string routable_networks = 7 [json_name = "routable_networks"];
+}
+
+// PeersListResult is returned by the peers.list RPC method.
+message PeersListResult {
+  repeated PeerInfo peers = 1 [json_name = "peers"];
+}
+
+// PeersCountResult is returned by the peers.count RPC method.
+message PeersCountResult {
+  int64 active = 1 [json_name = "active"];
+  int64 total = 2 [json_name = "total"];
+  int64 dead = 3 [json_name = "dead"];
+}
+
+// DaemonStatusResult is returned by the daemon.status RPC method.
+message DaemonStatusResult {
+  string mesh_ip = 1 [json_name = "mesh_ip"];
+  string pubkey = 2 [json_name = "pubkey"];
+  int64 uptime = 3 [json_name = "uptime"];
+  string interface = 4 [json_name = "interface"];
+  string version = 5 [json_name = "version"];
+}
+
+// DaemonPingResult is returned by the daemon.ping RPC method.
+message DaemonPingResult {
+  bool pong = 1 [json_name = "pong"];
+  string version = 2 [json_name = "version"];
+}
+
+// StatusData is used internally for daemon status callbacks.
+message StatusData {
+  string mesh_ip = 1 [json_name = "mesh_ip"];
+  string pubkey = 2 [json_name = "pubkey"];
+  int64 uptime = 3 [json_name = "uptime"];
+  string interface = 4 [json_name = "interface"];
+}

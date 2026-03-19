@@ -3,6 +3,8 @@ package rpc
 import (
 	"encoding/json"
 	"testing"
+
+	pb "github.com/atvirokodosprendimai/wgmesh/pkg/rpc/proto"
 )
 
 func TestRequestSerialization(t *testing.T) {
@@ -82,11 +84,11 @@ func TestErrorResponse(t *testing.T) {
 }
 
 func TestPeersListResult(t *testing.T) {
-	result := &PeersListResult{
-		Peers: []*PeerInfo{
+	result := &pb.PeersListResult{
+		Peers: []*pb.PeerInfo{
 			{
-				PubKey:        "test-key",
-				MeshIP:        "10.0.0.1",
+				Pubkey:        "test-key",
+				MeshIp:        "10.0.0.1",
 				Endpoint:      "1.2.3.4:51820",
 				LastSeen:      "2024-01-01T00:00:00Z",
 				DiscoveredVia: []string{"dht"},
@@ -99,7 +101,7 @@ func TestPeersListResult(t *testing.T) {
 		t.Fatalf("failed to marshal result: %v", err)
 	}
 
-	var decoded PeersListResult
+	var decoded pb.PeersListResult
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("failed to unmarshal result: %v", err)
 	}
@@ -107,13 +109,13 @@ func TestPeersListResult(t *testing.T) {
 	if len(decoded.Peers) != 1 {
 		t.Errorf("expected 1 peer, got %d", len(decoded.Peers))
 	}
-	if decoded.Peers[0].PubKey != "test-key" {
-		t.Errorf("expected pubkey test-key, got %s", decoded.Peers[0].PubKey)
+	if decoded.Peers[0].Pubkey != "test-key" {
+		t.Errorf("expected pubkey test-key, got %s", decoded.Peers[0].Pubkey)
 	}
 }
 
 func TestPeersCountResult(t *testing.T) {
-	result := &PeersCountResult{
+	result := &pb.PeersCountResult{
 		Active: 5,
 		Total:  10,
 		Dead:   5,
@@ -124,7 +126,7 @@ func TestPeersCountResult(t *testing.T) {
 		t.Fatalf("failed to marshal result: %v", err)
 	}
 
-	var decoded PeersCountResult
+	var decoded pb.PeersCountResult
 	if err := json.Unmarshal(data, &decoded); err != nil {
 		t.Fatalf("failed to unmarshal result: %v", err)
 	}

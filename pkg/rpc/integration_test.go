@@ -1,11 +1,14 @@
 package rpc
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	pb "github.com/atvirokodosprendimai/wgmesh/pkg/rpc/proto"
 )
 
 func TestClientServerIntegration(t *testing.T) {
@@ -14,30 +17,30 @@ func TestClientServerIntegration(t *testing.T) {
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("wg-rpc-%d.sock", os.Getpid()))
 	t.Cleanup(func() { os.Remove(socketPath) })
 
-	// Mock peer data
-	mockPeer := &PeerData{
-		WGPubKey:         "test-pubkey-abc123",
+	// Mock peer data using generated proto types
+	mockPeer := &pb.PeerInfo{
+		Pubkey:           "test-pubkey-abc123",
 		Hostname:         "node-test-1",
-		MeshIP:           "10.42.0.5",
+		MeshIp:           "10.42.0.5",
 		Endpoint:         "203.0.113.10:51820",
-		LastSeen:         time.Now(),
+		LastSeen:         time.Now().Format(time.RFC3339),
 		DiscoveredVia:    []string{"dht", "gossip"},
 		RoutableNetworks: []string{"192.168.1.0/24"},
 	}
 
 	// Mock peer without hostname (to test fallback behaviour)
-	mockPeerNoHostname := &PeerData{
-		WGPubKey:      "test-pubkey-nohostname",
-		MeshIP:        "10.42.0.6",
+	mockPeerNoHostname := &pb.PeerInfo{
+		Pubkey:        "test-pubkey-nohostname",
+		MeshIp:        "10.42.0.6",
 		Endpoint:      "203.0.113.11:51820",
-		LastSeen:      time.Now(),
+		LastSeen:      time.Now().Format(time.RFC3339),
 		DiscoveredVia: []string{"lan"},
 	}
 
-	mockStatus := &StatusData{
-		MeshIP:    "10.42.0.1",
-		PubKey:    "local-pubkey-xyz789",
-		Uptime:    5 * time.Minute,
+	mockStatus := &pb.StatusData{
+		MeshIp:    "10.42.0.1",
+		Pubkey:    "local-pubkey-xyz789",
+		Uptime:    int64(5 * time.Minute),
 		Interface: "wg0",
 	}
 
@@ -45,14 +48,14 @@ func TestClientServerIntegration(t *testing.T) {
 	config := ServerConfig{
 		SocketPath: socketPath,
 		Version:    "test-v1.0",
-		GetPeers: func() []*PeerData {
-			return []*PeerData{mockPeer, mockPeerNoHostname}
+		GetPeers: func() []*pb.PeerInfo {
+			return []*pb.PeerInfo{mockPeer, mockPeerNoHostname}
 		},
-		GetPeer: func(pubKey string) (*PeerData, bool) {
+		GetPeer: func(pubKey string) (*pb.PeerInfo, bool) {
 			switch pubKey {
-			case mockPeer.WGPubKey:
+			case mockPeer.Pubkey:
 				return mockPeer, true
-			case mockPeerNoHostname.WGPubKey:
+			case mockPeerNoHostname.Pubkey:
 				return mockPeerNoHostname, true
 			}
 			return nil, false
@@ -60,7 +63,7 @@ func TestClientServerIntegration(t *testing.T) {
 		GetPeerCounts: func() (active, total, dead int) {
 			return 2, 2, 0
 		},
-		GetStatus: func() *StatusData {
+		GetStatus: func() *pb.StatusData {
 			return mockStatus
 		},
 	}
@@ -91,6 +94,19 @@ func TestClientServerIntegration(t *testing.T) {
 	}
 	defer client.Close()
 
+	// unmarshalResult re-encodes the interface{} result from client.Call and
+	// unmarshals it into the given proto-generated target struct.
+	unmarshalResult := func(t *testing.T, result interface{}, target interface{}) {
+		t.Helper()
+		b, err := json.Marshal(result)
+		if err != nil {
+			t.Fatalf("failed to encode RPC result: %v", err)
+		}
+		if err := json.Unmarshal(b, target); err != nil {
+			t.Fatalf("failed to decode RPC result: %v", err)
+		}
+	}
+
 	// Test daemon.ping
 	t.Run("daemon.ping", func(t *testing.T) {
 		result, err := client.Call("daemon.ping", nil)
@@ -98,12 +114,13 @@ func TestClientServerIntegration(t *testing.T) {
 			t.Fatalf("daemon.ping failed: %v", err)
 		}
 
-		resultMap := result.(map[string]interface{})
-		if resultMap["pong"] != true {
+		var ping pb.DaemonPingResult
+		unmarshalResult(t, result, &ping)
+		if !ping.Pong {
 			t.Error("expected pong to be true")
 		}
-		if resultMap["version"] != "test-v1.0" {
-			t.Errorf("expected version test-v1.0, got %v", resultMap["version"])
+		if ping.Version != "test-v1.0" {
+			t.Errorf("expected version test-v1.0, got %v", ping.Version)
 		}
 	})
 
@@ -114,66 +131,68 @@ func TestClientServerIntegration(t *testing.T) {
 			t.Fatalf("peers.list failed: %v", err)
 		}
 
-		resultMap := result.(map[string]interface{})
-		peers := resultMap["peers"].([]interface{})
-		if len(peers) != 2 {
-			t.Fatalf("expected 2 peers, got %d", len(peers))
+		var list pb.PeersListResult
+		unmarshalResult(t, result, &list)
+		if len(list.Peers) != 2 {
+			t.Fatalf("expected 2 peers, got %d", len(list.Peers))
 		}
 
-		peer := peers[0].(map[string]interface{})
-		if peer["pubkey"] != mockPeer.WGPubKey {
-			t.Errorf("expected pubkey %s, got %v", mockPeer.WGPubKey, peer["pubkey"])
+		peer := list.Peers[0]
+		if peer.Pubkey != mockPeer.Pubkey {
+			t.Errorf("expected pubkey %s, got %v", mockPeer.Pubkey, peer.Pubkey)
 		}
-		if peer["mesh_ip"] != mockPeer.MeshIP {
-			t.Errorf("expected mesh_ip %s, got %v", mockPeer.MeshIP, peer["mesh_ip"])
+		if peer.MeshIp != mockPeer.MeshIp {
+			t.Errorf("expected mesh_ip %s, got %v", mockPeer.MeshIp, peer.MeshIp)
 		}
 		// Hostname must be present and correct when set
-		if peer["hostname"] != mockPeer.Hostname {
-			t.Errorf("expected hostname %s, got %v", mockPeer.Hostname, peer["hostname"])
+		if peer.Hostname != mockPeer.Hostname {
+			t.Errorf("expected hostname %s, got %v", mockPeer.Hostname, peer.Hostname)
 		}
 
 		// Second peer has no hostname — field must be absent or empty string
-		peerNoHostname := peers[1].(map[string]interface{})
-		if peerNoHostname["pubkey"] != mockPeerNoHostname.WGPubKey {
-			t.Errorf("expected pubkey %s, got %v", mockPeerNoHostname.WGPubKey, peerNoHostname["pubkey"])
+		peerNoHostname := list.Peers[1]
+		if peerNoHostname.Pubkey != mockPeerNoHostname.Pubkey {
+			t.Errorf("expected pubkey %s, got %v", mockPeerNoHostname.Pubkey, peerNoHostname.Pubkey)
 		}
-		if h, ok := peerNoHostname["hostname"]; ok && h != "" {
-			t.Errorf("expected hostname absent or empty for peer without hostname, got %v", h)
+		if peerNoHostname.Hostname != "" {
+			t.Errorf("expected empty hostname for peer without hostname, got %v", peerNoHostname.Hostname)
 		}
 	})
 
 	// Test peers.get
 	t.Run("peers.get", func(t *testing.T) {
 		params := map[string]interface{}{
-			"pubkey": mockPeer.WGPubKey,
+			"pubkey": mockPeer.Pubkey,
 		}
 		result, err := client.Call("peers.get", params)
 		if err != nil {
 			t.Fatalf("peers.get failed: %v", err)
 		}
 
-		peer := result.(map[string]interface{})
-		if peer["pubkey"] != mockPeer.WGPubKey {
-			t.Errorf("expected pubkey %s, got %v", mockPeer.WGPubKey, peer["pubkey"])
+		var peer pb.PeerInfo
+		unmarshalResult(t, result, &peer)
+		if peer.Pubkey != mockPeer.Pubkey {
+			t.Errorf("expected pubkey %s, got %v", mockPeer.Pubkey, peer.Pubkey)
 		}
 		// Hostname must flow through peers.get as well
-		if peer["hostname"] != mockPeer.Hostname {
-			t.Errorf("expected hostname %s, got %v", mockPeer.Hostname, peer["hostname"])
+		if peer.Hostname != mockPeer.Hostname {
+			t.Errorf("expected hostname %s, got %v", mockPeer.Hostname, peer.Hostname)
 		}
 	})
 
 	// Test peers.get for peer without hostname
 	t.Run("peers.get no hostname", func(t *testing.T) {
 		params := map[string]interface{}{
-			"pubkey": mockPeerNoHostname.WGPubKey,
+			"pubkey": mockPeerNoHostname.Pubkey,
 		}
 		result, err := client.Call("peers.get", params)
 		if err != nil {
 			t.Fatalf("peers.get failed: %v", err)
 		}
-		peer := result.(map[string]interface{})
-		if h, ok := peer["hostname"]; ok && h != "" {
-			t.Errorf("expected hostname absent or empty for peer without hostname, got %v", h)
+		var peer pb.PeerInfo
+		unmarshalResult(t, result, &peer)
+		if peer.Hostname != "" {
+			t.Errorf("expected empty hostname for peer without hostname, got %v", peer.Hostname)
 		}
 	})
 
@@ -195,15 +214,16 @@ func TestClientServerIntegration(t *testing.T) {
 			t.Fatalf("peers.count failed: %v", err)
 		}
 
-		counts := result.(map[string]interface{})
-		if int(counts["active"].(float64)) != 2 {
-			t.Errorf("expected 2 active peers, got %v", counts["active"])
+		var counts pb.PeersCountResult
+		unmarshalResult(t, result, &counts)
+		if counts.Active != 2 {
+			t.Errorf("expected 2 active peers, got %v", counts.Active)
 		}
-		if int(counts["total"].(float64)) != 2 {
-			t.Errorf("expected 2 total peers, got %v", counts["total"])
+		if counts.Total != 2 {
+			t.Errorf("expected 2 total peers, got %v", counts.Total)
 		}
-		if int(counts["dead"].(float64)) != 0 {
-			t.Errorf("expected 0 dead peers, got %v", counts["dead"])
+		if counts.Dead != 0 {
+			t.Errorf("expected 0 dead peers, got %v", counts.Dead)
 		}
 	})
 
@@ -214,12 +234,13 @@ func TestClientServerIntegration(t *testing.T) {
 			t.Fatalf("daemon.status failed: %v", err)
 		}
 
-		status := result.(map[string]interface{})
-		if status["mesh_ip"] != mockStatus.MeshIP {
-			t.Errorf("expected mesh_ip %s, got %v", mockStatus.MeshIP, status["mesh_ip"])
+		var status pb.DaemonStatusResult
+		unmarshalResult(t, result, &status)
+		if status.MeshIp != mockStatus.MeshIp {
+			t.Errorf("expected mesh_ip %s, got %v", mockStatus.MeshIp, status.MeshIp)
 		}
-		if status["pubkey"] != mockStatus.PubKey {
-			t.Errorf("expected pubkey %s, got %v", mockStatus.PubKey, status["pubkey"])
+		if status.Pubkey != mockStatus.Pubkey {
+			t.Errorf("expected pubkey %s, got %v", mockStatus.Pubkey, status.Pubkey)
 		}
 	})
 

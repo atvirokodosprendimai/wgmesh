@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
+	pb "github.com/atvirokodosprendimai/wgmesh/pkg/rpc/proto"
 
 	// Import discovery to register the DHT factory via init()
 	_ "github.com/atvirokodosprendimai/wgmesh/pkg/discovery"
@@ -830,52 +832,12 @@ func getRPCSocketPath() string {
 // createRPCServer creates an RPC server for the daemon
 func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, error) {
 	config := rpc.ServerConfig{
-		SocketPath: socketPath,
-		Version:    version,
-		GetPeers: func() []*rpc.PeerData {
-			rpcPeers := d.GetRPCPeers()
-			result := make([]*rpc.PeerData, len(rpcPeers))
-			for i, p := range rpcPeers {
-				result[i] = &rpc.PeerData{
-					WGPubKey:         p.WGPubKey,
-					Hostname:         p.Hostname,
-					MeshIP:           p.MeshIP,
-					Endpoint:         p.Endpoint,
-					LastSeen:         p.LastSeen,
-					DiscoveredVia:    p.DiscoveredVia,
-					RoutableNetworks: p.RoutableNetworks,
-				}
-			}
-			return result
-		},
-		GetPeer: func(pubKey string) (*rpc.PeerData, bool) {
-			peer, exists := d.GetRPCPeer(pubKey)
-			if !exists {
-				return nil, false
-			}
-			return &rpc.PeerData{
-				WGPubKey:         peer.WGPubKey,
-				Hostname:         peer.Hostname,
-				MeshIP:           peer.MeshIP,
-				Endpoint:         peer.Endpoint,
-				LastSeen:         peer.LastSeen,
-				DiscoveredVia:    peer.DiscoveredVia,
-				RoutableNetworks: peer.RoutableNetworks,
-			}, true
-		},
+		SocketPath:    socketPath,
+		Version:       version,
+		GetPeers:      d.GetRPCPeers,
+		GetPeer:       d.GetRPCPeer,
 		GetPeerCounts: d.GetRPCPeerCounts,
-		GetStatus: func() *rpc.StatusData {
-			status := d.GetRPCStatus()
-			if status == nil {
-				return nil
-			}
-			return &rpc.StatusData{
-				MeshIP:    status.MeshIP,
-				PubKey:    status.PubKey,
-				Uptime:    status.Uptime,
-				Interface: status.Interface,
-			}
-		},
+		GetStatus:     d.GetRPCStatus,
 	}
 
 	return rpc.NewServer(config)
@@ -935,19 +897,19 @@ func handlePeersList(client *rpc.Client) {
 		os.Exit(1)
 	}
 
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Failed to encode response")
+		os.Exit(1)
+	}
+
+	var list pb.PeersListResult
+	if err := json.Unmarshal(resultBytes, &list); err != nil {
 		fmt.Fprintln(os.Stderr, "Invalid response format")
 		os.Exit(1)
 	}
 
-	peersData, ok := resultMap["peers"].([]interface{})
-	if !ok {
-		fmt.Fprintln(os.Stderr, "Invalid peers data")
-		os.Exit(1)
-	}
-
-	if len(peersData) == 0 {
+	if len(list.Peers) == 0 {
 		fmt.Println("No active peers")
 		return
 	}
@@ -955,22 +917,13 @@ func handlePeersList(client *rpc.Client) {
 	fmt.Printf("%-20s %-19s %-15s %-25s %-10s %s\n", "HOSTNAME", "PUBLIC KEY", "MESH IP", "ENDPOINT", "LAST SEEN", "DISCOVERED VIA")
 	fmt.Println(strings.Repeat("-", 120))
 
-	for _, peerData := range peersData {
-		peer, ok := peerData.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		pubkey, ok := peer["pubkey"].(string)
-		if !ok {
-			continue
-		}
-		pubkeyShort := pubkey
+	for _, peer := range list.Peers {
+		pubkeyShort := peer.Pubkey
 		if len(pubkeyShort) > 16 {
 			pubkeyShort = pubkeyShort[:16] + "..."
 		}
 
-		hostname, _ := peer["hostname"].(string)
+		hostname := peer.Hostname
 		if hostname == "" {
 			hostname = pubkeyShort
 		}
@@ -978,28 +931,14 @@ func handlePeersList(client *rpc.Client) {
 			hostname = hostname[:17] + "..."
 		}
 
-		meshIP, _ := peer["mesh_ip"].(string)
-		endpoint, _ := peer["endpoint"].(string)
-		lastSeen, _ := peer["last_seen"].(string)
-
-		lastSeenTime, err := time.Parse(time.RFC3339, lastSeen)
 		lastSeenStr := "unknown"
-		if err == nil {
-			lastSeenStr = formatDuration(time.Since(lastSeenTime))
-		}
-
-		var discoveredViaStr []string
-		if v, ok := peer["discovered_via"]; ok {
-			if discoveredVia, ok := v.([]interface{}); ok {
-				for _, item := range discoveredVia {
-					if s, ok := item.(string); ok {
-						discoveredViaStr = append(discoveredViaStr, s)
-					}
-				}
+		if peer.LastSeen != "" {
+			if lastSeenTime, err := time.Parse(time.RFC3339, peer.LastSeen); err == nil {
+				lastSeenStr = formatDuration(time.Since(lastSeenTime))
 			}
 		}
 
-		fmt.Printf("%-20s %-19s %-15s %-25s %-10s %s\n", hostname, pubkeyShort, meshIP, endpoint, lastSeenStr, strings.Join(discoveredViaStr, ","))
+		fmt.Printf("%-20s %-19s %-15s %-25s %-10s %s\n", hostname, pubkeyShort, peer.MeshIp, peer.Endpoint, lastSeenStr, strings.Join(peer.DiscoveredVia, ","))
 	}
 }
 
@@ -1010,25 +949,23 @@ func handlePeersCount(client *rpc.Client) {
 		os.Exit(1)
 	}
 
-	resultMap, ok := result.(map[string]interface{})
-	if !ok {
-		fmt.Fprintln(os.Stderr, "Invalid response format")
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Failed to encode response")
 		os.Exit(1)
 	}
 
-	active, ok1 := resultMap["active"].(float64)
-	total, ok2 := resultMap["total"].(float64)
-	dead, ok3 := resultMap["dead"].(float64)
-	if !ok1 || !ok2 || !ok3 {
+	var counts pb.PeersCountResult
+	if err := json.Unmarshal(resultBytes, &counts); err != nil {
 		fmt.Fprintln(os.Stderr, "Invalid peer count data")
 		os.Exit(1)
 	}
 
 	fmt.Printf("Peer Statistics\n")
 	fmt.Printf("===============\n")
-	fmt.Printf("Active peers: %d\n", int(active))
-	fmt.Printf("Total peers:  %d\n", int(total))
-	fmt.Printf("Dead peers:   %d\n", int(dead))
+	fmt.Printf("Active peers: %d\n", counts.Active)
+	fmt.Printf("Total peers:  %d\n", counts.Total)
+	fmt.Printf("Dead peers:   %d\n", counts.Dead)
 }
 
 func handlePeersGet(client *rpc.Client, pubkey string) {
@@ -1038,50 +975,31 @@ func handlePeersGet(client *rpc.Client, pubkey string) {
 		os.Exit(1)
 	}
 
-	peer, ok := result.(map[string]interface{})
-	if !ok {
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Failed to encode response")
+		os.Exit(1)
+	}
+
+	var peer pb.PeerInfo
+	if err := json.Unmarshal(resultBytes, &peer); err != nil {
 		fmt.Fprintln(os.Stderr, "Invalid response format")
 		os.Exit(1)
 	}
 
-	pubkeyStr, _ := peer["pubkey"].(string)
-	meshIP, _ := peer["mesh_ip"].(string)
-	endpoint, _ := peer["endpoint"].(string)
-	lastSeen, _ := peer["last_seen"].(string)
-
 	fmt.Printf("Peer Information\n")
 	fmt.Printf("================\n")
-	fmt.Printf("Public Key:     %s\n", pubkeyStr)
-	fmt.Printf("Mesh IP:        %s\n", meshIP)
-	fmt.Printf("Endpoint:       %s\n", endpoint)
-	fmt.Printf("Last Seen:      %s\n", lastSeen)
+	fmt.Printf("Public Key:     %s\n", peer.Pubkey)
+	fmt.Printf("Mesh IP:        %s\n", peer.MeshIp)
+	fmt.Printf("Endpoint:       %s\n", peer.Endpoint)
+	fmt.Printf("Last Seen:      %s\n", peer.LastSeen)
 
-	if v, ok := peer["discovered_via"]; ok {
-		if discoveredVia, ok := v.([]interface{}); ok && len(discoveredVia) > 0 {
-			discoveredViaStr := make([]string, 0, len(discoveredVia))
-			for _, item := range discoveredVia {
-				if s, ok := item.(string); ok {
-					discoveredViaStr = append(discoveredViaStr, s)
-				}
-			}
-			if len(discoveredViaStr) > 0 {
-				fmt.Printf("Discovered Via: %s\n", strings.Join(discoveredViaStr, ", "))
-			}
-		}
+	if len(peer.DiscoveredVia) > 0 {
+		fmt.Printf("Discovered Via: %s\n", strings.Join(peer.DiscoveredVia, ", "))
 	}
 
-	if routesVal, ok := peer["routable_networks"]; ok {
-		if routes, ok := routesVal.([]interface{}); ok && len(routes) > 0 {
-			routeStrs := make([]string, 0, len(routes))
-			for _, r := range routes {
-				if routeStr, ok := r.(string); ok {
-					routeStrs = append(routeStrs, routeStr)
-				}
-			}
-			if len(routeStrs) > 0 {
-				fmt.Printf("Routes:         %s\n", strings.Join(routeStrs, ", "))
-			}
-		}
+	if len(peer.RoutableNetworks) > 0 {
+		fmt.Printf("Routes:         %s\n", strings.Join(peer.RoutableNetworks, ", "))
 	}
 }
 

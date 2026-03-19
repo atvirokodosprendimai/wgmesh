@@ -7,10 +7,10 @@ require (
 	github.com/atvirokodosprendimai/lighthouse-go v0.1.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/term v0.39.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
-	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 )

@@ -3,15 +3,17 @@ package rpc
 import (
 	"testing"
 	"time"
+
+	pb "github.com/atvirokodosprendimai/wgmesh/pkg/rpc/proto"
 )
 
 func TestServerConfig(t *testing.T) {
-	mockPeers := []*PeerData{
+	mockPeers := []*pb.PeerInfo{
 		{
-			WGPubKey:      "test-key-1",
-			MeshIP:        "10.0.0.1",
+			Pubkey:        "test-key-1",
+			MeshIp:        "10.0.0.1",
 			Endpoint:      "1.2.3.4:51820",
-			LastSeen:      time.Now(),
+			LastSeen:      time.Now().Format(time.RFC3339),
 			DiscoveredVia: []string{"dht"},
 		},
 	}
@@ -19,12 +21,12 @@ func TestServerConfig(t *testing.T) {
 	config := ServerConfig{
 		SocketPath: "/tmp/test-wgmesh.sock",
 		Version:    "test",
-		GetPeers: func() []*PeerData {
+		GetPeers: func() []*pb.PeerInfo {
 			return mockPeers
 		},
-		GetPeer: func(pubKey string) (*PeerData, bool) {
+		GetPeer: func(pubKey string) (*pb.PeerInfo, bool) {
 			for _, p := range mockPeers {
-				if p.WGPubKey == pubKey {
+				if p.Pubkey == pubKey {
 					return p, true
 				}
 			}
@@ -33,11 +35,11 @@ func TestServerConfig(t *testing.T) {
 		GetPeerCounts: func() (active, total, dead int) {
 			return len(mockPeers), len(mockPeers), 0
 		},
-		GetStatus: func() *StatusData {
-			return &StatusData{
-				MeshIP:    "10.0.0.1",
-				PubKey:    "local-key",
-				Uptime:    time.Minute,
+		GetStatus: func() *pb.StatusData {
+			return &pb.StatusData{
+				MeshIp:    "10.0.0.1",
+				Pubkey:    "local-key",
+				Uptime:    int64(time.Minute),
 				Interface: "wg0",
 			}
 		},

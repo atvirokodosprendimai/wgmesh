@@ -20,6 +20,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
+	pb "github.com/atvirokodosprendimai/wgmesh/pkg/rpc/proto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -1641,17 +1642,17 @@ func (d *Daemon) GetInterfaceName() string {
 	return d.config.InterfaceName
 }
 
-// GetRPCPeers returns active peers for RPC (converts daemon PeerInfo to RPC PeerData)
-func (d *Daemon) GetRPCPeers() []*RPCPeerData {
+// GetRPCPeers returns active peers for RPC as proto PeerInfo messages.
+func (d *Daemon) GetRPCPeers() []*pb.PeerInfo {
 	peers := d.peerStore.GetActive()
-	result := make([]*RPCPeerData, 0, len(peers))
+	result := make([]*pb.PeerInfo, 0, len(peers))
 	for _, p := range peers {
-		result = append(result, &RPCPeerData{
-			WGPubKey:         p.WGPubKey,
+		result = append(result, &pb.PeerInfo{
+			Pubkey:           p.WGPubKey,
 			Hostname:         p.Hostname,
-			MeshIP:           p.MeshIP,
+			MeshIp:           p.MeshIP,
 			Endpoint:         p.Endpoint,
-			LastSeen:         p.LastSeen,
+			LastSeen:         p.LastSeen.Format(time.RFC3339),
 			DiscoveredVia:    p.DiscoveredVia,
 			RoutableNetworks: p.RoutableNetworks,
 		})
@@ -1659,18 +1660,18 @@ func (d *Daemon) GetRPCPeers() []*RPCPeerData {
 	return result
 }
 
-// GetRPCPeer returns a single peer for RPC
-func (d *Daemon) GetRPCPeer(pubKey string) (*RPCPeerData, bool) {
+// GetRPCPeer returns a single peer for RPC as a proto PeerInfo message.
+func (d *Daemon) GetRPCPeer(pubKey string) (*pb.PeerInfo, bool) {
 	peer, exists := d.peerStore.Get(pubKey)
 	if !exists {
 		return nil, false
 	}
-	return &RPCPeerData{
-		WGPubKey:         peer.WGPubKey,
+	return &pb.PeerInfo{
+		Pubkey:           peer.WGPubKey,
 		Hostname:         peer.Hostname,
-		MeshIP:           peer.MeshIP,
+		MeshIp:           peer.MeshIP,
 		Endpoint:         peer.Endpoint,
-		LastSeen:         peer.LastSeen,
+		LastSeen:         peer.LastSeen.Format(time.RFC3339),
 		DiscoveredVia:    peer.DiscoveredVia,
 		RoutableNetworks: peer.RoutableNetworks,
 	}, true
@@ -1686,35 +1687,16 @@ func (d *Daemon) GetRPCPeerCounts() (active, total, dead int) {
 	return
 }
 
-// GetRPCStatus returns daemon status for RPC
-func (d *Daemon) GetRPCStatus() *RPCStatusData {
+// GetRPCStatus returns daemon status for RPC as a proto StatusData message.
+func (d *Daemon) GetRPCStatus() *pb.StatusData {
 	if d.localNode == nil {
 		// Return nil if local node is not initialized yet
 		return nil
 	}
-	return &RPCStatusData{
-		MeshIP:    d.localNode.MeshIP,
-		PubKey:    d.localNode.WGPubKey,
-		Uptime:    d.GetUptime(),
+	return &pb.StatusData{
+		MeshIp:    d.localNode.MeshIP,
+		Pubkey:    d.localNode.WGPubKey,
+		Uptime:    int64(d.GetUptime()),
 		Interface: d.config.InterfaceName,
 	}
-}
-
-// RPCPeerData represents peer info for RPC (matches rpc.PeerData)
-type RPCPeerData struct {
-	WGPubKey         string
-	Hostname         string
-	MeshIP           string
-	Endpoint         string
-	LastSeen         time.Time
-	DiscoveredVia    []string
-	RoutableNetworks []string
-}
-
-// RPCStatusData represents daemon status for RPC (matches rpc.StatusData)
-type RPCStatusData struct {
-	MeshIP    string
-	PubKey    string
-	Uptime    time.Duration
-	Interface string
 }

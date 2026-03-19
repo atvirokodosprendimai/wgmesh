@@ -10,36 +10,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
+
+	pb "github.com/atvirokodosprendimai/wgmesh/pkg/rpc/proto"
 )
-
-// PeerData represents peer information for RPC
-type PeerData struct {
-	WGPubKey         string
-	Hostname         string
-	MeshIP           string
-	Endpoint         string
-	LastSeen         time.Time
-	DiscoveredVia    []string
-	RoutableNetworks []string
-}
-
-// StatusData represents daemon status for RPC
-type StatusData struct {
-	MeshIP    string
-	PubKey    string
-	Uptime    time.Duration
-	Interface string
-}
 
 // ServerConfig configures the RPC server with callback functions
 type ServerConfig struct {
 	SocketPath    string
 	Version       string
-	GetPeers      func() []*PeerData
-	GetPeer       func(pubKey string) (*PeerData, bool)
+	GetPeers      func() []*pb.PeerInfo
+	GetPeer       func(pubKey string) (*pb.PeerInfo, bool)
 	GetPeerCounts func() (active, total, dead int)
-	GetStatus     func() *StatusData
+	GetStatus     func() *pb.StatusData
 }
 
 // Server implements an RPC server using Unix domain sockets
@@ -49,10 +31,10 @@ type Server struct {
 	version         string
 	ctx             context.Context
 	cancel          context.CancelFunc
-	getPeersFn      func() []*PeerData
-	getPeerFn       func(pubKey string) (*PeerData, bool)
+	getPeersFn      func() []*pb.PeerInfo
+	getPeerFn       func(pubKey string) (*pb.PeerInfo, bool)
 	getPeerCountsFn func() (active, total, dead int)
-	getStatusFn     func() *StatusData
+	getStatusFn     func() *pb.StatusData
 }
 
 // NewServer creates a new RPC server
@@ -260,30 +242,12 @@ func (s *Server) handleRequest(req *Request) *Response {
 }
 
 // handlePeersList implements peers.list
-func (s *Server) handlePeersList(params map[string]interface{}) (*PeersListResult, *Error) {
-	peers := s.getPeersFn()
-
-	result := &PeersListResult{
-		Peers: make([]*PeerInfo, 0, len(peers)),
-	}
-
-	for _, peer := range peers {
-		result.Peers = append(result.Peers, &PeerInfo{
-			PubKey:           peer.WGPubKey,
-			Hostname:         peer.Hostname,
-			MeshIP:           peer.MeshIP,
-			Endpoint:         peer.Endpoint,
-			LastSeen:         peer.LastSeen.Format(time.RFC3339),
-			DiscoveredVia:    peer.DiscoveredVia,
-			RoutableNetworks: peer.RoutableNetworks,
-		})
-	}
-
-	return result, nil
+func (s *Server) handlePeersList(params map[string]interface{}) (*pb.PeersListResult, *Error) {
+	return &pb.PeersListResult{Peers: s.getPeersFn()}, nil
 }
 
 // handlePeersGet implements peers.get
-func (s *Server) handlePeersGet(params map[string]interface{}) (*PeerInfo, *Error) {
+func (s *Server) handlePeersGet(params map[string]interface{}) (*pb.PeerInfo, *Error) {
 	pubkey, ok := params["pubkey"].(string)
 	if !ok || pubkey == "" {
 		return nil, &Error{
@@ -300,30 +264,22 @@ func (s *Server) handlePeersGet(params map[string]interface{}) (*PeerInfo, *Erro
 		}
 	}
 
-	return &PeerInfo{
-		PubKey:           peer.WGPubKey,
-		Hostname:         peer.Hostname,
-		MeshIP:           peer.MeshIP,
-		Endpoint:         peer.Endpoint,
-		LastSeen:         peer.LastSeen.Format(time.RFC3339),
-		DiscoveredVia:    peer.DiscoveredVia,
-		RoutableNetworks: peer.RoutableNetworks,
-	}, nil
+	return peer, nil
 }
 
 // handlePeersCount implements peers.count
-func (s *Server) handlePeersCount(params map[string]interface{}) (*PeersCountResult, *Error) {
+func (s *Server) handlePeersCount(params map[string]interface{}) (*pb.PeersCountResult, *Error) {
 	active, total, dead := s.getPeerCountsFn()
 
-	return &PeersCountResult{
-		Active: active,
-		Total:  total,
-		Dead:   dead,
+	return &pb.PeersCountResult{
+		Active: int64(active),
+		Total:  int64(total),
+		Dead:   int64(dead),
 	}, nil
 }
 
 // handleDaemonStatus implements daemon.status
-func (s *Server) handleDaemonStatus(params map[string]interface{}) (*DaemonStatusResult, *Error) {
+func (s *Server) handleDaemonStatus(params map[string]interface{}) (*pb.DaemonStatusResult, *Error) {
 	status := s.getStatusFn()
 	if status == nil {
 		return nil, &Error{
@@ -332,9 +288,9 @@ func (s *Server) handleDaemonStatus(params map[string]interface{}) (*DaemonStatu
 		}
 	}
 
-	return &DaemonStatusResult{
-		MeshIP:    status.MeshIP,
-		PubKey:    status.PubKey,
+	return &pb.DaemonStatusResult{
+		MeshIp:    status.MeshIp,
+		Pubkey:    status.Pubkey,
 		Uptime:    status.Uptime,
 		Interface: status.Interface,
 		Version:   s.version,
@@ -342,8 +298,8 @@ func (s *Server) handleDaemonStatus(params map[string]interface{}) (*DaemonStatu
 }
 
 // handleDaemonPing implements daemon.ping
-func (s *Server) handleDaemonPing(params map[string]interface{}) (*DaemonPingResult, *Error) {
-	return &DaemonPingResult{
+func (s *Server) handleDaemonPing(params map[string]interface{}) (*pb.DaemonPingResult, *Error) {
+	return &pb.DaemonPingResult{
 		Pong:    true,
 		Version: s.version,
 	}, nil
