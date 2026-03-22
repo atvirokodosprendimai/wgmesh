@@ -1,0 +1,38 @@
+name: Bot PR Review and Merge
+
+on:
+  pull_request:
+    types: [opened, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: read
+
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  review-merge:
+    if: >-
+      github.event.pull_request.user.login == 'copilot-swe-agent[bot]' ||
+      github.event.pull_request.user.login == 'goose[bot]' ||
+      contains(github.event.pull_request.title, 'heal:') ||
+      contains(github.event.pull_request.title, 'loop:')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main (script lives on main, not PR branch)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Autonomous PR review and merge
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          TARGET_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          APPROVED_AUTHORS: ${{ github.event.pull_request.user.login }}
+        run: |
+          bash company/scripts/pr-review-merge.sh

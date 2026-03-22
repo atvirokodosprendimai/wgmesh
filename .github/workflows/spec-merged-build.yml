@@ -1,0 +1,63 @@
+name: Spec Merged — Trigger Build
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  trigger-build:
+    if: >-
+      github.event.pull_request.merged == true &&
+      contains(github.event.pull_request.title, 'spec:')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Assign build agent to implement spec
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const issueMatch = pr.title.match(/Issue #(\d+)/);
+            if (!issueMatch) {
+              core.warning('No issue number in spec PR title: ' + pr.title);
+              return;
+            }
+            const issueNumber = parseInt(issueMatch[1], 10);
+            const specFile = `specs/issue-${issueNumber}-spec.md`;
+
+            try {
+              await github.request('POST /repos/{owner}/{repo}/issues/{issue_number}/assignees', {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                assignees: ['copilot-swe-agent[bot]'],
+                agent_assignment: {
+                  custom_instructions: [
+                    `The spec for issue #${issueNumber} has been approved and merged.`,
+                    `Read the spec at ${specFile} and implement it.`,
+                    `Open a PR with the implementation. Include "Issue #${issueNumber}" in the PR title.`,
+                    `Write tests. Follow the project conventions in CLAUDE.md and .goosehints.`,
+                  ].join('\n'),
+                },
+                headers: { 'X-GitHub-Api-Version': '2022-11-28' },
+              });
+            } catch (e) {
+              core.setFailed(`Failed to assign build agent: ${e.message}`);
+              return;
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: issueNumber, labels: ['building']
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `Spec merged (PR #${pr.number}). Build agent assigned to implement.`
+            });

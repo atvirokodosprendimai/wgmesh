@@ -1,0 +1,40 @@
+name: Implementation Merged — Close Issue
+
+on:
+  pull_request:
+    types: [closed]
+
+permissions:
+  issues: write
+  pull-requests: read
+
+jobs:
+  close-issue:
+    if: >-
+      github.event.pull_request.merged == true &&
+      !contains(github.event.pull_request.title, 'spec:') &&
+      !contains(github.event.pull_request.title, 'heal:') &&
+      !contains(github.event.pull_request.title, 'loop:')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close linked issue
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const issueMatch = pr.title.match(/Issue #(\d+)/);
+            if (!issueMatch) return;
+
+            const issueNumber = parseInt(issueMatch[1], 10);
+
+            await github.rest.issues.update({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: issueNumber, state: 'closed'
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner, repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `Resolved by PR #${pr.number}. Implementation merged to main.`
+            });
