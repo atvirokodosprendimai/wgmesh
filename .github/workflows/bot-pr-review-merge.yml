@@ -18,6 +18,7 @@ jobs:
   review-merge:
     if: >-
       github.event.pull_request.user.login == 'copilot-swe-agent[bot]' ||
+      github.event.pull_request.user.login == 'Copilot' ||
       github.event.pull_request.user.login == 'goose[bot]' ||
       contains(github.event.pull_request.title, 'heal:') ||
       contains(github.event.pull_request.title, 'loop:')
