@@ -123,3 +123,32 @@ func TestNewConfigRejectsInvalidInterfaceName(t *testing.T) {
 		t.Fatal("expected error for path-traversal interface name")
 	}
 }
+
+// TestConfig_NoPunchingFlag verifies that the --no-punching flag is correctly
+// parsed and stored in the daemon Config.
+func TestConfig_NoPunchingFlag(t *testing.T) {
+	cfg, err := NewConfig(DaemonOpts{
+		Secret:          testConfigSecret,
+		DisablePunching: true,
+	})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+
+	if !cfg.DisablePunching {
+		t.Fatal("expected DisablePunching to be true when --no-punching is set")
+	}
+
+	// Verify combining with ForceRelay is also valid (NAT environments may want both)
+	cfg2, err := NewConfig(DaemonOpts{
+		Secret:          testConfigSecret,
+		DisablePunching: true,
+		ForceRelay:      true,
+	})
+	if err != nil {
+		t.Fatalf("NewConfig with ForceRelay+DisablePunching failed: %v", err)
+	}
+	if !cfg2.DisablePunching || !cfg2.ForceRelay {
+		t.Fatal("expected both DisablePunching and ForceRelay to be set")
+	}
+}

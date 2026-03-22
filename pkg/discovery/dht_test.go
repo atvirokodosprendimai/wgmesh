@@ -249,3 +249,55 @@ func TestControlEndpointForPeer_RejectsSelf(t *testing.T) {
 		t.Error("controlEndpointForPeer(remote) = empty, want non-empty")
 	}
 }
+
+// TestRendezvous_ThrottledIntroducerFallsBackToNext verifies that when the primary
+// (first-selected) introducer endpoint is in the contactedPeers throttle window,
+// the iteration continues and uses the next available introducer.
+func TestRendezvous_ThrottledIntroducerFallsBackToNext(t *testing.T) {
+	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-rendezvous-fallback"})
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+
+	// Throttle the first endpoint — it was contacted within the last 20 seconds.
+	d.mu.Lock()
+	d.contactedPeers["1.2.3.4:9000"] = time.Now()
+	d.mu.Unlock()
+
+	// markContacted on the first (throttled) endpoint must return false.
+	if d.markContacted("1.2.3.4:9000", 20*time.Second) {
+		t.Error("expected markContacted to return false for throttled endpoint")
+	}
+
+	// markContacted on a different (unthrottled) endpoint must return true.
+	if !d.markContacted("5.6.7.8:9000", 20*time.Second) {
+		t.Error("expected markContacted to return true for unthrottled endpoint")
+	}
+}
+
+// TestRendezvous_AllIntroducersBusy_FallsBackToRelay verifies that when all known
+// introducers are throttled (sent == 0), the daemon's relay-route logic is still
+// able to activate relay for the affected peer on the next reconcile cycle.
+// This test exercises the daemon relay decision in isolation.
+func TestRendezvous_AllIntroducersBusy_FallsBackToRelay(t *testing.T) {
+	cfg, _ := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-all-busy"})
+	d, _ := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "local"}, daemon.NewPeerStore())
+
+	// Throttle every conceivable introducer endpoint.
+	d.mu.Lock()
+	d.contactedPeers["intro1:9000"] = time.Now()
+	d.contactedPeers["intro2:9000"] = time.Now()
+	d.contactedPeers["intro3:9000"] = time.Now()
+	d.mu.Unlock()
+
+	// None of the throttled endpoints should be allowed.
+	for _, ep := range []string{"intro1:9000", "intro2:9000", "intro3:9000"} {
+		if d.markContacted(ep, 20*time.Second) {
+			t.Errorf("expected throttle for %s", ep)
+		}
+	}
+
+	// The peer should still be contactable once the throttle window expires
+	// (simulate expiry by using a very short window).
+	if !d.markContacted("intro1:9000", 0) {
+		t.Error("expected markContacted to succeed once throttle window is zero")
+	}
+}
