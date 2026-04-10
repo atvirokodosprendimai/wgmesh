@@ -3,7 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>wgmesh Anycast CDN Architecture</title>
+    <title>wgmesh — Encrypted Mesh Networking for Self-Hosters</title>
+    <meta name="description" content="Build encrypted WireGuard mesh networks in minutes. Self-hosted, decentralized, NAT-traversing. Connect your homelab, remote servers, and edge nodes with a single shared secret.">
+    <meta name="keywords" content="WireGuard mesh, self-hosted VPN, mesh networking, homelab, NAT traversal, decentralized, DHT discovery">
+    <meta property="og:title" content="wgmesh — Encrypted Mesh Networking for Self-Hosters">
+    <meta property="og:description" content="Build encrypted WireGuard mesh networks in minutes. No coordination server. No manual key exchange. Just a shared secret.">
+    <meta property="og:url" content="https://cloudroof.eu/">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="wgmesh — Encrypted Mesh Networking">
+    <meta name="twitter:description" content="Self-hosted WireGuard mesh. Share a secret, build a mesh.">
+    <link rel="canonical" href="https://cloudroof.eu/">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Space+Grotesk:wght@400;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
@@ -580,6 +590,7 @@
         <button class="nav-dot" data-slide="5"></button>
         <button class="nav-dot" data-slide="6"></button>
         <button class="nav-dot" data-slide="7"></button>
+        <button class="nav-dot" data-slide="8"></button>
     </nav>
 
     <div class="slide-counter">
@@ -611,6 +622,54 @@
                     <p>Backend servers can be anywhere—even your home</p>
                 </div>
             </div>
+        </div>
+    </section>
+
+    <!-- Slide: Get wgmesh -->
+    <section class="slide slide-2" id="get-wgmesh">
+        <div class="grid-overlay"></div>
+        <div class="content">
+            <span class="tag">Get Started</span>
+            <h2 style="background: linear-gradient(135deg, var(--green), var(--blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">Connect Anything, Anywhere</h2>
+            <p style="color: var(--text-muted); font-size: 1.1rem; margin: 1rem 0 2rem;">
+                Share a secret. Join the mesh. That's it.<br>
+                No coordination server. No manual key exchange. Works behind NAT.
+            </p>
+
+            <div class="highlight-box" style="margin-bottom: 2.5rem;">
+                <div class="code-block" style="font-size: 0.95rem;">
+                    <span class="comment"># macOS</span><br>
+                    brew install atvirokodosprendimai/tap/wgmesh<br><br>
+                    <span class="comment"># Go</span><br>
+                    go install github.com/atvirokodosprendimai/wgmesh@latest<br><br>
+                    <span class="comment"># Docker</span><br>
+                    docker pull ghcr.io/atvirokodosprendimai/wgmesh
+                </div>
+            </div>
+
+            <div class="card-grid">
+                <div class="card">
+                    <div class="card-icon">🏠</div>
+                    <h4>Homelab Mesh</h4>
+                    <p>Link your NAS, Pi, and cloud VPS into one encrypted network. Works behind any NAT.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🌍</div>
+                    <h4>Multi-Site LAN</h4>
+                    <p>Connect offices, data centers, and edge nodes. DHT discovery finds peers automatically.</p>
+                </div>
+                <div class="card">
+                    <div class="card-icon">🔑</div>
+                    <h4>Remote Access</h4>
+                    <p>Access any device on the mesh from anywhere. No port forwarding, no dynamic DNS.</p>
+                </div>
+            </div>
+
+            <p style="text-align: center; margin-top: 2.5rem;">
+                <a href="https://github.com/atvirokodosprendimai/wgmesh#quick-start" style="color: var(--green); text-decoration: none; font-size: 1.1rem; font-weight: 600;">
+                    Read the quickstart guide &rarr;
+                </a>
+            </p>
         </div>
     </section>
 
@@ -971,8 +1030,8 @@
             </div>
             
             <p style="text-align: center; margin-top: 3rem; color: var(--text-muted);">
-                <a href="https://github.com/ituoga/wgmeshbuilder" style="color: var(--green); text-decoration: none;">
-                    github.com/ituoga/wgmeshbuilder →
+                <a href="https://github.com/atvirokodosprendimai/wgmesh" style="color: var(--green); text-decoration: none;">
+                    github.com/atvirokodosprendimai/wgmesh →
                 </a>
             </p>
         </div>
