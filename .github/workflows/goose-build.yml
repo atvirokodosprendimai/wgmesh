@@ -25,7 +25,8 @@ permissions:
 
 env:
   OPENAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
-  OPENAI_BASE_URL: "https://api.z.ai/api/paas/v4"
+  OPENAI_HOST: "https://api.z.ai"
+  OPENAI_BASE_PATH: "/api/paas/v4"
 
 jobs:
   implement:
