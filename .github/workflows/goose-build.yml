@@ -24,7 +24,9 @@ permissions:
   issues: write
 
 env:
-  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+  OPENAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
+  OPENAI_HOST: "https://api.z.ai"
+  OPENAI_BASE_PATH: "/api/paas/v4"
 
 jobs:
   implement:
@@ -46,10 +48,10 @@ jobs:
       # ── Validate prerequisites ──────────────────────────
       - name: Validate API key is configured
         env:
-          KEY: ${{ secrets.GOOGLE_API_KEY }}
+          KEY: ${{ secrets.ZAI_API_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::error::GOOGLE_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
+            echo "::error::ZAI_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
             exit 1
           fi
 

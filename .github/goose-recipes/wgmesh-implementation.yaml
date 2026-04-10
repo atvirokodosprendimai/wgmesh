@@ -64,8 +64,8 @@ extensions:
     name: developer
 
 settings:
-  goose_provider: "openrouter"
-  goose_model: "anthropic/claude-sonnet-4"
+  goose_provider: "openai"
+  goose_model: "glm-5.1"
   max_turns: 50
 
 retry:
