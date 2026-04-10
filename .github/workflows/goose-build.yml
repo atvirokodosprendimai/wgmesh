@@ -24,8 +24,7 @@ permissions:
   issues: write
 
 env:
-  OPENAI_API_KEY: ${{ secrets.ZAI_API_KEY }}
-  OPENAI_BASE_URL: "https://api.z.ai/api/paas/v4"
+  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
 
 jobs:
   implement:
@@ -47,10 +46,10 @@ jobs:
       # ── Validate prerequisites ──────────────────────────
       - name: Validate API key is configured
         env:
-          KEY: ${{ secrets.ZAI_API_KEY }}
+          KEY: ${{ secrets.OPENROUTER_API_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::error::ZAI_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
+            echo "::error::OPENROUTER_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
             exit 1
           fi
 

@@ -51,5 +51,5 @@ prompt: |
   Now implement the specification in {{ spec_file }}.
 
 settings:
-  goose_provider: "openai"
-  goose_model: "glm-5.1"
+  goose_provider: "openrouter"
+  goose_model: "anthropic/claude-sonnet-4"
