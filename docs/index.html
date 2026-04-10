@@ -263,21 +263,21 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
 <div class="card full-width" style="margin-bottom:1.25rem">
   <h2>Customer Factory</h2>
   <div class="funnel">
-    <div class="funnel-stage waiting">
+    <div class="funnel-stage done">
       <div class="stage-name">Acquisition</div>
       <div class="stage-metric">Visit cloudroof.eu</div>
-      <div class="stage-status" style="color:var(--muted)">No analytics yet</div>
+      <div class="stage-status" style="color:var(--green)">Landing page live</div>
     </div>
-    <div class="funnel-stage blocked">
+    <div class="funnel-stage done">
       <div class="stage-name">Activation</div>
       <div class="stage-metric">Deploy mesh + serve HTTP</div>
-      <div class="stage-status" style="color:var(--yellow)">IN PROGRESS</div>
-      <span class="constraint-arrow">&#9650; needs CLI: <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a> + <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/259">#259</a></span>
+      <div class="stage-status" style="color:var(--green)">CLI complete</div>
+      <span class="constraint-arrow" style="color:var(--green)">&#10003; <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a> + <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/259">#259</a> shipped</span>
     </div>
-    <div class="funnel-stage waiting">
+    <div class="funnel-stage blocked">
       <div class="stage-name">Revenue</div>
       <div class="stage-metric">Paid subscriber</div>
-      <div class="stage-status" style="color:var(--muted)">0</div>
+      <div class="stage-status" style="color:var(--yellow)">0 &mdash; needs billing</div>
     </div>
     <div class="funnel-stage waiting">
       <div class="stage-name">Retention</div>
@@ -291,7 +291,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
     </div>
   </div>
   <div style="font-size:0.75rem;color:var(--muted);margin-top:0.5rem">
-    80% of effort goes to the single biggest constraint. Currently: <strong style="color:var(--yellow)">End-to-end integration testing</strong> &mdash; all core capabilities implemented, need to verify managed ingress works end-to-end in a test environment (Stage 0 exit).
+    80% of effort goes to the single biggest constraint. Currently: <strong style="color:var(--yellow)">First paying customer</strong> &mdash; product is Dogfood stage (day 23), NAT stability fix shipped, landing page live. Need billing integration + first customer from personal network.
   </div>
 </div>
 
@@ -300,24 +300,24 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
   <div class="horizon-card now">
     <h3>NOW &mdash; 90 days</h3>
     <ul>
-      <li><s>Build edge proxy config generation</s> &check; <code>pkg/lighthouse/xds.go</code></li>
-      <li><code>wgmesh edge init</code> &rarr; single-command edge bootstrap (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/257">#257</a>)</li>
-      <li><code>wgmesh origin register</code> &rarr; origin self-announce (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/259">#259</a>)</li>
-      <li>Edge heartbeats + health checks (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/247">#247</a>, <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/248">#248</a>)</li>
-      <li>End-to-end: <code>wgmesh init</code> &rarr; serving HTTP in &lt;5 min</li>
-      <li>1 real user deploys mesh + serves traffic</li>
-      <li><a href="https://rentahuman.ai">RentAHuman.ai</a>: hire beta tester for field validation</li>
+      <li><s>NAT relay flapping fix</s> &check; PR <a href="https://github.com/atvirokodosprendimai/wgmesh/pull/464">#464</a> merged</li>
+      <li><s>Landing page</s> &check; <a href="https://cloudroof.eu">cloudroof.eu</a> + PR <a href="https://github.com/atvirokodosprendimai/wgmesh/pull/477">#477</a></li>
+      <li>Dogfood stability: 1 week with zero critical bugs (target: 2026-04-17)</li>
+      <li>Observability metrics endpoint (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/470">#470</a>)</li>
+      <li>Connection retry backoff (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/471">#471</a>)</li>
+      <li>Billing integration &mdash; Polar.sh or Stripe</li>
+      <li>1 paying customer from personal network</li>
     </ul>
   </div>
   <div class="horizon-card next">
     <h3>NEXT &mdash; 6 months</h3>
     <ul>
       <li>4 paying customers ($20/mo)</li>
-      <li>GeoDNS routing (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/253">#253</a>)</li>
-      <li>Multi-origin failover (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/254">#254</a>)</li>
-      <li>DNS verification loop (<a href="https://github.com/atvirokodosprendimai/wgmesh/issues/250">#250</a>)</li>
+      <li><s>GeoDNS routing</s> &check; <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/253">#253</a></li>
+      <li><s>Multi-origin failover</s> &check; <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/254">#254</a></li>
+      <li><s>DNS verification loop</s> &check; <a href="https://github.com/atvirokodosprendimai/wgmesh/issues/250">#250</a></li>
       <li>Monitoring dashboard for mesh operators</li>
-      <li>RentAHuman: humans deploy PoP nodes in datacenters</li>
+      <li>Reproducible NAT simulation testlab</li>
     </ul>
   </div>
   <div class="horizon-card later">
@@ -326,7 +326,7 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
       <li>42 customers &rarr; $10K ARR</li>
       <li>BGP anycast for real multi-region routing</li>
       <li>Self-serve signup + billing</li>
-      <li>RentAHuman marketplace for managed PoP operators</li>
+      <li>Multi-introducer architecture</li>
       <li>LLM Agent Evaluation System (DORA-inspired)</li>
     </ul>
   </div>
