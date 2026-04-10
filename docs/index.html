@@ -382,6 +382,136 @@ footer { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 2
 </div>
 
 <!-- ══════════════════════════════════════════════════════════════════
+     MESH TOPOLOGY MAP
+     ══════════════════════════════════════════════════════════════════ -->
+
+<div class="section-divider">
+  <h2>Mesh Topology</h2>
+  <p style="color:var(--muted);font-size:0.875rem">Live node locations and WireGuard tunnel connections</p>
+</div>
+
+<div class="card full-width" style="margin-bottom:1.25rem;padding:0;overflow:hidden;position:relative">
+  <div id="topology-map" style="height:420px;width:100%;background:var(--bg)"></div>
+  <div style="position:absolute;bottom:0.5rem;left:0.5rem;font-size:0.6875rem;color:var(--muted);z-index:1000;background:rgba(13,17,23,0.85);padding:0.25rem 0.5rem;border-radius:4px">
+    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--green);margin-right:4px;vertical-align:middle"></span>Edge
+    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--accent);margin-right:4px;margin-left:8px;vertical-align:middle"></span>Origin
+    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--purple);margin-right:4px;margin-left:8px;vertical-align:middle"></span>Observability
+    <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--yellow);margin-right:4px;margin-left:8px;vertical-align:middle"></span>Service
+  </div>
+</div>
+
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.css" />
+<script src="https://unpkg.com/maplibre-gl@5.5.0/dist/maplibre-gl.js"></script>
+<script>
+(function() {
+  // Node definitions — update when topology changes
+  const nodes = [
+    { id: 'chimney-hel1', label: 'chimney-hel1', role: 'edge',    lat: 60.1699, lon: 24.9384, city: 'Helsinki',  host: 'chimney.beerpub.dev', status: 'up' },
+    { id: 'origin-nbg1',  label: 'origin-nbg1',  role: 'origin',  lat: 49.4521, lon: 11.0767, city: 'Nuremberg', host: 'chimney (origin)',     status: 'up' },
+    { id: 'coroot-nbg1',  label: 'coroot',        role: 'observe', lat: 49.4521, lon: 11.1267, city: 'Nuremberg', host: 'table.beerpub.dev',    status: 'up' },
+    { id: 'tvcentras',    label: 'tvcentras',     role: 'service', lat: 54.6872, lon: 25.2797, city: 'Vilnius',   host: 'tv.beerpub.dev',       status: 'up' },
+  ];
+
+  // Tunnel connections (WireGuard mesh links)
+  const tunnels = [
+    { from: 'chimney-hel1', to: 'origin-nbg1', type: 'wireguard' },
+    { from: 'chimney-hel1', to: 'tvcentras',    type: 'wireguard' },
+    { from: 'origin-nbg1',  to: 'tvcentras',    type: 'wireguard' },
+    { from: 'origin-nbg1',  to: 'coroot-nbg1',  type: 'local' },
+  ];
+
+  const roleColors = { edge: '#3fb950', origin: '#58a6ff', observe: '#bc8cff', service: '#d29922' };
+
+  const map = new maplibregl.Map({
+    container: 'topology-map',
+    style: {
+      version: 8,
+      sources: {
+        'osm-tiles': {
+          type: 'raster',
+          tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+          tileSize: 256,
+          attribution: '&copy; OpenStreetMap'
+        }
+      },
+      layers: [{
+        id: 'osm-base',
+        type: 'raster',
+        source: 'osm-tiles',
+        paint: { 'raster-saturation': -0.85, 'raster-brightness-max': 0.35, 'raster-contrast': 0.2 }
+      }]
+    },
+    center: [18.5, 54.0],
+    zoom: 4.2,
+    maxZoom: 8,
+    minZoom: 2,
+    attributionControl: false
+  });
+
+  map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
+
+  map.on('load', function() {
+    // Add tunnel lines
+    const tunnelFeatures = tunnels.map(function(t) {
+      const fromNode = nodes.find(function(n) { return n.id === t.from; });
+      const toNode = nodes.find(function(n) { return n.id === t.to; });
+      if (!fromNode || !toNode) return null;
+      // Create curved line via midpoint offset
+      var midLon = (fromNode.lon + toNode.lon) / 2;
+      var midLat = (fromNode.lat + toNode.lat) / 2 + 0.5;
+      return {
+        type: 'Feature',
+        properties: { type: t.type },
+        geometry: { type: 'LineString', coordinates: [
+          [fromNode.lon, fromNode.lat], [midLon, midLat], [toNode.lon, toNode.lat]
+        ]}
+      };
+    }).filter(Boolean);
+
+    map.addSource('tunnels', {
+      type: 'geojson',
+      data: { type: 'FeatureCollection', features: tunnelFeatures }
+    });
+
+    map.addLayer({
+      id: 'tunnel-lines',
+      type: 'line',
+      source: 'tunnels',
+      paint: {
+        'line-color': ['match', ['get', 'type'], 'wireguard', '#3fb950', 'local', '#58a6ff', '#30363d'],
+        'line-width': 2,
+        'line-opacity': 0.6,
+        'line-dasharray': [2, 2]
+      }
+    });
+
+    // Add node markers
+    nodes.forEach(function(node) {
+      var el = document.createElement('div');
+      el.style.cssText = 'width:14px;height:14px;border-radius:50%;border:2px solid ' +
+        roleColors[node.role] + ';background:rgba(13,17,23,0.9);cursor:pointer;' +
+        'box-shadow:0 0 8px ' + roleColors[node.role] + '40;transition:transform 0.2s';
+      el.addEventListener('mouseenter', function() { el.style.transform = 'scale(1.5)'; });
+      el.addEventListener('mouseleave', function() { el.style.transform = 'scale(1)'; });
+
+      new maplibregl.Marker({ element: el })
+        .setLngLat([node.lon, node.lat])
+        .setPopup(new maplibregl.Popup({ offset: 12, className: 'mesh-popup' }).setHTML(
+          '<div style="font-family:system-ui;font-size:0.8125rem;color:#e6edf3;background:#161b22;padding:0.5rem;border-radius:4px;min-width:160px">' +
+          '<strong style="color:' + roleColors[node.role] + '">' + node.label + '</strong><br>' +
+          '<span style="color:#8b949e">City:</span> ' + node.city + '<br>' +
+          '<span style="color:#8b949e">Role:</span> ' + node.role + '<br>' +
+          '<span style="color:#8b949e">Host:</span> ' + node.host + '<br>' +
+          '<span style="color:#8b949e">Status:</span> <span style="color:#3fb950">● up</span>' +
+          '</div>'
+        ))
+        .addTo(map);
+    });
+  });
+})();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════
      PIPELINE OPERATIONS — live data from GitHub API
      ══════════════════════════════════════════════════════════════════ -->
 
