@@ -49,3 +49,7 @@ prompt: |
   real codebase, adapt to match reality.
 
   Now implement the specification in {{ spec_file }}.
+
+settings:
+  goose_provider: "openai"
+  goose_model: "glm-5.1"
