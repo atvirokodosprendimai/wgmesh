@@ -63,18 +63,6 @@ extensions:
   - type: builtin
     name: developer
 
-settings:
-  goose_provider: "openai"
-  goose_model: "glm-5.1"
-  max_turns: 50
-
-retry:
-  max_retries: 2
-  timeout_seconds: 300
-  checks:
-    - type: shell
-      command: "go build ./..."
-    - type: shell
-      command: "go test ./..."
-    - type: shell
-      command: "go vet ./..."
+# Provider and model are configured via env vars in goose-build.yml:
+#   OPENAI_API_KEY, OPENAI_HOST, OPENAI_BASE_PATH
+# Build verification is handled in the workflow's "Check for changes" step.
