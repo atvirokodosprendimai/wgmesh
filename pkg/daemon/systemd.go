@@ -33,7 +33,7 @@ WantedBy=multi-user.target
 
 // shellQuoteSystemd wraps s in single quotes for safe interpolation into
 // shell commands (the systemd unit's ExecStart uses sh -c). Any embedded
-// single quotes are escaped as '\''.
+// single quotes are escaped as '\”.
 func shellQuoteSystemd(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

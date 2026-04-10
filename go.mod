@@ -5,6 +5,8 @@ go 1.25.5
 require (
 	github.com/anacrolix/dht/v2 v2.23.0
 	github.com/atvirokodosprendimai/lighthouse-go v0.1.0
+	github.com/prometheus/client_golang v1.12.2
+	github.com/prometheus/client_model v0.2.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/term v0.39.0
 )
@@ -28,12 +30,19 @@ require (
 	github.com/anacrolix/sync v0.4.0 // indirect
 	github.com/anacrolix/torrent v1.48.1-0.20230103142631-c20f73d53e9f // indirect
 	github.com/benbjohnson/immutable v0.4.1-0.20221220213129-8932b999621d // indirect
+	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bradfitz/iter v0.0.0-20191230175014-e8f45d346db8 // indirect
+	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
+	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
+	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
+	github.com/prometheus/common v0.35.0 // indirect
+	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/rs/dnscache v0.0.0-20211102005908-e0241e321417 // indirect
 	golang.org/x/exp v0.0.0-20221217163422-3c43f8badb15 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.40.0 // indirect
 	golang.org/x/time v0.0.0-20220609170525-579cf78fd858 // indirect
+	google.golang.org/protobuf v1.28.1 // indirect
 )

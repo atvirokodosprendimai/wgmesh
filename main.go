@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
@@ -289,6 +291,7 @@ func joinCmd() {
 	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	pprofAddr := fs.String("pprof", "", "Enable pprof HTTP server (e.g. localhost:6060)")
+	metricsAddr := fs.String("metrics", "", "Enable Prometheus metrics endpoint (e.g. :9090)")
 	fs.Parse(os.Args[2:])
 
 	// If secret not provided via flag, try environment variables
@@ -363,6 +366,19 @@ func joinCmd() {
 			log.Printf("pprof server listening on %s", *pprofAddr)
 			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
 				log.Printf("pprof server error: %v", err)
+			}
+		}()
+	}
+
+	// Start metrics HTTP server if requested
+	if *metricsAddr != "" {
+		daemon.RegisterMetrics()
+		metricsMux := http.NewServeMux()
+		metricsMux.Handle("/metrics", promhttp.Handler())
+		go func() {
+			log.Printf("metrics server listening on %s", *metricsAddr)
+			if err := http.ListenAndServe(*metricsAddr, metricsMux); err != nil {
+				log.Printf("metrics server error: %v", err)
 			}
 		}()
 	}

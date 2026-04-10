@@ -24,19 +24,19 @@ import (
 )
 
 const (
-	ReconcileInterval      = 5 * time.Second
-	StatusInterval         = 30 * time.Second
-	RelayCandidateMaxAge   = 90 * time.Second
-	StaleCleanupInterval   = 1 * time.Minute
-	HealthCheckInterval    = 20 * time.Second
-	HandshakeStaleAfter    = 150 * time.Second
-	MeshProbeInterval      = 1 * time.Second
-	MeshProbeDialTimeout   = 1200 * time.Millisecond // Increased from 800ms for cross-DC tolerance
-	MeshProbeFailLimit     = 8
-	MeshProbePortOffset    = 2000
-	TemporaryOfflineTTL    = 30 * time.Second
-	soBindToDevice         = 25                      // Linux SO_BINDTODEVICE
-	RelayHysteresisThreshold = 3                     // Require 3 consecutive stable cycles before switching relay→direct
+	ReconcileInterval        = 5 * time.Second
+	StatusInterval           = 30 * time.Second
+	RelayCandidateMaxAge     = 90 * time.Second
+	StaleCleanupInterval     = 1 * time.Minute
+	HealthCheckInterval      = 20 * time.Second
+	HandshakeStaleAfter      = 150 * time.Second
+	MeshProbeInterval        = 1 * time.Second
+	MeshProbeDialTimeout     = 1200 * time.Millisecond // Increased from 800ms for cross-DC tolerance
+	MeshProbeFailLimit       = 8
+	MeshProbePortOffset      = 2000
+	TemporaryOfflineTTL      = 30 * time.Second
+	soBindToDevice           = 25 // Linux SO_BINDTODEVICE
+	RelayHysteresisThreshold = 3  // Require 3 consecutive stable cycles before switching relay→direct
 )
 
 type peerProbeSession struct {
@@ -53,7 +53,7 @@ type Daemon struct {
 	appliedMu              sync.Mutex
 	relayRoutes            map[string]string // target pubkey -> relay pubkey
 	relayMu                sync.RWMutex
-	directStableCycles     map[string]int    // pubkey -> consecutive cycles with working direct path (relay hysteresis)
+	directStableCycles     map[string]int // pubkey -> consecutive cycles with working direct path (relay hysteresis)
 	localSubnetsFn         func() []*net.IPNet
 	peerHealthFailures     map[string]int
 	lastPeerTransferTotal  map[string]uint64
@@ -459,6 +459,8 @@ func (d *Daemon) reconcileLoop() {
 
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
+	start := time.Now()
+
 	peers := d.peerStore.GetActive()
 	desired, relayRoutes, directStable := d.buildDesiredPeerConfigs(peers)
 	d.relayMu.Lock()
@@ -475,6 +477,12 @@ func (d *Daemon) reconcile() {
 
 	// Check for mesh IP collisions
 	d.CheckAndResolveCollisions()
+
+	// Update metrics after reconciliation
+	UpdateMetrics(d)
+
+	// Record reconcile duration
+	RecordReconcileDuration(time.Since(start))
 
 	// Stale peer cleanup is handled by staleCleanupLoop (W3: avoid double cleanup)
 }

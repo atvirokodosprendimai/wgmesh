@@ -11,7 +11,7 @@ import (
 )
 
 // shellQuote wraps s in single quotes for safe interpolation into shell
-// commands. Any embedded single quotes are escaped as '\''.
+// commands. Any embedded single quotes are escaped as '\”.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
