@@ -6,6 +6,7 @@ require (
 	github.com/anacrolix/dht/v2 v2.23.0
 	github.com/atvirokodosprendimai/lighthouse-go v0.1.0
 	github.com/prometheus/client_golang v1.12.2
+	github.com/prometheus/client_model v0.2.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/term v0.39.0
 )
@@ -36,7 +37,6 @@ require (
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
-	github.com/prometheus/client_model v0.2.0 // indirect
 	github.com/prometheus/common v0.35.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
 	github.com/rs/dnscache v0.0.0-20211102005908-e0241e321417 // indirect
