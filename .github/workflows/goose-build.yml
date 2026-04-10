@@ -24,7 +24,8 @@ permissions:
   issues: write
 
 env:
-  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+  ANTHROPIC_API_KEY: ${{ secrets.ZAI_API_KEY }}
+  ANTHROPIC_HOST: "https://api.z.ai/api/anthropic"
 
 jobs:
   implement:
@@ -46,10 +47,10 @@ jobs:
       # ── Validate prerequisites ──────────────────────────
       - name: Validate API key is configured
         env:
-          KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          KEY: ${{ secrets.ZAI_API_KEY }}
         run: |
           if [ -z "$KEY" ]; then
-            echo "::error::OPENROUTER_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
+            echo "::error::ZAI_API_KEY secret is not configured. Add it in Settings > Secrets > Actions."
             exit 1
           fi
 
