@@ -4,7 +4,7 @@ description: "Implements code and/or documentation changes for wgmesh based on a
 
 parameters:
   - key: spec_file
-    input_type: file
+    input_type: string
     requirement: required
     description: "Path to the specification file (specs/issue-N-spec.md)"
 
