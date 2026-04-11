@@ -220,6 +220,8 @@ wgmesh/
 
 See [docs/troubleshooting.md](docs/troubleshooting.md) for runbooks covering connection issues, persistence checks, log viewing, and configuration rebuilds.
 
+- [Team Dogfooding & Stability Metrics](docs/dogfooding/README.md)
+
 ## Contributing
 
 Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
