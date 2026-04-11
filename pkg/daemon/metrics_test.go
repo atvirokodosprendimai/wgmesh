@@ -180,3 +180,55 @@ func TestRecordDiscoveryEvent(t *testing.T) {
 		t.Errorf("expected 1 lan event, got %v", lanVal)
 	}
 }
+
+func TestProbeRTTHistogram(t *testing.T) {
+	// Record a probe RTT and verify histogram has at least one observation.
+	start := time.Now()
+	time.Sleep(1 * time.Millisecond)
+	ObserveProbeRTT("abcdefgh", start)
+
+	ch := make(chan prometheus.Metric, 16)
+	probeRTT.Collect(ch)
+	close(ch)
+
+	var found bool
+	for m := range ch {
+		var metric dto.Metric
+		if err := m.Write(&metric); err != nil {
+			t.Fatalf("write metric: %v", err)
+		}
+		for _, lp := range metric.GetLabel() {
+			if lp.GetName() == "peer_key" && lp.GetValue() == "abcdefgh" {
+				h := metric.GetHistogram()
+				if h == nil {
+					t.Fatal("expected histogram metric")
+				}
+				if h.GetSampleCount() == 0 {
+					t.Error("expected at least one RTT observation")
+				}
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("expected histogram observation for peer_key=abcdefgh")
+	}
+}
+
+func TestNATTraversalCounters(t *testing.T) {
+	natTraversalAttempts.DeleteLabelValues("dht")
+	natTraversalSuccesses.DeleteLabelValues("dht")
+
+	RecordNATTraversalAttempt("dht")
+	RecordNATTraversalAttempt("dht")
+	RecordNATTraversalSuccess("dht")
+
+	attempts := testutil.ToFloat64(natTraversalAttempts.WithLabelValues("dht"))
+	if attempts != 2 {
+		t.Errorf("expected 2 dht attempts, got %v", attempts)
+	}
+	successes := testutil.ToFloat64(natTraversalSuccesses.WithLabelValues("dht"))
+	if successes != 1 {
+		t.Errorf("expected 1 dht success, got %v", successes)
+	}
+}

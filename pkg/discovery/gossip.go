@@ -298,6 +298,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		NATType:          announcement.NATType,
 	}
 	g.peerStore.Update(peer, GossipMethod)
+	daemon.RecordDiscoveryEvent("gossip")
 
 	// Process transitive peers
 	for _, kp := range announcement.KnownPeers {

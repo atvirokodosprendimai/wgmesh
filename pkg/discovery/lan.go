@@ -213,6 +213,7 @@ func (l *LANDiscovery) listenLoop() {
 
 		log.Printf("[LAN] Discovered peer %s (%s) at %s", safeTruncate(peer.WGPubKey, 8), peer.MeshIP, peer.Endpoint)
 		l.peerStore.Update(peer, LANMethod)
+		daemon.RecordDiscoveryEvent("lan")
 	}
 }
 

@@ -1042,6 +1042,7 @@ func (d *Daemon) probePeer(peer *PeerInfo) bool {
 	}
 
 	_ = session.conn.SetWriteDeadline(time.Now().Add(MeshProbeDialTimeout))
+	start := time.Now()
 	if _, err := session.conn.Write([]byte("ping\n")); err != nil {
 		d.closeProbeSession(peer.WGPubKey)
 		return false
@@ -1059,6 +1060,7 @@ func (d *Daemon) probePeer(peer *PeerInfo) bool {
 		return false
 	}
 
+	ObserveProbeRTT(peer.WGPubKey[:8], start)
 	return true
 }
 

@@ -200,6 +200,7 @@ func (r *RendezvousRegistry) decryptPeerList(body string) []*daemon.PeerInfo {
 	}
 
 	log.Printf("[Registry] Decrypted %d peers from registry", len(peers))
+	daemon.RecordDiscoveryEvent("registry")
 	return peers
 }
 

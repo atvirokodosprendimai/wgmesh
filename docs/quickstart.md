@@ -119,6 +119,9 @@ Run the following command **as root** (or with `sudo`) on every node that should
 sudo wgmesh join --secret "wgmesh://v1/<your-secret>"
 ```
 
+> **Tip:** Add `--metrics :9090` to expose Prometheus metrics at `http://<host>:9090/metrics`.
+> See the [Metrics section in README.md](../README.md#metrics) for all available metric names.
+
 The daemon starts in the foreground. To run it in the background as a systemd service:
 
 ```bash

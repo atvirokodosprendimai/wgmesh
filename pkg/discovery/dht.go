@@ -1059,6 +1059,8 @@ func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod strin
 		log.Printf("[NAT] Starting punch/exchange via transitive address %s", addrStr)
 	}
 
+	daemon.RecordNATTraversalAttempt(discoveryMethod)
+
 	peerInfo, err := d.exchange.ExchangeWithPeer(addrStr)
 	if err != nil {
 		// Timeouts are expected for some addresses during NAT traversal.
@@ -1073,6 +1075,8 @@ func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod strin
 	}
 
 	log.Printf("[DHT] SUCCESS! Found wgmesh peer %s (%s) at %s", peerInfo.WGPubKey[:8]+"...", peerInfo.MeshIP, peerInfo.Endpoint)
+	daemon.RecordNATTraversalSuccess(discoveryMethod)
+	daemon.RecordDiscoveryEvent("dht")
 	if discoveryMethod == DHTMethod+"-transitive" {
 		if isIPv6Endpoint(peerInfo.Endpoint) {
 			log.Printf("[Path] Peer established via direct IPv6 path: %s (%s)", shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)

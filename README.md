@@ -135,6 +135,41 @@ Use `test-peer` to verify direct UDP connectivity to another wgmesh node. Start 
 wgmesh test-peer --secret "wgmesh://v1/<your-secret>" --peer <PEER_IP>:<EXCHANGE_PORT>
 ```
 
+### Metrics
+
+wgmesh exposes a Prometheus-compatible `/metrics` endpoint. Enable it with the `--metrics` flag on `join`:
+
+```bash
+wgmesh join --secret "wgmesh://v1/<your-secret>" --metrics :9090
+```
+
+Then scrape `http://<host>:9090/metrics`.
+
+#### Available metrics
+
+| Metric | Type | Description |
+|---|---|---|
+| `wgmesh_active_peers` | Gauge | Current active peers in the mesh |
+| `wgmesh_relayed_peers` | Gauge | Peers routed via relay (not direct) |
+| `wgmesh_nat_type{type}` | Gauge | Local NAT type — `type` is `cone`, `symmetric`, or `unknown`; value is 1 for the current type |
+| `wgmesh_discovery_events_total{layer}` | Counter | Peer-discovery events by layer — `layer` is `dht`, `lan`, `gossip`, or `registry` |
+| `wgmesh_nat_traversal_attempts_total{method}` | Counter | NAT traversal attempts by method |
+| `wgmesh_nat_traversal_successes_total{method}` | Counter | Successful NAT traversal exchanges by method |
+| `wgmesh_probe_rtt_seconds{peer_key}` | Histogram | Mesh probe round-trip time per peer (first 8 chars of pubkey) |
+| `wgmesh_reconcile_duration_seconds` | Histogram | Time spent in the reconcile loop |
+| `go_goroutines` | Gauge | Number of active goroutines (Go runtime) |
+| `go_memstats_alloc_bytes` | Gauge | Allocated heap bytes (Go runtime) |
+| `process_resident_memory_bytes` | Gauge | Resident memory (OS process) |
+
+#### Example Prometheus scrape config
+
+```yaml
+scrape_configs:
+  - job_name: wgmesh
+    static_configs:
+      - targets: ['<node1>:9090', '<node2>:9090']
+```
+
 ## Installation
 
 ### Pre-built Binaries
