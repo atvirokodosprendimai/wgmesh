@@ -173,6 +173,8 @@ docker run --rm --privileged --network host \
 
 See [DOCKER.md](DOCKER.md) and [DOCKER-COMPOSE.md](DOCKER-COMPOSE.md) for detailed Docker deployment guides.
 
+For a step-by-step first-mesh walkthrough covering all installation methods, see [docs/quickstart.md](docs/quickstart.md).
+
 ### Verify Installation
 
 ```bash
@@ -218,7 +220,9 @@ wgmesh/
 
 ## Troubleshooting
 
-See [docs/troubleshooting.md](docs/troubleshooting.md) for runbooks covering connection issues, persistence checks, log viewing, and configuration rebuilds.
+See the [Quickstart Guide troubleshooting section](docs/quickstart.md#troubleshooting) for decentralized-mode issues (daemon, peers, NAT, interface errors).
+
+See [docs/troubleshooting.md](docs/troubleshooting.md) for centralized-mode SSH runbooks (persistence checks, log viewing, configuration rebuilds).
 
 ## Contributing
 
