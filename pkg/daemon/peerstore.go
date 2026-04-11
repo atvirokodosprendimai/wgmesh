@@ -360,6 +360,19 @@ func (ps *PeerStore) Count() int {
 	return len(ps.peers)
 }
 
+// SetLatency updates the measured round-trip latency for the given peer.
+// It is a no-op if the peer is not present in the store.
+func (ps *PeerStore) SetLatency(pubKey string, rtt time.Duration) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	peer, exists := ps.peers[pubKey]
+	if !exists {
+		return
+	}
+	peer.Latency = &rtt
+}
+
 // IsDead checks if a peer is considered dead
 func (ps *PeerStore) IsDead(pubKey string) bool {
 	ps.mu.RLock()

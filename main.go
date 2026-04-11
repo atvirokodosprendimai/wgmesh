@@ -860,6 +860,7 @@ func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, err
 					LastSeen:         p.LastSeen,
 					DiscoveredVia:    p.DiscoveredVia,
 					RoutableNetworks: p.RoutableNetworks,
+					LatencyMs:        p.LatencyMs,
 				}
 			}
 			return result
@@ -877,6 +878,7 @@ func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, err
 				LastSeen:         peer.LastSeen,
 				DiscoveredVia:    peer.DiscoveredVia,
 				RoutableNetworks: peer.RoutableNetworks,
+				LatencyMs:        peer.LatencyMs,
 			}, true
 		},
 		GetPeerCounts: d.GetRPCPeerCounts,
@@ -968,8 +970,8 @@ func handlePeersList(client *rpc.Client) {
 		return
 	}
 
-	fmt.Printf("%-20s %-19s %-15s %-25s %-10s %s\n", "HOSTNAME", "PUBLIC KEY", "MESH IP", "ENDPOINT", "LAST SEEN", "DISCOVERED VIA")
-	fmt.Println(strings.Repeat("-", 120))
+	fmt.Printf("%-20s %-19s %-15s %-25s %-10s %-10s %s\n", "HOSTNAME", "PUBLIC KEY", "MESH IP", "ENDPOINT", "LAST SEEN", "LATENCY", "DISCOVERED VIA")
+	fmt.Println(strings.Repeat("-", 130))
 
 	for _, peerData := range peersData {
 		peer, ok := peerData.(map[string]interface{})
@@ -1004,6 +1006,13 @@ func handlePeersList(client *rpc.Client) {
 			lastSeenStr = formatDuration(time.Since(lastSeenTime))
 		}
 
+		latencyStr := "-"
+		if v, ok := peer["latency_ms"]; ok && v != nil {
+			if ms, ok := v.(float64); ok {
+				latencyStr = fmt.Sprintf("%.1fms", ms)
+			}
+		}
+
 		var discoveredViaStr []string
 		if v, ok := peer["discovered_via"]; ok {
 			if discoveredVia, ok := v.([]interface{}); ok {
@@ -1015,7 +1024,7 @@ func handlePeersList(client *rpc.Client) {
 			}
 		}
 
-		fmt.Printf("%-20s %-19s %-15s %-25s %-10s %s\n", hostname, pubkeyShort, meshIP, endpoint, lastSeenStr, strings.Join(discoveredViaStr, ","))
+		fmt.Printf("%-20s %-19s %-15s %-25s %-10s %-10s %s\n", hostname, pubkeyShort, meshIP, endpoint, lastSeenStr, latencyStr, strings.Join(discoveredViaStr, ","))
 	}
 }
 
@@ -1098,6 +1107,14 @@ func handlePeersGet(client *rpc.Client, pubkey string) {
 				fmt.Printf("Routes:         %s\n", strings.Join(routeStrs, ", "))
 			}
 		}
+	}
+
+	if v, ok := peer["latency_ms"]; ok && v != nil {
+		if ms, ok := v.(float64); ok {
+			fmt.Printf("Latency:        %.1f ms\n", ms)
+		}
+	} else {
+		fmt.Printf("Latency:        -\n")
 	}
 }
 

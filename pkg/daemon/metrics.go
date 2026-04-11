@@ -34,6 +34,17 @@ var (
 		Help:    "Round-trip time of mesh health probes",
 		Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0},
 	}, []string{"peer_key"})
+	probeRTTSummary = prometheus.NewSummaryVec(prometheus.SummaryOpts{
+		Name: "wgmesh_probe_rtt_summary_seconds",
+		Help: "Round-trip time of mesh health probes (pre-computed quantiles)",
+		Objectives: map[float64]float64{
+			0.50: 0.01,
+			0.95: 0.005,
+			0.99: 0.001,
+		},
+		MaxAge:     10 * time.Minute,
+		AgeBuckets: 5,
+	}, []string{"peer_key"})
 	natTraversalAttempts = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "wgmesh_nat_traversal_attempts_total",
 		Help: "NAT traversal attempts by method",
@@ -63,6 +74,7 @@ func RegisterMetrics() {
 	prometheus.MustRegister(discoveryEvents)
 	prometheus.MustRegister(reconcileDuration)
 	prometheus.MustRegister(probeRTT)
+	prometheus.MustRegister(probeRTTSummary)
 	prometheus.MustRegister(natTraversalAttempts)
 	prometheus.MustRegister(natTraversalSuccesses)
 	prometheus.MustRegister(goCollector)
@@ -111,6 +123,13 @@ func RecordDiscoveryEvent(layer string) {
 // peerKey should be the first 8 characters of the WireGuard public key.
 func ObserveProbeRTT(peerKey string, start time.Time) {
 	probeRTT.WithLabelValues(peerKey).Observe(time.Since(start).Seconds())
+}
+
+// ObserveProbeRTTSummary records the round-trip time for a mesh probe to the given peer
+// in the pre-computed summary (P50/P95/P99).
+// peerKey should be the first 8 characters of the WireGuard public key.
+func ObserveProbeRTTSummary(peerKey string, rtt time.Duration) {
+	probeRTTSummary.WithLabelValues(peerKey).Observe(rtt.Seconds())
 }
 
 // RecordNATTraversalAttempt increments the attempt counter for the given method.

@@ -432,6 +432,34 @@ func TestPeerStoreMaxPeersAllowsUpdates(t *testing.T) {
 	}
 }
 
+func TestPeerStoreSetLatency(t *testing.T) {
+	ps := NewPeerStore()
+	ps.Update(&PeerInfo{
+		WGPubKey: "key1",
+		MeshIP:   "10.0.0.1",
+	}, "dht")
+
+	rtt := 42 * time.Millisecond
+	ps.SetLatency("key1", rtt)
+
+	got, ok := ps.Get("key1")
+	if !ok {
+		t.Fatal("expected to find peer key1")
+	}
+	if got.Latency == nil {
+		t.Fatal("expected Latency to be set")
+	}
+	if *got.Latency != rtt {
+		t.Errorf("expected Latency %v, got %v", rtt, *got.Latency)
+	}
+}
+
+func TestPeerStoreSetLatencyUnknownPeer(t *testing.T) {
+	ps := NewPeerStore()
+	// SetLatency on a non-existent peer must not panic.
+	ps.SetLatency("nonexistent", 10*time.Millisecond)
+}
+
 func TestPeerStoreMaxPeersAfterCleanup(t *testing.T) {
 	t.Parallel()
 	ps := NewPeerStore()

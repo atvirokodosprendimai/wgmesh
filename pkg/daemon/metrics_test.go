@@ -232,3 +232,35 @@ func TestNATTraversalCounters(t *testing.T) {
 		t.Errorf("expected 1 dht success, got %v", successes)
 	}
 }
+
+func TestProbeRTTSummary(t *testing.T) {
+	rtt := 15 * time.Millisecond
+	ObserveProbeRTTSummary("testkey1", rtt)
+
+	ch := make(chan prometheus.Metric, 16)
+	probeRTTSummary.Collect(ch)
+	close(ch)
+
+	var found bool
+	for m := range ch {
+		var metric dto.Metric
+		if err := m.Write(&metric); err != nil {
+			t.Fatalf("write metric: %v", err)
+		}
+		for _, lp := range metric.GetLabel() {
+			if lp.GetName() == "peer_key" && lp.GetValue() == "testkey1" {
+				s := metric.GetSummary()
+				if s == nil {
+					t.Fatal("expected summary metric")
+				}
+				if s.GetSampleCount() == 0 {
+					t.Error("expected at least one RTT observation in summary")
+				}
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Error("expected summary observation for peer_key=testkey1")
+	}
+}

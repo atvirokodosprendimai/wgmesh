@@ -46,6 +46,7 @@ type PeerInfo struct {
 	LastSeen         string   `json:"last_seen"` // ISO 8601 format
 	DiscoveredVia    []string `json:"discovered_via"`
 	RoutableNetworks []string `json:"routable_networks,omitempty"`
+	LatencyMs        *float64 `json:"latency_ms,omitempty"`
 }
 
 // PeersListResult represents the result of peers.list

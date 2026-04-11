@@ -1060,7 +1060,10 @@ func (d *Daemon) probePeer(peer *PeerInfo) bool {
 		return false
 	}
 
+	rtt := time.Since(start)
 	ObserveProbeRTT(peer.WGPubKey[:8], start)
+	ObserveProbeRTTSummary(peer.WGPubKey[:8], rtt)
+	d.peerStore.SetLatency(peer.WGPubKey, rtt)
 	return true
 }
 
@@ -1680,7 +1683,7 @@ func (d *Daemon) GetRPCPeers() []*RPCPeerData {
 	peers := d.peerStore.GetActive()
 	result := make([]*RPCPeerData, 0, len(peers))
 	for _, p := range peers {
-		result = append(result, &RPCPeerData{
+		rpcPeer := &RPCPeerData{
 			WGPubKey:         p.WGPubKey,
 			Hostname:         p.Hostname,
 			MeshIP:           p.MeshIP,
@@ -1688,7 +1691,12 @@ func (d *Daemon) GetRPCPeers() []*RPCPeerData {
 			LastSeen:         p.LastSeen,
 			DiscoveredVia:    p.DiscoveredVia,
 			RoutableNetworks: p.RoutableNetworks,
-		})
+		}
+		if p.Latency != nil {
+			ms := float64(p.Latency.Milliseconds())
+			rpcPeer.LatencyMs = &ms
+		}
+		result = append(result, rpcPeer)
 	}
 	return result
 }
@@ -1699,7 +1707,7 @@ func (d *Daemon) GetRPCPeer(pubKey string) (*RPCPeerData, bool) {
 	if !exists {
 		return nil, false
 	}
-	return &RPCPeerData{
+	rpcPeer := &RPCPeerData{
 		WGPubKey:         peer.WGPubKey,
 		Hostname:         peer.Hostname,
 		MeshIP:           peer.MeshIP,
@@ -1707,7 +1715,12 @@ func (d *Daemon) GetRPCPeer(pubKey string) (*RPCPeerData, bool) {
 		LastSeen:         peer.LastSeen,
 		DiscoveredVia:    peer.DiscoveredVia,
 		RoutableNetworks: peer.RoutableNetworks,
-	}, true
+	}
+	if peer.Latency != nil {
+		ms := float64(peer.Latency.Milliseconds())
+		rpcPeer.LatencyMs = &ms
+	}
+	return rpcPeer, true
 }
 
 // GetRPCPeerCounts returns peer counts for RPC
@@ -1743,6 +1756,7 @@ type RPCPeerData struct {
 	LastSeen         time.Time
 	DiscoveredVia    []string
 	RoutableNetworks []string
+	LatencyMs        *float64 // nil when no probe has succeeded yet
 }
 
 // RPCStatusData represents daemon status for RPC (matches rpc.StatusData)

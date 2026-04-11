@@ -22,6 +22,7 @@ type PeerData struct {
 	LastSeen         time.Time
 	DiscoveredVia    []string
 	RoutableNetworks []string
+	LatencyMs        *float64
 }
 
 // StatusData represents daemon status for RPC
@@ -276,6 +277,7 @@ func (s *Server) handlePeersList(params map[string]interface{}) (*PeersListResul
 			LastSeen:         peer.LastSeen.Format(time.RFC3339),
 			DiscoveredVia:    peer.DiscoveredVia,
 			RoutableNetworks: peer.RoutableNetworks,
+			LatencyMs:        peer.LatencyMs,
 		})
 	}
 
@@ -308,6 +310,7 @@ func (s *Server) handlePeersGet(params map[string]interface{}) (*PeerInfo, *Erro
 		LastSeen:         peer.LastSeen.Format(time.RFC3339),
 		DiscoveredVia:    peer.DiscoveredVia,
 		RoutableNetworks: peer.RoutableNetworks,
+		LatencyMs:        peer.LatencyMs,
 	}, nil
 }
 
