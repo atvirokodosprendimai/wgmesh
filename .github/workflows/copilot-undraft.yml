@@ -24,7 +24,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request_target' &&
       github.event.pull_request.draft == true &&
-      github.event.pull_request.user.login == 'copilot-swe-agent[bot]'
+      (github.event.pull_request.user.login == 'copilot-swe-agent[bot]' || github.event.pull_request.user.login == 'Copilot')
     runs-on: ubuntu-latest
     steps:
       - name: Mark PR ready for review
@@ -68,7 +68,7 @@ jobs:
             });
 
             const draftCopilotPRs = openPRs.filter(pr =>
-              pr.draft && pr.user.login === 'copilot-swe-agent[bot]'
+              pr.draft && (pr.user.login === "copilot-swe-agent[bot]" || pr.user.login === "Copilot")
             );
 
             if (draftCopilotPRs.length === 0) {
