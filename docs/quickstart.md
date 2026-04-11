@@ -79,7 +79,28 @@ docker run -d \
 
 > **Note:** The `--privileged` flag is required because wgmesh creates WireGuard kernel interfaces. Running without it produces `RTNETLINK answers: Operation not permitted`.
 
+Verify the binary is accessible inside the running container:
+
+```bash
+docker exec wgmesh wgmesh version
+```
+
 ### From source (requires Go 1.23+)
+
+#### Option A — `go install` (no clone required)
+
+```bash
+go install github.com/atvirokodosprendimai/wgmesh@latest
+wgmesh version
+```
+
+The binary is placed in `$(go env GOPATH)/bin/wgmesh`. Ensure that directory is in your `PATH`:
+
+```bash
+export PATH="$PATH:$(go env GOPATH)/bin"
+```
+
+#### Option B — build from a local clone
 
 ```bash
 git clone https://github.com/atvirokodosprendimai/wgmesh.git
