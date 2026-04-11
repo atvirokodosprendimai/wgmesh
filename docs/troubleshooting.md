@@ -1,5 +1,9 @@
 # Troubleshooting
 
+> For decentralized mode (`wgmesh join`) issues, see the [Quickstart Guide troubleshooting section](quickstart.md#troubleshooting).
+
+## Centralized Mode (SSH Deployment)
+
 ## Connection Issues
 
 ```bash
