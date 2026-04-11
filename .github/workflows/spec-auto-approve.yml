@@ -316,7 +316,7 @@ jobs:
                 }
 
                 // Extract issue number from title
-                const match = pr.title.match(/Issue #(\d+)/i);
+                const match = pr.title.match(/(?:Issue )?#(\d+)/i);
                 if (!match) {
                   core.info(`PR #${pr.number}: no issue number in title, skipping`);
                   continue;
