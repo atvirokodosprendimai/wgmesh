@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
