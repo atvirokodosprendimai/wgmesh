@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log"
+	"math/rand"
 	"net"
 	"os"
 	"path/filepath"
@@ -28,6 +29,8 @@ const (
 	DHTTransitiveInterval     = 1 * time.Second // Legacy: used only for initial backfill
 	DHTBootstrapTimeout       = 30 * time.Second
 	DHTPersistInterval        = 2 * time.Minute
+	DHTBootstrapInitialDelay  = 5 * time.Second
+	DHTBootstrapMaxDelay      = 60 * time.Second
 	DHTMethod                 = "dht"
 	DHTMaxConcurrentExchanges = 10 // Limit concurrent transitive exchanges to prevent resource exhaustion
 	RendezvousWindow          = 20 * time.Second
@@ -512,52 +515,90 @@ func (d *DHTDiscovery) initDHTServer() error {
 	d.loadPersistedNodes()
 
 	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", d.dhtPort)
+	go d.bootstrapWithRetry()
+	return nil
+}
 
-	// Actively bootstrap by doing a lookup for a random ID
-	// This forces the DHT to contact bootstrap nodes and populate routing table
-	go func() {
-		ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
-		defer cancel()
+// dhtBackoffDelay applies ±25% jitter to d and returns the result.
+// This prevents thundering-herd retries when multiple nodes restart simultaneously.
+// math/rand is automatically seeded since Go 1.20, so no explicit seeding is needed.
+func dhtBackoffDelay(d time.Duration) time.Duration {
+	// jitter factor in [-0.25, +0.25]
+	jitter := (rand.Float64() - 0.5) * 0.5 // range: -0.25 … +0.25
+	return time.Duration(float64(d) * (1 + jitter))
+}
 
-		// Do a self-lookup to bootstrap
-		var randomID [20]byte
-		copy(randomID[:], d.config.Keys.NetworkID[:])
+// attemptBootstrapLookup performs one DHT bootstrap lookup and returns true
+// if at least one DHT node was discovered. It blocks for up to DHTBootstrapTimeout.
+// Returns false immediately if the context is already cancelled.
+func (d *DHTDiscovery) attemptBootstrapLookup() bool {
+	if d.ctx.Err() != nil {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(d.ctx, DHTBootstrapTimeout)
+	defer cancel()
 
-		// Use Announce with port 0 to do a get_peers which bootstraps the routing table
-		a, err := d.server.Announce(randomID, 0, false)
-		if err != nil {
-			log.Printf("[DHT] Bootstrap lookup failed: %v", err)
-			return
-		}
-		defer a.Close()
+	var randomID [20]byte
+	copy(randomID[:], d.config.Keys.NetworkID[:])
 
-		// Drain the channel to complete the bootstrap
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case _, ok := <-a.Peers:
-				if !ok {
-					return
-				}
+	a, err := d.server.Announce(randomID, 0, false)
+	if err != nil {
+		log.Printf("[DHT] Bootstrap lookup failed: %v", err)
+		return false
+	}
+	defer a.Close()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return d.server.NumNodes() > 0
+		case _, ok := <-a.Peers:
+			if !ok {
+				return d.server.NumNodes() > 0
 			}
 		}
-	}()
-
-	// Wait for some nodes to be discovered
-	for i := 0; i < 10; i++ {
-		time.Sleep(1 * time.Second)
-		nodes := server.NumNodes()
-		if nodes > 0 {
-			log.Printf("[DHT] Bootstrap complete, DHT has %d nodes", nodes)
-			return nil
-		}
-		log.Printf("[DHT] Waiting for bootstrap... (%d/10)", i+1)
 	}
+}
 
-	// Continue anyway even if bootstrap seems slow
-	log.Printf("[DHT] Bootstrap timeout, continuing with %d nodes (discovery may be slow)", server.NumNodes())
-	return nil
+// bootstrapWithRetry calls attemptBootstrapLookup in a loop with exponential
+// backoff until the routing table is populated or the context is cancelled.
+// Delay starts at DHTBootstrapInitialDelay, doubles on each failure, and is
+// capped at DHTBootstrapMaxDelay. Each delay has ±25% jitter applied.
+func (d *DHTDiscovery) bootstrapWithRetry() {
+	delay := DHTBootstrapInitialDelay
+	for attempt := 0; ; attempt++ {
+		if attempt > 0 {
+			jittered := dhtBackoffDelay(delay)
+			log.Printf("[DHT] Bootstrap attempt %d failed, retrying in %v...", attempt, jittered.Round(time.Millisecond))
+			select {
+			case <-d.ctx.Done():
+				return
+			case <-time.After(jittered):
+			}
+		}
+
+		select {
+		case <-d.ctx.Done():
+			return
+		default:
+		}
+
+		if d.attemptBootstrapLookup() {
+			nodes := d.server.NumNodes()
+			if attempt > 0 {
+				log.Printf("[DHT] Bootstrap succeeded after %d retries, DHT has %d nodes", attempt, nodes)
+			} else {
+				log.Printf("[DHT] Bootstrap complete, DHT has %d nodes", nodes)
+			}
+			return
+		}
+
+		// Double delay for next attempt, capped at max
+		delay *= 2
+		if delay > DHTBootstrapMaxDelay {
+			delay = DHTBootstrapMaxDelay
+		}
+	}
 }
 
 func (d *DHTDiscovery) persistLoop() {

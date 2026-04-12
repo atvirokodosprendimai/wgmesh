@@ -301,3 +301,70 @@ func TestRendezvous_AllIntroducersBusy_FallsBackToRelay(t *testing.T) {
 		t.Error("expected markContacted to succeed once throttle window is zero")
 	}
 }
+
+// TestDHTBackoffDelay_JitterInBounds verifies that dhtBackoffDelay produces
+// values within ±25% of the input duration over many samples.
+func TestDHTBackoffDelay_JitterInBounds(t *testing.T) {
+	base := 10 * time.Second
+	low := time.Duration(float64(base) * 0.75)
+	high := time.Duration(float64(base) * 1.25)
+
+	for i := 0; i < 1000; i++ {
+		got := dhtBackoffDelay(base)
+		if got < low || got > high {
+			t.Errorf("dhtBackoffDelay(%v) = %v, want in [%v, %v]", base, got, low, high)
+		}
+	}
+}
+
+// TestDHTBootstrapDelay_Progression verifies the doubling sequence with max cap.
+func TestDHTBootstrapDelay_Progression(t *testing.T) {
+	delay := DHTBootstrapInitialDelay // 5s
+	want := []time.Duration{
+		5 * time.Second,
+		10 * time.Second,
+		20 * time.Second,
+		40 * time.Second,
+		60 * time.Second, // capped at max
+		60 * time.Second, // remains at max
+	}
+	for i, w := range want {
+		if delay != w {
+			t.Errorf("step %d: delay = %v, want %v", i, delay, w)
+		}
+		delay *= 2
+		if delay > DHTBootstrapMaxDelay {
+			delay = DHTBootstrapMaxDelay
+		}
+	}
+}
+
+// TestBootstrapWithRetry_StopsOnContextCancel verifies that bootstrapWithRetry
+// exits promptly when the context is cancelled, without blocking.
+func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-bootstrap-cancel-1"})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	d, err := NewDHTDiscovery(ctx, cfg, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
+	if err != nil {
+		t.Fatalf("NewDHTDiscovery failed: %v", err)
+	}
+
+	// Cancel the context so the goroutine should exit on the first attempt check
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		d.bootstrapWithRetry()
+	}()
+
+	select {
+	case <-done:
+		// OK
+	case <-time.After(500 * time.Millisecond):
+		t.Error("bootstrapWithRetry did not stop within 500ms after context cancel")
+	}
+}
