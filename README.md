@@ -31,6 +31,56 @@ wgmesh status --secret "wgmesh://v1/<your-secret>"
 
 That's it. Nodes find each other via DHT, exchange keys, and build the mesh.
 
+For a step-by-step walkthrough with verification steps, troubleshooting, and all install methods,
+see [docs/quickstart.md](docs/quickstart.md).
+
+## Common Use Cases
+
+### Home lab / self-hosted services
+
+Connect your home server, a VPS, and a laptop into a single private network without opening
+firewall ports. Every node gets a stable mesh IP regardless of its real IP or NAT situation.
+
+```bash
+# On each machine — same secret, automatic discovery
+sudo wgmesh join --secret "wgmesh://v1/<your-secret>"
+```
+
+### Remote development / team VPN
+
+Give every developer a persistent mesh IP. Expose internal services (databases, staging
+environments) without a VPN server or static IP. New team member joins by receiving the secret.
+
+```bash
+# Developer laptop joins the team mesh
+sudo wgmesh join --secret "wgmesh://v1/<team-secret>" --interface wg1
+```
+
+### Advertising subnets (site-to-site)
+
+A node can advertise a local subnet into the mesh so all peers route traffic through it — useful
+for connecting office networks or exposing a Kubernetes pod CIDR.
+
+```bash
+sudo wgmesh join \
+  --secret "wgmesh://v1/<your-secret>" \
+  --advertise-routes "192.168.10.0/24"
+```
+
+### Fleet management (centralized mode)
+
+Manage WireGuard across a large fleet from a single control node. Topology lives in a state file;
+changes are deployed via SSH with zero interface restarts.
+
+```bash
+wgmesh -init
+wgmesh -add node1:10.99.0.1:192.168.1.10
+wgmesh -add node2:10.99.0.2:203.0.113.50
+wgmesh -deploy
+```
+
+See [docs/centralized-mode.md](docs/centralized-mode.md) for the full reference.
+
 ## How It Works
 
 ### Mesh Topology
@@ -171,6 +221,13 @@ scrape_configs:
 ```
 
 ## Installation
+
+### Homebrew (macOS and Linux)
+
+```bash
+brew install atvirokodosprendimai/tap/wgmesh
+wgmesh version
+```
 
 ### Pre-built Binaries
 
