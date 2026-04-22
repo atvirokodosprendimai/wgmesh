@@ -25,7 +25,7 @@ To satisfy acceptance criteria without depending on unavailable backend changes,
 
 ### Task 1: Extend account persistence model to include billing metadata
 
-Modify `/home/runner/work/wgmesh/wgmesh/pkg/mesh/account.go` and `/home/runner/work/wgmesh/wgmesh/pkg/mesh/account_test.go`.
+Modify `pkg/mesh/account.go` and `pkg/mesh/account_test.go`.
 
 Required changes:
 
@@ -48,7 +48,7 @@ Required changes:
 
 ### Task 2: Add Stripe billing client package (no new external dependency)
 
-Create a new package under `/home/runner/work/wgmesh/wgmesh/pkg/billing`.
+Create a new package under `pkg/billing`.
 
 Create files:
 - `stripe.go`
@@ -77,7 +77,7 @@ Implementation requirements:
 
 ### Task 3: Add billing CLI command group with signup, invoice, and account views
 
-Create `/home/runner/work/wgmesh/wgmesh/billing.go` and wire it from `/home/runner/work/wgmesh/wgmesh/main.go`.
+Create `billing.go` and wire it from `main.go`.
 
 Required command structure:
 
@@ -117,7 +117,7 @@ Main wiring requirements:
 
 ### Task 4: Define plan-to-price mapping and deterministic invoice generation behavior
 
-Implement plan constants in `/home/runner/work/wgmesh/wgmesh/billing.go` (or `/pkg/billing/pricing.go` if preferred).
+Implement plan constants in `billing.go` (or `pkg/billing/pricing.go` if preferred).
 
 Required mapping:
 
@@ -137,7 +137,7 @@ Rules:
 
 ### Task 5: Add end-to-end CLI tests for billing signup and invoice retrieval
 
-Create `/home/runner/work/wgmesh/wgmesh/billing_test.go`.
+Create `billing_test.go`.
 
 Required test scenarios (use mocked Stripe HTTP server):
 
@@ -158,7 +158,7 @@ Testing constraints:
 
 ### Task 6: Add operator documentation for billing workflow
 
-Update `/home/runner/work/wgmesh/wgmesh/README.md`.
+Update `README.md`.
 
 Add a new section `## Billing (Stage 3 Reachable)` with:
 
