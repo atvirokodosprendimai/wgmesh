@@ -1,0 +1,27 @@
+.github/workflows/goose-build.yml
+  15cce70529af2a08 526-564
+.github/workflows/release.yml
+  15cce70529af2a08 67-103
+.github/workflows/agent-metrics-report.yml
+  15cce70529af2a08 271-309
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "dcf535177bb576154fa45fc07f817c6e9b000577",
+  "prompts": {
+    "15cce70529af2a08": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "72637909-623d-4d2f-9625-3af88da6986e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 115,
+      "total_deletions": 0,
+      "accepted_lines": 115,
+      "overriden_lines": 0
+    }
+  }
+}
