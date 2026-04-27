@@ -268,3 +268,42 @@ jobs:
           path: /tmp/agent-dora-report.json
           retention-days: 365
           if-no-files-found: ignore
+
+      - name: Append weekly DORA summary to MentisDB
+        if: always()
+        env:
+          MENTISDB_URL: ${{ secrets.MENTISDB_URL }}
+          MENTISDB_USER: ${{ secrets.MENTISDB_USER }}
+          MENTISDB_PASSWORD: ${{ secrets.MENTISDB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          REPORT=/tmp/agent-dora-report.json
+          if [ ! -s "$REPORT" ]; then
+            echo "No report file — skipping mentisdb append"
+            exit 0
+          fi
+          CONTENT=$(jq -r '
+            "Weekly DORA agent metrics for wgmesh\n" +
+            "Period: \(.period.start) -> \(.period.end)\n" +
+            "Triage runs: \(.triage | length)\n" +
+            "Spec runs: \(.spec | length)\n" +
+            "Goose runs: \(.goose | length)\n" +
+            "Merges: \(.merge | length)"
+          ' "$REPORT")
+          PAYLOAD=$(jq -nc \
+            --arg content "$CONTENT" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            '{
+              chain_key: "wgmesh",
+              agent_id: "agent-metrics-report",
+              agent_name: "agent-metrics-report",
+              thought_type: "Summary",
+              role: "Summary",
+              content: ($content + "\nReport: " + $run_url),
+              tags: ["wgmesh", "dora", "weekly", "metrics"],
+              importance: 0.5
+            }')
+          curl --fail-with-body --silent --show-error --max-time 15 \
+            -u "$MENTISDB_USER:$MENTISDB_PASSWORD" \
+            -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" "$MENTISDB_URL/v1/thoughts"

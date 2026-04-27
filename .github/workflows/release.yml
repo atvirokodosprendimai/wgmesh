@@ -64,3 +64,40 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PUSH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+
+      - name: Append release to MentisDB
+        if: always()
+        env:
+          MENTISDB_URL: ${{ secrets.MENTISDB_URL }}
+          MENTISDB_USER: ${{ secrets.MENTISDB_USER }}
+          MENTISDB_PASSWORD: ${{ secrets.MENTISDB_PASSWORD }}
+          OUTCOME: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          TAG="${{ github.event.workflow_run.head_branch || github.event.inputs.tag }}"
+          if [ "$OUTCOME" = "success" ]; then
+            TYPE="TaskComplete"
+            IMP="0.7"
+          else
+            TYPE="Mistake"
+            IMP="0.8"
+          fi
+          PAYLOAD=$(jq -nc \
+            --arg tag "$TAG" \
+            --arg outcome "$OUTCOME" \
+            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg type "$TYPE" \
+            --arg imp "$IMP" \
+            '{
+              chain_key: "wgmesh",
+              agent_id: "release",
+              agent_name: "release",
+              thought_type: $type,
+              content: ("wgmesh release " + $tag + " — " + $outcome + " (" + $run_url + ")"),
+              tags: ["wgmesh", "release", $outcome, $tag],
+              importance: ($imp | tonumber)
+            }')
+          curl --fail-with-body --silent --show-error --max-time 15 \
+            -u "$MENTISDB_USER:$MENTISDB_PASSWORD" \
+            -X POST -H 'Content-Type: application/json' \
+            -d "$PAYLOAD" "$MENTISDB_URL/v1/thoughts"
