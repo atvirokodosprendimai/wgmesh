@@ -1,4 +1,4 @@
-package daemon
+package node
 
 import (
 	"log"
@@ -9,18 +9,13 @@ import (
 )
 
 const (
-	PeerDeadTimeout   = 5 * time.Minute  // Consider peer dead after no updates
-	PeerRemoveTimeout = 10 * time.Minute // Remove peer from WG config after grace period
-	LANMethod         = "lan"
-	RendezvousMethod  = "dht-rendezvous"
+	PeerDeadTimeout   = 5 * time.Minute
+	PeerRemoveTimeout = 10 * time.Minute
 	PeerEventBufSize  = 16
+	DefaultMaxPeers   = 1000
 
-	// DefaultMaxPeers is the maximum number of peers the store will hold.
-	// New peer insertions are rejected once this limit is reached.
-	// Existing peer updates are always allowed through.
-	// A legitimate mesh is unlikely to have more than 1000 nodes; the cap
-	// exists to bound memory use under flood attacks.
-	DefaultMaxPeers = 1000
+	LANMethod        = "lan"
+	RendezvousMethod = "dht-rendezvous"
 )
 
 type PeerEventKind int
@@ -35,30 +30,14 @@ type PeerEvent struct {
 	Kind   PeerEventKind
 }
 
-// PeerInfo represents a discovered mesh peer
-type PeerInfo struct {
-	WGPubKey         string
-	Hostname         string
-	MeshIP           string
-	MeshIPv6         string
-	Endpoint         string // best known endpoint (ip:port)
-	Introducer       bool
-	RoutableNetworks []string
-	LastSeen         time.Time
-	DiscoveredVia    []string       // ["lan", "dht", "gossip"]
-	Latency          *time.Duration // measured via WG handshake
-	NATType          string         // "cone", "symmetric", or "unknown"
-	endpointMethod   string
-}
-
-// PeerStore is a thread-safe store for discovered peers
+// PeerStore is a thread-safe store for discovered peers.
 type PeerStore struct {
 	mu          sync.RWMutex
-	peers       map[string]*PeerInfo // keyed by WG pubkey
+	peers       map[string]*PeerInfo
 	subscribers []chan PeerEvent
 }
 
-// NewPeerStore creates a new peer store
+// NewPeerStore creates a new peer store.
 func NewPeerStore() *PeerStore {
 	return &PeerStore{
 		peers: make(map[string]*PeerInfo),
@@ -79,8 +58,6 @@ func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
 	defer ps.mu.Unlock()
 
 	for i, sub := range ps.subscribers {
-		// Compare the receive-only channel with the bidirectional channel
-		// by checking if they point to the same underlying channel value
 		if sub == ch {
 			ps.subscribers = append(ps.subscribers[:i], ps.subscribers[i+1:]...)
 			close(sub)
@@ -90,8 +67,6 @@ func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
 }
 
 func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
-	// Take a snapshot of subscribers under the lock to avoid races,
-	// then send outside the lock to prevent deadlock (D7).
 	ps.mu.RLock()
 	subs := make([]chan PeerEvent, len(ps.subscribers))
 	copy(subs, ps.subscribers)
@@ -106,7 +81,7 @@ func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
 	}
 }
 
-// Update adds or updates a peer in the store
+// Update adds or updates a peer in the store.
 // Merge logic: newest timestamp wins for mutable fields (endpoint, routable_networks)
 func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	var eventKey string
@@ -119,19 +94,17 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 
 		existing, exists := ps.peers[info.WGPubKey]
 		if !exists {
-			// Reject new peers when the store is at capacity.
 			if len(ps.peers) >= DefaultMaxPeers {
 				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
 					DefaultMaxPeers, shortKey(info.WGPubKey), discoveryMethod)
 				return
 			}
-			// New peer
 			if info.LastSeen.IsZero() {
 				info.LastSeen = now
 			}
 			info.DiscoveredVia = []string{discoveryMethod}
 			if info.Endpoint != "" {
-				info.endpointMethod = discoveryMethod
+				info.EndpointMethod = discoveryMethod
 			}
 			ps.peers[info.WGPubKey] = info
 			eventKey = info.WGPubKey
@@ -139,10 +112,9 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 			return
 		}
 
-		// Update existing peer - newer info wins
 		if info.Endpoint != "" && shouldUpdateEndpoint(existing, info.Endpoint, discoveryMethod) {
 			existing.Endpoint = info.Endpoint
-			existing.endpointMethod = discoveryMethod
+			existing.EndpointMethod = discoveryMethod
 		}
 		if len(info.RoutableNetworks) > 0 {
 			existing.RoutableNetworks = info.RoutableNetworks
@@ -156,8 +128,6 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 		if info.Hostname != "" {
 			existing.Hostname = info.Hostname
 		}
-		// Always update Introducer flag from the latest announcement.
-		// A node can stop being an introducer if reconfigured.
 		existing.Introducer = info.Introducer
 		if info.NATType != "" {
 			existing.NATType = info.NATType
@@ -169,7 +139,6 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 			existing.LastSeen = info.LastSeen
 		}
 
-		// Add discovery method if not already present
 		found := false
 		for _, method := range existing.DiscoveredVia {
 			if method == discoveryMethod {
@@ -185,7 +154,6 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 		eventKind = PeerEventUpdated
 	}()
 
-	// Notify outside the lock to prevent deadlock if subscribers call back (D7)
 	if eventKey != "" {
 		ps.notify(eventKey, eventKind)
 	}
@@ -205,50 +173,8 @@ func isTransitiveMethod(discoveryMethod string) bool {
 	return strings.Contains(discoveryMethod, "transitive")
 }
 
-func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint, discoveryMethod string) bool {
-	if existing.Endpoint == "" {
-		return true
-	}
-
-	newRank := endpointMethodRank(discoveryMethod)
-	oldRank := endpointMethodRank(existing.endpointMethod)
-
-	if newRank > oldRank {
-		return true
-	}
-	if newRank < oldRank {
-		return false
-	}
-
-	// Equal-rank preference: keep IPv6 when available to prioritize direct IPv6 paths.
-	newIsV6 := isIPv6EndpointValue(newEndpoint)
-	oldIsV6 := isIPv6EndpointValue(existing.Endpoint)
-	if newIsV6 && !oldIsV6 {
-		return true
-	}
-	if oldIsV6 && !newIsV6 {
-		return false
-	}
-
-	// Equal rank: allow refresh from same family, but still protect LAN endpoint.
-	if oldRank == endpointMethodRank(LANMethod) {
-		return discoveryMethod == LANMethod
-	}
-	return true
-}
-
-func isIPv6EndpointValue(endpoint string) bool {
-	host, _, err := net.SplitHostPort(endpoint)
-	if err != nil {
-		return false
-	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false
-	}
-	return ip.To4() == nil
-}
-
+// endpointMethodRank returns a priority rank for endpoint discovery methods.
+// Higher rank means higher priority.
 func endpointMethodRank(method string) int {
 	if method == "" {
 		return 0
@@ -277,16 +203,49 @@ func endpointMethodRank(method string) int {
 	return 30
 }
 
-func containsMethod(methods []string, target string) bool {
-	for _, method := range methods {
-		if method == target {
-			return true
-		}
+func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint, discoveryMethod string) bool {
+	if existing.Endpoint == "" {
+		return true
 	}
-	return false
+
+	newRank := endpointMethodRank(discoveryMethod)
+	oldRank := endpointMethodRank(existing.EndpointMethod)
+
+	if newRank > oldRank {
+		return true
+	}
+	if newRank < oldRank {
+		return false
+	}
+
+	newIsV6 := isIPv6EndpointValue(newEndpoint)
+	oldIsV6 := isIPv6EndpointValue(existing.Endpoint)
+	if newIsV6 && !oldIsV6 {
+		return true
+	}
+	if oldIsV6 && !newIsV6 {
+		return false
+	}
+
+	if oldRank == endpointMethodRank(LANMethod) {
+		return discoveryMethod == LANMethod
+	}
+	return true
 }
 
-// Get returns a peer by public key
+func isIPv6EndpointValue(endpoint string) bool {
+	host, _, err := net.SplitHostPort(endpoint)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return false
+	}
+	return ip.To4() == nil
+}
+
+// Get returns a peer by public key.
 func (ps *PeerStore) Get(pubKey string) (*PeerInfo, bool) {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -296,12 +255,11 @@ func (ps *PeerStore) Get(pubKey string) (*PeerInfo, bool) {
 		return nil, false
 	}
 
-	// Return a copy to prevent race conditions
 	peerCopy := *peer
 	return &peerCopy, true
 }
 
-// GetAll returns all peers
+// GetAll returns all peers.
 func (ps *PeerStore) GetAll() []*PeerInfo {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -314,7 +272,12 @@ func (ps *PeerStore) GetAll() []*PeerInfo {
 	return result
 }
 
-// GetActive returns all peers that have been seen recently (not dead)
+// List returns all peers.
+func (ps *PeerStore) List() []*PeerInfo {
+	return ps.GetAll()
+}
+
+// GetActive returns all peers that have been seen recently (not dead).
 func (ps *PeerStore) GetActive() []*PeerInfo {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -330,14 +293,14 @@ func (ps *PeerStore) GetActive() []*PeerInfo {
 	return result
 }
 
-// Remove removes a peer by public key
+// Remove removes a peer by public key.
 func (ps *PeerStore) Remove(pubKey string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	delete(ps.peers, pubKey)
 }
 
-// CleanupStale removes peers that haven't been seen for too long
+// CleanupStale removes peers that haven't been seen for too long.
 func (ps *PeerStore) CleanupStale() []string {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -353,7 +316,7 @@ func (ps *PeerStore) CleanupStale() []string {
 	return removed
 }
 
-// Count returns the number of peers
+// Count returns the number of peers.
 func (ps *PeerStore) Count() int {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -361,7 +324,6 @@ func (ps *PeerStore) Count() int {
 }
 
 // SetLatency updates the measured round-trip latency for the given peer.
-// It is a no-op if the peer is not present in the store.
 func (ps *PeerStore) SetLatency(pubKey string, rtt time.Duration) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -373,7 +335,7 @@ func (ps *PeerStore) SetLatency(pubKey string, rtt time.Duration) {
 	peer.Latency = &rtt
 }
 
-// IsDead checks if a peer is considered dead
+// IsDead checks if a peer is considered dead.
 func (ps *PeerStore) IsDead(pubKey string) bool {
 	ps.mu.RLock()
 	defer ps.mu.RUnlock()
@@ -383,4 +345,24 @@ func (ps *PeerStore) IsDead(pubKey string) bool {
 		return true
 	}
 	return time.Since(peer.LastSeen) > PeerDeadTimeout
+}
+
+// shortKey safely truncates a key for logging.
+func shortKey(key string) string {
+	if len(key) > 16 {
+		return key[:16]
+	}
+	return key
+}
+
+// SetEndpointMethod updates the endpoint method for a peer.
+func (ps *PeerStore) SetEndpointMethod(pubKey, method string) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	peer, exists := ps.peers[pubKey]
+	if !exists {
+		return
+	}
+	peer.EndpointMethod = method
 }
