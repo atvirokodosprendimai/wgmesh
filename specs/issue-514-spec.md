@@ -28,7 +28,7 @@ Gap 2 is covered by a Docker Compose integration test in `testlab/nat-relay/`.
 
 ---
 
-## Implementation Tasks
+## Proposed Approach
 
 ### Task 1: Add `TestBuildDesiredPeerConfigs_RelayRouting` to `pkg/daemon/relay_test.go`
 
