@@ -1,0 +1,23 @@
+docs/evaluation-checklist.md
+  a9df32fd646b1444 1-240
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "243daf02b30071a8bf801473c8a719a1e8531ad6",
+  "prompts": {
+    "a9df32fd646b1444": {
+      "agent_id": {
+        "tool": "opencode",
+        "id": "ses_22abbb6baffeROl5oe89lVj0nN",
+        "model": "minimax-coding-plan/MiniMax-M2.7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 578,
+      "total_deletions": 4,
+      "accepted_lines": 571,
+      "overriden_lines": 0
+    }
+  }
+}
