@@ -1,4 +1,4 @@
-.PHONY: build clean install test
+.PHONY: build clean install test test-relay
 
 build:
 	go build -o wgmesh
@@ -11,6 +11,10 @@ clean:
 
 test:
 	go test ./...
+
+test-relay:
+	MESH_SECRET="${MESH_SECRET:-wgmesh://v1/cmVsYXktaW50ZWdyYXRpb24tdGVzdA}" \
+	  bash testlab/nat-relay/run-test.sh
 
 fmt:
 	go fmt ./...
