@@ -46,6 +46,8 @@ func shortKey(key string) string {
 type localNodeState struct {
 	WGPubKey     string `json:"wg_pubkey"`
 	WGPrivateKey string `json:"wg_private_key"`
+	MeshIP       string `json:"mesh_ip,omitempty"`
+	MeshIPv6     string `json:"mesh_ipv6,omitempty"`
 }
 
 // loadLocalNode loads the local node state from a file
@@ -63,6 +65,8 @@ func loadLocalNode(path string) (*LocalNode, error) {
 	return &LocalNode{
 		WGPubKey:     state.WGPubKey,
 		WGPrivateKey: state.WGPrivateKey,
+		MeshIP:       state.MeshIP,
+		MeshIPv6:     state.MeshIPv6,
 	}, nil
 }
 
@@ -77,6 +81,8 @@ func saveLocalNode(path string, node *LocalNode) error {
 	state := localNodeState{
 		WGPubKey:     node.WGPubKey,
 		WGPrivateKey: node.WGPrivateKey,
+		MeshIP:       node.MeshIP,
+		MeshIPv6:     node.MeshIPv6,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")

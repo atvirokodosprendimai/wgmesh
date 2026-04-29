@@ -300,6 +300,25 @@ func (d *Daemon) Shutdown() {
 	d.cancel()
 }
 
+// meshIPInSubnet returns true when the given IP string falls within the mesh
+// subnet implied by cfg. This is used to detect when a persisted mesh IP is no
+// longer valid because the operator changed --mesh-subnet.
+func meshIPInSubnet(meshIP string, cfg *Config) bool {
+	ip := net.ParseIP(meshIP)
+	if ip == nil {
+		return false
+	}
+	if cfg.CustomSubnet != nil {
+		return cfg.CustomSubnet.Contains(ip)
+	}
+	// Legacy derivation: 10.<meshSubnet[0]>.x.y — check the /16 prefix only.
+	subnet := &net.IPNet{
+		IP:   net.IP{10, cfg.Keys.MeshSubnet[0], 0, 0},
+		Mask: net.CIDRMask(16, 32),
+	}
+	return subnet.Contains(ip)
+}
+
 // initLocalNode loads or creates the local WireGuard node
 func (d *Daemon) initLocalNode() error {
 	hostname, hostErr := os.Hostname()
@@ -312,17 +331,38 @@ func (d *Daemon) initLocalNode() error {
 	node, err := loadLocalNode(stateFile)
 	if err == nil && node != nil {
 		d.localNode = node
-		// Derive mesh IP from pubkey
-		if d.config.CustomSubnet != nil {
-			ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret)
-			if err != nil {
-				return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
-			}
-			d.localNode.MeshIP = ip
+
+		// Use the persisted mesh IP when it is present and falls within the
+		// expected subnet. Re-derive only when the field is absent (old state
+		// file) or the configured subnet has changed.
+		if node.MeshIP != "" && meshIPInSubnet(node.MeshIP, d.config) {
+			// Persisted IP is valid — keep it so that secret rotation does not
+			// change the node's address.
 		} else {
-			d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
+			if d.config.CustomSubnet != nil {
+				ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret)
+				if err != nil {
+					return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
+				}
+				d.localNode.MeshIP = ip
+			} else {
+				d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
+			}
+			// Persist the newly derived IP so subsequent starts reuse it.
+			if err := saveLocalNode(stateFile, d.localNode); err != nil {
+				log.Printf("Warning: failed to save local node state: %v", err)
+			}
 		}
-		d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret)
+
+		// Always re-derive IPv6; IPv6 addresses are not globally routable and
+		// subnet pinning is not applicable for the /64 ULA prefix.
+		if node.MeshIPv6 == "" {
+			d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret)
+			if err := saveLocalNode(stateFile, d.localNode); err != nil {
+				log.Printf("Warning: failed to save local node state: %v", err)
+			}
+		}
+
 		d.localNode.RoutableNetworks = d.config.AdvertiseRoutes
 		d.localNode.Introducer = d.config.Introducer
 		d.localNode.Hostname = hostname
