@@ -81,6 +81,9 @@ wgmesh -deploy
 
 See [docs/centralized-mode.md](docs/centralized-mode.md) for the full reference.
 
+Evaluating whether wgmesh fits your infrastructure? Use the
+[15-minute evaluation checklist](docs/evaluation-checklist.md) to reach a go/no-go decision.
+
 ## How It Works
 
 ### Mesh Topology
