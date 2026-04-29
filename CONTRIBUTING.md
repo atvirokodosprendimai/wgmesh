@@ -2,91 +2,38 @@
 
 This project uses an AI-assisted development pipeline. Here's how it works and what you need to do.
 
-## The Pipeline
+## Prerequisites
 
-Every change flows through these stages:
+Before contributing, install the following tools:
 
+| Tool | Version | Install |
+|------|---------|---------|
+| Go | ≥ 1.25.5 | https://go.dev/dl/ |
+| golangci-lint | latest | https://golangci-lint.run/usage/install/ |
+| WireGuard tools (`wg`) | any | OS package manager |
+| Make | any | OS package manager |
+
+Verify your Go version:
+
+```bash
+go version   # should print go1.25.5 or newer
 ```
-Issue → Spec → Review Spec → Build → Review Code → Merge
+
+Clone the repository and download dependencies:
+
+```bash
+git clone https://github.com/atvirokodosprendimai/wgmesh.git
+cd wgmesh
+make deps
 ```
-
-Most of the work is automated. Your job as a maintainer is to **review at two checkpoints**.
-
-## Board Columns
-
-The [project board](https://github.com/orgs/atvirokodosprendimai/projects/1) shows where everything is. Columns move automatically based on labels — never drag cards manually.
-
-| Column | What's happening | Who acts | What to do |
-|--------|-----------------|----------|------------|
-| **Triage** | New issue arrived | Maintainer | Add `type:` and `complexity:` labels. Copilot will auto-triage if you don't. |
-| **Spec in Progress** | Copilot is writing a spec PR | Nobody | Wait. Copilot is drafting a technical spec. |
-| **Review Spec** | Spec PR is ready | Maintainer | Read the spec PR. Approve it or request changes. |
-| **Building** | Goose is implementing | Nobody | Wait. Goose is writing code based on the approved spec. |
-| **Review Code** | Implementation PR is ready | Maintainer | Review the code. Approve and merge, or request changes. |
-| **Done** | Merged or closed | Nobody | Nothing to do. |
-
-**TL;DR** — You only need to act on items in **Triage**, **Review Spec**, and **Review Code**.
-
-## Step by Step
-
-### 1. File an Issue
-
-Open an issue describing the bug or feature. Be specific about what's wrong or what you want.
-
-### 2. Triage (automatic or manual)
-
-- Copilot auto-triages new issues and adds labels
-- If you want to override, manually set `type: bug`/`type: feature`/etc. and `complexity: low`/`medium`/`high`
-
-### 3. Request a Spec
-
-Comment `/spec` on the issue. This triggers Copilot to:
-- Create a spec branch
-- Write a technical specification as a PR
-- Label it `spec-ready` when done
-
-### 4. Review the Spec
-
-The spec PR appears in **Review Spec** on the board. Review it:
-- **Approve** → triggers Goose to start building
-- **Request changes** → Copilot revises the spec
-
-### 5. Wait for Implementation
-
-Goose reads the approved spec and creates an implementation PR. This is automatic.
-
-### 6. Review the Code
-
-The implementation PR appears in **Review Code** on the board. Review it:
-- **Approve and merge** → done
-- **Request changes** → Goose retries based on your feedback
-
-## Labels That Drive the Pipeline
-
-These labels are applied by workflows. Don't remove them manually unless you know what you're doing.
-
-| Label | Meaning | Applied by |
-|-------|---------|-----------|
-| `needs-triage` | Issue needs classification | Auto on new issues |
-| `copilot-triaging` | Copilot is analyzing the issue | Triage workflow |
-| `copilot-revising` | Copilot is revising a spec | Review feedback |
-| `spec-ready` | Spec PR ready for review | Copilot |
-| `approved-for-build` | Spec approved, implementation starting | Approve workflow |
-| `goose-implementation` | Goose is building | Goose workflow |
-| `needs-review` | Implementation PR ready for code review | Goose workflow |
-
-## Manual Development
-
-If you want to skip the AI pipeline and contribute directly:
-
-1. Fork the repo
-2. Create a feature branch from `main`
-3. Make your changes
-4. Run tests: `go test ./...`
-5. Run linter: `golangci-lint run`
-6. Open a PR against `main`
 
 ## Building
+
+```bash
+make build          # produces ./wgmesh binary
+```
+
+Or without Make:
 
 ```bash
 go build -o wgmesh .
@@ -95,6 +42,119 @@ go build -o wgmesh .
 ## Testing
 
 ```bash
-go test ./...
-go test -race ./...  # with race detector
+make test                     # go test ./...
+go test -race ./...           # required when changing concurrency code
+go test ./pkg/crypto/...      # single package
+go test ./pkg/daemon -run TestPeerStore -v  # single test by name
 ```
+
+Generate and view a coverage report:
+
+```bash
+go test -coverprofile=coverage.out ./...
+go tool cover -html=coverage.out
+```
+
+## Linting
+
+```bash
+make lint           # golangci-lint run
+make fmt            # go fmt ./...
+```
+
+If `golangci-lint` is not installed, see https://golangci-lint.run/usage/install/.
+
+## Available Makefile Targets
+
+| Target | Command | Description |
+|--------|---------|-------------|
+| `make build` | `go build -o wgmesh` | Compile the binary |
+| `make install` | `go install` | Install to `$GOPATH/bin` |
+| `make test` | `go test ./...` | Run all tests |
+| `make fmt` | `go fmt ./...` | Format source code |
+| `make lint` | `golangci-lint run` | Run the linter |
+| `make deps` | `go mod download && go mod tidy` | Sync dependencies |
+| `make clean` | `rm -f wgmesh mesh-state.json` | Remove build artefacts |
+
+## PR Conventions
+
+1. Fork the repo and create a feature branch from `main` (`git checkout -b my-feature`).
+2. Make your changes, following the code style in `CLAUDE.md`.
+3. Run `make fmt && make lint && make test` — all must pass before opening a PR.
+4. Run `go test -race ./...` if you changed any concurrency code.
+5. Open a PR against `main`. Write a clear title and description explaining *why* the change is needed.
+6. Reference the related issue in the PR body (`Closes #NNN` or `Addresses #NNN`).
+7. Wait for CI to go green and a maintainer review.
+
+## The AI-Assisted Pipeline
+
+Every change in this project flows through a spec-first pipeline:
+
+```
+Issue → Spec PR → Review Spec → Implementation PR → Review Code → Merge
+```
+
+### Stage details
+
+| Stage | Who acts | What to do |
+|-------|----------|------------|
+| **Triage** | Maintainer (or Copilot) | Add `type:` and `complexity:` labels |
+| **Spec in Progress** | Copilot (automated) | Writing a technical spec PR |
+| **Review Spec** | Maintainer | Read spec PR, approve or request changes |
+| **Building** | Goose (automated) | Implementing based on approved spec |
+| **Review Code** | Maintainer | Review implementation PR, approve and merge |
+| **Done** | — | Merged or closed |
+
+### Labels that drive the pipeline
+
+| Label | Meaning | Applied by |
+|-------|---------|-----------|
+| `needs-triage` | Issue needs classification | Auto on new issues |
+| `copilot-triaging` | Copilot is analysing the issue | Triage workflow |
+| `copilot-revising` | Copilot is revising a spec | Review feedback |
+| `spec-ready` | Spec PR ready for review | Copilot |
+| `approved-for-build` | Spec approved, implementation starting | Approve workflow |
+| `goose-implementation` | Goose is building | Goose workflow |
+| `needs-review` | Implementation PR ready for code review | Goose workflow |
+
+### Requesting a spec
+
+Comment `/spec` on any open issue to trigger Copilot to write a specification PR.  
+Comment `/build` on an approved spec PR to trigger Goose to start implementing.
+
+## AI Contributor Conventions
+
+### Copilot (spec agent)
+
+- Triggered by `/spec` comment or the `approved-for-triage` label on issues
+- Creates a branch `copilot/<slug>` and opens a PR with `specs/issue-NNN-spec.md`
+- Reads `CLAUDE.md` for code conventions before writing any spec
+- Must NOT write implementation code — spec documents only
+- Spec PRs use the title prefix `spec: Issue #NNN - <brief description>`
+- Uses `Addresses #NNN` (not `Closes`) so the original issue stays open until the implementation PR merges
+
+### Goose (implementation agent)
+
+- Triggered by the `approved-for-build` label on an approved spec PR
+- Reads the spec file and `CLAUDE.md` before writing any code
+- Also reads `.goosehints` for project-specific hints (key file locations, conventions)
+- Creates a branch `goose/<slug>` and opens an implementation PR
+- If CI fails or a reviewer requests changes, Goose retries automatically
+
+### Reference files for AI agents
+
+| File | Purpose |
+|------|---------|
+| [`CLAUDE.md`](./CLAUDE.md) | Coding conventions, architecture overview, build & test commands |
+| [`.goosehints`](./.goosehints) | Concise context hints for the Goose implementation agent |
+| `specs/` directory | All spec documents; implemented specs move to `specs/implemented/` |
+
+## Manual Development (skip the AI pipeline)
+
+If you want to contribute directly without the AI pipeline:
+
+1. Fork the repo
+2. Create a feature branch from `main`
+3. Make your changes following the conventions in `CLAUDE.md`
+4. Run `make fmt && make lint && make test && go test -race ./...`
+5. Open a PR against `main`
