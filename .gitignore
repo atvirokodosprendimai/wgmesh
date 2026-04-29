@@ -47,3 +47,5 @@ __pycache__/
 # Added by goreleaser init:
 dist/
 vendor/
+# NAT relay integration test artifacts
+testlab/nat-relay/.env

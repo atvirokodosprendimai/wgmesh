@@ -4,6 +4,8 @@ import (
 	"net"
 	"testing"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
 
 func TestShouldRelayPeer_IntroducerNeverRelays(t *testing.T) {
@@ -281,4 +283,80 @@ func TestPeerStoreUpdate_MergesNATType(t *testing.T) {
 	if got.NATType != "symmetric" {
 		t.Errorf("NATType = %q, want symmetric (should not be overwritten by empty)", got.NATType)
 	}
+}
+
+func TestBuildDesiredPeerConfigs_RelayRouting(t *testing.T) {
+	keys := makeTestKeys(t)
+
+	d := &Daemon{
+		config: &Config{
+			InterfaceName: "wg-test",
+			Keys:          keys,
+			ForceRelay:    true,
+		},
+		localNode: &LocalNode{
+			WGPubKey: "local-pubkey",
+			NATType:  "cone",
+		},
+		lastAppliedPeerConfigs: make(map[string]string),
+		relayRoutes:            make(map[string]string),
+		directStableCycles:     make(map[string]int),
+		localSubnetsFn:         func() []*net.IPNet { return nil },
+		temporaryOffline:       make(map[string]time.Time),
+	}
+
+	introducer := &PeerInfo{
+		WGPubKey:   "intro-pubkey",
+		MeshIP:     "10.250.0.1",
+		Endpoint:   "172.20.1.10:51820",
+		Introducer: true,
+		LastSeen:   time.Now(),
+	}
+	// node-b was discovered via gossip (not LAN); --force-relay should route via introducer.
+	nodeB := &PeerInfo{
+		WGPubKey:      "nodeb-pubkey",
+		MeshIP:        "10.250.0.3",
+		Endpoint:      "172.20.2.20:51820",
+		Introducer:    false,
+		DiscoveredVia: []string{"gossip"},
+		LastSeen:      time.Now(),
+	}
+
+	peers := []*PeerInfo{introducer, nodeB}
+
+	desired, relayRoutes, _ := d.buildDesiredPeerConfigsWithHandshakes(peers, nil)
+
+	// 1. node-b must NOT appear as a top-level direct peer entry.
+	if _, ok := desired["nodeb-pubkey"]; ok {
+		t.Error("node-b should not be a direct WireGuard peer when relay is active")
+	}
+
+	// 2. relay route must map node-b → introducer.
+	relay, ok := relayRoutes["nodeb-pubkey"]
+	if !ok {
+		t.Fatal("expected relayRoutes to contain node-b's pubkey")
+	}
+	if relay != "intro-pubkey" {
+		t.Errorf("relayRoutes[nodeb] = %q, want %q", relay, "intro-pubkey")
+	}
+
+	// 3. introducer's desired config must include node-b's mesh IP /32.
+	introCfg, ok := desired["intro-pubkey"]
+	if !ok {
+		t.Fatal("introducer must appear in desired config (as relay carrier for node-b)")
+	}
+	wantCIDR := "10.250.0.3/32"
+	if _, hasIt := introCfg.allowed[wantCIDR]; !hasIt {
+		t.Errorf("introducer's AllowedIPs must include %q; got: %v", wantCIDR, introCfg.allowed)
+	}
+}
+
+// makeTestKeys derives a minimal DerivedKeys for tests that need it.
+func makeTestKeys(t *testing.T) *crypto.DerivedKeys {
+	t.Helper()
+	keys, err := crypto.DeriveKeys("relay-integration-test-secret")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	return keys
 }

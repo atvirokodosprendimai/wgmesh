@@ -1,0 +1,114 @@
+# NAT relay integration test — 3-node Docker mesh
+#
+# Topology:
+#   net_a (172.20.1.0/24): introducer + node-a
+#   net_b (172.20.2.0/24): introducer + node-b
+#
+# node-a and node-b cannot reach each other directly (different Docker subnets).
+# They discover each other via gossip (announcements relayed through the
+# introducer's WireGuard tunnel), and traffic flows via --force-relay through
+# the introducer.
+#
+# Required: MESH_SECRET env var set to a wgmesh://v1/<base64> URI or passphrase.
+
+services:
+  introducer:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: wgmesh-relay-intro
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    networks:
+      net_a:
+        ipv4_address: 172.20.1.10
+      net_b:
+        ipv4_address: 172.20.2.10
+    command: >
+      join
+      --secret "${MESH_SECRET}"
+      --interface wg0
+      --listen-port 51820
+      --introducer
+      --gossip
+      --no-lan-discovery
+      --mesh-subnet 10.250.0.0/24
+      --log-level debug
+    healthcheck:
+      test: ["CMD-SHELL", "ip link show wg0 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  node-a:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: wgmesh-relay-node-a
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    networks:
+      net_a:
+        ipv4_address: 172.20.1.20
+    depends_on:
+      introducer:
+        condition: service_healthy
+    command: >
+      join
+      --secret "${MESH_SECRET}"
+      --interface wg0
+      --listen-port 51820
+      --gossip
+      --no-lan-discovery
+      --force-relay
+      --mesh-subnet 10.250.0.0/24
+      --log-level debug
+    healthcheck:
+      test: ["CMD-SHELL", "ip link show wg0 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  node-b:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    container_name: wgmesh-relay-node-b
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    networks:
+      net_b:
+        ipv4_address: 172.20.2.20
+    depends_on:
+      introducer:
+        condition: service_healthy
+    command: >
+      join
+      --secret "${MESH_SECRET}"
+      --interface wg0
+      --listen-port 51820
+      --gossip
+      --no-lan-discovery
+      --force-relay
+      --mesh-subnet 10.250.0.0/24
+      --log-level debug
+    healthcheck:
+      test: ["CMD-SHELL", "ip link show wg0 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+networks:
+  net_a:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.1.0/24
+  net_b:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.2.0/24
