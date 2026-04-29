@@ -314,3 +314,81 @@ func TestDaemon_OfflinePeerRelayCleanup(t *testing.T) {
 		t.Error("relay route for online peer should not have been removed")
 	}
 }
+
+func TestMeshIPInSubnet(t *testing.T) {
+	t.Parallel()
+
+	_, customNet, _ := net.ParseCIDR("192.168.100.0/24")
+
+	tests := []struct {
+		name   string
+		meshIP string
+		cfg    *Config
+		want   bool
+	}{
+		{
+			name:   "legacy subnet match",
+			meshIP: "10.42.7.33",
+			cfg: &Config{
+				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+				CustomSubnet: nil,
+			},
+			want: true,
+		},
+		{
+			name:   "legacy subnet mismatch",
+			meshIP: "10.99.1.1",
+			cfg: &Config{
+				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+				CustomSubnet: nil,
+			},
+			want: false,
+		},
+		{
+			name:   "custom subnet match",
+			meshIP: "192.168.100.55",
+			cfg: &Config{
+				Keys:         &crypto.DerivedKeys{},
+				CustomSubnet: customNet,
+			},
+			want: true,
+		},
+		{
+			name:   "custom subnet mismatch",
+			meshIP: "10.42.7.33",
+			cfg: &Config{
+				Keys:         &crypto.DerivedKeys{},
+				CustomSubnet: customNet,
+			},
+			want: false,
+		},
+		{
+			name:   "invalid IP",
+			meshIP: "not-an-ip",
+			cfg: &Config{
+				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+				CustomSubnet: nil,
+			},
+			want: false,
+		},
+		{
+			name:   "empty IP",
+			meshIP: "",
+			cfg: &Config{
+				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+				CustomSubnet: nil,
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := meshIPInSubnet(tt.meshIP, tt.cfg)
+			if got != tt.want {
+				t.Errorf("meshIPInSubnet(%q) = %v, want %v", tt.meshIP, got, tt.want)
+			}
+		})
+	}
+}
