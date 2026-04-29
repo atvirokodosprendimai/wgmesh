@@ -366,3 +366,9 @@ func (ps *PeerStore) SetEndpointMethod(pubKey, method string) {
 	}
 	peer.EndpointMethod = method
 }
+
+func (ps *PeerStore) SetPeerDirectly(key string, info *PeerInfo) {
+	ps.mu.Lock()
+	ps.peers[key] = info
+	ps.mu.Unlock()
+}

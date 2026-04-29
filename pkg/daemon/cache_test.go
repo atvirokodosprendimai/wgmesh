@@ -81,18 +81,16 @@ func TestCacheExpiration(t *testing.T) {
 	ps := NewPeerStore()
 
 	// Add a peer with an old timestamp
-	ps.mu.Lock()
-	ps.peers["old-key"] = &PeerInfo{
+	ps.SetPeerDirectly("old-key", &PeerInfo{
 		WGPubKey: "old-key",
 		MeshIP:   "10.0.0.1",
-		LastSeen: time.Now().Add(-25 * time.Hour), // 25 hours ago, expired
-	}
-	ps.peers["new-key"] = &PeerInfo{
+		LastSeen: time.Now().Add(-25 * time.Hour),
+	})
+	ps.SetPeerDirectly("new-key", &PeerInfo{
 		WGPubKey: "new-key",
 		MeshIP:   "10.0.0.2",
 		LastSeen: time.Now(),
-	}
-	ps.mu.Unlock()
+	})
 
 	// Get all peers
 	all := ps.GetAll()

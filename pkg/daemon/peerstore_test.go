@@ -162,13 +162,11 @@ func TestPeerStoreGetActive(t *testing.T) {
 	ps.Update(&PeerInfo{WGPubKey: "active", MeshIP: "10.0.0.1"}, "test")
 
 	// Directly manipulate to add stale peer
-	ps.mu.Lock()
-	ps.peers["stale"] = &PeerInfo{
+	ps.SetPeerDirectly("stale", &PeerInfo{
 		WGPubKey: "stale",
 		MeshIP:   "10.0.0.2",
 		LastSeen: time.Now().Add(-10 * time.Minute),
-	}
-	ps.mu.Unlock()
+	})
 
 	active := ps.GetActive()
 	if len(active) != 1 {
@@ -197,12 +195,10 @@ func TestPeerStoreCleanupStale(t *testing.T) {
 
 	ps.Update(&PeerInfo{WGPubKey: "recent"}, "test")
 
-	ps.mu.Lock()
-	ps.peers["old"] = &PeerInfo{
+	ps.SetPeerDirectly("old", &PeerInfo{
 		WGPubKey: "old",
-		LastSeen: time.Now().Add(-15 * time.Minute), // Beyond PeerRemoveTimeout
-	}
-	ps.mu.Unlock()
+		LastSeen: time.Now().Add(-15 * time.Minute),
+	})
 
 	removed := ps.CleanupStale()
 	if len(removed) != 1 {
@@ -246,10 +242,11 @@ func TestPeerStoreTransitiveDoesNotRefreshLastSeen(t *testing.T) {
 	ps := NewPeerStore()
 	ps.Update(&PeerInfo{WGPubKey: "peer1", Endpoint: "198.51.100.1:51820"}, "dht")
 
-	ps.mu.Lock()
 	base := time.Now().Add(-4 * time.Minute).Round(time.Second)
-	ps.peers["peer1"].LastSeen = base
-	ps.mu.Unlock()
+	if p, ok := ps.Get("peer1"); ok {
+		p.LastSeen = base
+		ps.SetPeerDirectly("peer1", p)
+	}
 
 	ps.Update(&PeerInfo{WGPubKey: "peer1", Endpoint: "198.51.100.2:51820"}, "gossip-transitive")
 
@@ -385,18 +382,15 @@ func TestPeerStoreMaxPeers(t *testing.T) {
 	ps := NewPeerStore()
 
 	// Fill store to capacity using direct map manipulation to avoid test runtime
-	ps.mu.Lock()
 	for i := 0; i < DefaultMaxPeers; i++ {
 		key := fmt.Sprintf("peer-%04d", i)
-		ps.peers[key] = &PeerInfo{WGPubKey: key, MeshIP: "10.0.0.1", LastSeen: time.Now()}
+		ps.SetPeerDirectly(key, &PeerInfo{WGPubKey: key, MeshIP: "10.0.0.1", LastSeen: time.Now()})
 	}
-	ps.mu.Unlock()
 
 	if ps.Count() != DefaultMaxPeers {
 		t.Fatalf("expected %d peers, got %d", DefaultMaxPeers, ps.Count())
 	}
 
-	// Attempting to add a new peer must be silently dropped
 	ps.Update(&PeerInfo{WGPubKey: "overflow-peer", MeshIP: "10.1.0.1"}, "dht")
 	if ps.Count() != DefaultMaxPeers {
 		t.Errorf("expected count to remain %d after cap, got %d", DefaultMaxPeers, ps.Count())
@@ -410,13 +404,10 @@ func TestPeerStoreMaxPeersAllowsUpdates(t *testing.T) {
 	t.Parallel()
 	ps := NewPeerStore()
 
-	// Fill store to capacity
-	ps.mu.Lock()
 	for i := 0; i < DefaultMaxPeers; i++ {
 		key := fmt.Sprintf("peer-%04d", i)
-		ps.peers[key] = &PeerInfo{WGPubKey: key, MeshIP: "10.0.0.1", LastSeen: time.Now()}
+		ps.SetPeerDirectly(key, &PeerInfo{WGPubKey: key, MeshIP: "10.0.0.1", LastSeen: time.Now()})
 	}
-	ps.mu.Unlock()
 
 	// Updating an existing peer must still work even when at cap
 	ps.Update(&PeerInfo{WGPubKey: "peer-0000", MeshIP: "10.2.0.1"}, "gossip")
@@ -465,16 +456,14 @@ func TestPeerStoreMaxPeersAfterCleanup(t *testing.T) {
 	ps := NewPeerStore()
 
 	// Fill to capacity with stale peers
-	ps.mu.Lock()
 	for i := 0; i < DefaultMaxPeers; i++ {
 		key := fmt.Sprintf("peer-%04d", i)
-		ps.peers[key] = &PeerInfo{
+		ps.SetPeerDirectly(key, &PeerInfo{
 			WGPubKey: key,
 			MeshIP:   "10.0.0.1",
-			LastSeen: time.Now().Add(-20 * time.Minute), // stale
-		}
+			LastSeen: time.Now().Add(-20 * time.Minute),
+		})
 	}
-	ps.mu.Unlock()
 
 	// Cleanup removes stale peers
 	removed := ps.CleanupStale()
