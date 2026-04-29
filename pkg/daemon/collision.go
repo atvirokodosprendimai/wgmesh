@@ -9,24 +9,23 @@ import (
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	node "github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 // CollisionInfo represents a mesh IP collision between two peers
 type CollisionInfo struct {
 	MeshIP string
-	Peer1  *PeerInfo
-	Peer2  *PeerInfo
+	Peer1  *node.PeerInfo
+	Peer2  *node.PeerInfo
 }
 
-// DetectCollisions checks for mesh IP collisions in the peer store
-func (ps *PeerStore) DetectCollisions() []CollisionInfo {
-	ps.mu.RLock()
-	defer ps.mu.RUnlock()
+func DetectCollisions(ps *node.PeerStore) []CollisionInfo {
+	peers := ps.GetAll()
 
-	ipMap := make(map[string]*PeerInfo)
+	ipMap := make(map[string]*node.PeerInfo)
 	var collisions []CollisionInfo
 
-	for _, peer := range ps.peers {
+	for _, peer := range peers {
 		if peer.MeshIP == "" {
 			continue
 		}
@@ -48,7 +47,7 @@ func (ps *PeerStore) DetectCollisions() []CollisionInfo {
 }
 
 // DeterministicWinner returns the peer that wins a collision (lower pubkey wins)
-func DeterministicWinner(peer1, peer2 *PeerInfo) (*PeerInfo, *PeerInfo) {
+func DeterministicWinner(peer1, peer2 *node.PeerInfo) (*node.PeerInfo, *node.PeerInfo) {
 	if strings.Compare(peer1.WGPubKey, peer2.WGPubKey) < 0 {
 		return peer1, peer2
 	}
@@ -94,7 +93,7 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 
 // CheckAndResolveCollisions checks for collisions and resolves them
 func (d *Daemon) CheckAndResolveCollisions() {
-	collisions := d.peerStore.DetectCollisions()
+	collisions := DetectCollisions(d.peerStore)
 	if len(collisions) == 0 {
 		return
 	}

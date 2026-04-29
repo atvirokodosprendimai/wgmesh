@@ -9,24 +9,22 @@ func TestDetectCollisions(t *testing.T) {
 	ps := NewPeerStore()
 
 	// No collisions with empty store
-	collisions := ps.DetectCollisions()
+	collisions := DetectCollisions(ps)
 	if len(collisions) != 0 {
 		t.Errorf("Expected 0 collisions, got %d", len(collisions))
 	}
 
-	// Add two peers with different IPs
 	ps.Update(&PeerInfo{WGPubKey: "key1", MeshIP: "10.0.0.1"}, "test")
 	ps.Update(&PeerInfo{WGPubKey: "key2", MeshIP: "10.0.0.2"}, "test")
 
-	collisions = ps.DetectCollisions()
+	collisions = DetectCollisions(ps)
 	if len(collisions) != 0 {
 		t.Errorf("Expected 0 collisions, got %d", len(collisions))
 	}
 
-	// Add a peer with a colliding IP
 	ps.Update(&PeerInfo{WGPubKey: "key3", MeshIP: "10.0.0.1"}, "test")
 
-	collisions = ps.DetectCollisions()
+	collisions = DetectCollisions(ps)
 	if len(collisions) != 1 {
 		t.Errorf("Expected 1 collision, got %d", len(collisions))
 	}
