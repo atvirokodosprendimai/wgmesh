@@ -81,6 +81,9 @@ wgmesh -deploy
 
 See [docs/centralized-mode.md](docs/centralized-mode.md) for the full reference.
 
+For end-to-end walkthroughs of the most common deployment patterns, see the
+[use-case guides](docs/use-cases/README.md).
+
 Evaluating whether wgmesh fits your infrastructure? Use the
 [15-minute evaluation checklist](docs/evaluation-checklist.md) to reach a go/no-go decision.
 
