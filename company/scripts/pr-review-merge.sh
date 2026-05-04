@@ -82,6 +82,18 @@ escalate() {
   fi
 
   log_audit "escalated" "$reason"
+
+  # Server-side PostHog event so escalation rate is queryable alongside
+  # bot_pr_merged. Non-fatal — the helper itself swallows curl failures.
+  if [ -x "${SCRIPT_DIR}/posthog-emit.sh" ]; then
+    local escalation_props
+    escalation_props=$(jq -nc \
+      --arg pr "$pr" \
+      --arg reason "$safe_reason" \
+      '{pr_number: ($pr|tonumber), reason: $reason}')
+    bash "${SCRIPT_DIR}/posthog-emit.sh" escalation_posted "pr-review-merge" "$escalation_props" || true
+  fi
+
   check_circuit_breaker
 }
 

@@ -562,3 +562,23 @@ jobs:
             -u "$MENTISDB_USER:$MENTISDB_PASSWORD" \
             -X POST -H 'Content-Type: application/json' \
             -d "$PAYLOAD" "$MENTISDB_URL/v1/thoughts" || echo "::warning::mentisdb append failed (non-fatal)"
+
+      - name: Emit goose_build_run to PostHog
+        if: always()
+        env:
+          POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          OUTCOME: ${{ job.status }}
+          ISSUE: ${{ steps.spec.outputs.issue_number }}
+          SPEC_PR: ${{ steps.spec.outputs.spec_pr_number }}
+        run: |
+          # Goose checks out implementation branches mid-job; restore the
+          # helper from main so we don't depend on it existing on those
+          # older branches.
+          git checkout main -- company/scripts/posthog-emit.sh 2>/dev/null || true
+          PROPS=$(jq -nc \
+            --arg outcome "$OUTCOME" \
+            --arg issue "${ISSUE:-}" \
+            --arg spec_pr "${SPEC_PR:-}" \
+            '{outcome: $outcome, issue_number: $issue, spec_pr_number: $spec_pr}')
+          bash company/scripts/posthog-emit.sh goose_build_run "goose-build" "$PROPS"

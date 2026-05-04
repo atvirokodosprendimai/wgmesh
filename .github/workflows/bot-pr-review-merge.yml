@@ -37,5 +37,25 @@ jobs:
           TARGET_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           APPROVED_AUTHORS: ${{ github.event.pull_request.user.login }}
+          POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
         run: |
           bash company/scripts/pr-review-merge.sh
+
+      - name: Emit bot_pr_merged to PostHog
+        if: always()
+        env:
+          POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
+          POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
+          OUTCOME: ${{ job.status }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          PROPS=$(jq -nc \
+            --arg outcome "$OUTCOME" \
+            --arg pr "$PR_NUMBER" \
+            --arg author "$PR_AUTHOR" \
+            --arg title "$PR_TITLE" \
+            '{outcome: $outcome, pr_number: ($pr|tonumber), author: $author, title: $title}')
+          bash company/scripts/posthog-emit.sh bot_pr_merged "${PR_AUTHOR}" "$PROPS"
