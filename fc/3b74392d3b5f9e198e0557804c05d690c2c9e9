@@ -1,0 +1,38 @@
+STRATEGY.md
+  0bfd8948e453b959 1-65
+ROADMAP.md
+  0bfd8948e453b959 103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "fc3b74392d3b5f9e198e0557804c05d690c2c9e9",
+  "prompts": {
+    "0bfd8948e453b959": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "edd1752b-9518-4fd8-a117-f6944201c2f2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 67,
+      "total_deletions": 2,
+      "accepted_lines": 67,
+      "overriden_lines": 0
+    },
+    "d934944e0176dc7a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "bbf4f2ab-b801-4879-b6b7-defd627d2a7e",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 430,
+      "total_deletions": 0,
+      "accepted_lines": 430,
+      "overriden_lines": 0
+    }
+  }
+}
