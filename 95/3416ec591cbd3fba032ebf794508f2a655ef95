@@ -1,0 +1,36 @@
+.github/workflows/impl-merged-close.yml
+  0a0e84e1f3ad7299 4-5,12-13,15-25,44,53-57,59,79-87,91,93-148,150-158,162-168,170-175,177-178,180,182,189,194-195,199,201-229,235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "953416ec591cbd3fba032ebf794508f2a655ef95",
+  "prompts": {
+    "0a0e84e1f3ad7299": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "686ff151-ae6e-401e-914c-05f52dfa7c13",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 148,
+      "total_deletions": 37,
+      "accepted_lines": 148,
+      "overriden_lines": 0
+    },
+    "0bfd8948e453b959": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "edd1752b-9518-4fd8-a117-f6944201c2f2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 512,
+      "total_deletions": 96,
+      "accepted_lines": 417,
+      "overriden_lines": 0
+    }
+  }
+}
