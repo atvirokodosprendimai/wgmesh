@@ -105,18 +105,111 @@ jobs:
               per_page: 100
             });
 
-            const testFuncRegex = /^\+func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*t\s+\*testing\.T\s*\)/gm;
-            const newTestFuncs = [];
-            for (const f of prFiles) {
-              if (!f.filename.endsWith('_test.go')) continue;
-              if (!f.patch) continue;
-              testFuncRegex.lastIndex = 0;
-              let m;
-              while ((m = testFuncRegex.exec(f.patch)) !== null) {
-                newTestFuncs.push(m[1]);
+            // Patch-aware test function detector. GitHub omits `f.patch` for
+            // binary/very-large diffs and truncates it for big text diffs. To
+            // avoid false negatives, fall back to fetching the file content at
+            // the PR head and base SHAs and computing the added Test funcs by
+            // set difference.
+            const testFuncRegexAdded = /^\+func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*t\s+\*testing\.T\s*\)/gm;
+            const testFuncRegexAny = /^\s*func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*t\s+\*testing\.T\s*\)/gm;
+            // Use a Set to dedupe across patch + content sources (Copilot
+            // review on PR #560 finding D2). Convert to array at the end.
+            const newTestFuncSet = new Set();
+            const indeterminateFiles = [];
+
+            async function fetchFileFuncs(path, ref) {
+              try {
+                const { data } = await github.rest.repos.getContent({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  path,
+                  ref
+                });
+                if (Array.isArray(data) || !data.content) return null;
+                const decoded = Buffer.from(data.content, data.encoding || 'base64').toString('utf-8');
+                const funcs = new Set();
+                testFuncRegexAny.lastIndex = 0;
+                let m;
+                while ((m = testFuncRegexAny.exec(decoded)) !== null) {
+                  funcs.add(m[1]);
+                }
+                return funcs;
+              } catch (e) {
+                core.warning(`getContent failed for ${path}@${ref}: ${e.message}`);
+                return null;
               }
             }
+
+            // For each *_test.go file, run BOTH patch parsing AND content diff
+            // and union the results. Patch alone misses truncated diffs;
+            // content alone is slower for normal-sized PRs. Doing both is
+            // cheap and catches both failure modes.
+            for (const f of prFiles) {
+              if (!f.filename.endsWith('_test.go')) continue;
+              // Skip removed files entirely; nothing to detect (Copilot
+              // review on PR #560 finding D3).
+              if (f.status === 'removed') continue;
+
+              const fromPatch = new Set();
+              if (f.patch) {
+                testFuncRegexAdded.lastIndex = 0;
+                let m;
+                while ((m = testFuncRegexAdded.exec(f.patch)) !== null) {
+                  fromPatch.add(m[1]);
+                }
+              }
+
+              // Content fallback: ALWAYS run for test files. GitHub can
+              // truncate `f.patch` mid-file while still showing SOME
+              // `+func Test...` matches; in that case `fromPatch.size > 0`
+              // would skip the fallback and miss test funcs below the
+              // truncation cutoff (Copilot review on PR #560 round-5
+              // finding). Cost per file: 1 getContent call for added/copied
+              // files; up to 2 (head + base) for modified/renamed files.
+              // Patch parsing remains the fast-path source; this adds the
+              // ground-truth source. Results union below.
+              const fromContent = new Set();
+              {
+                core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
+                const headFuncs = await fetchFileFuncs(f.filename, pr.head.sha);
+                if (headFuncs === null) {
+                  indeterminateFiles.push(f.filename);
+                } else if (f.status === 'added' || f.status === 'copied') {
+                  // 'copied' files have no meaningful base to diff against
+                  // (the source path is a different file at base, not a
+                  // prior version of THIS file). Treat all head funcs as
+                  // new (Copilot review on PR #560 finding D3).
+                  for (const fn of headFuncs) fromContent.add(fn);
+                } else {
+                  // Use previous_filename for renamed files (Copilot review
+                  // on PR #560 finding 2). Otherwise getContent 404s and the
+                  // file becomes indeterminate.
+                  const basePath = (f.status === 'renamed' && f.previous_filename)
+                    ? f.previous_filename
+                    : f.filename;
+                  const baseFuncs = await fetchFileFuncs(basePath, pr.base.sha);
+                  if (baseFuncs === null) {
+                    indeterminateFiles.push(f.filename);
+                  } else {
+                    for (const fn of headFuncs) {
+                      if (!baseFuncs.has(fn)) fromContent.add(fn);
+                    }
+                  }
+                }
+              }
+
+              for (const fn of fromPatch) newTestFuncSet.add(fn);
+              for (const fn of fromContent) newTestFuncSet.add(fn);
+            }
+            const newTestFuncs = [...newTestFuncSet];
+
+            // L2 passes ONLY when we found a new test func. Indeterminate
+            // does NOT bypass the gate (Copilot review on PR #560 finding 3).
+            // Surfacing indeterminate count in the diagnostic lets a
+            // maintainer override manually after human review (remove
+            // `awaiting-tests`, add `awaiting-verification`).
             const hasNewTest = newTestFuncs.length > 0;
+            const l2Passes = hasNewTest;
 
             // L3 — extract significant tokens from the issue body's reproduction
             // section (or the whole body as fallback). Match against new test
@@ -148,14 +241,35 @@ jobs:
             const hasKeywordMatch = matchedTokens.length > 0;
 
             // Block if either gate fails. Add awaiting-tests label + diagnostic comment.
-            if (!hasNewTest || !hasKeywordMatch) {
+            if (!l2Passes || !hasKeywordMatch) {
               const failedGates = [];
-              if (!hasNewTest) failedGates.push('L2 — no new `func TestXxx(t *testing.T)` declaration in any `*_test.go` file in this PR diff');
+              if (!l2Passes) failedGates.push('L2 — no new `func TestXxx(t *testing.T)` declaration in any `*_test.go` file in this PR diff');
               if (!hasKeywordMatch) {
                 if (reproTokenSet.length === 0) {
                   failedGates.push('L3 — issue body has no extractable reproduction tokens (consider adding a "Steps to Reproduce" section)');
                 } else {
                   failedGates.push(`L3 — none of the reproduction tokens (\`${reproTokenSet.slice(0, 8).join('`, `')}\`...) appear in the new test names or PR description`);
+                }
+              }
+
+              // Order matters: REMOVE stale labels before ADD. Otherwise
+              // there's a small race window where awaiting-verification is
+              // still present alongside awaiting-tests, and a fast reporter
+              // "verified" comment could trigger verify-comment-close.yml
+              // before the stale label is gone (Copilot review on PR #560
+              // round-7 finding). Removing first closes that gap.
+              for (const stale of ['awaiting-verification', 'copilot-triaging', 'needs-triage']) {
+                if (labelNames.includes(stale)) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issueNumber,
+                      name: stale
+                    });
+                  } catch (e) {
+                    core.warning(`Failed to remove ${stale} label: ${e.message}`);
+                  }
                 }
               }
 
@@ -175,6 +289,7 @@ jobs:
                 ...failedGates.map(g => `- ${g}`),
                 ``,
                 `**New test funcs found in this PR:** ${newTestFuncs.length === 0 ? 'none' : newTestFuncs.map(n => '`' + n + '`').join(', ')}`,
+                ...(indeterminateFiles.length > 0 ? [`**Could not determine new test funcs for:** ${indeterminateFiles.map(f => '`' + f + '`').join(', ')} (file content unavailable from getContent — likely too large for the API, binary, transient API error, or insufficient token permissions). These files do NOT count toward L2; if you believe they contain a new regression test, a maintainer can override by removing \`awaiting-tests\` and adding \`awaiting-verification\`.`] : []),
                 `**Reproduction tokens extracted:** ${reproTokenSet.length === 0 ? 'none' : reproTokenSet.slice(0, 8).map(t => '`' + t + '`').join(', ') + (reproTokenSet.length > 8 ? '…' : '')}`,
                 ``,
                 `**Required action:** ship a follow-up PR that adds a \`func Test...(t *testing.T)\` exercising the reproduction. ${author}, the issue will return to verification once that lands.`,
