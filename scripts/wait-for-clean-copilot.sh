@@ -46,59 +46,100 @@ TIMEOUT="${TIMEOUT:-1800}"
 POLL_INTERVAL="${POLL_INTERVAL:-30}"
 START=$(date +%s)
 
+# Inline review COMMENT author login is "Copilot" (display name).
+# Top-level REVIEW author login is "copilot-pull-request-reviewer".
+# These are two different surfaces. Use the right login for each query.
+COPILOT_REVIEW_LOGIN="copilot-pull-request-reviewer"
+COPILOT_COMMENT_LOGIN="Copilot"
+
+# Fail with the documented exit code 2 on any pre-poll setup failure.
+fatal() {
+  echo "ERROR: $1" >&2
+  exit 2
+}
+
+# Verify gh + jq + curl available so later failures don't surface under
+# set -e with an unrelated exit code (Copilot review on PR #565 round-2
+# finding C: enforce the documented exit-code contract).
+command -v gh >/dev/null 2>&1 || fatal "gh CLI not found"
+command -v jq >/dev/null 2>&1 || fatal "jq not found"
+
 echo "Polling Copilot review on $REPO#$PR"
 echo "  timeout:        ${TIMEOUT}s"
 echo "  poll interval:  ${POLL_INTERVAL}s"
 
 # Initial review request — idempotent if already on the reviewer list.
-gh pr edit "$PR" --repo "$REPO" --add-reviewer copilot-pull-request-reviewer >/dev/null 2>&1 || true
+gh pr edit "$PR" --repo "$REPO" --add-reviewer "$COPILOT_REVIEW_LOGIN" >/dev/null 2>&1 || true
+
+# head_freshness_baseline returns the most-recent of (head commit committedDate,
+# head commit authoredDate, last PR update). committedDate alone can be older
+# than the actual push when force-push/rebase/cherry-pick brings in commits
+# with stale git metadata (Copilot review on PR #565 round-2 finding A).
+head_freshness_baseline() {
+  local pr_meta committed_at authored_at updated_at
+  pr_meta=$(gh pr view "$PR" --repo "$REPO" --json commits,updatedAt 2>/dev/null) || return 1
+  committed_at=$(printf '%s' "$pr_meta" | jq -r '.commits[-1].committedDate // empty')
+  authored_at=$(printf '%s' "$pr_meta" | jq -r '.commits[-1].authoredDate // empty')
+  updated_at=$(printf '%s' "$pr_meta" | jq -r '.updatedAt // empty')
+  printf '%s\n' "$committed_at" "$authored_at" "$updated_at" \
+    | grep -v '^$' | sort -r | head -n 1
+}
 
 while true; do
   elapsed=$(( $(date +%s) - START ))
-  if [ "$elapsed" -gt "$TIMEOUT" ]; then
-    echo "::error::wait-for-clean-copilot timed out after ${TIMEOUT}s on $REPO#$PR" >&2
+  # -ge so the timeout fires AT the boundary, not one sleep past it
+  # (Copilot review on PR #565 round-2 finding B).
+  if [ "$elapsed" -ge "$TIMEOUT" ]; then
+    echo "::error::wait-for-clean-copilot timed out after ${elapsed}s (limit ${TIMEOUT}s) on $REPO#$PR" >&2
     exit 1
   fi
 
-  # Re-read the head commit timestamp every iteration. If the author pushes
-  # a new commit while we wait, the convergence baseline must advance —
+  # Re-read the freshness baseline every iteration. If the author pushes
+  # a new commit (or rebases) during the wait, the baseline must advance —
   # otherwise an old Copilot review would falsely satisfy the time check.
-  last_commit_at=$(gh pr view "$PR" --repo "$REPO" --json commits --jq '.commits[-1].committedDate')
-  if [ -z "$last_commit_at" ] || [ "$last_commit_at" = "null" ]; then
-    echo "[$(date -u '+%H:%M:%S')] cannot read last commit timestamp — retrying"
+  baseline=$(head_freshness_baseline) || baseline=""
+  if [ -z "$baseline" ] || [ "$baseline" = "null" ]; then
+    echo "[$(date -u '+%H:%M:%S')] cannot read PR freshness baseline — retrying"
     sleep "$POLL_INTERVAL"
     continue
   fi
 
   latest_review=$(gh pr view "$PR" --repo "$REPO" --json reviews --jq '
-    [.reviews[] | select(.author.login == "copilot-pull-request-reviewer")] | last // null')
+    [.reviews[] | select(.author.login == "'"$COPILOT_REVIEW_LOGIN"'")] | last // null' 2>/dev/null) \
+    || latest_review="null"
 
   if [ "$latest_review" = "null" ]; then
     echo "[$(date -u '+%H:%M:%S')] no Copilot review yet — waiting ${POLL_INTERVAL}s"
     sleep "$POLL_INTERVAL"
-    gh pr edit "$PR" --repo "$REPO" --add-reviewer copilot-pull-request-reviewer >/dev/null 2>&1 || true
+    gh pr edit "$PR" --repo "$REPO" --add-reviewer "$COPILOT_REVIEW_LOGIN" >/dev/null 2>&1 || true
     continue
   fi
 
-  review_at=$(printf '%s' "$latest_review" | jq -r '.submittedAt')
-
-  if ! [[ "$review_at" > "$last_commit_at" ]]; then
-    echo "[$(date -u '+%H:%M:%S')] last review ($review_at) predates last commit ($last_commit_at) — waiting"
+  review_at=$(printf '%s' "$latest_review" | jq -r '.submittedAt // empty')
+  if [ -z "$review_at" ]; then
     sleep "$POLL_INTERVAL"
-    gh pr edit "$PR" --repo "$REPO" --add-reviewer copilot-pull-request-reviewer >/dev/null 2>&1 || true
     continue
   fi
 
-  # Count Copilot's own inline comments since last commit. Filter on author
-  # login so a human reviewer's comment doesn't keep this script looping.
-  # `--paginate` follows the Link header so we don't miss comments past the
-  # default 30-per-page on busy PRs.
+  if ! [[ "$review_at" > "$baseline" ]]; then
+    echo "[$(date -u '+%H:%M:%S')] last review ($review_at) predates baseline ($baseline) — waiting"
+    sleep "$POLL_INTERVAL"
+    gh pr edit "$PR" --repo "$REPO" --add-reviewer "$COPILOT_REVIEW_LOGIN" >/dev/null 2>&1 || true
+    continue
+  fi
+
+  # Count Copilot's own inline comments since the baseline. Inline comment
+  # author login is "Copilot" (the bot identity), distinct from the review
+  # surface's "copilot-pull-request-reviewer". `--paginate` follows the Link
+  # header so we don't miss comments past the default 30-per-page on busy
+  # PRs (round-1 finding 3). Filter avoids loop-on-human-comment (round-1
+  # finding 2).
   fresh_count=$(gh api --paginate "repos/$REPO/pulls/$PR/comments" \
-    --jq "[.[] | select(.user.login == \"copilot-pull-request-reviewer\" and .created_at > \"$last_commit_at\")] | length" \
+    --jq "[.[] | select(.user.login == \"$COPILOT_COMMENT_LOGIN\" and .created_at > \"$baseline\")] | length" 2>/dev/null \
     | awk '{sum += $1} END {print sum + 0}')
 
   if [ "$fresh_count" -eq 0 ]; then
-    echo "[$(date -u '+%H:%M:%S')] ✓ converged: review @ $review_at, 0 fresh Copilot inline comments since $last_commit_at"
+    echo "[$(date -u '+%H:%M:%S')] ✓ converged: review @ $review_at, 0 fresh Copilot inline comments since $baseline"
     exit 0
   fi
 
