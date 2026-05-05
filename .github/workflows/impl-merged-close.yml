@@ -285,7 +285,7 @@ jobs:
                 ...failedGates.map(g => `- ${g}`),
                 ``,
                 `**New test funcs found in this PR:** ${newTestFuncs.length === 0 ? 'none' : newTestFuncs.map(n => '`' + n + '`').join(', ')}`,
-                ...(indeterminateFiles.length > 0 ? [`**Could not determine new test funcs for:** ${indeterminateFiles.map(f => '`' + f + '`').join(', ')} (file content unavailable from getContent — likely too large or removed). These files do NOT count toward L2; if you believe they contain a new regression test, a maintainer can override by removing \`awaiting-tests\` and adding \`awaiting-verification\`.`] : []),
+                ...(indeterminateFiles.length > 0 ? [`**Could not determine new test funcs for:** ${indeterminateFiles.map(f => '`' + f + '`').join(', ')} (file content unavailable from getContent — likely too large for the API, binary, transient API error, or insufficient token permissions). These files do NOT count toward L2; if you believe they contain a new regression test, a maintainer can override by removing \`awaiting-tests\` and adding \`awaiting-verification\`.`] : []),
                 `**Reproduction tokens extracted:** ${reproTokenSet.length === 0 ? 'none' : reproTokenSet.slice(0, 8).map(t => '`' + t + '`').join(', ') + (reproTokenSet.length > 8 ? '…' : '')}`,
                 ``,
                 `**Required action:** ship a follow-up PR that adds a \`func Test...(t *testing.T)\` exercising the reproduction. ${author}, the issue will return to verification once that lands.`,
