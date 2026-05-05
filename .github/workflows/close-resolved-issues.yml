@@ -6,6 +6,12 @@ name: Close resolved issues
 #
 # Detection logic: for each open issue, search for a merged PR whose title
 # matches "impl: Issue #N". If found, close the issue with a reference.
+#
+# 2026-05-05: this workflow now respects the bug-class verification policy
+# from impl-merged-close.yml (PRs #558 + #559). It will NOT close issues that
+# carry `type: bug` / bare `bug`, OR are in `awaiting-tests` /
+# `awaiting-verification` state. Those issues advance through the gated
+# lifecycle in impl-merged-close.yml + verify-comment-close.yml instead.
 
 on:
   # Run after PRs are merged
@@ -37,6 +43,21 @@ jobs:
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
+            // Helper: check if an issue should be left alone by this workflow.
+            // The new impl-merged-close.yml + verify-comment-close.yml chain owns
+            // bug-class lifecycle (awaiting-tests → awaiting-verification → closed).
+            // Closing those issues here would bypass the regression-test gate.
+            function shouldSkip(issue) {
+              const labelNames = (issue.labels || []).map(l =>
+                typeof l === 'string' ? l : l.name
+              );
+              const isBug = labelNames.some(n => n === 'type: bug' || n === 'bug');
+              const inGatedFlow = labelNames.some(n =>
+                n === 'awaiting-tests' || n === 'awaiting-verification'
+              );
+              return isBug || inGatedFlow;
+            }
+
             // If triggered by a PR merge, extract the issue number from the title
             if (context.eventName === 'pull_request') {
               const pr = context.payload.pull_request;
@@ -46,20 +67,24 @@ jobs:
                 return;
               }
               const issueNum = parseInt(match[1]);
-              const issue = await github.rest.issues.get({ owner, repo, issue_number: issueNum });
-              if (issue.data.state === 'open') {
-                await github.rest.issues.createComment({
-                  owner, repo, issue_number: issueNum,
-                  body: `Automatically closed — fixed by PR #${pr.number} (merged).`
-                });
-                await github.rest.issues.update({
-                  owner, repo, issue_number: issueNum,
-                  state: 'closed', state_reason: 'completed'
-                });
-                core.info(`Closed issue #${issueNum} (fixed by PR #${pr.number})`);
-              } else {
-                core.info(`Issue #${issueNum} is already ${issue.data.state}`);
+              const { data: issueData } = await github.rest.issues.get({ owner, repo, issue_number: issueNum });
+              if (issueData.state !== 'open') {
+                core.info(`Issue #${issueNum} is already ${issueData.state}`);
+                return;
               }
+              if (shouldSkip(issueData)) {
+                core.info(`Issue #${issueNum} is bug-class or in gated lifecycle (awaiting-tests/awaiting-verification); skipping. The impl-merged-close workflow owns these.`);
+                return;
+              }
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: issueNum,
+                body: `Automatically closed — fixed by PR #${pr.number} (merged).`
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: issueNum,
+                state: 'closed', state_reason: 'completed'
+              });
+              core.info(`Closed issue #${issueNum} (fixed by PR #${pr.number})`);
               return;
             }
 
@@ -74,7 +99,14 @@ jobs:
             core.info(`Found ${realIssues.length} open issues`);
 
             let closed = 0;
+            let skippedGated = 0;
             for (const issue of realIssues) {
+              if (shouldSkip(issue)) {
+                core.info(`Issue #${issue.number} is bug-class or in gated lifecycle; skipping in sweep.`);
+                skippedGated++;
+                continue;
+              }
+
               // Search for merged impl PRs referencing this issue
               const { data: searchResult } = await github.rest.search.issuesAndPullRequests({
                 q: `repo:${owner}/${repo} is:pr is:merged "impl: Issue #${issue.number}" in:title`
@@ -94,4 +126,4 @@ jobs:
                 closed++;
               }
             }
-            core.info(`Sweep complete: closed ${closed} resolved issues`);
+            core.info(`Sweep complete: closed ${closed} resolved issues, skipped ${skippedGated} bug-class/gated.`);
