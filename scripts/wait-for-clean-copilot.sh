@@ -71,17 +71,22 @@ echo "  poll interval:  ${POLL_INTERVAL}s"
 # Initial review request — idempotent if already on the reviewer list.
 gh pr edit "$PR" --repo "$REPO" --add-reviewer "$COPILOT_REVIEW_LOGIN" >/dev/null 2>&1 || true
 
-# head_freshness_baseline returns the most-recent of (head commit committedDate,
-# head commit authoredDate, last PR update). committedDate alone can be older
-# than the actual push when force-push/rebase/cherry-pick brings in commits
-# with stale git metadata (Copilot review on PR #565 round-2 finding A).
+# head_freshness_baseline returns the most-recent of (committedDate,
+# authoredDate) for the head commit. committedDate alone can be older than
+# the actual push when force-push/rebase/cherry-pick brings in commits
+# with stale git metadata, so we also consider authoredDate.
+#
+# Deliberately excludes pr.updatedAt: that timestamp advances on every PR
+# event including Copilot's own review submission. Including it would make
+# baseline always race ahead of review_at, causing an infinite loop
+# (Copilot review on PR #565 round-3 finding A — bug introduced by the
+# round-2 fix).
 head_freshness_baseline() {
-  local pr_meta committed_at authored_at updated_at
-  pr_meta=$(gh pr view "$PR" --repo "$REPO" --json commits,updatedAt 2>/dev/null) || return 1
+  local pr_meta committed_at authored_at
+  pr_meta=$(gh pr view "$PR" --repo "$REPO" --json commits 2>/dev/null) || return 1
   committed_at=$(printf '%s' "$pr_meta" | jq -r '.commits[-1].committedDate // empty')
   authored_at=$(printf '%s' "$pr_meta" | jq -r '.commits[-1].authoredDate // empty')
-  updated_at=$(printf '%s' "$pr_meta" | jq -r '.updatedAt // empty')
-  printf '%s\n' "$committed_at" "$authored_at" "$updated_at" \
+  printf '%s\n' "$committed_at" "$authored_at" \
     | grep -v '^$' | sort -r | head -n 1
 }
 
@@ -134,9 +139,17 @@ while true; do
   # header so we don't miss comments past the default 30-per-page on busy
   # PRs (round-1 finding 3). Filter avoids loop-on-human-comment (round-1
   # finding 2).
+  # 2>/dev/null swallows transient API errors so the loop keeps polling
+  # rather than aborting under set -e (round-3 finding B). awk also
+  # tolerates an empty stdout on pagination failure by defaulting to 0.
   fresh_count=$(gh api --paginate "repos/$REPO/pulls/$PR/comments" \
     --jq "[.[] | select(.user.login == \"$COPILOT_COMMENT_LOGIN\" and .created_at > \"$baseline\")] | length" 2>/dev/null \
-    | awk '{sum += $1} END {print sum + 0}')
+    | awk '{sum += $1} END {print sum + 0}') || fresh_count=""
+  if [ -z "$fresh_count" ]; then
+    echo "[$(date -u '+%H:%M:%S')] comment-fetch failed (transient API error?) — retrying in ${POLL_INTERVAL}s"
+    sleep "$POLL_INTERVAL"
+    continue
+  fi
 
   if [ "$fresh_count" -eq 0 ]; then
     echo "[$(date -u '+%H:%M:%S')] ✓ converged: review @ $review_at, 0 fresh Copilot inline comments since $baseline"
