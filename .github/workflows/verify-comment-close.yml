@@ -1,0 +1,87 @@
+name: Verify Comment — Close Awaiting Verification
+
+# Companion to impl-merged-close.yml. When an issue is in
+# `awaiting-verification` state (bug fix merged but not yet confirmed), the
+# original reporter can close it by replying with one of:
+#   verified | confirmed | fixed | works | resolved
+#
+# Only the issue's original author can trigger the close. Other commenters
+# saying "verified" do not count — the bug reporter is the only one who
+# knows whether their reproduction stopped reproducing.
+#
+# Policy mate of `Implementation Merged — Close Issue`. Together they form:
+#   merge → awaiting-verification → author confirms → closed
+# instead of the previous over-eager `merge → closed`.
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  close-on-verify:
+    # Only on issues (not PRs) that carry the awaiting-verification label.
+    # The if expression cannot inspect labels directly without an API call,
+    # so we do that in the script step and exit early when not applicable.
+    if: >-
+      github.event.issue.pull_request == null &&
+      github.event.comment.user.login == github.event.issue.user.login
+    runs-on: ubuntu-latest
+    steps:
+      - name: Close issue when author confirms fix
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const comment = context.payload.comment;
+
+            const labelNames = issue.labels.map(l => typeof l === 'string' ? l : l.name);
+            if (!labelNames.includes('awaiting-verification')) {
+              core.info(`Issue #${issue.number} not in awaiting-verification state; ignoring.`);
+              return;
+            }
+
+            // Match a verification phrase. Word-boundaries to avoid false
+            // positives like "this is not verified" — the leading-negation
+            // case is harder than this regex covers, so we keep the
+            // negation patterns as a separate skip.
+            const body = (comment.body || '').toLowerCase();
+            const negation = /\b(not|isn'?t|still)\s+(verified|confirmed|fixed|working|resolved)\b/;
+            const positive = /\b(verified|confirmed|fixed|works|works for me|wfm|resolved)\b/;
+
+            if (negation.test(body)) {
+              core.info(`Comment on #${issue.number} contains negation; not closing.`);
+              return;
+            }
+            if (!positive.test(body)) {
+              core.info(`Comment on #${issue.number} did not match a verification phrase.`);
+              return;
+            }
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              state: 'closed'
+            });
+
+            try {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issue.number,
+                name: 'awaiting-verification'
+              });
+            } catch (e) {
+              core.warning(`Failed to remove awaiting-verification label: ${e.message}`);
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issue.number,
+              body: `Closed: reporter confirmed fix in [comment](${comment.html_url}). Thanks for verifying.`
+            });
