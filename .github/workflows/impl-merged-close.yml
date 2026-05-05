@@ -112,7 +112,9 @@ jobs:
             // set difference.
             const testFuncRegexAdded = /^\+func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*t\s+\*testing\.T\s*\)/gm;
             const testFuncRegexAny = /^\s*func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*t\s+\*testing\.T\s*\)/gm;
-            const newTestFuncs = [];
+            // Use a Set to dedupe across patch + content sources (Copilot
+            // review on PR #560 finding D2). Convert to array at the end.
+            const newTestFuncSet = new Set();
             const indeterminateFiles = [];
 
             async function fetchFileFuncs(path, ref) {
@@ -144,6 +146,9 @@ jobs:
             // cheap and catches both failure modes.
             for (const f of prFiles) {
               if (!f.filename.endsWith('_test.go')) continue;
+              // Skip removed files entirely; nothing to detect (Copilot
+              // review on PR #560 finding D3).
+              if (f.status === 'removed') continue;
 
               const fromPatch = new Set();
               if (f.patch) {
@@ -158,15 +163,19 @@ jobs:
               // zero matches (could be a truncated patch). This addresses
               // GitHub's behavior of returning a truncated `patch` string
               // for large text diffs (Copilot review on PR #560 finding 1).
-              let fromContent = new Set();
+              const fromContent = new Set();
               const needContentDiff = !f.patch || fromPatch.size === 0;
               if (needContentDiff) {
                 core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
                 const headFuncs = await fetchFileFuncs(f.filename, pr.head.sha);
                 if (headFuncs === null) {
                   indeterminateFiles.push(f.filename);
-                } else if (f.status === 'added') {
-                  fromContent = headFuncs;
+                } else if (f.status === 'added' || f.status === 'copied') {
+                  // 'copied' files have no meaningful base to diff against
+                  // (the source path is a different file at base, not a
+                  // prior version of THIS file). Treat all head funcs as
+                  // new (Copilot review on PR #560 finding D3).
+                  for (const fn of headFuncs) fromContent.add(fn);
                 } else {
                   // Use previous_filename for renamed files (Copilot review
                   // on PR #560 finding 2). Otherwise getContent 404s and the
@@ -185,9 +194,10 @@ jobs:
                 }
               }
 
-              for (const fn of fromPatch) newTestFuncs.push(fn);
-              for (const fn of fromContent) newTestFuncs.push(fn);
+              for (const fn of fromPatch) newTestFuncSet.add(fn);
+              for (const fn of fromContent) newTestFuncSet.add(fn);
             }
+            const newTestFuncs = [...newTestFuncSet];
 
             // L2 passes ONLY when we found a new test func. Indeterminate
             // does NOT bypass the gate (Copilot review on PR #560 finding 3).
@@ -275,7 +285,7 @@ jobs:
                 ...failedGates.map(g => `- ${g}`),
                 ``,
                 `**New test funcs found in this PR:** ${newTestFuncs.length === 0 ? 'none' : newTestFuncs.map(n => '`' + n + '`').join(', ')}`,
-                ...(indeterminateFiles.length > 0 ? [`**Patch unavailable for:** ${indeterminateFiles.map(f => '`' + f + '`').join(', ')} (treated as indeterminate; L2 passed if other gates passed)`] : []),
+                ...(indeterminateFiles.length > 0 ? [`**Could not determine new test funcs for:** ${indeterminateFiles.map(f => '`' + f + '`').join(', ')} (file content unavailable from getContent — likely too large or removed). These files do NOT count toward L2; if you believe they contain a new regression test, a maintainer can override by removing \`awaiting-tests\` and adding \`awaiting-verification\`.`] : []),
                 `**Reproduction tokens extracted:** ${reproTokenSet.length === 0 ? 'none' : reproTokenSet.slice(0, 8).map(t => '`' + t + '`').join(', ') + (reproTokenSet.length > 8 ? '…' : '')}`,
                 ``,
                 `**Required action:** ship a follow-up PR that adds a \`func Test...(t *testing.T)\` exercising the reproduction. ${author}, the issue will return to verification once that lands.`,
