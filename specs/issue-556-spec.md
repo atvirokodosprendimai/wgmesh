@@ -75,86 +75,19 @@ timestamp reliably indicates a real connectivity failure, not a transient rekey.
 
 ## Implementation Tasks
 
-### Task 1: Fix `shouldRelayPeerWithSubnets` — keep relay when transitive peer also has "dht" in DiscoveredVia (Root Cause 1)
+### Task 1: Fix `shouldRelayPeerWithSubnets` — collapse the stale-handshake block to always relay (addresses both Root Cause 1 and Root Cause 2)
 
 **File:** `pkg/daemon/daemon.go`
 
-**Location:** `shouldRelayPeerWithSubnets`, inside the `if handshakes != nil` block and in the
-block below it.
+**Location:** `shouldRelayPeerWithSubnets`, inside the
+`if ts, ok := handshakes[peer.WGPubKey]; ok && ts > 0 {` block, after the
+`time.Since(lastHandshake) < HandshakeStaleAfter` guard.
 
-The current no-handshake fallthrough (lines 662–666 and 682–687 in daemon.go) reads:
+This is the only code path that needs to change. The no-handshake path (further down in the
+same function, lines ≈682–688) already correctly relays transitive peers without any `"dht"`
+guard, so that block does **not** need to be modified.
 
-```go
-// For transitive-only peers with stale handshake, relay to avoid blackhole
-if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") &&
-    !hasDiscoveryMethod(peer.DiscoveredVia, "dht") {
-    return true
-}
-return false
-```
-
-and (lines 682–687):
-
-```go
-if handshakes != nil {
-    if ts, ok := handshakes[peer.WGPubKey]; !ok || ts == 0 {
-        if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") {
-            return true
-        }
-    }
-}
-```
-
-Change **both** occurrences of the transitive guard (the one inside the stale-handshake block
-AND the one in the no-handshake block) to remove the `&& !hasDiscoveryMethod(peer.DiscoveredVia, "dht")` qualifier:
-
-**Stale handshake block** (inside `if ts, ok := handshakes[peer.WGPubKey]; ok && ts > 0 {`):
-
-```go
-// For transitive-only peers with stale handshake, relay to avoid blackhole.
-// Do NOT gate on "dht" absence: a control-path UDP exchange (which adds "dht"
-// to DiscoveredVia) is not the same as a confirmed WireGuard handshake.
-if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") {
-    return true
-}
-return false
-```
-
-**No-handshake block** (after the `if handshakes != nil` block, before final `return false`):
-
-The lines 682–688 check is already correct (does not include `!hasDiscoveryMethod("dht")`), so
-no change is needed there. The only change required is in the stale-handshake branch as shown
-above.
-
-**Exact diff** for `shouldRelayPeerWithSubnets`:
-
-```diff
--			// For transitive-only peers with stale handshake, relay to avoid blackhole
--			if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") &&
--				!hasDiscoveryMethod(peer.DiscoveredVia, "dht") {
--				return true
--			}
-+			// For peers that were ever reached transitively, relay to avoid blackhole.
-+			// A successful control-path UDP exchange (which appends "dht" to DiscoveredVia)
-+			// is NOT a confirmed WireGuard handshake; the "dht" guard must not block relay.
-+			if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") {
-+				return true
-+			}
- 			return false
-```
-
-### Task 2: Fix `shouldRelayPeerWithSubnets` — fall back to relay for ALL NAT types when handshake is stale (Root Cause 2)
-
-**File:** `pkg/daemon/daemon.go`
-
-**Location:** `shouldRelayPeerWithSubnets`, inside the `if ts, ok := handshakes[peer.WGPubKey]; ok && ts > 0 {` block.
-
-Replace the stale-handshake handling block so that ANY stale handshake (not just
-symmetric+symmetric) falls back to relay. The relay-to-direct hysteresis
-(`RelayHysteresisThreshold = 3`) will transition the peer back to direct once a fresh WG
-handshake is confirmed.
-
-**Current code (lines 655–666 of daemon.go):**
+**Current code (the stale-handshake block after the "direct path is working" guard):**
 
 ```go
 // Handshake stale — but only relay if NAT situation warrants it.
@@ -171,23 +104,59 @@ if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") &&
 return false
 ```
 
-**Replacement:**
+**Replacement (single `return true`):**
 
 ```go
 // Handshake is stale (> HandshakeStaleAfter). Fall back to relay so
 // traffic is not blacked out while WireGuard attempts to re-establish.
+//
 // HandshakeStaleAfter (150 s) is far longer than any WG rekey window
-// (< 5 s), so a stale timestamp always indicates a real connectivity
+// (< 5 s), so a stale timestamp reliably indicates a real connectivity
 // failure — not a transient rekey.
+//
+// The second guard previously excluded peers discovered via "dht" (added
+// when a control-path UDP exchange succeeds without a WG handshake).
+// Removing it means the confirmed WireGuard handshake — not the UDP
+// control exchange — is the sole gate for dropping relay.
+//
 // The relay→direct hysteresis (RelayHysteresisThreshold cycles) will
 // transition back to direct once a fresh handshake is confirmed.
 return true
 ```
 
-Note: Task 2 subsumes the transitive-peer guard that was removed in Task 1 from the stale
-block, since `return true` covers all cases.
+**Exact diff:**
 
-### Task 3: Update existing tests that asserted the old (incorrect) behaviour
+```diff
+-			// Handshake stale — but only relay if NAT situation warrants it.
+-			// For cone/unknown NAT or IPv6, the staleness is likely transient
+-			// (e.g., WG rekey timing). Only relay for symmetric+symmetric.
+-			if d.localNode.NATType == "symmetric" && peer.NATType == "symmetric" {
+-				return true
+-			}
+-			// For transitive-only peers with stale handshake, relay to avoid blackhole
+-			if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") &&
+-				!hasDiscoveryMethod(peer.DiscoveredVia, "dht") {
+-				return true
+-			}
+-			return false
++			// Handshake is stale (> HandshakeStaleAfter). Fall back to relay so
++			// traffic is not blacked out while WireGuard attempts to re-establish.
++			//
++			// HandshakeStaleAfter (150 s) is far longer than any WG rekey window
++			// (< 5 s), so a stale timestamp reliably indicates a real connectivity
++			// failure — not a transient rekey.
++			//
++			// The second guard previously excluded peers discovered via "dht" (added
++			// when a control-path UDP exchange succeeds without a WG handshake).
++			// Removing it means the confirmed WireGuard handshake — not the UDP
++			// control exchange — is the sole gate for dropping relay.
++			//
++			// The relay→direct hysteresis (RelayHysteresisThreshold cycles) will
++			// transition back to direct once a fresh handshake is confirmed.
++			return true
+```
+
+### Task 2: Update existing tests that asserted the old (incorrect) behaviour
 
 **File:** `pkg/daemon/relay_test.go`
 
@@ -224,7 +193,7 @@ to "should relay". Rename and invert the assertion:
 +}
 ```
 
-### Task 4: Add new regression tests for Root Cause 1
+### Task 3: Add new regression tests for the two root causes
 
 **File:** `pkg/daemon/relay_test.go`
 
@@ -273,7 +242,7 @@ func TestShouldRelayPeer_TransitiveStale_KeepsRelay(t *testing.T) {
 }
 ```
 
-### Task 5: Verify with `go test -race ./pkg/daemon/...`
+### Task 4: Verify with `go test -race ./pkg/daemon/...`
 
 After applying Tasks 1–4, run:
 
@@ -291,15 +260,15 @@ go test -race ./pkg/daemon/...
 
 ## Affected Files
 
-- `pkg/daemon/daemon.go` — `shouldRelayPeerWithSubnets` function (Tasks 1 and 2)
+- `pkg/daemon/daemon.go` — `shouldRelayPeerWithSubnets` function (Task 1)
 - `pkg/daemon/relay_test.go` — update `TestShouldRelayPeer_StaleHandshake_ConeCone_NoRelay`
-  and add two new regression tests (Tasks 3 and 4)
+  and add two new regression tests (Tasks 2 and 3)
 
 ## Test Strategy
 
-1. Run existing `TestShouldRelayPeer_*` tests — all must pass after Task 3 (one test renamed
+1. Run existing `TestShouldRelayPeer_*` tests — all must pass after Task 2 (one test renamed
    and inverted, all others unchanged).
-2. Two new regression tests (Task 4) cover the exact failure modes reported in Issue #556.
+2. Two new regression tests (Task 3) cover the exact failure modes reported in Issue #556.
 3. `go test -race ./pkg/daemon/...` must pass with no race detector warnings.
 4. Optional integration verification: the `testlab/nat-relay/run-test.sh` Docker-compose lab
    can be used to confirm end-to-end stability with simulated NAT, but is not a CI gate.
