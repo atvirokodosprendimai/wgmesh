@@ -652,18 +652,21 @@ func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*P
 			if time.Since(lastHandshake) < HandshakeStaleAfter {
 				return false // Direct path is working
 			}
-			// Handshake stale — but only relay if NAT situation warrants it.
-			// For cone/unknown NAT or IPv6, the staleness is likely transient
-			// (e.g., WG rekey timing). Only relay for symmetric+symmetric.
-			if d.localNode.NATType == "symmetric" && peer.NATType == "symmetric" {
-				return true
-			}
-			// For transitive-only peers with stale handshake, relay to avoid blackhole
-			if hasDiscoveryMethod(peer.DiscoveredVia, "dht-transitive") &&
-				!hasDiscoveryMethod(peer.DiscoveredVia, "dht") {
-				return true
-			}
-			return false
+			// Handshake is stale (> HandshakeStaleAfter). Fall back to relay so
+			// traffic is not blacked out while WireGuard attempts to re-establish.
+			//
+			// HandshakeStaleAfter (150 s) is far longer than any WG rekey window
+			// (< 5 s), so a stale timestamp reliably indicates a real connectivity
+			// failure — not a transient rekey.
+			//
+			// The second guard previously excluded peers discovered via "dht" (added
+			// when a control-path UDP exchange succeeds without a WG handshake).
+			// Removing it means the confirmed WireGuard handshake — not the UDP
+			// control exchange — is the sole gate for dropping relay.
+			//
+			// The relay→direct hysteresis (RelayHysteresisThreshold cycles) will
+			// transition back to direct once a fresh handshake is confirmed.
+			return true
 		}
 	}
 

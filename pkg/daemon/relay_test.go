@@ -105,7 +105,7 @@ func TestShouldRelayPeer_StaleHandshake_SymmetricSymmetric(t *testing.T) {
 	}
 }
 
-func TestShouldRelayPeer_StaleHandshake_ConeCone_NoRelay(t *testing.T) {
+func TestShouldRelayPeer_StaleHandshake_ConeCone_Relays(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
 		localNode: &LocalNode{NATType: "cone"},
@@ -113,12 +113,12 @@ func TestShouldRelayPeer_StaleHandshake_ConeCone_NoRelay(t *testing.T) {
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "cone"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
 
-	// Handshake 5 minutes ago → stale but cone+cone → transient, don't relay
+	// Handshake 5 minutes ago → stale → fall back to relay (all NAT types)
 	staleTS := time.Now().Add(-5 * time.Minute).Unix()
 	handshakes := map[string]int64{"peer1": staleTS}
 
-	if d.shouldRelayPeer(peer, relays, handshakes) {
-		t.Error("should not relay cone+cone with stale handshake (likely transient WG rekey)")
+	if !d.shouldRelayPeer(peer, relays, handshakes) {
+		t.Error("should relay when WG handshake is stale, regardless of NAT type")
 	}
 }
 
@@ -136,6 +136,47 @@ func TestShouldRelayPeer_RecentHandshake(t *testing.T) {
 
 	if d.shouldRelayPeer(peer, relays, handshakes) {
 		t.Error("should not relay when WG handshake is recent (<2 min)")
+	}
+}
+
+// TestShouldRelayPeer_TransitiveAndDHT_KeepsRelay verifies that discovering a peer via
+// both "dht-transitive" and "dht" (which happens when the control-path UDP exchange
+// succeeds but the WireGuard handshake has not been established) keeps the relay active.
+func TestShouldRelayPeer_TransitiveAndDHT_KeepsRelay(t *testing.T) {
+	d := &Daemon{
+		config:    &Config{},
+		localNode: &LocalNode{NATType: "cone"},
+	}
+	peer := &PeerInfo{
+		WGPubKey:      "peer1",
+		NATType:       "cone",
+		DiscoveredVia: []string{"dht-transitive", "dht"},
+	}
+	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
+
+	// No WG handshake yet — peer was seen via control exchange but not confirmed direct.
+	if !d.shouldRelayPeer(peer, relays, map[string]int64{"peer1": 0}) {
+		t.Error("should keep relay when peer has dht-transitive+dht but no WG handshake")
+	}
+}
+
+// TestShouldRelayPeer_TransitiveStale_KeepsRelay verifies that a transitive peer with a
+// stale WG handshake (direct succeeded once, now stale) falls back to relay.
+func TestShouldRelayPeer_TransitiveStale_KeepsRelay(t *testing.T) {
+	d := &Daemon{
+		config:    &Config{},
+		localNode: &LocalNode{NATType: "cone"},
+	}
+	peer := &PeerInfo{
+		WGPubKey:      "peer1",
+		NATType:       "cone",
+		DiscoveredVia: []string{"dht-transitive", "dht"},
+	}
+	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
+
+	staleTS := time.Now().Add(-5 * time.Minute).Unix()
+	if !d.shouldRelayPeer(peer, relays, map[string]int64{"peer1": staleTS}) {
+		t.Error("should relay when transitive peer has stale WG handshake")
 	}
 }
 
