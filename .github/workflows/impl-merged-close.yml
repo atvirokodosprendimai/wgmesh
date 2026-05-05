@@ -1,20 +1,28 @@
 name: Implementation Merged — Close Issue
 
 # When an `impl: Issue #N - ...` PR merges, this workflow decides whether to
-# close the linked issue or send it to verification limbo.
+# close the linked issue, send it to verification limbo, or block on missing
+# tests.
 #
 # Process bug (2026-04-29): wgmesh#540 was auto-closed when PR #544 merged,
 # but the PR fixed only one of two affected code paths. The user re-reported
 # the same bug 6 days later. "Linked PR merged" is necessary but not
 # sufficient signal for closing bug-class issues.
 #
-# Policy:
-#   - issue carries `type: bug` (or `bug`) label → do NOT close. Add
-#     `awaiting-verification` label, post a comment asking the author to
-#     confirm the fix on their reproduction. Close on author confirmation
-#     (separate workflow / future manual action), reopen on author rebuttal.
-#   - issue does not carry a bug label (feature, chore, docs) → auto-close
+# Policy (post-#558, post-this-PR):
+#   - issue does NOT carry a bug label (feature, chore, docs) → auto-close
 #     as before. Tests structurally validate non-bug work.
+#   - issue carries `type: bug` (or bare `bug`):
+#       - L2: PR diff must add at least one new `func TestXxx(t *testing.T)`
+#         declaration in some `*_test.go` file. No new test func → block close,
+#         add `awaiting-tests` label.
+#       - L3: at least one significant token from the issue body's
+#         "Steps to Reproduce" (or whole body fallback) must appear in the
+#         new test names OR the PR body. No keyword match → block close,
+#         add `awaiting-tests` label with details.
+#       - both pass → add `awaiting-verification` label, ping reporter.
+#         Closure happens via verify-comment-close.yml when the reporter
+#         confirms.
 
 on:
   pull_request:
@@ -33,7 +41,7 @@ jobs:
       !contains(github.event.pull_request.title, 'loop:')
     runs-on: ubuntu-latest
     steps:
-      - name: Ensure awaiting-verification label exists
+      - name: Ensure verification + tests labels exist
         env:
           GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
         run: |
@@ -42,8 +50,13 @@ jobs:
             --description "Bug fix merged; awaiting reporter confirmation before close" \
             --color FBCA04 \
             --force 2>/dev/null || true
+          gh label create awaiting-tests \
+            --repo "${{ github.repository }}" \
+            --description "Bug fix PR did not add a regression test; needs test before verification can begin" \
+            --color D93F0B \
+            --force 2>/dev/null || true
 
-      - name: Close linked issue or send to verification
+      - name: Close linked issue, gate on tests, or send to verification
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.PUSH_TOKEN }}
@@ -54,7 +67,6 @@ jobs:
 
             const issueNumber = parseInt(issueMatch[1], 10);
 
-            // Fetch issue to inspect labels + author.
             const { data: issue } = await github.rest.issues.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -64,62 +76,161 @@ jobs:
             const labelNames = issue.labels.map(l => typeof l === 'string' ? l : l.name);
             const isBug = labelNames.some(n => n === 'type: bug' || n === 'bug');
 
-            if (isBug) {
-              core.info(`Issue #${issueNumber} carries bug label; awaiting reporter verification.`);
+            // Non-bug → auto-close as before.
+            if (!isBug) {
+              await github.rest.issues.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                state: 'closed'
+              });
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: `Resolved by PR #${pr.number}. Implementation merged to main.`
+              });
+              return;
+            }
+
+            // Bug class — gate on tests (L2) and reproduction-keyword match (L3).
+            core.info(`Issue #${issueNumber} carries bug label; running test/keyword gates.`);
+
+            // L2 — fetch all PR file diffs, look for new `func Test*(t *testing.T)`
+            // declarations in *_test.go files. paginate via .paginate to cover large PRs.
+            const prFiles = await github.paginate(github.rest.pulls.listFiles, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number,
+              per_page: 100
+            });
+
+            const testFuncRegex = /^\+func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*t\s+\*testing\.T\s*\)/gm;
+            const newTestFuncs = [];
+            for (const f of prFiles) {
+              if (!f.filename.endsWith('_test.go')) continue;
+              if (!f.patch) continue;
+              testFuncRegex.lastIndex = 0;
+              let m;
+              while ((m = testFuncRegex.exec(f.patch)) !== null) {
+                newTestFuncs.push(m[1]);
+              }
+            }
+            const hasNewTest = newTestFuncs.length > 0;
+
+            // L3 — extract significant tokens from the issue body's reproduction
+            // section (or the whole body as fallback). Match against new test
+            // names + PR description. At least one match required.
+            const body = issue.body || '';
+            const reproRegex = /(?:^|\n)#{1,6}\s+(?:steps to reproduce|reproduction|how to reproduce|repro)\b[^\n]*\n([\s\S]*?)(?:\n#{1,6}\s|\n*$)/i;
+            const reproMatch = body.match(reproRegex);
+            const reproText = reproMatch ? reproMatch[1] : body;
+
+            const stopWords = new Set([
+              'about', 'after', 'again', 'against', 'because', 'before', 'being',
+              'below', 'between', 'could', 'doing', 'during', 'each', 'every',
+              'fixed', 'first', 'further', 'happens', 'having', 'here', 'into',
+              'issue', 'itself', 'might', 'more', 'most', 'much', 'never',
+              'normal', 'other', 'over', 'point', 'really', 'reproduce',
+              'reproduction', 'same', 'should', 'since', 'some', 'specific',
+              'still', 'such', 'than', 'that', 'their', 'them', 'then', 'there',
+              'these', 'they', 'this', 'those', 'through', 'until', 'very',
+              'want', 'were', 'what', 'when', 'where', 'which', 'while', 'with',
+              'would', 'your', 'yourself', 'shell', 'logs', 'environment',
+              'response', 'expected', 'behavior', 'description'
+            ]);
+            const reproTokens = (reproText.toLowerCase().match(/[a-z][a-z0-9_]{4,}/g) || [])
+              .filter(t => !stopWords.has(t));
+            const reproTokenSet = [...new Set(reproTokens)];
+
+            const haystack = (newTestFuncs.join(' ') + ' ' + (pr.body || '')).toLowerCase();
+            const matchedTokens = reproTokenSet.filter(t => haystack.includes(t));
+            const hasKeywordMatch = matchedTokens.length > 0;
+
+            // Block if either gate fails. Add awaiting-tests label + diagnostic comment.
+            if (!hasNewTest || !hasKeywordMatch) {
+              const failedGates = [];
+              if (!hasNewTest) failedGates.push('L2 — no new `func TestXxx(t *testing.T)` declaration in any `*_test.go` file in this PR diff');
+              if (!hasKeywordMatch) {
+                if (reproTokenSet.length === 0) {
+                  failedGates.push('L3 — issue body has no extractable reproduction tokens (consider adding a "Steps to Reproduce" section)');
+                } else {
+                  failedGates.push(`L3 — none of the reproduction tokens (\`${reproTokenSet.slice(0, 8).join('`, `')}\`...) appear in the new test names or PR description`);
+                }
+              }
 
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                labels: ['awaiting-verification']
+                labels: ['awaiting-tests']
               });
 
-              for (const stale of ['copilot-triaging', 'needs-triage']) {
-                if (labelNames.includes(stale)) {
-                  try {
-                    await github.rest.issues.removeLabel({
-                      owner: context.repo.owner,
-                      repo: context.repo.repo,
-                      issue_number: issueNumber,
-                      name: stale
-                    });
-                  } catch (e) {
-                    core.warning(`Failed to remove ${stale} label: ${e.message}`);
-                  }
-                }
-              }
-
               const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
-              const body = [
-                `Implementation for this bug merged in PR #${pr.number}.`,
+              const blockBody = [
+                `PR #${pr.number} merged but the fix does not yet meet the regression-test policy for \`type: bug\` issues. The issue stays open until a follow-up PR adds a regression test.`,
                 ``,
-                `${author}, please verify the fix against your original reproduction and reply with one of:`,
+                `**Failed gates:**`,
                 ``,
-                `- **\`verified\`** / **\`confirmed\`** / **\`fixed\`** if the bug no longer reproduces — the issue will be closed.`,
-                `- **\`still broken\`** / **\`not fixed\`** with details if the bug still reproduces — the issue stays open and we'll ship a follow-up.`,
+                ...failedGates.map(g => `- ${g}`),
                 ``,
-                `_Auto-close was deliberately disabled for \`type: bug\` issues after wgmesh#540 was closed prematurely on a partial fix. See the impl-merged-close.yml header for the policy._`
+                `**New test funcs found in this PR:** ${newTestFuncs.length === 0 ? 'none' : newTestFuncs.map(n => '`' + n + '`').join(', ')}`,
+                `**Reproduction tokens extracted:** ${reproTokenSet.length === 0 ? 'none' : reproTokenSet.slice(0, 8).map(t => '`' + t + '`').join(', ') + (reproTokenSet.length > 8 ? '…' : '')}`,
+                ``,
+                `**Required action:** ship a follow-up PR that adds a \`func Test...(t *testing.T)\` exercising the reproduction. ${author}, the issue will return to verification once that lands.`,
+                ``,
+                `_Policy lives in \`.github/workflows/impl-merged-close.yml\`. The wgmesh#540 incident motivated this gate — a partial fix shipped + auto-closed without a regression test, and the bug returned 6 days later._`
               ].join('\n');
 
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: issueNumber,
-                body
+                body: blockBody
               });
               return;
             }
 
-            await github.rest.issues.update({
+            // Both gates passed → awaiting-verification.
+            await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              state: 'closed'
+              labels: ['awaiting-verification']
             });
+            for (const stale of ['copilot-triaging', 'needs-triage', 'awaiting-tests']) {
+              if (labelNames.includes(stale)) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    name: stale
+                  });
+                } catch (e) {
+                  core.warning(`Failed to remove ${stale} label: ${e.message}`);
+                }
+              }
+            }
+
+            const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
+            const verifyBody = [
+              `Implementation for this bug merged in PR #${pr.number}.`,
+              ``,
+              `**Test gate passed.** New test funcs: ${newTestFuncs.map(n => '`' + n + '`').join(', ')}.`,
+              `**Reproduction-keyword match:** \`${matchedTokens.slice(0, 5).join('`, `')}\`.`,
+              ``,
+              `${author}, please verify the fix against your original reproduction and reply with one of:`,
+              ``,
+              `- **\`verified\`** / **\`confirmed\`** / **\`fixed\`** if the bug no longer reproduces — the issue will be closed.`,
+              `- **\`still broken\`** / **\`not fixed\`** with details if the bug still reproduces — the issue stays open and we'll ship a follow-up.`,
+              ``,
+              `_Auto-close is disabled for \`type: bug\` issues. See \`.github/workflows/impl-merged-close.yml\` for the policy._`
+            ].join('\n');
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: issueNumber,
-              body: `Resolved by PR #${pr.number}. Implementation merged to main.`
+              body: verifyBody
             });
