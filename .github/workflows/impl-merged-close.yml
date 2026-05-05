@@ -159,13 +159,16 @@ jobs:
                 }
               }
 
-              // Content fallback: always run when patch is missing OR found
-              // zero matches (could be a truncated patch). This addresses
-              // GitHub's behavior of returning a truncated `patch` string
-              // for large text diffs (Copilot review on PR #560 finding 1).
+              // Content fallback: ALWAYS run for test files. GitHub can
+              // truncate `f.patch` mid-file while still showing SOME
+              // `+func Test...` matches; in that case `fromPatch.size > 0`
+              // would skip the fallback and miss test funcs below the
+              // truncation cutoff (Copilot review on PR #560 round-5
+              // finding). Cost: one extra `getContent` call per test file
+              // touched. Patch parsing remains the fast-path source; this
+              // adds the ground-truth source. Results union below.
               const fromContent = new Set();
-              const needContentDiff = !f.patch || fromPatch.size === 0;
-              if (needContentDiff) {
+              {
                 core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
                 const headFuncs = await fetchFileFuncs(f.filename, pr.head.sha);
                 if (headFuncs === null) {
