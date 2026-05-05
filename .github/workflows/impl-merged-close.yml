@@ -252,19 +252,12 @@ jobs:
                 }
               }
 
-              await github.rest.issues.addLabels({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: issueNumber,
-                labels: ['awaiting-tests']
-              });
-
-              // Cleanup: remove labels that would let other automation close
-              // the issue while we're in the awaiting-tests state. Critically
-              // includes `awaiting-verification` — without this, a previous
-              // PR that landed the issue in awaiting-verification would still
-              // let verify-comment-close.yml close on a "verified" comment
-              // and bypass the test gate entirely (Copilot review on PR #559).
+              // Order matters: REMOVE stale labels before ADD. Otherwise
+              // there's a small race window where awaiting-verification is
+              // still present alongside awaiting-tests, and a fast reporter
+              // "verified" comment could trigger verify-comment-close.yml
+              // before the stale label is gone (Copilot review on PR #560
+              // round-7 finding). Removing first closes that gap.
               for (const stale of ['awaiting-verification', 'copilot-triaging', 'needs-triage']) {
                 if (labelNames.includes(stale)) {
                   try {
@@ -279,6 +272,13 @@ jobs:
                   }
                 }
               }
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['awaiting-tests']
+              });
 
               const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
               const blockBody = [
