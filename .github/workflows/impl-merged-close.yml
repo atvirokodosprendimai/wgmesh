@@ -164,9 +164,10 @@ jobs:
               // `+func Test...` matches; in that case `fromPatch.size > 0`
               // would skip the fallback and miss test funcs below the
               // truncation cutoff (Copilot review on PR #560 round-5
-              // finding). Cost: one extra `getContent` call per test file
-              // touched. Patch parsing remains the fast-path source; this
-              // adds the ground-truth source. Results union below.
+              // finding). Cost per file: 1 getContent call for added/copied
+              // files; up to 2 (head + base) for modified/renamed files.
+              // Patch parsing remains the fast-path source; this adds the
+              // ground-truth source. Results union below.
               const fromContent = new Set();
               {
                 core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
