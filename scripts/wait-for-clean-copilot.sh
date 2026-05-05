@@ -46,14 +46,7 @@ TIMEOUT="${TIMEOUT:-1800}"
 POLL_INTERVAL="${POLL_INTERVAL:-30}"
 START=$(date +%s)
 
-last_commit_at=$(gh pr view "$PR" --repo "$REPO" --json commits --jq '.commits[-1].committedDate')
-if [ -z "$last_commit_at" ] || [ "$last_commit_at" = "null" ]; then
-  echo "ERROR: cannot read last commit timestamp for PR #$PR in $REPO" >&2
-  exit 2
-fi
-
 echo "Polling Copilot review on $REPO#$PR"
-echo "  last commit:    $last_commit_at"
 echo "  timeout:        ${TIMEOUT}s"
 echo "  poll interval:  ${POLL_INTERVAL}s"
 
@@ -67,13 +60,22 @@ while true; do
     exit 1
   fi
 
+  # Re-read the head commit timestamp every iteration. If the author pushes
+  # a new commit while we wait, the convergence baseline must advance —
+  # otherwise an old Copilot review would falsely satisfy the time check.
+  last_commit_at=$(gh pr view "$PR" --repo "$REPO" --json commits --jq '.commits[-1].committedDate')
+  if [ -z "$last_commit_at" ] || [ "$last_commit_at" = "null" ]; then
+    echo "[$(date -u '+%H:%M:%S')] cannot read last commit timestamp — retrying"
+    sleep "$POLL_INTERVAL"
+    continue
+  fi
+
   latest_review=$(gh pr view "$PR" --repo "$REPO" --json reviews --jq '
     [.reviews[] | select(.author.login == "copilot-pull-request-reviewer")] | last // null')
 
   if [ "$latest_review" = "null" ]; then
     echo "[$(date -u '+%H:%M:%S')] no Copilot review yet — waiting ${POLL_INTERVAL}s"
     sleep "$POLL_INTERVAL"
-    # Re-add reviewer in case GitHub silently dropped the request.
     gh pr edit "$PR" --repo "$REPO" --add-reviewer copilot-pull-request-reviewer >/dev/null 2>&1 || true
     continue
   fi
@@ -87,14 +89,19 @@ while true; do
     continue
   fi
 
-  fresh_count=$(gh api "repos/$REPO/pulls/$PR/comments" \
-    --jq "[.[] | select(.created_at > \"$last_commit_at\")] | length")
+  # Count Copilot's own inline comments since last commit. Filter on author
+  # login so a human reviewer's comment doesn't keep this script looping.
+  # `--paginate` follows the Link header so we don't miss comments past the
+  # default 30-per-page on busy PRs.
+  fresh_count=$(gh api --paginate "repos/$REPO/pulls/$PR/comments" \
+    --jq "[.[] | select(.user.login == \"copilot-pull-request-reviewer\" and .created_at > \"$last_commit_at\")] | length" \
+    | awk '{sum += $1} END {print sum + 0}')
 
   if [ "$fresh_count" -eq 0 ]; then
-    echo "[$(date -u '+%H:%M:%S')] ✓ converged: review @ $review_at, 0 fresh inline comments"
+    echo "[$(date -u '+%H:%M:%S')] ✓ converged: review @ $review_at, 0 fresh Copilot inline comments since $last_commit_at"
     exit 0
   fi
 
-  echo "[$(date -u '+%H:%M:%S')] review @ $review_at, $fresh_count fresh inline comment(s) — iterating"
+  echo "[$(date -u '+%H:%M:%S')] review @ $review_at, $fresh_count fresh Copilot inline comment(s) — iterating"
   sleep "$POLL_INTERVAL"
 done
