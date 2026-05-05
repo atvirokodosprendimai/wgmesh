@@ -1,5 +1,21 @@
 name: Implementation Merged — Close Issue
 
+# When an `impl: Issue #N - ...` PR merges, this workflow decides whether to
+# close the linked issue or send it to verification limbo.
+#
+# Process bug (2026-04-29): wgmesh#540 was auto-closed when PR #544 merged,
+# but the PR fixed only one of two affected code paths. The user re-reported
+# the same bug 6 days later. "Linked PR merged" is necessary but not
+# sufficient signal for closing bug-class issues.
+#
+# Policy:
+#   - issue carries `type: bug` (or `bug`) label → do NOT close. Add
+#     `awaiting-verification` label, post a comment asking the author to
+#     confirm the fix on their reproduction. Close on author confirmation
+#     (separate workflow / future manual action), reopen on author rebuttal.
+#   - issue does not carry a bug label (feature, chore, docs) → auto-close
+#     as before. Tests structurally validate non-bug work.
+
 on:
   pull_request:
     types: [closed]
@@ -17,7 +33,17 @@ jobs:
       !contains(github.event.pull_request.title, 'loop:')
     runs-on: ubuntu-latest
     steps:
-      - name: Close linked issue
+      - name: Ensure awaiting-verification label exists
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+        run: |
+          gh label create awaiting-verification \
+            --repo "${{ github.repository }}" \
+            --description "Bug fix merged; awaiting reporter confirmation before close" \
+            --color FBCA04 \
+            --force 2>/dev/null || true
+
+      - name: Close linked issue or send to verification
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.PUSH_TOKEN }}
@@ -28,13 +54,72 @@ jobs:
 
             const issueNumber = parseInt(issueMatch[1], 10);
 
+            // Fetch issue to inspect labels + author.
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber
+            });
+
+            const labelNames = issue.labels.map(l => typeof l === 'string' ? l : l.name);
+            const isBug = labelNames.some(n => n === 'type: bug' || n === 'bug');
+
+            if (isBug) {
+              core.info(`Issue #${issueNumber} carries bug label; awaiting reporter verification.`);
+
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['awaiting-verification']
+              });
+
+              for (const stale of ['copilot-triaging', 'needs-triage']) {
+                if (labelNames.includes(stale)) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issueNumber,
+                      name: stale
+                    });
+                  } catch (e) {
+                    core.warning(`Failed to remove ${stale} label: ${e.message}`);
+                  }
+                }
+              }
+
+              const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
+              const body = [
+                `Implementation for this bug merged in PR #${pr.number}.`,
+                ``,
+                `${author}, please verify the fix against your original reproduction and reply with one of:`,
+                ``,
+                `- **\`verified\`** / **\`confirmed\`** / **\`fixed\`** if the bug no longer reproduces — the issue will be closed.`,
+                `- **\`still broken\`** / **\`not fixed\`** with details if the bug still reproduces — the issue stays open and we'll ship a follow-up.`,
+                ``,
+                `_Auto-close was deliberately disabled for \`type: bug\` issues after wgmesh#540 was closed prematurely on a partial fix. See the impl-merged-close.yml header for the policy._`
+              ].join('\n');
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body
+              });
+              return;
+            }
+
             await github.rest.issues.update({
-              owner: context.repo.owner, repo: context.repo.repo,
-              issue_number: issueNumber, state: 'closed'
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              state: 'closed'
             });
 
             await github.rest.issues.createComment({
-              owner: context.repo.owner, repo: context.repo.repo,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
               issue_number: issueNumber,
               body: `Resolved by PR #${pr.number}. Implementation merged to main.`
             });
