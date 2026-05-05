@@ -138,48 +138,64 @@ jobs:
               }
             }
 
+            // For each *_test.go file, run BOTH patch parsing AND content diff
+            // and union the results. Patch alone misses truncated diffs;
+            // content alone is slower for normal-sized PRs. Doing both is
+            // cheap and catches both failure modes.
             for (const f of prFiles) {
               if (!f.filename.endsWith('_test.go')) continue;
 
+              const fromPatch = new Set();
               if (f.patch) {
                 testFuncRegexAdded.lastIndex = 0;
                 let m;
                 while ((m = testFuncRegexAdded.exec(f.patch)) !== null) {
-                  newTestFuncs.push(m[1]);
+                  fromPatch.add(m[1]);
                 }
-                continue;
               }
 
-              // patch missing/truncated — diff the file by content. New file
-              // (status: added) has no base; treat all Test funcs as new.
-              core.info(`Patch missing for ${f.filename} (status=${f.status}); falling back to content diff.`);
-              const headFuncs = await fetchFileFuncs(f.filename, pr.head.sha);
-              if (headFuncs === null) {
-                indeterminateFiles.push(f.filename);
-                continue;
+              // Content fallback: always run when patch is missing OR found
+              // zero matches (could be a truncated patch). This addresses
+              // GitHub's behavior of returning a truncated `patch` string
+              // for large text diffs (Copilot review on PR #560 finding 1).
+              let fromContent = new Set();
+              const needContentDiff = !f.patch || fromPatch.size === 0;
+              if (needContentDiff) {
+                core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
+                const headFuncs = await fetchFileFuncs(f.filename, pr.head.sha);
+                if (headFuncs === null) {
+                  indeterminateFiles.push(f.filename);
+                } else if (f.status === 'added') {
+                  fromContent = headFuncs;
+                } else {
+                  // Use previous_filename for renamed files (Copilot review
+                  // on PR #560 finding 2). Otherwise getContent 404s and the
+                  // file becomes indeterminate.
+                  const basePath = (f.status === 'renamed' && f.previous_filename)
+                    ? f.previous_filename
+                    : f.filename;
+                  const baseFuncs = await fetchFileFuncs(basePath, pr.base.sha);
+                  if (baseFuncs === null) {
+                    indeterminateFiles.push(f.filename);
+                  } else {
+                    for (const fn of headFuncs) {
+                      if (!baseFuncs.has(fn)) fromContent.add(fn);
+                    }
+                  }
+                }
               }
-              if (f.status === 'added') {
-                for (const fn of headFuncs) newTestFuncs.push(fn);
-                continue;
-              }
-              const baseFuncs = await fetchFileFuncs(f.filename, pr.base.sha);
-              if (baseFuncs === null) {
-                indeterminateFiles.push(f.filename);
-                continue;
-              }
-              for (const fn of headFuncs) {
-                if (!baseFuncs.has(fn)) newTestFuncs.push(fn);
-              }
+
+              for (const fn of fromPatch) newTestFuncs.push(fn);
+              for (const fn of fromContent) newTestFuncs.push(fn);
             }
 
-            // L2 passes when (a) we found a new test func, OR (b) we couldn't
-            // determine the diff for some test file and there's evidence of
-            // test files in the PR. Treating "indeterminate" as a pass avoids
-            // false negatives on huge bug-fix PRs that exceeded the patch
-            // limit. The L3 keyword check still has to pass independently.
+            // L2 passes ONLY when we found a new test func. Indeterminate
+            // does NOT bypass the gate (Copilot review on PR #560 finding 3).
+            // Surfacing indeterminate count in the diagnostic lets a
+            // maintainer override manually after human review (remove
+            // `awaiting-tests`, add `awaiting-verification`).
             const hasNewTest = newTestFuncs.length > 0;
-            const hasIndeterminate = indeterminateFiles.length > 0;
-            const l2Passes = hasNewTest || hasIndeterminate;
+            const l2Passes = hasNewTest;
 
             // L3 — extract significant tokens from the issue body's reproduction
             // section (or the whole body as fallback). Match against new test
