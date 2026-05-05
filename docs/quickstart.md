@@ -128,7 +128,7 @@ wgmesh://v1/dGhpcyBpcyBhIHRlc3QgZm9yIHFzZWN1cmU
 
 Store this secret somewhere safe (password manager, environment file). **Anyone with this secret can join your mesh.**
 
-> **Using your own passphrase:** Any string of 16+ characters works as a secret — for example, `MESH_SECRET=myfavoritepizza99`. Generated secrets have 256 bits of entropy from `crypto/rand`; short passphrases are significantly weaker. See [FAQ](FAQ.md#how-do-mesh-secrets-work) for details.
+> **Using your own passphrase:** Any string of 16+ characters works as a secret — for example, `MESH_SECRET=myfavoritepizza99`. Generated secrets have 1024 bits of entropy from `crypto/rand`; short passphrases are significantly weaker. See [FAQ](FAQ.md#how-do-mesh-secrets-work) for details.
 
 ---
 
