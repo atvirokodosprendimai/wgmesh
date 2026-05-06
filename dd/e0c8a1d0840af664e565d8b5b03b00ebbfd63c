@@ -1,0 +1,26 @@
+docs/ideation/2026-05-05-wgmesh-bet-a-ideation.md
+  0bfd8948e453b959 1-202
+docs/brainstorms/2026-05-05-bet-a-show-hn-demo-requirements.md
+  0bfd8948e453b959 1-214
+docs/plans/2026-05-06-001-feat-bet-a-show-hn-demo-plan.md
+  ai_agent 1-835
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "dde0c8a1d0840af664e565d8b5b03b00ebbfd63c",
+  "prompts": {
+    "0bfd8948e453b959": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "edd1752b-9518-4fd8-a117-f6944201c2f2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~",
+      "total_additions": 0,
+      "total_deletions": 0,
+      "accepted_lines": 417,
+      "overriden_lines": 0
+    }
+  }
+}
