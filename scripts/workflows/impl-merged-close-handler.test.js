@@ -580,7 +580,9 @@ test('handler — bug already closed (no gate labels) gets reopened before gate 
 
   const reopens = recordCalls.filter(c => c.kind === 'update' && c.params.state === 'open');
   assert.strictEqual(reopens.length, 1, 'must reopen the bypassed issue');
-  assert.strictEqual(reopens[0].params.state_reason, 'reopened');
+  assert.strictEqual(reopens[0].params.state, 'open');
+  // state_reason intentionally omitted — GitHub API can 422 on `state_reason: 'reopened'`
+  // for re-open transitions. State change alone is sufficient.
 
   const adds = recordCalls.filter(c => c.kind === 'addLabels');
   assert.ok(adds.some(a => a.params.labels.includes('awaiting-verification')),

@@ -238,12 +238,15 @@ async function handler({github, context, core}) {
     !labelNames.includes('awaiting-verification');
   if (wasBypassed) {
     core.warning(`Issue #${issueNumber} was already closed (likely by a GitHub native 'Closes #N' / 'Fixes #N' / 'Resolves #N' keyword in PR #${pr.number}'s body). Reopening to run the bug-gate.`);
+    // state_reason is documented for closes (completed / not_planned)
+    // and Copilot review on PR #567 round-2 flagged that passing
+    // state_reason: 'reopened' on a re-open call can 422. Send only
+    // `state: 'open'`; GitHub records state_reason='reopened' implicitly.
     await github.rest.issues.update({
       owner: context.repo.owner,
       repo: context.repo.repo,
       issue_number: issueNumber,
-      state: 'open',
-      state_reason: 'reopened'
+      state: 'open'
     });
   }
 
