@@ -516,7 +516,7 @@ test('detectNewTestFuncs — empty test file is empty, not indeterminate', async
 });
 
 // ---------------------------------------------------------------------------
-// detectNewTestFuncs — content fallback is conditional (skips when patch found tests)
+// detectNewTestFuncs — always-on content fallback (truncation defense)
 // ---------------------------------------------------------------------------
 
 test('detectNewTestFuncs — content fallback runs even when patch parsing succeeds', async () => {

@@ -131,7 +131,6 @@ async function detectNewTestFuncs({github, context, core, pr}) {
     // needed for modified/renamed files). Acceptable on the small
     // bug-fix PRs this gate targets.
     const fromContent = new Set();
-    const needContentDiff = true;
     core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
     const headFuncs = await fetchFileFuncs({github, core, context, path: f.filename, ref: pr.head.sha});
     if (headFuncs === null) {
@@ -233,8 +232,9 @@ async function handler({github, context, core}) {
   //
   // Manual closes (founder explicitly closed) leave neither label and
   // would be reopened. Acceptable: the founder can manually re-close
-  // after the gate runs, OR add the manual-only label to skip the gate
-  // entirely (existing convention).
+  // after the gate runs. (No "skip the gate" label exists today; if
+  // this gets noisy, a `manual-only` label could be added — but that's
+  // out of scope for this guard.)
   const wasBypassed = issue.state === 'closed' &&
     !labelNames.includes('awaiting-verification');
   if (wasBypassed) {
