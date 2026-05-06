@@ -1,0 +1,25 @@
+.github/workflows/impl-merged-close.yml
+  0a0e84e1f3ad7299 45-52,54-55
+scripts/workflows/impl-merged-close-handler.js
+  0a0e84e1f3ad7299 240
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "0a2bf348fda35d4219f65386409aa0c2b60f8b32",
+  "prompts": {
+    "0a0e84e1f3ad7299": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "686ff151-ae6e-401e-914c-05f52dfa7c13",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~",
+      "messages": [],
+      "total_additions": 11,
+      "total_deletions": 6,
+      "accepted_lines": 11,
+      "overriden_lines": 0
+    }
+  }
+}
