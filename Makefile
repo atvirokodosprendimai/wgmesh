@@ -1,4 +1,4 @@
-.PHONY: build clean install test test-relay
+.PHONY: build clean install test test-relay pulse-smoke
 
 build:
 	go build -o wgmesh
@@ -15,6 +15,10 @@ test:
 test-relay:
 	MESH_SECRET="${MESH_SECRET:-wgmesh://v1/cmVsYXktaW50ZWdyYXRpb24tdGVzdA}" \
 	  bash testlab/nat-relay/run-test.sh
+
+pulse-smoke:
+	WINDOW="$${WINDOW:-24h}" POLAR_TOKEN="$${POLAR_TOKEN:-}" COROOT_API_TOKEN="$${COROOT_API_TOKEN:-}" \
+	  GITHUB_TOKEN="$${GITHUB_TOKEN:-}" GH_REPO="$${GH_REPO:-atvirokodosprendimai/wgmesh}" bash scripts/pulse.sh
 
 fmt:
 	go fmt ./...
