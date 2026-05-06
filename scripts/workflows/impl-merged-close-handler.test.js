@@ -519,7 +519,11 @@ test('detectNewTestFuncs — empty test file is empty, not indeterminate', async
 // detectNewTestFuncs — content fallback is conditional (skips when patch found tests)
 // ---------------------------------------------------------------------------
 
-test('detectNewTestFuncs — content fallback is skipped when patch parsing succeeds', async () => {
+test('detectNewTestFuncs — content fallback runs even when patch parsing succeeds', async () => {
+  // Always-on fallback: GitHub can truncate large diffs mid-file with
+  // some `+func Test...` matches showing but others below the cutoff.
+  // Conditional skip risks L3 false negatives. Always run; cost is 1-2
+  // extra getContent calls per *_test.go file.
   let getContentCalls = 0;
   const github = {
     paginate: async () => [{
@@ -530,9 +534,13 @@ test('detectNewTestFuncs — content fallback is skipped when patch parsing succ
     rest: {
       pulls: { listFiles: Object.assign(async () => {}, { _kind: 'listFiles' }) },
       repos: {
-        getContent: async () => {
+        getContent: async ({ ref }) => {
           getContentCalls++;
-          throw new Error('should not be called');
+          // Return both head and base content so the diff yields TestFromPatch as new.
+          if (ref === 'h') {
+            return { data: { content: Buffer.from('package foo\nfunc TestFromPatch(t *testing.T) {}\n', 'utf-8').toString('base64'), encoding: 'base64' } };
+          }
+          return { data: { content: Buffer.from('package foo\n', 'utf-8').toString('base64'), encoding: 'base64' } };
         }
       }
     }
@@ -541,7 +549,7 @@ test('detectNewTestFuncs — content fallback is skipped when patch parsing succ
   const ctx = makeContext();
   const result = await detectNewTestFuncs({ github, context: ctx, core, pr: ctx.payload.pull_request });
   assert.deepStrictEqual(result.newTestFuncs, ['TestFromPatch']);
-  assert.strictEqual(getContentCalls, 0, 'getContent must NOT be called when patch produced matches');
+  assert.ok(getContentCalls >= 1, 'getContent MUST be called even when patch produced matches (truncation defense)');
 });
 
 // ---------------------------------------------------------------------------

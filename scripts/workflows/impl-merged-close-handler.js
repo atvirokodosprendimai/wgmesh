@@ -120,40 +120,37 @@ async function detectNewTestFuncs({github, context, core, pr}) {
       }
     }
 
-    // Conditional content fallback. The earlier always-on version was
-    // expensive (1-2 extra REST calls per test file even when patch was
-    // perfectly readable) and pushed against rate limits on busy PRs.
-    // Now we run it only when patch parsing missed something — either
-    // patch is absent (binary/too-large diff) OR patch parsing produced
-    // no matches (could be no test changes OR could be a truncated patch
-    // that hid the new test funcs below the cutoff). When fromPatch.size > 0
-    // we trust the patch result and skip the fallback.
+    // ALWAYS-ON content fallback. Earlier conditional version (only ran
+    // when !f.patch || fromPatch.size === 0) was cheaper but Copilot
+    // re-flagged it: GitHub can truncate large diffs mid-file while
+    // still showing SOME `+func Test...` matches. With the conditional
+    // gate we'd see fromPatch.size > 0 and trust it, missing test funcs
+    // below the truncation cutoff and producing L3 false negatives
+    // (token matching can't find names we never extracted). Cost: 1
+    // getContent call per *_test.go file (≤2 if base lookup is also
+    // needed for modified/renamed files). Acceptable on the small
+    // bug-fix PRs this gate targets.
     const fromContent = new Set();
-    const needContentDiff = !f.patch || fromPatch.size === 0;
-    let headFuncs = null;
-    if (needContentDiff) {
-      core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
-      headFuncs = await fetchFileFuncs({github, core, context, path: f.filename, ref: pr.head.sha});
-    }
-    if (needContentDiff) {
-      if (headFuncs === null) {
-        // Mark indeterminate ONLY when both patch parsing AND content diff
-        // are unavailable. If patch parsing yielded results (handled below)
-        // the file isn't truly indeterminate — we just couldn't double-check.
+    const needContentDiff = true;
+    core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
+    const headFuncs = await fetchFileFuncs({github, core, context, path: f.filename, ref: pr.head.sha});
+    if (headFuncs === null) {
+      // Mark indeterminate ONLY when both patch parsing AND content diff
+      // are unavailable. If patch parsing yielded results, the file
+      // isn't truly indeterminate — we just couldn't double-check.
+      if (fromPatch.size === 0) indeterminateFiles.push(f.filename);
+    } else if (f.status === 'added' || f.status === 'copied') {
+      for (const fn of headFuncs) fromContent.add(fn);
+    } else {
+      const basePath = (f.status === 'renamed' && f.previous_filename)
+        ? f.previous_filename
+        : f.filename;
+      const baseFuncs = await fetchFileFuncs({github, core, context, path: basePath, ref: pr.base.sha});
+      if (baseFuncs === null) {
         if (fromPatch.size === 0) indeterminateFiles.push(f.filename);
-      } else if (f.status === 'added' || f.status === 'copied') {
-        for (const fn of headFuncs) fromContent.add(fn);
       } else {
-        const basePath = (f.status === 'renamed' && f.previous_filename)
-          ? f.previous_filename
-          : f.filename;
-        const baseFuncs = await fetchFileFuncs({github, core, context, path: basePath, ref: pr.base.sha});
-        if (baseFuncs === null) {
-          if (fromPatch.size === 0) indeterminateFiles.push(f.filename);
-        } else {
-          for (const fn of headFuncs) {
-            if (!baseFuncs.has(fn)) fromContent.add(fn);
-          }
+        for (const fn of headFuncs) {
+          if (!baseFuncs.has(fn)) fromContent.add(fn);
         }
       }
     }
@@ -226,15 +223,19 @@ async function handler({github, context, core}) {
   // time the handler runs, the issue is already in state=closed with
   // state_reason=completed, bypassing the L2/L3 gate entirely.
   //
-  // If the issue is closed AND lacks the gate's lifecycle labels
-  // (awaiting-tests / awaiting-verification), assume native bypass and
-  // reopen so the gate can do its job. The reporter sees a brief flap
-  // (closed → reopened) which is the price of the bypass-detection.
-  // Skip when one of the gate labels IS present (means a previous run of
-  // the gate already classified the issue, and a separate close happened
-  // legitimately — e.g., reporter said "verified" → verify-comment-close.yml).
+  // The ONLY label that signals a legitimate close is `awaiting-verification`
+  // (verify-comment-close.yml fires on a reporter "verified" comment ONLY
+  // when that label is present). `awaiting-tests` does NOT signal a
+  // legitimate close — it just means a prior gate run blocked. If a new
+  // PR with `Closes #N` then merges, GitHub natively closes the issue
+  // even though `awaiting-tests` is on it; we should still reopen and
+  // re-run the gate to either pass it or update the diagnostic.
+  //
+  // Manual closes (founder explicitly closed) leave neither label and
+  // would be reopened. Acceptable: the founder can manually re-close
+  // after the gate runs, OR add the manual-only label to skip the gate
+  // entirely (existing convention).
   const wasBypassed = issue.state === 'closed' &&
-    !labelNames.includes('awaiting-tests') &&
     !labelNames.includes('awaiting-verification');
   if (wasBypassed) {
     core.warning(`Issue #${issueNumber} was already closed (likely by a GitHub native 'Closes #N' / 'Fixes #N' / 'Resolves #N' keyword in PR #${pr.number}'s body). Reopening to run the bug-gate.`);
