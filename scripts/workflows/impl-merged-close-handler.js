@@ -11,8 +11,11 @@
 // `context` — Actions-shaped context. Reads .repo.{owner,repo} and .payload.pull_request.{number,title,body,head.sha,base.sha}
 // `core`    — Actions-shaped logger. Reads .info(msg) and .warning(msg)
 //
-// The handler returns nothing on the happy paths and never throws on
-// expected branches. Unexpected failures inside an octokit call propagate.
+// The handler returns nothing on the happy paths. It is best-effort with
+// respect to two specific octokit calls: `repos.getContent` and
+// `issues.removeLabel` failures are caught and treated as "indeterminate"
+// or "no-op" respectively (file may be too large / removed / 404 on
+// concurrently-removed label). All other octokit failures propagate.
 //
 // Policy lives in `.github/workflows/impl-merged-close.yml`'s top-of-file
 // comment block. This file owns the implementation; do not duplicate the
@@ -71,7 +74,10 @@ async function fetchFileFuncs({github, core, context, path, ref}) {
       path,
       ref
     });
-    if (Array.isArray(data) || !data.content) return null;
+    // Empty files return content: "" (base64 of empty), which decodes to
+    // an empty string — not an error. Distinguish "missing/non-string" from
+    // "empty" so empty test files produce an empty Set rather than null.
+    if (Array.isArray(data) || typeof data.content !== 'string') return null;
     const decoded = Buffer.from(data.content, data.encoding || 'base64').toString('utf-8');
     const funcs = new Set();
     TEST_FUNC_REGEX_ANY.lastIndex = 0;
@@ -114,23 +120,40 @@ async function detectNewTestFuncs({github, context, core, pr}) {
       }
     }
 
+    // Conditional content fallback. The earlier always-on version was
+    // expensive (1-2 extra REST calls per test file even when patch was
+    // perfectly readable) and pushed against rate limits on busy PRs.
+    // Now we run it only when patch parsing missed something — either
+    // patch is absent (binary/too-large diff) OR patch parsing produced
+    // no matches (could be no test changes OR could be a truncated patch
+    // that hid the new test funcs below the cutoff). When fromPatch.size > 0
+    // we trust the patch result and skip the fallback.
     const fromContent = new Set();
-    core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
-    const headFuncs = await fetchFileFuncs({github, core, context, path: f.filename, ref: pr.head.sha});
-    if (headFuncs === null) {
-      indeterminateFiles.push(f.filename);
-    } else if (f.status === 'added' || f.status === 'copied') {
-      for (const fn of headFuncs) fromContent.add(fn);
-    } else {
-      const basePath = (f.status === 'renamed' && f.previous_filename)
-        ? f.previous_filename
-        : f.filename;
-      const baseFuncs = await fetchFileFuncs({github, core, context, path: basePath, ref: pr.base.sha});
-      if (baseFuncs === null) {
-        indeterminateFiles.push(f.filename);
+    const needContentDiff = !f.patch || fromPatch.size === 0;
+    let headFuncs = null;
+    if (needContentDiff) {
+      core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
+      headFuncs = await fetchFileFuncs({github, core, context, path: f.filename, ref: pr.head.sha});
+    }
+    if (needContentDiff) {
+      if (headFuncs === null) {
+        // Mark indeterminate ONLY when both patch parsing AND content diff
+        // are unavailable. If patch parsing yielded results (handled below)
+        // the file isn't truly indeterminate — we just couldn't double-check.
+        if (fromPatch.size === 0) indeterminateFiles.push(f.filename);
+      } else if (f.status === 'added' || f.status === 'copied') {
+        for (const fn of headFuncs) fromContent.add(fn);
       } else {
-        for (const fn of headFuncs) {
-          if (!baseFuncs.has(fn)) fromContent.add(fn);
+        const basePath = (f.status === 'renamed' && f.previous_filename)
+          ? f.previous_filename
+          : f.filename;
+        const baseFuncs = await fetchFileFuncs({github, core, context, path: basePath, ref: pr.base.sha});
+        if (baseFuncs === null) {
+          if (fromPatch.size === 0) indeterminateFiles.push(f.filename);
+        } else {
+          for (const fn of headFuncs) {
+            if (!baseFuncs.has(fn)) fromContent.add(fn);
+          }
         }
       }
     }
@@ -142,23 +165,24 @@ async function detectNewTestFuncs({github, context, core, pr}) {
   return { newTestFuncs: [...newTestFuncSet], indeterminateFiles };
 }
 
-// removeLabels — best-effort removal of a list of label names. Each remove
-// is wrapped in a try/catch so a missing-label 404 doesn't abort the run.
-// Order-sensitive callers should still call this BEFORE addLabels (see
-// race-condition note in the workflow comment block).
-async function removeLabels({github, context, core, issue_number, labelNames, candidates}) {
+// removeLabels — best-effort removal. Tries each candidate unconditionally
+// and swallows 404 (label not present). Earlier version gated on the
+// initial labelNames snapshot; that missed labels added concurrently
+// between issue.get and the removal call (race the workflow exists to
+// avoid). Unconditional + 404-tolerant is more robust.
+async function removeLabels({github, context, core, issue_number, candidates}) {
   for (const stale of candidates) {
-    if (labelNames.includes(stale)) {
-      try {
-        await github.rest.issues.removeLabel({
-          owner: context.repo.owner,
-          repo: context.repo.repo,
-          issue_number,
-          name: stale
-        });
-      } catch (e) {
-        core.warning(`Failed to remove ${stale} label: ${e.message}`);
-      }
+    try {
+      await github.rest.issues.removeLabel({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number,
+        name: stale
+      });
+    } catch (e) {
+      // 404 = label not present, expected when stale wasn't on the issue.
+      if (e.status === 404) continue;
+      core.warning(`Failed to remove ${stale} label: ${e.message}`);
     }
   }
 }
@@ -217,13 +241,14 @@ async function handler({github, context, core}) {
       }
     }
 
-    // REMOVE stale labels before ADD to close the bypass race window
-    // (verify-comment-close.yml could otherwise close on a "verified"
-    // comment landed in the gap).
+    // FAILURE PATH ordering: REMOVE stale labels before ADD.
+    // If a previous PR landed the issue in awaiting-verification, leaving
+    // that label present alongside awaiting-tests would let
+    // verify-comment-close.yml close on a "verified" comment in the gap
+    // window — bypassing the test gate. Removing first closes the gap.
     await removeLabels({
       github, context, core,
       issue_number: issueNumber,
-      labelNames,
       candidates: ['awaiting-verification', 'copilot-triaging', 'needs-triage']
     });
 
@@ -260,19 +285,25 @@ async function handler({github, context, core}) {
     return;
   }
 
-  // Both gates passed → awaiting-verification.
-  await removeLabels({
-    github, context, core,
-    issue_number: issueNumber,
-    labelNames,
-    candidates: ['copilot-triaging', 'needs-triage', 'awaiting-tests']
-  });
-
+  // SUCCESS PATH ordering: ADD awaiting-verification FIRST, then remove
+  // stale labels. Inverse of the failure-path ordering. Reasoning:
+  // verify-comment-close.yml only closes when a "verified" comment lands
+  // while awaiting-verification is present. If we removed the stale
+  // labels first, there'd be a window where neither awaiting-tests nor
+  // awaiting-verification was on the issue — a fast "verified" comment
+  // in that gap would be ignored permanently. addLabels is idempotent,
+  // so adding even when already present is fine.
   await github.rest.issues.addLabels({
     owner: context.repo.owner,
     repo: context.repo.repo,
     issue_number: issueNumber,
     labels: ['awaiting-verification']
+  });
+
+  await removeLabels({
+    github, context, core,
+    issue_number: issueNumber,
+    candidates: ['copilot-triaging', 'needs-triage', 'awaiting-tests']
   });
 
   const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
