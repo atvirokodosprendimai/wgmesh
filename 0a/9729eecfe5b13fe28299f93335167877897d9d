@@ -1,0 +1,21 @@
+scripts/workflows/impl-merged-close-handler.test.js
+  s_0a0e84e1f3ad72::t_32770cf686711c 519
+scripts/workflows/impl-merged-close-handler.js
+  s_0a0e84e1f3ad72::t_105259f9c9770d 235-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "0a9729eecfe5b13fe28299f93335167877897d9d",
+  "prompts": {},
+  "sessions": {
+    "s_0a0e84e1f3ad72": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "686ff151-ae6e-401e-914c-05f52dfa7c13",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
