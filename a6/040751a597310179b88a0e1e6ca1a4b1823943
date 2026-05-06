@@ -1,0 +1,21 @@
+.gitignore
+  s_33ece7903a5e39::t_640154a76af6db 52-54
+docs/pulse-reports/2026-05-06_13-42.md
+  s_33ece7903a5e39::t_f2e887b8ca4791 1-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "a6040751a597310179b88a0e1e6ca1a4b1823943",
+  "prompts": {},
+  "sessions": {
+    "s_33ece7903a5e39": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3d18a70-8485-4849-8952-2cf89f2d3d20",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
