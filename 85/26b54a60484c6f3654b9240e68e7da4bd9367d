@@ -1,0 +1,30 @@
+.github/workflows/docker-build.yml
+  s_4d0c4f4a505775::t_187151a9d0bdcc 10-11
+.github/workflows/pulse.yml
+  s_4d0c4f4a505775::t_187151a9d0bdcc 1-45
+Makefile
+  s_4d0c4f4a505775::t_4b853441ae23b6 20-21
+  s_4d0c4f4a505775::t_187151a9d0bdcc 1,19
+.github/workflows/pages.yml
+  s_4d0c4f4a505775::t_187151a9d0bdcc 6-8
+scripts/pulse.sh
+  s_4d0c4f4a505775::t_ecc328eef38c0f 118
+  s_4d0c4f4a505775::t_6490f60b48a394 438
+  s_4d0c4f4a505775::t_187151a9d0bdcc 1-117,119-437,439-481
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "8526b54a60484c6f3654b9240e68e7da4bd9367d",
+  "prompts": {},
+  "sessions": {
+    "s_4d0c4f4a505775": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dfd41-69bf-7753-9569-542e590df118",
+        "model": "gpt-5.5"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
