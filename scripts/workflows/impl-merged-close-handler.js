@@ -11,8 +11,11 @@
 // `context` — Actions-shaped context. Reads .repo.{owner,repo} and .payload.pull_request.{number,title,body,head.sha,base.sha}
 // `core`    — Actions-shaped logger. Reads .info(msg) and .warning(msg)
 //
-// The handler returns nothing on the happy paths and never throws on
-// expected branches. Unexpected failures inside an octokit call propagate.
+// The handler returns nothing on the happy paths. It is best-effort with
+// respect to two specific octokit calls: `repos.getContent` and
+// `issues.removeLabel` failures are caught and treated as "indeterminate"
+// or "no-op" respectively (file may be too large / removed / 404 on
+// concurrently-removed label). All other octokit failures propagate.
 //
 // Policy lives in `.github/workflows/impl-merged-close.yml`'s top-of-file
 // comment block. This file owns the implementation; do not duplicate the
@@ -71,7 +74,10 @@ async function fetchFileFuncs({github, core, context, path, ref}) {
       path,
       ref
     });
-    if (Array.isArray(data) || !data.content) return null;
+    // Empty files return content: "" (base64 of empty), which decodes to
+    // an empty string — not an error. Distinguish "missing/non-string" from
+    // "empty" so empty test files produce an empty Set rather than null.
+    if (Array.isArray(data) || typeof data.content !== 'string') return null;
     const decoded = Buffer.from(data.content, data.encoding || 'base64').toString('utf-8');
     const funcs = new Set();
     TEST_FUNC_REGEX_ANY.lastIndex = 0;
@@ -114,11 +120,24 @@ async function detectNewTestFuncs({github, context, core, pr}) {
       }
     }
 
+    // ALWAYS-ON content fallback. Earlier conditional version (only ran
+    // when !f.patch || fromPatch.size === 0) was cheaper but Copilot
+    // re-flagged it: GitHub can truncate large diffs mid-file while
+    // still showing SOME `+func Test...` matches. With the conditional
+    // gate we'd see fromPatch.size > 0 and trust it, missing test funcs
+    // below the truncation cutoff and producing L3 false negatives
+    // (token matching can't find names we never extracted). Cost: 1
+    // getContent call per *_test.go file (≤2 if base lookup is also
+    // needed for modified/renamed files). Acceptable on the small
+    // bug-fix PRs this gate targets.
     const fromContent = new Set();
     core.info(`Content-diff fallback for ${f.filename} (patch=${!!f.patch}, fromPatch=${fromPatch.size}, status=${f.status})`);
     const headFuncs = await fetchFileFuncs({github, core, context, path: f.filename, ref: pr.head.sha});
     if (headFuncs === null) {
-      indeterminateFiles.push(f.filename);
+      // Mark indeterminate ONLY when both patch parsing AND content diff
+      // are unavailable. If patch parsing yielded results, the file
+      // isn't truly indeterminate — we just couldn't double-check.
+      if (fromPatch.size === 0) indeterminateFiles.push(f.filename);
     } else if (f.status === 'added' || f.status === 'copied') {
       for (const fn of headFuncs) fromContent.add(fn);
     } else {
@@ -127,7 +146,7 @@ async function detectNewTestFuncs({github, context, core, pr}) {
         : f.filename;
       const baseFuncs = await fetchFileFuncs({github, core, context, path: basePath, ref: pr.base.sha});
       if (baseFuncs === null) {
-        indeterminateFiles.push(f.filename);
+        if (fromPatch.size === 0) indeterminateFiles.push(f.filename);
       } else {
         for (const fn of headFuncs) {
           if (!baseFuncs.has(fn)) fromContent.add(fn);
@@ -142,23 +161,24 @@ async function detectNewTestFuncs({github, context, core, pr}) {
   return { newTestFuncs: [...newTestFuncSet], indeterminateFiles };
 }
 
-// removeLabels — best-effort removal of a list of label names. Each remove
-// is wrapped in a try/catch so a missing-label 404 doesn't abort the run.
-// Order-sensitive callers should still call this BEFORE addLabels (see
-// race-condition note in the workflow comment block).
-async function removeLabels({github, context, core, issue_number, labelNames, candidates}) {
+// removeLabels — best-effort removal. Tries each candidate unconditionally
+// and swallows 404 (label not present). Earlier version gated on the
+// initial labelNames snapshot; that missed labels added concurrently
+// between issue.get and the removal call (race the workflow exists to
+// avoid). Unconditional + 404-tolerant is more robust.
+async function removeLabels({github, context, core, issue_number, candidates}) {
   for (const stale of candidates) {
-    if (labelNames.includes(stale)) {
-      try {
-        await github.rest.issues.removeLabel({
-          owner: context.repo.owner,
-          repo: context.repo.repo,
-          issue_number,
-          name: stale
-        });
-      } catch (e) {
-        core.warning(`Failed to remove ${stale} label: ${e.message}`);
-      }
+    try {
+      await github.rest.issues.removeLabel({
+        owner: context.repo.owner,
+        repo: context.repo.repo,
+        issue_number,
+        name: stale
+      });
+    } catch (e) {
+      // 404 = label not present, expected when stale wasn't on the issue.
+      if (e.status === 404) continue;
+      core.warning(`Failed to remove ${stale} label: ${e.message}`);
     }
   }
 }
@@ -196,6 +216,41 @@ async function handler({github, context, core}) {
 
   core.info(`Issue #${issueNumber} carries bug label; running test/keyword gates.`);
 
+  // Reopen-on-bypass guard. GitHub's PR-body keyword auto-close (`Closes #N`,
+  // `Fixes #N`, `Resolves #N`) closes the issue ~2s after PR merge — BEFORE
+  // this workflow's `pull_request: closed` event has dispatched. By the
+  // time the handler runs, the issue is already in state=closed with
+  // state_reason=completed, bypassing the L2/L3 gate entirely.
+  //
+  // The ONLY label that signals a legitimate close is `awaiting-verification`
+  // (verify-comment-close.yml fires on a reporter "verified" comment ONLY
+  // when that label is present). `awaiting-tests` does NOT signal a
+  // legitimate close — it just means a prior gate run blocked. If a new
+  // PR with `Closes #N` then merges, GitHub natively closes the issue
+  // even though `awaiting-tests` is on it; we should still reopen and
+  // re-run the gate to either pass it or update the diagnostic.
+  //
+  // Manual closes (founder explicitly closed) leave neither label and
+  // would be reopened. Acceptable: the founder can manually re-close
+  // after the gate runs. (No "skip the gate" label exists today; if
+  // this gets noisy, a `manual-only` label could be added — but that's
+  // out of scope for this guard.)
+  const wasBypassed = issue.state === 'closed' &&
+    !labelNames.includes('awaiting-verification');
+  if (wasBypassed) {
+    core.warning(`Issue #${issueNumber} was already closed (likely by a GitHub native 'Closes #N' / 'Fixes #N' / 'Resolves #N' keyword in PR #${pr.number}'s body). Reopening to run the bug-gate.`);
+    // state_reason is documented for closes (completed / not_planned)
+    // and Copilot review on PR #567 round-2 flagged that passing
+    // state_reason: 'reopened' on a re-open call can 422. Send only
+    // `state: 'open'`; GitHub records state_reason='reopened' implicitly.
+    await github.rest.issues.update({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: issueNumber,
+      state: 'open'
+    });
+  }
+
   const { newTestFuncs, indeterminateFiles } = await detectNewTestFuncs({github, context, core, pr});
 
   const hasNewTest = newTestFuncs.length > 0;
@@ -217,13 +272,14 @@ async function handler({github, context, core}) {
       }
     }
 
-    // REMOVE stale labels before ADD to close the bypass race window
-    // (verify-comment-close.yml could otherwise close on a "verified"
-    // comment landed in the gap).
+    // FAILURE PATH ordering: REMOVE stale labels before ADD.
+    // If a previous PR landed the issue in awaiting-verification, leaving
+    // that label present alongside awaiting-tests would let
+    // verify-comment-close.yml close on a "verified" comment in the gap
+    // window — bypassing the test gate. Removing first closes the gap.
     await removeLabels({
       github, context, core,
       issue_number: issueNumber,
-      labelNames,
       candidates: ['awaiting-verification', 'copilot-triaging', 'needs-triage']
     });
 
@@ -236,7 +292,7 @@ async function handler({github, context, core}) {
 
     const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
     const blockBody = [
-      `PR #${pr.number} merged but the fix does not yet meet the regression-test policy for \`type: bug\` issues. The issue stays open until a follow-up PR adds a regression test.`,
+      `PR #${pr.number} merged but the fix does not yet meet the regression-test policy for \`type: bug\` issues. The issue stays open until a follow-up PR adds a regression test.${wasBypassed ? `\n\n_Note: this issue was auto-closed by GitHub's native \`Closes #N\` keyword resolution. The bug gate has reopened it so the test policy can be enforced. Future impl PRs should use \`Implements #N\` instead of \`Closes #N\` to avoid the flap._` : ''}`,
       ``,
       `**Failed gates:**`,
       ``,
@@ -260,14 +316,14 @@ async function handler({github, context, core}) {
     return;
   }
 
-  // Both gates passed → awaiting-verification.
-  await removeLabels({
-    github, context, core,
-    issue_number: issueNumber,
-    labelNames,
-    candidates: ['copilot-triaging', 'needs-triage', 'awaiting-tests']
-  });
-
+  // SUCCESS PATH ordering: ADD awaiting-verification FIRST, then remove
+  // stale labels. Inverse of the failure-path ordering. Reasoning:
+  // verify-comment-close.yml only closes when a "verified" comment lands
+  // while awaiting-verification is present. If we removed the stale
+  // labels first, there'd be a window where neither awaiting-tests nor
+  // awaiting-verification was on the issue — a fast "verified" comment
+  // in that gap would be ignored permanently. addLabels is idempotent,
+  // so adding even when already present is fine.
   await github.rest.issues.addLabels({
     owner: context.repo.owner,
     repo: context.repo.repo,
@@ -275,9 +331,15 @@ async function handler({github, context, core}) {
     labels: ['awaiting-verification']
   });
 
+  await removeLabels({
+    github, context, core,
+    issue_number: issueNumber,
+    candidates: ['copilot-triaging', 'needs-triage', 'awaiting-tests']
+  });
+
   const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
   const verifyBody = [
-    `Implementation for this bug merged in PR #${pr.number}.`,
+    `Implementation for this bug merged in PR #${pr.number}.${wasBypassed ? ` (Note: GitHub auto-closed this issue via \`Closes #N\` keyword; the bug gate reopened it because the reporter still needs to verify the fix.)` : ''}`,
     ``,
     `**Test gate passed.** New test funcs: ${newTestFuncs.map(n => '`' + n + '`').join(', ')}.`,
     `**Reproduction-keyword match:** \`${matchedTokens.slice(0, 5).join('`, `')}\`.`,

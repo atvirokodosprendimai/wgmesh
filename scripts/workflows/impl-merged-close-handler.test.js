@@ -453,3 +453,197 @@ test('handler — failure path removes stale labels BEFORE adding awaiting-tests
   assert.ok(removeIdx >= 0 && addIdx >= 0, 'both calls should occur');
   assert.ok(removeIdx < addIdx, `remove (idx ${removeIdx}) must precede add (idx ${addIdx}) to close race window`);
 });
+
+// ---------------------------------------------------------------------------
+// handler — success path: ADD before REMOVE so verify-comment-close can fire
+// ---------------------------------------------------------------------------
+
+test('handler — success path adds awaiting-verification BEFORE removing stale labels', async () => {
+  const orderedCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      540: {
+        number: 540,
+        user: { login: 'reporter' },
+        labels: [{ name: 'type: bug' }, { name: 'awaiting-tests' }],
+        body: '### Steps to Reproduce\n\nrotation\n'
+      }
+    },
+    prFiles: [{
+      filename: 'pkg/rotation_test.go',
+      status: 'added',
+      patch: '+func TestRotationFix(t *testing.T) {}\n'
+    }],
+    contentByRefPath: {
+      'h:pkg/rotation_test.go': 'package x\nfunc TestRotationFix(t *testing.T) {}\n'
+    },
+    recordCalls: orderedCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: { number: 800, title: 'impl: Issue #540 - rotation fix', body: 'Adds TestRotationFix.' }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  const labelMutations = orderedCalls.filter(c => c.kind === 'removeLabel' || c.kind === 'addLabels');
+  const addIdx = labelMutations.findIndex(c => c.kind === 'addLabels' && c.params.labels.includes('awaiting-verification'));
+  const removeIdx = labelMutations.findIndex(c => c.kind === 'removeLabel' && c.params.name === 'awaiting-tests');
+  assert.ok(addIdx >= 0 && removeIdx >= 0, 'both calls should occur on success path');
+  assert.ok(addIdx < removeIdx, `add (idx ${addIdx}) must precede remove (idx ${removeIdx}) on success path so verify-comment-close.yml never sees a label-less window`);
+});
+
+// ---------------------------------------------------------------------------
+// detectNewTestFuncs — empty file produces empty Set, not indeterminate
+// ---------------------------------------------------------------------------
+
+test('detectNewTestFuncs — empty test file is empty, not indeterminate', async () => {
+  const github = makeGithub({
+    prFiles: [{
+      filename: 'pkg/empty_test.go',
+      status: 'added',
+      patch: null
+    }],
+    contentByRefPath: {
+      'h:pkg/empty_test.go': ''
+    }
+  });
+  const core = mockCore();
+  const ctx = makeContext();
+  const result = await detectNewTestFuncs({ github, context: ctx, core, pr: ctx.payload.pull_request });
+  assert.deepStrictEqual(result.newTestFuncs, []);
+  assert.deepStrictEqual(result.indeterminateFiles, []);
+});
+
+// ---------------------------------------------------------------------------
+// detectNewTestFuncs — always-on content fallback (truncation defense)
+// ---------------------------------------------------------------------------
+
+test('detectNewTestFuncs — content fallback runs even when patch parsing succeeds', async () => {
+  // Always-on fallback: GitHub can truncate large diffs mid-file with
+  // some `+func Test...` matches showing but others below the cutoff.
+  // Conditional skip risks L3 false negatives. Always run; cost is 1-2
+  // extra getContent calls per *_test.go file.
+  let getContentCalls = 0;
+  const github = {
+    paginate: async () => [{
+      filename: 'pkg/foo_test.go',
+      status: 'modified',
+      patch: '+func TestFromPatch(t *testing.T) {}\n'
+    }],
+    rest: {
+      pulls: { listFiles: Object.assign(async () => {}, { _kind: 'listFiles' }) },
+      repos: {
+        getContent: async ({ ref }) => {
+          getContentCalls++;
+          // Return both head and base content so the diff yields TestFromPatch as new.
+          if (ref === 'h') {
+            return { data: { content: Buffer.from('package foo\nfunc TestFromPatch(t *testing.T) {}\n', 'utf-8').toString('base64'), encoding: 'base64' } };
+          }
+          return { data: { content: Buffer.from('package foo\n', 'utf-8').toString('base64'), encoding: 'base64' } };
+        }
+      }
+    }
+  };
+  const core = mockCore();
+  const ctx = makeContext();
+  const result = await detectNewTestFuncs({ github, context: ctx, core, pr: ctx.payload.pull_request });
+  assert.deepStrictEqual(result.newTestFuncs, ['TestFromPatch']);
+  assert.ok(getContentCalls >= 1, 'getContent MUST be called even when patch produced matches (truncation defense)');
+});
+
+// ---------------------------------------------------------------------------
+// handler — reopen-on-bypass: GitHub native Closes #N closed the issue
+// before the workflow ran. Handler must detect + reopen + run gate.
+// ---------------------------------------------------------------------------
+
+test('handler — bug already closed (no gate labels) gets reopened before gate runs', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      540: {
+        number: 540,
+        state: 'closed',
+        user: { login: 'reporter' },
+        labels: [{ name: 'type: bug' }, { name: 'copilot-triaging' }],
+        body: '### Steps to Reproduce\n\nrotation breaks ip\n'
+      }
+    },
+    prFiles: [{
+      filename: 'pkg/rotation_test.go',
+      status: 'added',
+      patch: '+func TestRotationFix(t *testing.T) {}\n'
+    }],
+    contentByRefPath: {
+      'h:pkg/rotation_test.go': 'package x\nfunc TestRotationFix(t *testing.T) {}\n'
+    },
+    recordCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: { number: 800, title: 'impl: Issue #540 - rotation fix', body: 'Closes #540. Adds TestRotationFix.' }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  const reopens = recordCalls.filter(c => c.kind === 'update' && c.params.state === 'open');
+  assert.strictEqual(reopens.length, 1, 'must reopen the bypassed issue');
+  assert.strictEqual(reopens[0].params.state, 'open');
+  // state_reason intentionally omitted — GitHub API can 422 on `state_reason: 'reopened'`
+  // for re-open transitions. State change alone is sufficient.
+
+  const adds = recordCalls.filter(c => c.kind === 'addLabels');
+  assert.ok(adds.some(a => a.params.labels.includes('awaiting-verification')),
+    'gate should run + add awaiting-verification after reopen');
+
+  const comments = recordCalls.filter(c => c.kind === 'createComment');
+  assert.ok(comments[0].params.body.includes('auto-closed'),
+    'success comment should mention the bypass auto-close');
+});
+
+test('handler — bug closed WITH awaiting-verification label is NOT reopened', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      540: {
+        number: 540,
+        state: 'closed',
+        user: { login: 'reporter' },
+        labels: [{ name: 'type: bug' }, { name: 'awaiting-verification' }],
+        body: ''
+      }
+    },
+    prFiles: [],
+    recordCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: { number: 801, title: 'impl: Issue #540 - cleanup', body: '' }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  const reopens = recordCalls.filter(c => c.kind === 'update' && c.params.state === 'open');
+  assert.strictEqual(reopens.length, 0, 'must NOT reopen if awaiting-verification present (legitimate close path)');
+});
+
+// ---------------------------------------------------------------------------
+// detectNewTestFuncs — indeterminate ONLY when both patch and content fail
+// ---------------------------------------------------------------------------
+
+test('detectNewTestFuncs — patch with matches + getContent fails: NOT indeterminate', async () => {
+  const github = makeGithub({
+    prFiles: [{
+      filename: 'pkg/foo_test.go',
+      status: 'modified',
+      patch: '+func TestFromPatch(t *testing.T) {}\n'
+    }],
+    contentByRefPath: {} // getContent will 404
+  });
+  const core = mockCore();
+  const ctx = makeContext();
+  const result = await detectNewTestFuncs({ github, context: ctx, core, pr: ctx.payload.pull_request });
+  // Patch found a test, so file is NOT indeterminate even though content failed
+  assert.deepStrictEqual(result.newTestFuncs, ['TestFromPatch']);
+  assert.deepStrictEqual(result.indeterminateFiles, []);
+});
