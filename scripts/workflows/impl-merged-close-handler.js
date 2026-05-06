@@ -237,7 +237,7 @@ async function handler({github, context, core}) {
     !labelNames.includes('awaiting-tests') &&
     !labelNames.includes('awaiting-verification');
   if (wasBypassed) {
-    core.warning(`Issue #${issueNumber} was already closed (likely by GitHub native '${pr.title.match(/Issue #\d+/)} keyword in PR body). Reopening to run the bug-gate.`);
+    core.warning(`Issue #${issueNumber} was already closed (likely by a GitHub native 'Closes #N' / 'Fixes #N' / 'Resolves #N' keyword in PR #${pr.number}'s body). Reopening to run the bug-gate.`);
     await github.rest.issues.update({
       owner: context.repo.owner,
       repo: context.repo.repo,

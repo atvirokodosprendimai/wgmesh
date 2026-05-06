@@ -42,12 +42,17 @@ jobs:
       !contains(github.event.pull_request.title, 'loop:')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout triggering commit (deterministic handler version)
-        # Default ref = github.sha (triggering merge commit). Pinning to
-        # main was non-deterministic — main can advance during job queue,
-        # making the handler version drift from the workflow revision that
-        # triggered the run. contents: read added under permissions:.
+      - name: Checkout triggering merge commit (deterministic handler version)
+        # actions/checkout defaults to github.ref, which on
+        # `pull_request: closed` events is the BASE branch ref (e.g.,
+        # refs/heads/main) — not the merge commit SHA. main can advance
+        # during job queue, drifting the handler version from the
+        # workflow revision that triggered the run. Pin explicitly to
+        # the merge commit SHA so workflow + handler stay synchronized
+        # for this run.
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.merge_commit_sha }}
 
       - name: Ensure verification + tests labels exist
         env:
