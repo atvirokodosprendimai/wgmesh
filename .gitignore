@@ -49,3 +49,6 @@ dist/
 vendor/
 # NAT relay integration test artifacts
 testlab/nat-relay/.env
+
+# Compound Engineering local config (machine-local, not for commit)
+.compound-engineering/
