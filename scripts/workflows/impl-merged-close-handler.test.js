@@ -545,6 +545,79 @@ test('detectNewTestFuncs — content fallback is skipped when patch parsing succ
 });
 
 // ---------------------------------------------------------------------------
+// handler — reopen-on-bypass: GitHub native Closes #N closed the issue
+// before the workflow ran. Handler must detect + reopen + run gate.
+// ---------------------------------------------------------------------------
+
+test('handler — bug already closed (no gate labels) gets reopened before gate runs', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      540: {
+        number: 540,
+        state: 'closed',
+        user: { login: 'reporter' },
+        labels: [{ name: 'type: bug' }, { name: 'copilot-triaging' }],
+        body: '### Steps to Reproduce\n\nrotation breaks ip\n'
+      }
+    },
+    prFiles: [{
+      filename: 'pkg/rotation_test.go',
+      status: 'added',
+      patch: '+func TestRotationFix(t *testing.T) {}\n'
+    }],
+    contentByRefPath: {
+      'h:pkg/rotation_test.go': 'package x\nfunc TestRotationFix(t *testing.T) {}\n'
+    },
+    recordCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: { number: 800, title: 'impl: Issue #540 - rotation fix', body: 'Closes #540. Adds TestRotationFix.' }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  const reopens = recordCalls.filter(c => c.kind === 'update' && c.params.state === 'open');
+  assert.strictEqual(reopens.length, 1, 'must reopen the bypassed issue');
+  assert.strictEqual(reopens[0].params.state_reason, 'reopened');
+
+  const adds = recordCalls.filter(c => c.kind === 'addLabels');
+  assert.ok(adds.some(a => a.params.labels.includes('awaiting-verification')),
+    'gate should run + add awaiting-verification after reopen');
+
+  const comments = recordCalls.filter(c => c.kind === 'createComment');
+  assert.ok(comments[0].params.body.includes('auto-closed'),
+    'success comment should mention the bypass auto-close');
+});
+
+test('handler — bug closed WITH awaiting-verification label is NOT reopened', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      540: {
+        number: 540,
+        state: 'closed',
+        user: { login: 'reporter' },
+        labels: [{ name: 'type: bug' }, { name: 'awaiting-verification' }],
+        body: ''
+      }
+    },
+    prFiles: [],
+    recordCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: { number: 801, title: 'impl: Issue #540 - cleanup', body: '' }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  const reopens = recordCalls.filter(c => c.kind === 'update' && c.params.state === 'open');
+  assert.strictEqual(reopens.length, 0, 'must NOT reopen if awaiting-verification present (legitimate close path)');
+});
+
+// ---------------------------------------------------------------------------
 // detectNewTestFuncs — indeterminate ONLY when both patch and content fail
 // ---------------------------------------------------------------------------
 

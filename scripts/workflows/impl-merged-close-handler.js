@@ -220,6 +220,33 @@ async function handler({github, context, core}) {
 
   core.info(`Issue #${issueNumber} carries bug label; running test/keyword gates.`);
 
+  // Reopen-on-bypass guard. GitHub's PR-body keyword auto-close (`Closes #N`,
+  // `Fixes #N`, `Resolves #N`) closes the issue ~2s after PR merge — BEFORE
+  // this workflow's `pull_request: closed` event has dispatched. By the
+  // time the handler runs, the issue is already in state=closed with
+  // state_reason=completed, bypassing the L2/L3 gate entirely.
+  //
+  // If the issue is closed AND lacks the gate's lifecycle labels
+  // (awaiting-tests / awaiting-verification), assume native bypass and
+  // reopen so the gate can do its job. The reporter sees a brief flap
+  // (closed → reopened) which is the price of the bypass-detection.
+  // Skip when one of the gate labels IS present (means a previous run of
+  // the gate already classified the issue, and a separate close happened
+  // legitimately — e.g., reporter said "verified" → verify-comment-close.yml).
+  const wasBypassed = issue.state === 'closed' &&
+    !labelNames.includes('awaiting-tests') &&
+    !labelNames.includes('awaiting-verification');
+  if (wasBypassed) {
+    core.warning(`Issue #${issueNumber} was already closed (likely by GitHub native '${pr.title.match(/Issue #\d+/)} keyword in PR body). Reopening to run the bug-gate.`);
+    await github.rest.issues.update({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: issueNumber,
+      state: 'open',
+      state_reason: 'reopened'
+    });
+  }
+
   const { newTestFuncs, indeterminateFiles } = await detectNewTestFuncs({github, context, core, pr});
 
   const hasNewTest = newTestFuncs.length > 0;
@@ -261,7 +288,7 @@ async function handler({github, context, core}) {
 
     const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
     const blockBody = [
-      `PR #${pr.number} merged but the fix does not yet meet the regression-test policy for \`type: bug\` issues. The issue stays open until a follow-up PR adds a regression test.`,
+      `PR #${pr.number} merged but the fix does not yet meet the regression-test policy for \`type: bug\` issues. The issue stays open until a follow-up PR adds a regression test.${wasBypassed ? `\n\n_Note: this issue was auto-closed by GitHub's native \`Closes #N\` keyword resolution. The bug gate has reopened it so the test policy can be enforced. Future impl PRs should use \`Implements #N\` instead of \`Closes #N\` to avoid the flap._` : ''}`,
       ``,
       `**Failed gates:**`,
       ``,
@@ -308,7 +335,7 @@ async function handler({github, context, core}) {
 
   const author = issue.user && issue.user.login ? `@${issue.user.login}` : 'reporter';
   const verifyBody = [
-    `Implementation for this bug merged in PR #${pr.number}.`,
+    `Implementation for this bug merged in PR #${pr.number}.${wasBypassed ? ` (Note: GitHub auto-closed this issue via \`Closes #N\` keyword; the bug gate reopened it because the reporter still needs to verify the fix.)` : ''}`,
     ``,
     `**Test gate passed.** New test funcs: ${newTestFuncs.map(n => '`' + n + '`').join(', ')}.`,
     `**Reproduction-keyword match:** \`${matchedTokens.slice(0, 5).join('`, `')}\`.`,
