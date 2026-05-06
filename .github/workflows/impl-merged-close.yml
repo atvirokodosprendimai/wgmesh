@@ -29,6 +29,7 @@ on:
     types: [closed]
 
 permissions:
+  contents: read
   issues: write
   pull-requests: read
 
@@ -41,10 +42,12 @@ jobs:
       !contains(github.event.pull_request.title, 'loop:')
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout (handler script lives in main)
+      - name: Checkout triggering commit (deterministic handler version)
+        # Default ref = github.sha (triggering merge commit). Pinning to
+        # main was non-deterministic — main can advance during job queue,
+        # making the handler version drift from the workflow revision that
+        # triggered the run. contents: read added under permissions:.
         uses: actions/checkout@v4
-        with:
-          ref: main
 
       - name: Ensure verification + tests labels exist
         env:
