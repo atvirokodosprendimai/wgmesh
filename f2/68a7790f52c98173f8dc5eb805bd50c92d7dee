@@ -1,0 +1,19 @@
+.github/copilot-instructions.md
+  s_6f7cc9734df574::t_2774c7381125f4 55-60
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "f268a7790f52c98173f8dc5eb805bd50c92d7dee",
+  "prompts": {},
+  "sessions": {
+    "s_6f7cc9734df574": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bda1584-787d-47d4-b69b-3364d9b105b2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
