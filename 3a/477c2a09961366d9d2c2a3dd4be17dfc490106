@@ -1,0 +1,29 @@
+.github/workflows/impl-merged-close.yml
+  s_6f7cc9734df574::t_a5bc2536963169 23-34
+scripts/workflows/impl-merged-close-handler.js
+  s_6f7cc9734df574::t_b9616599bdceff 286,296-305,315-316
+  s_6f7cc9734df574::t_53c35c58e34d5d 29-37
+  s_6f7cc9734df574::t_e4fe05336d48eb 104-122,126-130
+  s_6f7cc9734df574::t_9a2ac7b51ce178 193
+  s_6f7cc9734df574::t_07b5d59e068746 413-415
+scripts/workflows/impl-merged-close-handler.test.js
+  s_6f7cc9734df574::t_cbe89205164865 14-22
+  s_6f7cc9734df574::t_e6254d914d116d 662-879
+  s_6f7cc9734df574::t_9ffa3812dac398 297-300,311,316
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "3a477c2a09961366d9d2c2a3dd4be17dfc490106",
+  "prompts": {},
+  "sessions": {
+    "s_6f7cc9734df574": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bda1584-787d-47d4-b69b-3364d9b105b2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
