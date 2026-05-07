@@ -147,8 +147,8 @@ func (c *Config) PrefixLen() int {
 
 // GenerateSecret generates a new random mesh secret
 func GenerateSecret() (string, error) {
-	// Generate 32 random bytes
-	b := make([]byte, 32)
+	// Generate 128 random bytes
+	b := make([]byte, 128)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("failed to generate random bytes: %w", err)
 	}

@@ -63,7 +63,7 @@ Only one wgmesh service can run per host (the unit name is `wgmesh.service`, not
 
 ### Why does any string work?
 
-When you run `wgmesh init --secret`, it generates 32 random bytes (256 bits of entropy) and formats them as a `wgmesh://v1/<base64url>` URI. But the `wgmesh://v1/` prefix is cosmetic — `parseSecret()` strips it before key derivation.
+When you run `wgmesh init --secret`, it generates 128 random bytes (1024 bits of entropy) and formats them as a `wgmesh://v1/<base64url>` URI. But the `wgmesh://v1/` prefix is cosmetic — `parseSecret()` strips it before key derivation.
 
 What matters is the raw string underneath. `DeriveKeys()` accepts **any string of 16+ characters** and feeds it into HKDF-SHA256 to produce all mesh parameters. So yes, `MESH_SECRET=myfavoritepizza99` in a `.env` file will form a working mesh.
 
@@ -94,7 +94,7 @@ HKDF-SHA256 is **not a password-based KDF** — it has no iterations or memory h
 
 | Secret type | Brute-force risk |
 |-------------|-----------------|
-| `wgmesh init --secret` (256 bits) | Infeasible |
+| `wgmesh init --secret` (1024 bits) | Infeasible |
 | Long random passphrase (80+ bits) | Very hard |
 | Short memorable phrase (20-40 bits) | Hours to days |
 

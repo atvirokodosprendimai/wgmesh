@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -150,5 +151,29 @@ func TestConfig_NoPunchingFlag(t *testing.T) {
 	}
 	if !cfg2.DisablePunching || !cfg2.ForceRelay {
 		t.Fatal("expected both DisablePunching and ForceRelay to be set")
+	}
+}
+
+func TestGenerateSecret(t *testing.T) {
+	secret, err := GenerateSecret()
+	if err != nil {
+		t.Fatalf("GenerateSecret() error: %v", err)
+	}
+	// base64url of 128 bytes = 171 characters (no padding)
+	const wantLen = 171
+	if len(secret) != wantLen {
+		t.Errorf("GenerateSecret() secret length = %d, want %d", len(secret), wantLen)
+	}
+	// Must not contain padding characters or non-base64url chars
+	if strings.ContainsAny(secret, "=+/") {
+		t.Errorf("GenerateSecret() secret contains non-base64url characters: %q", secret)
+	}
+	// Two calls must produce different secrets
+	secret2, err := GenerateSecret()
+	if err != nil {
+		t.Fatalf("GenerateSecret() second call error: %v", err)
+	}
+	if secret == secret2 {
+		t.Error("GenerateSecret() returned identical secrets on two consecutive calls")
 	}
 }
