@@ -1,0 +1,9 @@
+docs/plans/2026-05-06-002-fix-auto-verify-network-bug-fixes-plan.md
+  ai_agent 1-383
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "b081deeb356149d7638815ef330f8fbf50572fe0",
+  "prompts": {}
+}
