@@ -1,0 +1,23 @@
+scripts/workflows/e2e-stalled-watcher.test.js
+  s_6f7cc9734df574::t_95205e8bdc3207 1-250
+scripts/workflows/e2e-stalled-watcher.js
+  s_6f7cc9734df574::t_f9b521dd9192e6 1-123
+.github/workflows/e2e-stalled-watcher.yml
+  s_6f7cc9734df574::t_31736c68302867 1-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.1",
+  "base_commit_sha": "e3ebc750419632c1b7ed453071bf421865a09fb6",
+  "prompts": {},
+  "sessions": {
+    "s_6f7cc9734df574": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bda1584-787d-47d4-b69b-3364d9b105b2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
