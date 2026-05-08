@@ -29,7 +29,7 @@ of having the daemon auto-generate it.  The motivations are:
   existing key management or PKI system.
 - Operators may need to know the node's WireGuard public key **before** the node starts
   (e.g., for firewall allowlists, DNS registrations, or audits).
-- Organisations that treat private key material as secrets under strict lifecycle controls
+- Organizations that treat private key material as secrets under strict lifecycle controls
   (generation, rotation, revocation) cannot accept auto-generated, unmanaged keys.
 
 The `--secret` flag remains required for network-level parameters; the new flags
@@ -362,10 +362,30 @@ validation happens at daemon start when `wgmesh join` runs from the systemd unit
 File: `README.md`, section **"Common `join` options"** (the code block showing
 `wgmesh join` flags).
 
-Append the following two lines to the example block (before the closing ` ``` `):
+Append the following two lines to the example block (before the closing ` ``` `).  The existing
+block in `README.md` looks like:
 
+```bash
+wgmesh join \
+  --secret "wgmesh://v1/<your-secret>" \
+  --advertise-routes "192.168.10.0/24,10.0.0.0/8" \
+  --listen-port 51820 \
+  --interface wg0 \
+  --log-level debug \
+  --gossip
 ```
-  --private-key /etc/wgmesh/node.key  \
+
+Add the two new flag lines so the block becomes:
+
+```bash
+wgmesh join \
+  --secret "wgmesh://v1/<your-secret>" \
+  --advertise-routes "192.168.10.0/24,10.0.0.0/8" \
+  --listen-port 51820 \
+  --interface wg0 \
+  --log-level debug \
+  --gossip \
+  --private-key /etc/wgmesh/node.key \
   --public-key  /etc/wgmesh/node.pub
 ```
 
@@ -511,7 +531,10 @@ wgmesh join \
 
 # Mismatch test
 echo "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=" > /tmp/wrong.pub
-wgmesh join --secret ... --private-key /tmp/test.key --public-key /tmp/wrong.pub
+wgmesh join \
+  --secret "$(wgmesh init --secret 2>&1 | tail -1)" \
+  --private-key /tmp/test.key \
+  --public-key /tmp/wrong.pub
 # Expected: error "public key does not match private key"; exit 1.
 ```
 
