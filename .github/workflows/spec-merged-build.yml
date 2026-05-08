@@ -1,7 +1,11 @@
 name: Spec Merged — Trigger Build
 
 on:
-  pull_request:
+  # pull_request_target so Copilot-coding-agent `copilot/*` spec PRs do
+  # not freeze in `action_required` during their draft phase. Safe for
+  # the closed-merged path: merge is already on main and maintainer-
+  # approved by the time we fire. See #79 (extended scope).
+  pull_request_target:
     types: [closed]
 
 permissions:
