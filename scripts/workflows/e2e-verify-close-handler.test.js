@@ -146,7 +146,12 @@ test('handler — workflow_run success closes issue, adds verified, removes awai
 
   assert.ok(adds.some(a => a.params.labels.includes('verified')), 'must add verified');
   assert.ok(removes.some(r => r.params.name === 'awaiting-verification'), 'must remove awaiting-verification');
-  assert.ok(removes.some(r => r.params.name === 'awaiting-tests'), 'must remove awaiting-tests defensively');
+  // Round-5 fix: handler does NOT remove awaiting-tests — the L4 gate in
+  // impl-merged-close-handler.js owns that label and clears it when the
+  // diff has integration tests. Defensive removal here would defeat the
+  // gate.
+  assert.ok(!removes.some(r => r.params.name === 'awaiting-tests'),
+    'must NOT remove awaiting-tests — L4 gate owns it');
   assert.ok(removes.some(r => r.params.name === 'e2e-failed'), 'must clear prior e2e-failed');
   assert.ok(removes.some(r => r.params.name === 'e2e-stalled'), 'must clear prior e2e-stalled');
   assert.strictEqual(updates.length, 1, 'must close the issue');

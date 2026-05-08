@@ -218,10 +218,17 @@ async function handler({github, context, core}) {
       issue_number: issueNumber,
       labels: ['verified']
     });
+    // Round-5 fix: do NOT remove `awaiting-tests` here. The L4 gate in
+    // impl-merged-close-handler.js owns awaiting-tests — it stays on the
+    // issue until an integration test ships. If awaiting-tests is still
+    // present at verifier-success time, that's a state mismatch the L4
+    // gate must resolve (or, more likely, awaiting-tests was already
+    // removed by L4 when the issue advanced to awaiting-verification).
+    // Removing it here bypasses the documented gate behavior.
     await removeLabels({
       github, context, core,
       issue_number: issueNumber,
-      candidates: ['awaiting-verification', 'awaiting-tests', 'e2e-failed', 'e2e-stalled']
+      candidates: ['awaiting-verification', 'e2e-failed', 'e2e-stalled']
     });
     if (issue.state !== 'closed') {
       await github.rest.issues.update({
@@ -258,7 +265,14 @@ async function handler({github, context, core}) {
     // that fails on re-run does not end up labeled both `verified` AND
     // `e2e-failed` (contradictory state confuses pulse + downstream
     // automation).
-    candidates: ['awaiting-verification', 'verified']
+    // Round-5 fix: also clear `e2e-stalled`. The stalled-watcher applies
+    // it when the verifier exceeds 6h with no conclusion; if that watcher
+    // fires AND a later verifier run finally returns failure, the issue
+    // would otherwise carry both `e2e-stalled` AND `e2e-failed` —
+    // contradictory and ambiguous for downstream automation.
+    // Note: NOT clearing `awaiting-tests` here for the same reason as
+    // the success path — the L4 gate owns it.
+    candidates: ['awaiting-verification', 'verified', 'e2e-stalled']
   });
   if (issue.state === 'closed' && wasVerifierControlled) {
     await github.rest.issues.update({
