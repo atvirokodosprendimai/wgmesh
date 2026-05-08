@@ -116,7 +116,9 @@ function touchesNetworkPaths(prFiles) {
 function hasIntegrationTest(prFiles) {
   return (prFiles || []).some(f => {
     if (!f || f.status === 'removed') return false;
-    return INTEGRATION_TEST_REGEX.test(f.filename || '');
+    const filename = f.filename || '';
+    if (filename.split('/').includes('testdata')) return false;
+    return INTEGRATION_TEST_REGEX.test(filename);
   });
 }
 

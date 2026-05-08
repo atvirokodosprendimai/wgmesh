@@ -710,6 +710,19 @@ test('hasIntegrationTest — matches *_integration_test.go', () => {
   ]), true);
 });
 
+test('hasIntegrationTest — ignores integration tests under testdata', () => {
+  assert.strictEqual(hasIntegrationTest([
+    { filename: 'pkg/daemon/testdata/x_integration_test.go', status: 'added' }
+  ]), false);
+});
+
+test('hasIntegrationTest — real integration test wins when testdata file is also present', () => {
+  assert.strictEqual(hasIntegrationTest([
+    { filename: 'pkg/daemon/testdata/x_integration_test.go', status: 'added' },
+    { filename: 'pkg/daemon/relay_integration_test.go', status: 'added' }
+  ]), true);
+});
+
 test('hasIntegrationTest — does not match plain *_test.go', () => {
   assert.strictEqual(hasIntegrationTest([
     { filename: 'pkg/daemon/relay_test.go', status: 'added' }
