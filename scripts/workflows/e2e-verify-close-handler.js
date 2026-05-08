@@ -16,12 +16,17 @@
 //
 // Conclusion → action mapping:
 //   - 'success'   → addLabels(['verified']),
-//                   removeLabels(['awaiting-verification', 'awaiting-tests',
+//                   removeLabels(['awaiting-verification',
 //                                 'e2e-failed', 'e2e-stalled']),
 //                   close issue, comment with verifier run URL.
+//                   NOTE: `awaiting-tests` is owned by the L4 gate in
+//                   impl-merged-close-handler.js and is not cleared here.
 //   - 'failure'   → addLabels(['e2e-failed']),
-//                   removeLabels(['awaiting-verification']),
-//                   reopen issue iff currently closed,
+//                   removeLabels(['awaiting-verification', 'verified',
+//                                 'e2e-stalled']),
+//                   reopen issue iff currently closed AND issue was
+//                   verifier-controlled (had awaiting-verification /
+//                   verified / e2e-failed) at handler entry,
 //                   comment with verifier run URL + artifact link.
 //   - other ('cancelled', 'timed_out', 'action_required', …) → log + exit.
 //
@@ -122,13 +127,21 @@ async function resolvePullRequest({github, context, core, workflowRun}) {
       ref: workflowRun.head_sha
     });
     const message = (commit.commit && commit.commit.message) || '';
-    // Prefer line-anchored references (subject line or any line starting
-    // with "Issue #N") over substring matches. This catches both the
-    // `impl: Issue #N - …` convention and dedicated `Issue #N` lines in
-    // merge-commit bodies, but avoids mis-associating mid-paragraph
-    // mentions like "see Issue #42 for context".
-    const anchoredMatch = message.match(/^Issue #(\d+)/m);
-    const issueMatch = anchoredMatch || message.match(/Issue #(\d+)/);
+    // Round-6 fix: only accept references that start a line, optionally
+    // preceded by a conventional-commit prefix (`impl:`, `fix(daemon):`,
+    // etc.). Mid-paragraph mentions like "see Issue #42 for context" or
+    // "addresses Issue #123 by …" no longer match. The substring
+    // fallback was dropped because it was permissive enough to mis-
+    // associate when a commit body mentioned a different issue without
+    // any structural anchor. When no anchored match exists, the verifier
+    // run is silently skipped rather than risk flipping the wrong
+    // issue's labels.
+    //
+    // Accepted line shapes (anywhere in the commit message):
+    //   `Issue #123 — fix`
+    //   `impl: Issue #556 - relay flap fix`
+    //   `fix(daemon): Issue #444 - panic on rotate`
+    const issueMatch = message.match(/^(?:[a-z]+(?:\([\w-]+\))?: )?Issue #(\d+)/m);
     if (issueMatch) {
       // Synthesize a prTitle that surfaces the Issue #N reference even
       // when it lives in the commit body (e.g., merge commits whose

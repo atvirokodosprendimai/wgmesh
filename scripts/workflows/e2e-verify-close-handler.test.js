@@ -493,10 +493,17 @@ test('handler — removeLabel 404 is swallowed (label not present)', async () =>
   assert.ok(recordCalls.some(c => c.kind === 'addLabels'), 'success path completes despite 404 removeLabel');
 });
 
-test('resolvePullRequest — merge commit body Issue #N fallback surfaces issue title', async () => {
+test('resolvePullRequest — merge commit with line-anchored Issue #N in body resolves', async () => {
+  // Round-6 update: only line-anchored matches resolve. The convention
+  // for merge-commit bodies must therefore put the issue reference at
+  // the start of its own line (e.g., "Issue #123 — relay flap fix").
+  // Mid-paragraph mentions ("addresses Issue #123 by …") no longer
+  // resolve — they fall through to null and the verifier run is
+  // skipped, which is preferred over mis-associating with a wrong
+  // issue.
   const github = makeGithub({
     commitMessageBySha: {
-      sha555: 'Merge pull request #555 from feature/x\n\nThis change addresses Issue #123 by ...'
+      sha555: 'Merge pull request #555 from feature/x\n\nIssue #123 — relay flap fix'
     }
   });
   const ctx = makeContext({
@@ -651,9 +658,11 @@ test('resolvePullRequest — line-anchored Issue #N prevails over mid-paragraph 
   assert.strictEqual(extractIssueNumber(resolved.prTitle), 555);
 });
 
-test('resolvePullRequest — substring fallback still works when no line-anchored match', async () => {
-  // Round-3 regression cover: if there is no line-anchored Issue #N,
-  // the substring fallback preserves backwards compat.
+test('resolvePullRequest — no line-anchored match returns null (round-6: dropped substring fallback)', async () => {
+  // Round-6 fix: substring fallback was dropped because mid-paragraph
+  // mentions like "from Issue #777 buried mid-paragraph" can mis-
+  // associate a verifier run with an unrelated issue. Skipping the run
+  // (return null) is preferred over flipping the wrong issue's labels.
   const github = makeGithub({
     commitMessageBySha: {
       sha888: 'Random subject line\n\nFixed the bug from Issue #777 buried mid-paragraph'
@@ -670,5 +679,5 @@ test('resolvePullRequest — substring fallback still works when no line-anchore
     workflowRun: ctx.payload.workflow_run
   });
 
-  assert.deepStrictEqual(resolved, { prNumber: null, prTitle: 'Issue #777' });
+  assert.strictEqual(resolved, null);
 });

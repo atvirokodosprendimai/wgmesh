@@ -129,9 +129,31 @@ jobs:
         env:
           INPUT_TIERS: ${{ inputs.tiers }}
         run: |
+          set -euo pipefail
           TIERS="${INPUT_TIERS:-1,2,4}"
-          # Convert "1,2,4" → ["1","2","4"] JSON array
-          JSON=$(echo "$TIERS" | tr ',' '\n' | jq -R . | jq -s -c .)
+          # Round-6 fix: trim whitespace and validate each tier as an
+          # integer in the allowed range 1..7. Anything else fails fast
+          # rather than passing arbitrary strings to test-cloud.sh.
+          ALLOWED_PATTERN='^[1-7]$'
+          declare -a CLEAN=()
+          IFS=',' read -ra RAW <<< "$TIERS"
+          for t in "${RAW[@]}"; do
+            t="${t//[[:space:]]/}"
+            if [[ -z "$t" ]]; then
+              continue
+            fi
+            if ! [[ "$t" =~ $ALLOWED_PATTERN ]]; then
+              echo "::error::Invalid tier '$t' (allowed: 1..7)"
+              exit 1
+            fi
+            CLEAN+=("$t")
+          done
+          if [[ "${#CLEAN[@]}" -eq 0 ]]; then
+            echo "::error::No valid tiers parsed from input '$TIERS'"
+            exit 1
+          fi
+          # Convert validated array → JSON array of strings
+          JSON=$(printf '%s\n' "${CLEAN[@]}" | jq -R . | jq -s -c .)
           echo "tiers=$JSON" >> "$GITHUB_OUTPUT"
           echo "Tier matrix: $JSON"
 
@@ -188,14 +210,17 @@ jobs:
         run: |
           source testlab/cloud/lib.sh
           source testlab/cloud/provision.sh
-          # Round-4 fix: per-(PR,tier) sweep first (prefix wgmesh-vfy-pr<N>-t<TIER>),
-          # then a broader cross-PR sweep for the wgmesh-vfy-pr* namespace so
-          # cancelled runs from older PRs (whose specific prefix this matrix
-          # row does not cover) still get reaped via the 30-min age cutoff in
-          # teardown_orphans. The hetzner-integration.yml fallback only sweeps
-          # wgmesh-t* / wgmesh-ci, so without this step verifier VMs leak.
+          # Per-(PR,tier) sweep only — this matrix row owns prefix
+          # wgmesh-vfy-pr<N>-t<TIER>. Round-6 fix: dropped the broader
+          # cross-PR sweep that ran with VM_PREFIX=wgmesh-vfy-pr because
+          # teardown_orphans gates only on age (30 min) + name prefix and
+          # cannot tell whether a 30-minute-old VM in another PR's
+          # namespace is still actively running tier 5+ tiers (which can
+          # exceed 30 min on the slower tiers). Cross-PR cleanup of
+          # wgmesh-vfy-pr* should live in a separate scheduled workflow
+          # with stricter ownership labels (e.g., gating on `run=` label
+          # mismatch), not here.
           teardown_orphans || true
-          VM_PREFIX="wgmesh-vfy-pr" teardown_orphans || true
 
       - name: "Run Tier ${{ matrix.tier }} verifier subset"
         id: tests

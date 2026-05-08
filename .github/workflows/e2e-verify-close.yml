@@ -3,11 +3,15 @@ name: E2E Verify — Close Issue
 # Companion to e2e-verifier.yml. When the verifier completes, this
 # workflow inspects its conclusion and flips the linked issue's labels:
 #
-#   - 'success'   → add `verified`, remove `awaiting-*` + `e2e-*`,
-#                   close the issue, comment with run URL.
-#   - 'failure'   → add `e2e-failed`, remove `awaiting-verification`,
-#                   reopen the issue iff it was closed, comment with
-#                   run URL + artifact link.
+#   - 'success'   → add `verified`, remove `awaiting-verification` +
+#                   `e2e-failed` + `e2e-stalled`, close the issue,
+#                   comment with run URL. `awaiting-tests` is NOT
+#                   removed — the L4 gate in impl-merged-close-handler.js
+#                   owns that label.
+#   - 'failure'   → add `e2e-failed`, remove `awaiting-verification` +
+#                   `verified` + `e2e-stalled`, reopen the issue iff
+#                   it was closed AND verifier-controlled, comment
+#                   with run URL + artifact link.
 #   - other       → log + exit (no label change).
 #
 # Decoupled from the verifier on purpose: workflow_run keeps the closer
