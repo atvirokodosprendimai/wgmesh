@@ -1,4 +1,4 @@
-.PHONY: build clean install test test-relay lint-eidos
+.PHONY: build clean install test test-relay lint-eidos status
 
 build:
 	go build -o wgmesh
@@ -24,6 +24,9 @@ lint:
 
 lint-eidos:
 	go run ./cmd/eidos-lint/
+
+status:
+	go run ./cmd/status-gen/
 
 deps:
 	go mod download
