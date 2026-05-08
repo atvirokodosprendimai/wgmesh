@@ -124,10 +124,11 @@ async function resolvePullRequest({github, context, core, workflowRun}) {
     const message = (commit.commit && commit.commit.message) || '';
     const issueMatch = message.match(/Issue #(\d+)/);
     if (issueMatch) {
-      // Synthesize a PR-like shape. The downstream issue resolver only
-      // needs prTitle to extract `Issue #N`; prNumber stays unset because
-      // we don't actually have a PR.
-      return { prNumber: null, prTitle: message.split('\n', 1)[0] };
+      // Synthesize a prTitle that surfaces the Issue #N reference even
+      // when it lives in the commit body (e.g., merge commits whose
+      // first line is "Merge pull request #N from..."), so downstream
+      // extractIssueNumber() doesn't silently miss the linkage.
+      return { prNumber: null, prTitle: `Issue #${issueMatch[1]}` };
     }
     core.info('Commit message does not reference an Issue #N; skipping.');
     return null;
@@ -186,6 +187,15 @@ async function handler({github, context, core}) {
     return;
   }
 
+  // Capture verifier-controlled-state snapshot BEFORE we mutate labels
+  // below. If the issue was closed by something other than this workflow
+  // (e.g., reporter via verify-comment-close.yml) it will not have
+  // `awaiting-verification` at this point and we must not reopen it.
+  const wasAwaitingVerification = (issue.labels || []).some(l => {
+    const name = typeof l === 'string' ? l : (l && l.name);
+    return name === 'awaiting-verification';
+  });
+
   const prRef = resolved.prNumber ? `PR #${resolved.prNumber}` : `commit ${workflowRun.head_sha || 'unknown'}`;
 
   if (conclusion === 'success') {
@@ -235,13 +245,18 @@ async function handler({github, context, core}) {
     issue_number: issueNumber,
     candidates: ['awaiting-verification']
   });
-  if (issue.state === 'closed') {
+  if (issue.state === 'closed' && wasAwaitingVerification) {
     await github.rest.issues.update({
       owner: context.repo.owner,
       repo: context.repo.repo,
       issue_number: issueNumber,
       state: 'open'
     });
+  } else if (issue.state === 'closed') {
+    core.info(
+      `Issue #${issueNumber} is closed but does not have awaiting-verification; ` +
+      `skipping reopen to avoid racing a reporter-driven close.`
+    );
   }
   const failureBody = [
     `E2E Verifier reported a failure for ${prRef} on the merge commit. The fix did not survive the integration subset, so this issue stays open until a follow-up addresses the failure.`,

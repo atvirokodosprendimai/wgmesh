@@ -107,7 +107,10 @@ async function fetchFileFuncs({github, core, context, path, ref}) {
 function touchesNetworkPaths(prFiles) {
   return (prFiles || []).some(f => {
     if (!f || f.status === 'removed') return false;
-    return NETWORK_PATH_PREFIXES.some(prefix => f.filename && f.filename.startsWith(prefix));
+    return NETWORK_PATH_PREFIXES.some(prefix =>
+      (f.filename && f.filename.startsWith(prefix)) ||
+      (f.previous_filename && f.previous_filename.startsWith(prefix))
+    );
   });
 }
 

@@ -9,7 +9,7 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const handler = require('./e2e-verify-close-handler.js');
-const { extractIssueNumber } = handler;
+const { extractIssueNumber, resolvePullRequest } = handler;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -486,4 +486,83 @@ test('handler — removeLabel 404 is swallowed (label not present)', async () =>
   // Must not throw.
   await handler({ github, context: ctx, core: mockCore() });
   assert.ok(recordCalls.some(c => c.kind === 'addLabels'), 'success path completes despite 404 removeLabel');
+});
+
+test('resolvePullRequest — merge commit body Issue #N fallback surfaces issue title', async () => {
+  const github = makeGithub({
+    commitMessageBySha: {
+      sha555: 'Merge pull request #555 from feature/x\n\nThis change addresses Issue #123 by ...'
+    }
+  });
+  const ctx = makeContext({
+    workflowRun: {
+      head_sha: 'sha555',
+      pull_requests: []
+    }
+  });
+
+  const resolved = await resolvePullRequest({
+    github,
+    context: ctx,
+    core: mockCore(),
+    workflowRun: ctx.payload.workflow_run
+  });
+
+  assert.deepStrictEqual(resolved, { prNumber: null, prTitle: 'Issue #123' });
+  assert.strictEqual(extractIssueNumber(resolved.prTitle), 123);
+});
+
+test('handler — failure on closed issue with awaiting-verification reopens', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      556: { number: 556, state: 'closed', labels: ['awaiting-verification'] }
+    },
+    pullsData: {
+      564: { number: 564, title: 'impl: Issue #556 - relay flap fix' }
+    },
+    recordCalls
+  });
+  const ctx = makeContext({
+    workflowRun: {
+      conclusion: 'failure',
+      pull_requests: [{ number: 564 }]
+    }
+  });
+
+  await handler({ github, context: ctx, core: mockCore() });
+
+  assert.ok(recordCalls.some(c => c.kind === 'update' && c.params.state === 'open'),
+    'closed verifier-controlled issue must be reopened');
+});
+
+test('handler — failure on reporter-closed issue without awaiting-verification skips reopen', async () => {
+  const recordCalls = [];
+  const infoCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      556: { number: 556, state: 'closed', labels: ['e2e-failed'] }
+    },
+    pullsData: {
+      564: { number: 564, title: 'impl: Issue #556 - relay flap fix' }
+    },
+    recordCalls
+  });
+  const ctx = makeContext({
+    workflowRun: {
+      conclusion: 'failure',
+      pull_requests: [{ number: 564 }]
+    }
+  });
+  const core = {
+    info: (msg) => { infoCalls.push(msg); },
+    warning: () => {}
+  };
+
+  await handler({ github, context: ctx, core });
+
+  assert.strictEqual(recordCalls.some(c => c.kind === 'update' && c.params.state === 'open'), false,
+    'closed reporter-driven issue must not be reopened');
+  assert.ok(infoCalls.some(msg => msg.includes('skipping reopen')),
+    'must log why the closed issue was not reopened');
 });

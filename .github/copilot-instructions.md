@@ -54,7 +54,7 @@ go test -race ./...
 
 ## Network-path bug fixes
 
-Bug PRs (label `type: bug`) that touch `pkg/daemon/`, `pkg/discovery/`, or `pkg/rpc/` MUST add at least one `*_integration_test.go` file in the same diff. Predicate-only unit tests are insufficient because they cannot reproduce relay-flap, hole-punch, NAT-traversal, or peer-discovery bug classes. The L4 gate in `scripts/workflows/impl-merged-close-handler.js` blocks merge with `awaiting-tests` until an integration test ships.
+Bug PRs (label `type: bug`) that touch `pkg/daemon/`, `pkg/discovery/`, or `pkg/rpc/` MUST add at least one `*_integration_test.go` file in the same diff. Predicate-only unit tests are insufficient because they cannot reproduce relay-flap, hole-punch, NAT-traversal, or peer-discovery bug classes. The L4 gate in `scripts/workflows/impl-merged-close-handler.js` runs on `pull_request: closed` (post-merge) and blocks the linked issue from auto-advancing past `awaiting-tests` until an integration test ships. The PR merge itself is not blocked by this gate.
 
 After merge, `.github/workflows/e2e-verifier.yml` runs a fast Hetzner integration subset (tiers 1, 2, 4) against the merge commit. Its conclusion drives `.github/workflows/e2e-verify-close.yml`, which flips the linked issue between `verified` (closed), `e2e-failed` (reopened, artifact link posted), and `e2e-stalled` (no conclusion within 6h, surfaced by the cron watcher). Reporter comments are no longer required to close network-path bug issues — the verifier replaces that step.
 

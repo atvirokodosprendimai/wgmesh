@@ -11,11 +11,12 @@ name: E2E Verify — Close Issue
 #   - other       → log + exit (no label change).
 #
 # Decoupled from the verifier on purpose: workflow_run keeps the closer
-# from racing with the verifier's own job graph and lets a manual
-# `workflow_dispatch` re-run flip the labels back without touching
-# verifier code. PR correlation falls back to scanning the workflow
-# run's commit message for `Issue #N` when `workflow_run.pull_requests`
-# is empty (forks, dispatches without `pr_number`).
+# from racing with the verifier's own job graph. Re-runs flow through
+# the verifier itself (which then triggers this closer); there is no
+# direct workflow_dispatch trigger here. PR correlation falls back to
+# scanning the workflow run's commit message for `Issue #N` when
+# `workflow_run.pull_requests` is empty (forks, dispatches without
+# `pr_number`).
 #
 # Token: PUSH_TOKEN (mirrors impl-merged-close.yml). GITHUB_TOKEN cannot
 # trigger downstream workflows or modify labels in some org policies.

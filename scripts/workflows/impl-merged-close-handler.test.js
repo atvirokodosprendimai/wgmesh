@@ -915,3 +915,21 @@ test('handler — bug touching pkg/daemon/ with integration test passes L4 → a
   assert.ok(adds.some(a => a.params.labels.includes('awaiting-verification')),
     'L4 pass + L2/L3 pass should reach awaiting-verification');
 });
+
+test('touchesNetworkPaths — renamed file from network path counts previous_filename', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/util/x.go', previous_filename: 'pkg/daemon/old.go', status: 'renamed' }
+  ]), true);
+});
+
+test('touchesNetworkPaths — modified network path still counts filename', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/daemon/x.go', status: 'modified' }
+  ]), true);
+});
+
+test('touchesNetworkPaths — modified non-network path stays false', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/util/x.go', status: 'modified' }
+  ]), false);
+});
