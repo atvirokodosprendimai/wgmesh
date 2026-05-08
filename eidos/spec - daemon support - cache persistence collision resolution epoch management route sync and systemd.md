@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Five support subsystems: peer cache survives restarts; collision resolution re-derives IPs deterministically; epoch manager rotates Dandelion++ relays; route sync tracks relay-aware gateways; systemd integration installs the daemon as a hardened service.
 category: core
 ---

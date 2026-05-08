@@ -52,6 +52,18 @@ since: ""
 			},
 		},
 		{
+			name: "valid with legacy frontmatter keys",
+			contents: `---
+status: implemented
+compat-dimensions: []
+tldr: Existing short summary
+category: core
+---
+# Legacy keys
+`,
+			want: Meta{Status: StatusImplemented, CompatDimensions: []string{}},
+		},
+		{
 			name: "missing status",
 			contents: `---
 compat-dimensions: []

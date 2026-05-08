@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Thread-safe in-memory registry of discovered peers; merge semantics prefer higher-trust endpoints; subscribers receive new/updated events without blocking the store.
 category: core
 ---

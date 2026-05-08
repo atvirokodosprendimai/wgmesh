@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Operator machine holds all keys and pushes per-node WireGuard config over SSH; diffs against live state to minimise disruption; persists as wg-quick systemd service.
 category: core
 ---

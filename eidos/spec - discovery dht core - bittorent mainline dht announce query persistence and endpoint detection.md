@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: BitTorrent Mainline DHT announces local endpoint under a mesh-secret-derived hourly-rotating infohash; queries return peer addresses that are contacted via peer exchange; routing table persists between restarts; STUN refresh and IPv6 interface scan keep the local endpoint current.
 category: core
 ---

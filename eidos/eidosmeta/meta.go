@@ -193,7 +193,7 @@ func parseYAMLLines(lines []frontmatterLine) (Meta, []Diag) {
 			}
 			meta.Since = value
 		default:
-			diags = append(diags, Diag{Severity: "error", Line: line.number, Message: fmt.Sprintf("unknown key %q", key)})
+			continue
 		}
 	}
 

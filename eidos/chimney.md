@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Dashboard origin server — serves static HTML and proxies GitHub API with two-tier caching
 category: infra
 ---

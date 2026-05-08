@@ -1,3 +1,10 @@
+---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
+---
+
 # Spec: postmortem — incident documentation format
 
 TL;DR: A postmortem documents an incident completely enough that a reader with no prior knowledge can understand what happened, why, and what changed.

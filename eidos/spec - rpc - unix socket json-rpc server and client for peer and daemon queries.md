@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: JSON-RPC 2.0 over a Unix domain socket (0600 permissions); server exposes five methods for peer listing and daemon status via injected callbacks; client is synchronous with an atomic request ID counter.
 category: core
 ---

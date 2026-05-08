@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: main.go is a dual-mode dispatcher — decentralized subcommands (join, init, status, qr, install-service, rotate-secret, peers) coexist with legacy centralized flags (-add, -deploy, -init); join wires the RPC server as a thin adapter to break the daemon→rpc circular dependency.
 category: core
 ---

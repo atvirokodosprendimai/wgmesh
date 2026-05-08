@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: JSON state file is the single source of truth for all nodes, keys, and access policy; groups + policies optionally filter full-mesh defaults to per-node allowed peers.
 category: core
 ---

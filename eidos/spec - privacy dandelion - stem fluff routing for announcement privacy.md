@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Dandelion++ routes peer announcements through a random stem of up to 4 hops before broadcasting; relay peers rotate every 10 minutes via a deterministic epoch-seeded shuffle so routing cannot be predicted across epochs.
 category: core
 ---

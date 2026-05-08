@@ -1,3 +1,10 @@
+---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
+---
+
 # This is the seed for your specifications
 
 The main idea:

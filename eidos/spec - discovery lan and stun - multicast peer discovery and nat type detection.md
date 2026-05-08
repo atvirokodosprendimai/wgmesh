@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: LAN multicast announces encrypted peer info every 5s on a mesh-derived multicast group; STUN detects external endpoint and classifies NAT as cone or symmetric using a shared socket.
 category: core
 ---

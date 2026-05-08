@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: PeerExchange owns the gossipPort UDP socket; runs HELLO/REPLY peer advertisement with peer-as-STUN reflection; acts as introducer for synchronized rendezvous; hole-punches by retrying HELLO at 100ms until reply arrives.
 category: core
 ---

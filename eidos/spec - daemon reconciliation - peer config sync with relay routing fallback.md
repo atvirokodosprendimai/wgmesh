@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Every 5 seconds, the daemon builds desired WireGuard peer configs from active peers and applies them; relay routing redirects unreachable peers through an introducer node.
 category: core
 ---
