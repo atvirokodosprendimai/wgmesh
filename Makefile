@@ -1,4 +1,4 @@
-.PHONY: build clean install test test-relay
+.PHONY: build clean install test test-relay lint-eidos
 
 build:
 	go build -o wgmesh
@@ -21,6 +21,9 @@ fmt:
 
 lint:
 	golangci-lint run
+
+lint-eidos:
+	go run ./cmd/eidos-lint/
 
 deps:
 	go mod download
