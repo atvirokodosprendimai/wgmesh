@@ -1,0 +1,11 @@
+scripts/workflows/e2e-verify-close-handler.js
+  ai_agent 11,58-89,220,254,262
+scripts/workflows/e2e-verify-close-handler.test.js
+  ai_agent 29-30,51-54,158-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "7be190ac25bce23db7e03b5728535b9ff28972df",
+  "prompts": {}
+}
