@@ -51,11 +51,6 @@ jobs:
             --description "E2E verifier reported a failure on the merge commit; issue stays open" \
             --color B60205 \
             --force 2>/dev/null || true
-          gh label create e2e-stalled \
-            --repo "${{ github.repository }}" \
-            --description "E2E verifier did not produce a conclusion within the SLA budget" \
-            --color D4C5F9 \
-            --force 2>/dev/null || true
 
       - name: Flip labels by verifier conclusion
         uses: actions/github-script@v8
