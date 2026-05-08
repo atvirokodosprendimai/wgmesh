@@ -1,0 +1,13 @@
+docs/pulse-reports/2026-05-08_20-30.md
+  ai_agent 1-69
+docs/brainstorms/2026-05-08-feature-ledger-pim-requirements.md
+  ai_agent 1-165
+docs/plans/2026-05-08-001-feat-feature-ledger-pim-plan.md
+  ai_agent 1-422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "afa25b062512f71ceeaa479fc0ca86e2ce871671",
+  "prompts": {}
+}
