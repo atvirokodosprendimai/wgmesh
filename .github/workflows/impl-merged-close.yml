@@ -25,7 +25,14 @@ name: Implementation Merged — Close Issue
 #         confirms.
 
 on:
-  pull_request:
+  # pull_request_target instead of pull_request so Copilot-coding-agent
+  # `copilot/*` PRs do not freeze the run in `action_required` during their
+  # draft phase. By the time `closed` + `merged==true` fires, the merge
+  # commit is already on main with maintainer approval, so running the
+  # handler from `merge_commit_sha` under maintainer-context permissions
+  # is the same trust as any post-merge main commit. See #79 (extended
+  # scope: closed-event family).
+  pull_request_target:
     types: [closed]
 
 permissions:

@@ -14,8 +14,11 @@ name: Close resolved issues
 # lifecycle in impl-merged-close.yml + verify-comment-close.yml instead.
 
 on:
-  # Run after PRs are merged
-  pull_request:
+  # pull_request_target so Copilot-coding-agent `copilot/*` PRs do not
+  # freeze the run in `action_required` during their draft phase. Safe
+  # for the closed-merged path: by the time we fire, the merge is on
+  # main and maintainer-approved. See #79 (extended scope).
+  pull_request_target:
     types: [closed]
   # Daily sweep at 06:00 UTC
   schedule:
