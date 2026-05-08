@@ -1,0 +1,11 @@
+scripts/workflows/impl-merged-close-handler.test.js
+  ai_agent 38,48,52,442-459
+scripts/workflows/impl-merged-close-handler.js
+  ai_agent 227-241
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "058b4c0baa02c5f8f6305e6584d33a26a45a5cb2",
+  "prompts": {}
+}
