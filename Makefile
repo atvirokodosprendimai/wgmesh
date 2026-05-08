@@ -1,4 +1,4 @@
-.PHONY: build clean install test test-relay lint-eidos status
+.PHONY: build clean install test test-relay lint-eidos status update-golden
 
 build:
 	go build -o wgmesh
@@ -27,6 +27,9 @@ lint-eidos:
 
 status:
 	go run ./cmd/status-gen/
+
+update-golden:
+	WGMESH_UPDATE_GOLDEN=1 go test .
 
 deps:
 	go mod download

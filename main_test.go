@@ -5,7 +5,22 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+
+	"github.com/rogpeppe/go-internal/testscript"
 )
+
+func TestMain(m *testing.M) {
+	testscript.Main(m, map[string]func(){
+		"wgmesh": main,
+	})
+}
+
+func TestScript(t *testing.T) {
+	testscript.Run(t, testscript.Params{
+		Dir:           "testdata/script",
+		UpdateScripts: os.Getenv("WGMESH_UPDATE_GOLDEN") != "",
+	})
+}
 
 func TestVersionFlag(t *testing.T) {
 	// Build the binary for testing

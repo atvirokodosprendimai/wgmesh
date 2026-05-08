@@ -26,11 +26,15 @@ import (
 // version is set at build time via -ldflags "-X main.version=..."
 var version = "dev"
 
+func versionOutput() string {
+	return "wgmesh version " + version
+}
+
 func main() {
 	// Check for version flags first (--version or -v)
 	for _, arg := range os.Args[1:] {
 		if arg == "--version" || arg == "-v" {
-			fmt.Println("wgmesh " + version)
+			fmt.Println(versionOutput())
 			return
 		}
 	}
@@ -39,7 +43,7 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "version":
-			fmt.Println("wgmesh " + version)
+			fmt.Println(versionOutput())
 			return
 		case "join":
 			joinCmd()
