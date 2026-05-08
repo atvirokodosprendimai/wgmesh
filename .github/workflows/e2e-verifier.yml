@@ -188,7 +188,14 @@ jobs:
         run: |
           source testlab/cloud/lib.sh
           source testlab/cloud/provision.sh
+          # Round-4 fix: per-(PR,tier) sweep first (prefix wgmesh-vfy-pr<N>-t<TIER>),
+          # then a broader cross-PR sweep for the wgmesh-vfy-pr* namespace so
+          # cancelled runs from older PRs (whose specific prefix this matrix
+          # row does not cover) still get reaped via the 30-min age cutoff in
+          # teardown_orphans. The hetzner-integration.yml fallback only sweeps
+          # wgmesh-t* / wgmesh-ci, so without this step verifier VMs leak.
           teardown_orphans || true
+          VM_PREFIX="wgmesh-vfy-pr" teardown_orphans || true
 
       - name: "Run Tier ${{ matrix.tier }} verifier subset"
         id: tests

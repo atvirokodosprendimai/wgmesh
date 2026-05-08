@@ -254,7 +254,11 @@ async function handler({github, context, core}) {
   await removeLabels({
     github, context, core,
     issue_number: issueNumber,
-    candidates: ['awaiting-verification']
+    // Round-4 fix: also remove `verified` so a previously-verified issue
+    // that fails on re-run does not end up labeled both `verified` AND
+    // `e2e-failed` (contradictory state confuses pulse + downstream
+    // automation).
+    candidates: ['awaiting-verification', 'verified']
   });
   if (issue.state === 'closed' && wasVerifierControlled) {
     await github.rest.issues.update({
