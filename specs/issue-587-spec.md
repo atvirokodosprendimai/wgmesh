@@ -61,7 +61,7 @@ In section `## 1. Current Pricing Model`, include a markdown table with these ex
 | Edge Node | $20/mo | 1927e637-4cfd-4c94-8bee-c5518803bc89 | docs/index.html |
 | Mesh Operator | $100/mo | eb20683e-55ea-4354-9d8c-070e55a4eff5 | docs/index.html |
 
-Immediately below the table, add a short note that public listing is in USD while reported MRR in the issue is EUR, so normalization is needed before conversion analysis.
+Immediately below the table, add a short note that public listing is in USD while reported MRR in the issue is EUR, so normalization is needed before conversion analysis. For this document, use a fixed working conversion of `1 USD = 0.92 EUR` for all normalized comparisons (do not mix rates).
 
 ### Task 3: Fill `Customer Distribution Snapshot` with explicit baseline calculations
 
@@ -153,6 +153,8 @@ In section `## 7. 30/60/90-Day Execution Plan`, include:
 End the section with a KPI target line:
 
 - `Target: increase MRR from €4 baseline to at least €15 while maintaining >=5 active subscribers.`
+
+Immediately after the KPI target line, add one rationale sentence explaining that €15 is the minimum milestone showing successful transition from micro-payments to a mixed ladder (supporter + builder conversions), not the long-term ceiling.
 
 ## Affected Files
 
