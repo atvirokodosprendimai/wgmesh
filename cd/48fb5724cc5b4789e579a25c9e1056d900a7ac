@@ -1,0 +1,17 @@
+eidos/eidosmeta/meta.go
+  ai_agent 1-260
+eidos/eidosmeta/meta_test.go
+  ai_agent 1-211
+.github/workflows/status-check.yml
+  ai_agent 1-18
+Makefile
+  ai_agent 1,25-26
+cmd/eidos-lint/main.go
+  ai_agent 1-31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "cd48fb5724cc5b4789e579a25c9e1056d900a7ac",
+  "prompts": {}
+}
