@@ -224,11 +224,21 @@ async function handler({github, context, core}) {
 
   const issueNumber = parseInt(issueMatch[1], 10);
 
-  const { data: issue } = await github.rest.issues.get({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    issue_number: issueNumber
-  });
+  let issue;
+  try {
+    const result = await github.rest.issues.get({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: issueNumber
+    });
+    issue = result.data;
+  } catch (e) {
+    if (e.status === 404) {
+      core.warning(`Issue #${issueNumber} referenced by PR #${pr.number} was not found; skipping close handler.`);
+      return;
+    }
+    throw e;
+  }
 
   const labelNames = labelNamesOf(issue);
 

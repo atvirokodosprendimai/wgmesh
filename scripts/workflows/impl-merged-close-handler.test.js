@@ -35,7 +35,7 @@ function mockCore() {
 
 // makeGithub builds an Octokit-shaped mock. `issuesData` maps issue_number to issue object.
 // `prFiles` is the listFiles return; `contentByRefPath` maps "ref:path" → base64 content.
-function makeGithub({ issuesData = {}, prFiles = [], contentByRefPath = {}, recordCalls = [] } = {}) {
+function makeGithub({ issuesData = {}, prFiles = [], contentByRefPath = {}, issuesGetImpl, recordCalls = [] } = {}) {
   return {
     paginate: async (fn, params) => {
       // The handler calls github.paginate(github.rest.pulls.listFiles, {...}).
@@ -45,11 +45,11 @@ function makeGithub({ issuesData = {}, prFiles = [], contentByRefPath = {}, reco
     },
     rest: {
       issues: {
-        get: async ({ issue_number }) => {
+        get: issuesGetImpl || (async ({ issue_number }) => {
           const issue = issuesData[issue_number];
           if (!issue) throw new Error(`issue ${issue_number} not found`);
           return { data: issue };
-        },
+        }),
         update: async (params) => { recordCalls.push({ kind: 'update', params }); },
         addLabels: async (params) => { recordCalls.push({ kind: 'addLabels', params }); },
         removeLabel: async (params) => { recordCalls.push({ kind: 'removeLabel', params }); },
@@ -437,6 +437,26 @@ test('handler — PR title without Issue #N is no-op', async () => {
   const ctx = makeContext({ pr: { number: 1, title: 'chore: cleanup' } });
   await handler({ github, context: ctx, core });
   assert.strictEqual(recordCalls.length, 0);
+});
+
+test('handler — nonexistent referenced issue exits cleanly on issues.get 404', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesGetImpl: async () => {
+      const e = new Error('not found');
+      e.status = 404;
+      throw e;
+    },
+    recordCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: { number: 999, title: 'impl: Issue #999 - feat: thing', body: '' }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  assert.strictEqual(recordCalls.length, 0, '404 issue lookup should not perform follow-up API writes');
 });
 
 // ---------------------------------------------------------------------------
