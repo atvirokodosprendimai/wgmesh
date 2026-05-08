@@ -1,0 +1,17 @@
+cmd/status-gen/render.go
+  ai_agent 1-116
+Makefile
+  ai_agent 1,28-29
+cmd/status-gen/main.go
+  ai_agent 1-166
+cmd/status-gen/render_test.go
+  ai_agent 1-81
+.github/workflows/status-check.yml
+  ai_agent 19-20
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "a9073219b3b6dc03684ac0ea5f69f58c779b7d7b",
+  "prompts": {}
+}
