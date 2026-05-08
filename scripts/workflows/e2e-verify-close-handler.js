@@ -8,7 +8,7 @@
 //   module.exports = async function handler({github, context, core})
 //
 // `github`  — Octokit-shaped client (must expose
-//             .rest.issues.{get,update,addLabels,removeLabel,createComment},
+//             .rest.issues.{get,update,addLabels,removeLabel,listComments,createComment},
 //             .rest.pulls.get, .rest.repos.getCommit)
 // `context` — Actions-shaped context. Reads .repo.{owner,repo} and
 //             .payload.workflow_run.{conclusion, head_sha, html_url, pull_requests}
@@ -53,6 +53,38 @@ async function removeLabels({github, context, core, issue_number, candidates}) {
       core.warning(`Failed to remove ${stale} label: ${e.message}`);
     }
   }
+}
+
+async function hasCommentForRun({github, context, core, issue_number, runUrl}) {
+  if (!runUrl) return false;
+  try {
+    const { data: comments } = await github.rest.issues.listComments({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number,
+      per_page: 30,
+      sort: 'created',
+      direction: 'desc'
+    });
+    return (comments || []).some(c => typeof c.body === 'string' && c.body.includes(runUrl));
+  } catch (e) {
+    core.warning(`issues.listComments failed for #${issue_number}: ${e.message}`);
+    return false;
+  }
+}
+
+async function createRunCommentOnce({github, context, core, issue_number, runUrl, body}) {
+  const alreadyPosted = await hasCommentForRun({github, context, core, issue_number, runUrl});
+  if (alreadyPosted) {
+    core.info(`Skipping duplicate verifier comment for #${issue_number}: ${runUrl}`);
+    return;
+  }
+  await github.rest.issues.createComment({
+    owner: context.repo.owner,
+    repo: context.repo.repo,
+    issue_number,
+    body
+  });
 }
 
 // resolvePullRequest — pull the PR object from the workflow_run payload's
@@ -185,12 +217,7 @@ async function handler({github, context, core}) {
       ``,
       `_Closed automatically by e2e-verify-close.yml. Policy lives in \`.github/workflows/e2e-verify-close.yml\`._`
     ].join('\n');
-    await github.rest.issues.createComment({
-      owner: context.repo.owner,
-      repo: context.repo.repo,
-      issue_number: issueNumber,
-      body: successBody
-    });
+    await createRunCommentOnce({github, context, core, issue_number: issueNumber, runUrl, body: successBody});
     return;
   }
 
@@ -224,12 +251,7 @@ async function handler({github, context, core}) {
     ``,
     `_Reopened (if it was closed) by e2e-verify-close.yml. Re-running the verifier on the same SHA flips back to \`verified\` on success._`
   ].join('\n');
-  await github.rest.issues.createComment({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    issue_number: issueNumber,
-    body: failureBody
-  });
+  await createRunCommentOnce({github, context, core, issue_number: issueNumber, runUrl, body: failureBody});
 }
 
 module.exports = handler;
@@ -237,3 +259,4 @@ module.exports = handler;
 module.exports.extractIssueNumber = extractIssueNumber;
 module.exports.resolvePullRequest = resolvePullRequest;
 module.exports.removeLabels = removeLabels;
+module.exports.hasCommentForRun = hasCommentForRun;

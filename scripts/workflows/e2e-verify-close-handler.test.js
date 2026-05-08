@@ -26,6 +26,8 @@ function makeGithub({
   issuesData = {},
   pullsData = {},
   commitMessageBySha = {},
+  commentsData = {},
+  listCommentsImpl,
   recordCalls = []
 } = {}) {
   return {
@@ -46,6 +48,10 @@ function makeGithub({
           recordCalls.push({ kind: 'removeLabel', params });
           // Default: succeed. Tests that need 404 wire that into a custom mock.
         },
+        listComments: listCommentsImpl || (async (params) => {
+          recordCalls.push({ kind: 'listComments', params });
+          return { data: commentsData[params.issue_number] || [] };
+        }),
         createComment: async (params) => { recordCalls.push({ kind: 'createComment', params }); }
       },
       pulls: {
@@ -147,6 +153,92 @@ test('handler — workflow_run success closes issue, adds verified, removes awai
   assert.strictEqual(updates[0].params.state, 'closed');
   assert.ok(comments[0].params.body.includes('https://github.com/o/r/actions/runs/100'),
     'comment must include run URL');
+});
+
+test('handler — workflow_run success first run posts verifier comment', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      556: { number: 556, state: 'open', labels: [{ name: 'awaiting-verification' }] }
+    },
+    pullsData: {
+      564: { number: 564, title: 'impl: Issue #556 - relay flap fix' }
+    },
+    commentsData: { 556: [] },
+    recordCalls
+  });
+  const ctx = makeContext({
+    workflowRun: {
+      conclusion: 'success',
+      html_url: 'https://github.com/o/r/actions/runs/101',
+      pull_requests: [{ number: 564 }]
+    }
+  });
+
+  await handler({ github, context: ctx, core: mockCore() });
+
+  const listComments = recordCalls.filter(c => c.kind === 'listComments');
+  const comments = recordCalls.filter(c => c.kind === 'createComment');
+  assert.strictEqual(listComments.length, 1, 'must check recent comments before posting');
+  assert.strictEqual(comments.length, 1, 'first run should post one verifier comment');
+  assert.ok(comments[0].params.body.includes('https://github.com/o/r/actions/runs/101'));
+});
+
+test('handler — workflow_run replay with existing run URL skips duplicate comment', async () => {
+  const recordCalls = [];
+  const runUrl = 'https://github.com/o/r/actions/runs/102';
+  const github = makeGithub({
+    issuesData: {
+      556: { number: 556, state: 'closed', labels: [{ name: 'verified' }] }
+    },
+    pullsData: {
+      564: { number: 564, title: 'impl: Issue #556 - relay flap fix' }
+    },
+    commentsData: {
+      556: [{ body: `Already handled by verifier run ${runUrl}` }]
+    },
+    recordCalls
+  });
+  const ctx = makeContext({
+    workflowRun: {
+      conclusion: 'success',
+      html_url: runUrl,
+      pull_requests: [{ number: 564 }]
+    }
+  });
+
+  await handler({ github, context: ctx, core: mockCore() });
+
+  assert.strictEqual(recordCalls.filter(c => c.kind === 'createComment').length, 0,
+    'replayed workflow_run should not post a second comment for the same run URL');
+});
+
+test('handler — listComments failure falls through and posts verifier comment', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      556: { number: 556, state: 'open', labels: [{ name: 'awaiting-verification' }] }
+    },
+    pullsData: {
+      564: { number: 564, title: 'impl: Issue #556 - relay flap fix' }
+    },
+    listCommentsImpl: async () => {
+      throw new Error('comments unavailable');
+    },
+    recordCalls
+  });
+  const ctx = makeContext({
+    workflowRun: {
+      conclusion: 'failure',
+      html_url: 'https://github.com/o/r/actions/runs/103',
+      pull_requests: [{ number: 564 }]
+    }
+  });
+
+  await handler({ github, context: ctx, core: mockCore() });
+
+  assert.strictEqual(recordCalls.filter(c => c.kind === 'createComment').length, 1,
+    'comment listing errors should not suppress verifier comments');
 });
 
 // ---------------------------------------------------------------------------
