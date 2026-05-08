@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
 const (
@@ -24,20 +25,22 @@ const (
 
 // Config holds all derived configuration for the mesh daemon
 type Config struct {
-	Secret          string
-	Keys            *crypto.DerivedKeys
-	InterfaceName   string
-	WGListenPort    int
-	AdvertiseRoutes []string
-	LogLevel        string
-	Privacy         bool
-	Gossip          bool
-	LANDiscovery    bool
-	Introducer      bool
-	DisableIPv6     bool
-	ForceRelay      bool
-	DisablePunching bool
-	CustomSubnet    *net.IPNet // User-specified mesh subnet (nil = use derived)
+	Secret             string
+	Keys               *crypto.DerivedKeys
+	InterfaceName      string
+	WGListenPort       int
+	AdvertiseRoutes    []string
+	LogLevel           string
+	Privacy            bool
+	Gossip             bool
+	LANDiscovery       bool
+	Introducer         bool
+	DisableIPv6        bool
+	ForceRelay         bool
+	DisablePunching    bool
+	CustomSubnet       *net.IPNet // User-specified mesh subnet (nil = use derived)
+	OverridePrivateKey string     // Override WireGuard private key (base64)
+	OverridePublicKey  string     // Override WireGuard public key (base64)
 }
 
 // DaemonOpts holds options for the daemon
@@ -55,6 +58,8 @@ type DaemonOpts struct {
 	ForceRelay          bool
 	DisablePunching     bool
 	MeshSubnet          string // Custom mesh subnet CIDR (e.g. "192.168.100.0/24")
+	PrivateKey          string // WireGuard private key (base64); overrides auto-generation
+	PublicKey           string // WireGuard public key (base64); derived from PrivateKey if empty
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -117,21 +122,49 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		}
 	}
 
+	// Validate and resolve the override WireGuard keypair when provided.
+	var overridePrivKey, overridePubKey string
+	if opts.PrivateKey != "" {
+		overridePrivKey = strings.TrimSpace(opts.PrivateKey)
+		if overridePrivKey == "" {
+			return nil, fmt.Errorf("private key is empty after trimming whitespace")
+		}
+		if opts.PublicKey != "" {
+			overridePubKey = strings.TrimSpace(opts.PublicKey)
+			// Derive expected public key and compare to guard against mismatches.
+			derived, err := wireguard.DerivePublicKey(overridePrivKey)
+			if err != nil {
+				return nil, fmt.Errorf("validating private key: %w", err)
+			}
+			if derived != overridePubKey {
+				return nil, fmt.Errorf("public key does not match private key")
+			}
+		} else {
+			var err error
+			overridePubKey, err = wireguard.DerivePublicKey(overridePrivKey)
+			if err != nil {
+				return nil, fmt.Errorf("deriving public key from private key: %w", err)
+			}
+		}
+	}
+
 	return &Config{
-		Secret:          secret,
-		Keys:            keys,
-		InterfaceName:   ifaceName,
-		WGListenPort:    listenPort,
-		AdvertiseRoutes: opts.AdvertiseRoutes,
-		LogLevel:        logLevel,
-		Privacy:         opts.Privacy,
-		Gossip:          opts.Gossip,
-		LANDiscovery:    !opts.DisableLANDiscovery,
-		Introducer:      opts.Introducer,
-		DisableIPv6:     opts.DisableIPv6,
-		ForceRelay:      opts.ForceRelay,
-		DisablePunching: opts.DisablePunching,
-		CustomSubnet:    customSubnet,
+		Secret:             secret,
+		Keys:               keys,
+		InterfaceName:      ifaceName,
+		WGListenPort:       listenPort,
+		AdvertiseRoutes:    opts.AdvertiseRoutes,
+		LogLevel:           logLevel,
+		Privacy:            opts.Privacy,
+		Gossip:             opts.Gossip,
+		LANDiscovery:       !opts.DisableLANDiscovery,
+		Introducer:         opts.Introducer,
+		DisableIPv6:        opts.DisableIPv6,
+		ForceRelay:         opts.ForceRelay,
+		DisablePunching:    opts.DisablePunching,
+		CustomSubnet:       customSubnet,
+		OverridePrivateKey: overridePrivKey,
+		OverridePublicKey:  overridePubKey,
 	}, nil
 }
 

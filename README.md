@@ -139,8 +139,14 @@ wgmesh join \
   --listen-port 51820 \
   --interface wg0 \
   --log-level debug \
-  --gossip
+  --gossip \
+  --private-key /etc/wgmesh/node.key \
+  --public-key  /etc/wgmesh/node.pub
 ```
+
+> **Note:** `--private-key` and `--public-key` are optional.  Use them when you
+> manage WireGuard node identities externally (e.g., via a PKI or key management
+> system).  If omitted, the daemon generates and persists a keypair automatically.
 
 ### Centralized Mode (SSH Deployment)
 

@@ -292,6 +292,8 @@ func joinCmd() {
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	pprofAddr := fs.String("pprof", "", "Enable pprof HTTP server (e.g. localhost:6060)")
 	metricsAddr := fs.String("metrics", "", "Enable Prometheus metrics server (e.g. :9090)")
+	privateKeyFile := fs.String("private-key", "", "Path to file containing WireGuard private key (base64); omit to auto-generate")
+	publicKeyFile := fs.String("public-key", "", "Path to file containing WireGuard public key (base64); derived from --private-key if omitted")
 	fs.Parse(os.Args[2:])
 
 	// If secret not provided via flag, try environment variables
@@ -319,6 +321,25 @@ func joinCmd() {
 	// Save account API key if provided
 	handleAccountFlag(*stateDir, *account)
 
+	// Read WireGuard keypair from files if provided.
+	var privateKeyContent, publicKeyContent string
+	if *privateKeyFile != "" {
+		b, err := os.ReadFile(*privateKeyFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading private key file %s: %v\n", *privateKeyFile, err)
+			os.Exit(1)
+		}
+		privateKeyContent = strings.TrimSpace(string(b))
+	}
+	if *publicKeyFile != "" {
+		b, err := os.ReadFile(*publicKeyFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading public key file %s: %v\n", *publicKeyFile, err)
+			os.Exit(1)
+		}
+		publicKeyContent = strings.TrimSpace(string(b))
+	}
+
 	// Parse advertise routes
 	var routes []string
 	if *advertiseRoutes != "" {
@@ -343,6 +364,8 @@ func joinCmd() {
 		DisablePunching:     *noPunching,
 		Introducer:          *introducerMode,
 		MeshSubnet:          *meshSubnet,
+		PrivateKey:          privateKeyContent,
+		PublicKey:           publicKeyContent,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create config: %v\n", err)
@@ -686,6 +709,8 @@ func installServiceCmd() {
 	noPunching := fs.Bool("no-punching", false, "Disable NAT port punching/rendezvous")
 	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
+	privateKeyFile := fs.String("private-key", "", "Path to file containing WireGuard private key (base64)")
+	publicKeyFile := fs.String("public-key", "", "Path to file containing WireGuard public key (base64); derived if omitted")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -718,6 +743,8 @@ func installServiceCmd() {
 		DisablePunching:     *noPunching,
 		Introducer:          *introducerMode,
 		MeshSubnet:          *meshSubnet,
+		PrivateKeyFile:      *privateKeyFile,
+		PublicKeyFile:       *publicKeyFile,
 	}
 
 	fmt.Println("Installing wgmesh systemd service...")

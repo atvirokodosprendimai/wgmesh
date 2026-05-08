@@ -52,6 +52,8 @@ type SystemdServiceConfig struct {
 	DisablePunching     bool
 	Introducer          bool
 	MeshSubnet          string
+	PrivateKeyFile      string // Path to WireGuard private key file, forwarded as --private-key
+	PublicKeyFile       string // Path to WireGuard public key file, forwarded as --public-key
 	BinaryPath          string
 }
 
@@ -105,6 +107,12 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	}
 	if cfg.MeshSubnet != "" {
 		args = append(args, "--mesh-subnet", cfg.MeshSubnet)
+	}
+	if cfg.PrivateKeyFile != "" {
+		args = append(args, "--private-key", shellQuoteSystemd(cfg.PrivateKeyFile))
+	}
+	if cfg.PublicKeyFile != "" {
+		args = append(args, "--public-key", shellQuoteSystemd(cfg.PublicKeyFile))
 	}
 
 	data := struct {

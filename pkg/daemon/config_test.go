@@ -4,6 +4,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
 const testConfigSecret = "wgmesh-test-secret-long-enough-for-key-derivation"
@@ -175,5 +177,71 @@ func TestGenerateSecret(t *testing.T) {
 	}
 	if secret == secret2 {
 		t.Error("GenerateSecret() returned identical secrets on two consecutive calls")
+	}
+}
+
+func TestNewConfig_OverrideKeypair(t *testing.T) {
+	// Requires wg binary; skip gracefully if unavailable.
+	priv, pub, err := wireguard.GenerateKeyPair()
+	if err != nil {
+		t.Skipf("wg binary not available: %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		privKey    string
+		pubKey     string
+		wantErrStr string
+	}{
+		{
+			name:    "private key only — public key derived",
+			privKey: priv,
+			pubKey:  "",
+		},
+		{
+			name:    "both keys match",
+			privKey: priv,
+			pubKey:  pub,
+		},
+		{
+			name:       "public key mismatch",
+			privKey:    priv,
+			pubKey:     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=", // wrong
+			wantErrStr: "public key does not match private key",
+		},
+		{
+			name:       "empty private key after trim",
+			privKey:    "   ",
+			pubKey:     "",
+			wantErrStr: "private key is empty after trimming whitespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := NewConfig(DaemonOpts{
+				Secret:     testConfigSecret,
+				PrivateKey: tt.privKey,
+				PublicKey:  tt.pubKey,
+			})
+			if tt.wantErrStr != "" {
+				if err == nil {
+					t.Fatalf("NewConfig() expected error containing %q, got nil", tt.wantErrStr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrStr) {
+					t.Fatalf("NewConfig() error = %q, want to contain %q", err.Error(), tt.wantErrStr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("NewConfig() unexpected error: %v", err)
+			}
+			if cfg.OverridePrivateKey != strings.TrimSpace(tt.privKey) {
+				t.Errorf("cfg.OverridePrivateKey = %q, want %q", cfg.OverridePrivateKey, strings.TrimSpace(tt.privKey))
+			}
+			if cfg.OverridePublicKey != pub {
+				t.Errorf("cfg.OverridePublicKey = %q, want %q", cfg.OverridePublicKey, pub)
+			}
+		})
 	}
 }

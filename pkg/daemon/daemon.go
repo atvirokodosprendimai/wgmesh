@@ -332,6 +332,16 @@ func (d *Daemon) initLocalNode() error {
 	if err == nil && node != nil {
 		d.localNode = node
 
+		// If an override keypair was provided at startup, always use it — even if
+		// the state file already has a different keypair (supports key rotation).
+		if d.config.OverridePrivateKey != "" {
+			d.localNode.WGPrivateKey = d.config.OverridePrivateKey
+			d.localNode.WGPubKey = d.config.OverridePublicKey
+			// Force re-derivation of mesh IP because the public key changed.
+			d.localNode.MeshIP = ""
+			d.localNode.MeshIPv6 = ""
+		}
+
 		// Use the persisted mesh IP when it is present and falls within the
 		// expected subnet. Re-derive only when the field is absent (old state
 		// file) or the configured subnet has changed.
@@ -369,10 +379,17 @@ func (d *Daemon) initLocalNode() error {
 		return nil
 	}
 
-	// Generate new keypair
-	privateKey, publicKey, err := wireguard.GenerateKeyPair()
-	if err != nil {
-		return fmt.Errorf("failed to generate keypair: %w", err)
+	// Use override keypair if provided; otherwise generate a new one.
+	var privateKey, publicKey string
+	if d.config.OverridePrivateKey != "" {
+		privateKey = d.config.OverridePrivateKey
+		publicKey = d.config.OverridePublicKey
+	} else {
+		var err error
+		privateKey, publicKey, err = wireguard.GenerateKeyPair()
+		if err != nil {
+			return fmt.Errorf("failed to generate keypair: %w", err)
+		}
 	}
 
 	// Derive mesh IP from public key

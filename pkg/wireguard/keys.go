@@ -33,3 +33,17 @@ func GenerateKeyPair() (privateKey, publicKey string, err error) {
 
 	return privateKey, publicKey, nil
 }
+
+// DerivePublicKey derives the WireGuard public key from a private key using
+// the `wg pubkey` command.  privateKey must be a trimmed base64 string (44
+// characters for a 32-byte Curve25519 key).
+func DerivePublicKey(privateKey string) (string, error) {
+	cmd := exec.Command(wgPath, "pubkey")
+	cmd.Stdin = strings.NewReader(privateKey + "\n")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("failed to derive public key: %w", err)
+	}
+	return strings.TrimSpace(out.String()), nil
+}
