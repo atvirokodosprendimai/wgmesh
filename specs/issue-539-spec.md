@@ -93,19 +93,27 @@ type Config struct {
 }
 ```
 
-In `NewConfig`, after the existing field assignments, add:
+In `NewConfig`, add the following validation block **before** the `return &Config{...}` literal
+(i.e. after the `customSubnet` validation block and before the `return` statement), and then
+add the two fields to the returned struct literal:
 
 ```go
+	// Validate TunFd options before building the Config.
 	if opts.TunFd != 0 {
 		if len(opts.TunPrivateKey) != 32 {
 			return nil, fmt.Errorf("TunPrivateKey must be exactly 32 bytes when TunFd is set")
 		}
-		cfg.TunFd = opts.TunFd
-		cfg.TunPrivateKey = opts.TunPrivateKey
 	}
+
+	return &Config{
+		// ... all existing fields unchanged ...
+		TunFd:         opts.TunFd,
+		TunPrivateKey: opts.TunPrivateKey,
+	}, nil
 ```
 
-(place this block just before the `return &Config{...}` call, inside `NewConfig`)
+Replace the existing `return &Config{...}, nil` statement with the version above that
+includes the two new fields. All other fields in the literal remain unchanged.
 
 ### Task 2: Add `isTunFdMode()` helper and modify `setupWireGuard` in `pkg/daemon/daemon.go`
 
@@ -189,6 +197,8 @@ Add the new `setupWireGuardFromFd` method to `pkg/daemon/daemon.go`:
 // setupWireGuardFromFd configures the WireGuard stack using a pre-existing TUN fd
 // (returned by Android VPN Service). It stores the supplied private key in
 // localNode so the reconcile loop can configure peers normally.
+// Must be called only from the daemon goroutine before the reconcile loop
+// starts (no concurrent localNode access at that point).
 func (d *Daemon) setupWireGuardFromFd() error {
 	if len(d.config.TunPrivateKey) != 32 {
 		return fmt.Errorf("setupWireGuardFromFd: TunPrivateKey must be 32 bytes")
@@ -197,7 +207,10 @@ func (d *Daemon) setupWireGuardFromFd() error {
 	// Encode the raw key as base64 (WireGuard standard encoding).
 	privKeyB64 := base64.StdEncoding.EncodeToString(d.config.TunPrivateKey)
 
-	// Store the key so initLocalNode / reconcile can read it.
+	// localNode is initialised by initLocalNode before setupWireGuard is called.
+	// If for any reason it is nil (e.g. in unit tests), create a minimal struct.
+	// No mutex is needed here because setupWireGuard is called sequentially
+	// during daemon startup, before the reconcile goroutines are launched.
 	if d.localNode == nil {
 		d.localNode = &LocalNode{}
 	}
