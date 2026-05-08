@@ -56,12 +56,12 @@ added at its start to remove the stale `copilot-triaging` label on the `reopened
     triage:
       if: github.event.label.name == 'needs-triage'
   ```
-  Replace the `if:` line with the following multi-line expression (YAML block scalar so the
-  logical `||` is readable):
+  Replace the `if:` line with the following multi-line expression. Use the `>-` folded-stripped
+  scalar so GitHub Actions receives a single-line expression with no trailing newline:
   ```yaml
   jobs:
     triage:
-      if: |
+      if: >-
         (github.event.action == 'labeled' && github.event.label.name == 'needs-triage')
         || github.event.action == 'reopened'
   ```
