@@ -759,12 +759,12 @@ test('L4 — pkg/daemon/relay.go + pkg/daemon/relay_integration_test.go → L4 p
     { filename: 'pkg/daemon/relay.go', status: 'modified' },
     { filename: 'pkg/daemon/relay_integration_test.go', status: 'added' }
   ];
-  const networkTouched = touchesNetworkPaths(prFiles);
+  const l4Applicable = touchesNetworkPaths(prFiles);
   const integrationTestPresent = hasIntegrationTest(prFiles);
-  assert.strictEqual(networkTouched, true);
+  assert.strictEqual(l4Applicable, true);
   assert.strictEqual(integrationTestPresent, true);
-  // l4Passes = !networkTouched || integrationTestPresent
-  assert.strictEqual(!networkTouched || integrationTestPresent, true);
+  const l4Passes = !l4Applicable || integrationTestPresent;
+  assert.strictEqual(l4Passes, true);
 });
 
 test('L4 — cmd/main.go + cmd/main_test.go → L4 not applicable (no network touch)', () => {
@@ -772,9 +772,9 @@ test('L4 — cmd/main.go + cmd/main_test.go → L4 not applicable (no network to
     { filename: 'cmd/main.go', status: 'modified' },
     { filename: 'cmd/main_test.go', status: 'added' }
   ];
-  const networkTouched = touchesNetworkPaths(prFiles);
-  assert.strictEqual(networkTouched, false);
-  assert.strictEqual(!networkTouched || hasIntegrationTest(prFiles), true);
+  const l4Applicable = touchesNetworkPaths(prFiles);
+  assert.strictEqual(l4Applicable, false);
+  assert.strictEqual(!l4Applicable || hasIntegrationTest(prFiles), true);
 });
 
 test('L4 — pkg/discovery/lan.go + pkg/discovery/lan_test.go (unit) → L4 fails', () => {
@@ -782,11 +782,11 @@ test('L4 — pkg/discovery/lan.go + pkg/discovery/lan_test.go (unit) → L4 fail
     { filename: 'pkg/discovery/lan.go', status: 'modified' },
     { filename: 'pkg/discovery/lan_test.go', status: 'added' }
   ];
-  const networkTouched = touchesNetworkPaths(prFiles);
+  const l4Applicable = touchesNetworkPaths(prFiles);
   const integrationTestPresent = hasIntegrationTest(prFiles);
-  assert.strictEqual(networkTouched, true);
+  assert.strictEqual(l4Applicable, true);
   assert.strictEqual(integrationTestPresent, false);
-  assert.strictEqual(!networkTouched || integrationTestPresent, false, 'L4 must fail');
+  assert.strictEqual(!l4Applicable || integrationTestPresent, false, 'L4 must fail');
 });
 
 test('L4 — pkg/rpc/server.go + pkg/discovery/exchange_integration_test.go → L4 passes (cross-package OK)', () => {
@@ -800,9 +800,9 @@ test('L4 — pkg/rpc/server.go + pkg/discovery/exchange_integration_test.go → 
 
 test('L4 — empty prFiles → L4 not applicable, gate proceeds (other gates may still fail)', () => {
   const prFiles = [];
-  const networkTouched = touchesNetworkPaths(prFiles);
-  assert.strictEqual(networkTouched, false);
-  assert.strictEqual(!networkTouched || hasIntegrationTest(prFiles), true);
+  const l4Applicable = touchesNetworkPaths(prFiles);
+  assert.strictEqual(l4Applicable, false);
+  assert.strictEqual(!l4Applicable || hasIntegrationTest(prFiles), true);
 });
 
 test('handler — bug touching pkg/daemon/ with only unit test fails L4 → awaiting-tests + L4 in comment', async () => {

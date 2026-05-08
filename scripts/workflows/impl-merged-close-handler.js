@@ -300,9 +300,9 @@ async function handler({github, context, core}) {
   // PRs that don't touch network paths skip L4 entirely — the gate is
   // scoped to the bug classes that predicate-only unit tests cannot
   // reproduce (relay-flap, hole-punch, NAT traversal, peer discovery).
-  const networkTouched = touchesNetworkPaths(prFiles);
+  const l4Applicable = touchesNetworkPaths(prFiles);
   const integrationTestPresent = hasIntegrationTest(prFiles);
-  const l4Passes = !networkTouched || integrationTestPresent;
+  const l4Passes = !l4Applicable || integrationTestPresent;
 
   if (!l2Passes || !hasKeywordMatch || !l4Passes) {
     const failedGates = [];
@@ -314,7 +314,7 @@ async function handler({github, context, core}) {
         failedGates.push(`L3 — none of the reproduction tokens (\`${reproTokens.slice(0, 8).join('`, `')}\`...) appear in the new test names or PR description`);
       }
     }
-    if (!l4Passes) {
+    if (l4Applicable && !l4Passes) {
       failedGates.push('L4 — PR touches `pkg/{daemon,discovery,rpc}/` and must add at least one `*_integration_test.go` file in the same diff (predicate-only unit tests cannot reproduce relay-flap, hole-punch, NAT-traversal, or peer-discovery bug classes)');
     }
 
