@@ -1,0 +1,9 @@
+.github/workflows/e2e-verifier.yml
+  ai_agent 266-267,272,301-306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "e5522f8999049dfcf68efd76e43ff68e27bca4a0",
+  "prompts": {}
+}
