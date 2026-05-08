@@ -101,12 +101,15 @@ async function fetchFileFuncs({github, core, context, path, ref}) {
   }
 }
 
-// touchesNetworkPaths — true if the PR diff modifies a non-removed file
-// whose path lives under one of the network-path prefixes (`pkg/daemon/`,
-// `pkg/discovery/`, `pkg/rpc/`).
+// touchesNetworkPaths — true if the PR diff includes any file (added,
+// modified, renamed, OR removed) whose path lives under one of the
+// network-path prefixes (`pkg/daemon/`, `pkg/discovery/`, `pkg/rpc/`).
+// Note: removed files are still a network-path touch — deleting code
+// under those prefixes is a meaningful change that belongs inside the
+// L4 gate.
 function touchesNetworkPaths(prFiles) {
   return (prFiles || []).some(f => {
-    if (!f || f.status === 'removed') return false;
+    if (!f) return false;
     return NETWORK_PATH_PREFIXES.some(prefix =>
       (f.filename && f.filename.startsWith(prefix)) ||
       (f.previous_filename && f.previous_filename.startsWith(prefix))

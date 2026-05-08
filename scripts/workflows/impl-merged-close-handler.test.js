@@ -714,10 +714,14 @@ test('touchesNetworkPaths — false on non-network paths', () => {
   ]), false);
 });
 
-test('touchesNetworkPaths — removed files do not count', () => {
+test('touchesNetworkPaths — removed files under network path DO count (delete-bypass guard)', () => {
+  // Round-3 fix: deleting a file under pkg/{daemon,discovery,rpc}/ is a
+  // meaningful network-path change and must stay inside the L4 gate.
+  // Previously this returned false, allowing a delete-only PR to bypass
+  // the integration-test requirement.
   assert.strictEqual(touchesNetworkPaths([
     { filename: 'pkg/daemon/relay.go', status: 'removed' }
-  ]), false);
+  ]), true);
 });
 
 test('touchesNetworkPaths — empty array returns false', () => {
@@ -931,5 +935,17 @@ test('touchesNetworkPaths — modified network path still counts filename', () =
 test('touchesNetworkPaths — modified non-network path stays false', () => {
   assert.strictEqual(touchesNetworkPaths([
     { filename: 'pkg/util/x.go', status: 'modified' }
+  ]), false);
+});
+
+test('touchesNetworkPaths — removed file under network path counts (delete-bypass guard)', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/daemon/old.go', status: 'removed' }
+  ]), true);
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/discovery/peers.go', status: 'removed' }
+  ]), true);
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/util/helper.go', status: 'removed' }
   ]), false);
 });

@@ -28,9 +28,8 @@ on:
         required: false
         default: ''
       pr_number:
-        description: 'PR number to correlate with the verifier conclusion (required for the closer)'
-        required: false
-        default: ''
+        description: 'PR number to correlate with the verifier conclusion'
+        required: true
       tiers:
         description: 'Test tiers to run (comma-separated). Default 1,2,4 — the per-merge subset.'
         required: false

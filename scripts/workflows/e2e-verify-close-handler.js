@@ -122,7 +122,13 @@ async function resolvePullRequest({github, context, core, workflowRun}) {
       ref: workflowRun.head_sha
     });
     const message = (commit.commit && commit.commit.message) || '';
-    const issueMatch = message.match(/Issue #(\d+)/);
+    // Prefer line-anchored references (subject line or any line starting
+    // with "Issue #N") over substring matches. This catches both the
+    // `impl: Issue #N - …` convention and dedicated `Issue #N` lines in
+    // merge-commit bodies, but avoids mis-associating mid-paragraph
+    // mentions like "see Issue #42 for context".
+    const anchoredMatch = message.match(/^Issue #(\d+)/m);
+    const issueMatch = anchoredMatch || message.match(/Issue #(\d+)/);
     if (issueMatch) {
       // Synthesize a prTitle that surfaces the Issue #N reference even
       // when it lives in the commit body (e.g., merge commits whose
@@ -188,12 +194,17 @@ async function handler({github, context, core}) {
   }
 
   // Capture verifier-controlled-state snapshot BEFORE we mutate labels
-  // below. If the issue was closed by something other than this workflow
-  // (e.g., reporter via verify-comment-close.yml) it will not have
-  // `awaiting-verification` at this point and we must not reopen it.
-  const wasAwaitingVerification = (issue.labels || []).some(l => {
+  // below. The issue is verifier-controlled if any of the workflow's
+  // markers are present — including `verified` (already passed once)
+  // and `e2e-failed` (already failed once). This lets a re-run of the
+  // verifier on the same SHA correctly reopen a previously-verified
+  // issue when the rerun fails. If none of the markers are present,
+  // the issue is owned by something else (e.g., reporter close via
+  // verify-comment-close.yml) and we must not reopen.
+  const VERIFIER_CONTROLLED_LABELS = ['awaiting-verification', 'verified', 'e2e-failed'];
+  const wasVerifierControlled = (issue.labels || []).some(l => {
     const name = typeof l === 'string' ? l : (l && l.name);
-    return name === 'awaiting-verification';
+    return VERIFIER_CONTROLLED_LABELS.includes(name);
   });
 
   const prRef = resolved.prNumber ? `PR #${resolved.prNumber}` : `commit ${workflowRun.head_sha || 'unknown'}`;
@@ -245,7 +256,7 @@ async function handler({github, context, core}) {
     issue_number: issueNumber,
     candidates: ['awaiting-verification']
   });
-  if (issue.state === 'closed' && wasAwaitingVerification) {
+  if (issue.state === 'closed' && wasVerifierControlled) {
     await github.rest.issues.update({
       owner: context.repo.owner,
       repo: context.repo.repo,
@@ -254,8 +265,9 @@ async function handler({github, context, core}) {
     });
   } else if (issue.state === 'closed') {
     core.info(
-      `Issue #${issueNumber} is closed but does not have awaiting-verification; ` +
-      `skipping reopen to avoid racing a reporter-driven close.`
+      `Issue #${issueNumber} is closed without any verifier-controlled label ` +
+      `(awaiting-verification/verified/e2e-failed); skipping reopen to avoid ` +
+      `racing a reporter-driven close.`
     );
   }
   const failureBody = [

@@ -536,12 +536,16 @@ test('handler — failure on closed issue with awaiting-verification reopens', a
     'closed verifier-controlled issue must be reopened');
 });
 
-test('handler — failure on reporter-closed issue without awaiting-verification skips reopen', async () => {
+test('handler — failure on reporter-closed issue without verifier label skips reopen', async () => {
+  // Round-3 fix: verifier-controlled snapshot widened from
+  // awaiting-verification only to {awaiting-verification, verified,
+  // e2e-failed}. Use a label outside that set to model a reporter-driven
+  // close (e.g., labels added manually or by another workflow).
   const recordCalls = [];
   const infoCalls = [];
   const github = makeGithub({
     issuesData: {
-      556: { number: 556, state: 'closed', labels: ['e2e-failed'] }
+      556: { number: 556, state: 'closed', labels: ['type: bug'] }
     },
     pullsData: {
       564: { number: 564, title: 'impl: Issue #556 - relay flap fix' }
@@ -565,4 +569,101 @@ test('handler — failure on reporter-closed issue without awaiting-verification
     'closed reporter-driven issue must not be reopened');
   assert.ok(infoCalls.some(msg => msg.includes('skipping reopen')),
     'must log why the closed issue was not reopened');
+});
+
+test('handler — failure on closed verified issue (re-run on verified SHA) reopens', async () => {
+  // Round-3 fix: re-running the verifier on a previously-verified SHA
+  // and getting a failure should reopen the issue, even though
+  // `awaiting-verification` was already removed by the prior success.
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      556: { number: 556, state: 'closed', labels: ['verified'] }
+    },
+    pullsData: {
+      564: { number: 564, title: 'impl: Issue #556 - relay flap fix' }
+    },
+    recordCalls
+  });
+  const ctx = makeContext({
+    workflowRun: {
+      conclusion: 'failure',
+      pull_requests: [{ number: 564 }]
+    }
+  });
+
+  await handler({ github, context: ctx, core: mockCore() });
+
+  assert.ok(recordCalls.some(c => c.kind === 'update' && c.params.state === 'open'),
+    'previously-verified issue must reopen on re-run failure');
+});
+
+test('handler — failure on closed e2e-failed issue (retry confirms failure) reopens', async () => {
+  // Round-3 fix: e2e-failed is also a verifier-controlled marker.
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      556: { number: 556, state: 'closed', labels: ['e2e-failed'] }
+    },
+    pullsData: {
+      564: { number: 564, title: 'impl: Issue #556 - relay flap fix' }
+    },
+    recordCalls
+  });
+  const ctx = makeContext({
+    workflowRun: {
+      conclusion: 'failure',
+      pull_requests: [{ number: 564 }]
+    }
+  });
+
+  await handler({ github, context: ctx, core: mockCore() });
+
+  assert.ok(recordCalls.some(c => c.kind === 'update' && c.params.state === 'open'),
+    'previously e2e-failed closed issue must reopen on retry failure');
+});
+
+test('resolvePullRequest — line-anchored Issue #N prevails over mid-paragraph mention', async () => {
+  // Round-3 fix: prefer ^Issue #N (line-anchored) before substring scan
+  // to avoid mis-associating "see Issue #42" mid-paragraph mentions.
+  const github = makeGithub({
+    commitMessageBySha: {
+      sha777: 'Refactor relay code\n\nThis touches the area mentioned in Issue #42 docs,\nbut the actual fix is for:\nIssue #555 — relay drop on hole-punch'
+    }
+  });
+  const ctx = makeContext({
+    workflowRun: { head_sha: 'sha777', pull_requests: [] }
+  });
+
+  const resolved = await resolvePullRequest({
+    github,
+    context: ctx,
+    core: mockCore(),
+    workflowRun: ctx.payload.workflow_run
+  });
+
+  assert.deepStrictEqual(resolved, { prNumber: null, prTitle: 'Issue #555' });
+  assert.strictEqual(extractIssueNumber(resolved.prTitle), 555);
+});
+
+test('resolvePullRequest — substring fallback still works when no line-anchored match', async () => {
+  // Round-3 regression cover: if there is no line-anchored Issue #N,
+  // the substring fallback preserves backwards compat.
+  const github = makeGithub({
+    commitMessageBySha: {
+      sha888: 'Random subject line\n\nFixed the bug from Issue #777 buried mid-paragraph'
+    }
+  });
+  const ctx = makeContext({
+    workflowRun: { head_sha: 'sha888', pull_requests: [] }
+  });
+
+  const resolved = await resolvePullRequest({
+    github,
+    context: ctx,
+    core: mockCore(),
+    workflowRun: ctx.payload.workflow_run
+  });
+
+  assert.deepStrictEqual(resolved, { prNumber: null, prTitle: 'Issue #777' });
 });
