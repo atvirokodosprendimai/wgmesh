@@ -1,0 +1,29 @@
+scripts/workflows/impl-merged-close-handler.js
+  s_1b97105afcd1ce::t_d8bc0541c1efd7 104-109,112
+scripts/workflows/impl-merged-close-handler.test.js
+  s_1b97105afcd1ce::t_4f227975dbc8a4 717-721,724
+scripts/workflows/e2e-verify-close-handler.js
+  s_1b97105afcd1ce::t_9ea01fa1171a48 125-131
+  s_1b97105afcd1ce::t_9688f1dc2fe03c 197-205,207
+  s_1b97105afcd1ce::t_4be7f94779f3e2 259,268-270
+scripts/workflows/e2e-verify-close-handler.test.js
+  s_1b97105afcd1ce::t_4a2e08c99e8fee 539-543,548
+.github/workflows/e2e-verifier.yml
+  s_1b97105afcd1ce::t_ce54473b42bb53 31-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c59ebf8b2fe56d33cef578441ceff7764e75a02b",
+  "prompts": {},
+  "sessions": {
+    "s_1b97105afcd1ce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08b7dbcb-979d-46df-8ef8-4cf3146ddd08",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
