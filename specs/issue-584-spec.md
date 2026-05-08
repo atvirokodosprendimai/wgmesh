@@ -9,7 +9,7 @@ documentation
 ## Problem Analysis
 
 This issue is a revenue-path gap, not a product or infrastructure gap. The three Polar checkout
-products already exist and are already wired in `/home/runner/work/wgmesh/wgmesh/docs/index.html`:
+products already exist and are already wired in `docs/index.html`:
 
 - Founding Member — `$5/mo` — `https://polar.sh/checkout?productId=3f5d75de-936b-49d8-a21b-4b79d9fd22c1`
 - Edge Node — `$20/mo` — `https://polar.sh/checkout?productId=1927e637-4cfd-4c94-8bee-c5518803bc89`
@@ -21,8 +21,8 @@ The customer-facing surfaces named in the issue do not expose those checkouts:
    live landing page already has the sections `#features`, `#how-it-works`, `#install`, `#modes`,
    and `#story`, but no pricing/sponsor section and no Polar checkout CTA.
 2. **`cloudroof.eu`** currently serves the anycast deck from
-   `/home/runner/work/wgmesh/wgmesh/evolution/wgmesh-cdn-slides.html`. The deck ends with a summary
-   slide and has no dedicated sales CTA and no Polar footer link.
+   `evolution/wgmesh-cdn-slides.html`. The deck ends with a summary slide and has no dedicated sales
+   CTA and no Polar footer link.
 3. The acceptance criteria require direct conversion paths on both pages, plus manual verification
    that the checkout UI loads for every CTA without completing a purchase.
 
@@ -58,8 +58,7 @@ landing-page-only additions that satisfy the acceptance criteria.
 
 ### Task 1: Use the existing Polar URLs and CTA copy as the single source of truth
 
-Before editing anything, copy the exact values already present in
-`/home/runner/work/wgmesh/wgmesh/docs/index.html`:
+Before editing anything, copy the exact values already present in `docs/index.html`:
 
 - **Founding Member**
   - Price: `$5/mo`
@@ -123,7 +122,7 @@ If the landing page already has a nav/header link list, add a `Pricing` in-page 
 ### Task 3: Add a final-slide Edge Node CTA to `evolution/wgmesh-cdn-slides.html`
 
 **Repository:** this repository  
-**File:** `/home/runner/work/wgmesh/wgmesh/evolution/wgmesh-cdn-slides.html`
+**File:** `evolution/wgmesh-cdn-slides.html`
 
 Modify the slide deck as follows:
 
@@ -200,12 +199,11 @@ see the landing-page changes without pulling the branch locally.
 
 ## Affected Files
 
-- **New (this repo):** `/home/runner/work/wgmesh/wgmesh/specs/issue-584-spec.md`
+- **New (this repo):** `specs/issue-584-spec.md`
 - **Modify during implementation (external repo):** the root landing-page source file in
   `atvirokodosprendimai/wgmeshdev` that renders `#features`, `#how-it-works`, `#install`,
   `#modes`, and `#story`
-- **Modify during implementation (this repo):**
-  `/home/runner/work/wgmesh/wgmesh/evolution/wgmesh-cdn-slides.html`
+- **Modify during implementation (this repo):** `evolution/wgmesh-cdn-slides.html`
 
 ## Test Strategy
 
