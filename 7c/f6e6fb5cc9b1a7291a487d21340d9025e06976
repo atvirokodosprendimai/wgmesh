@@ -1,0 +1,22 @@
+scripts/workflows/e2e-verify-close-handler.js
+  s_1b97105afcd1ce::t_a02c2b9abc598a 268-275
+  s_1b97105afcd1ce::t_5a8d52ee3bb21f 221-227,231
+scripts/workflows/e2e-verify-close-handler.test.js
+  s_1b97105afcd1ce::t_f4683edab57320 149-154
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "7cf6e6fb5cc9b1a7291a487d21340d9025e06976",
+  "prompts": {},
+  "sessions": {
+    "s_1b97105afcd1ce": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "08b7dbcb-979d-46df-8ef8-4cf3146ddd08",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
