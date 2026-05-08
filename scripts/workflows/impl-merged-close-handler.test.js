@@ -146,6 +146,11 @@ test('labelNamesOf — handles missing labels', () => {
   assert.deepStrictEqual(labelNamesOf({}), []);
 });
 
+test('labelNamesOf — handles nullish object labels defensively', () => {
+  const issue = { labels: [{ name: 'bug' }, null, {}, { name: 'urgent' }] };
+  assert.deepStrictEqual(labelNamesOf(issue), ['bug', '', '', 'urgent']);
+});
+
 test('isBug — matches type: bug', () => {
   assert.strictEqual(isBug(['type: bug']), true);
 });

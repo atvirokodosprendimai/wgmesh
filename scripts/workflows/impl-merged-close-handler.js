@@ -65,7 +65,7 @@ function extractRepoTokens(body) {
 
 // labelNamesOf — issue.labels can be ['name'] or [{name: 'foo'}, ...]. Normalize.
 function labelNamesOf(issue) {
-  return (issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
+  return (issue.labels || []).map(l => typeof l === 'string' ? l : (l && l.name) || '');
 }
 
 function isBug(labelNames) {
