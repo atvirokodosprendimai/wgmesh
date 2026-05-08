@@ -87,16 +87,16 @@ Required changes:
 2. Remove the PR trigger (`pull_request_target`) entirely so Copilot PR creation
    no longer produces a useless `action_required` run for this workflow.
 3. Add `schedule` and `workflow_dispatch` triggers.
-   - Use a short polling interval (5 minutes is acceptable and matches the
-     cadence already used by other Copilot recovery workflows in this repo).
+   - Use a short polling interval (5 minutes is acceptable and matches the cadence
+     already used by other Copilot recovery workflows in this repo).
 4. Preserve the existing label-to-column mapping and the current “opened/reopened
    with no matching label” defaults.
 5. Add a new scheduled/manual code path that:
    - lists PRs targeting `main`
-   - includes both open PRs and recently-updated closed PRs (so merged/closed PRs
-     still move to `Done`)
-   - recomputes the target board column from PR state + labels exactly the same
-     way the current event-driven code does
+   - includes both open PRs and recently-updated closed PRs so merged/closed PRs
+     still move to `Done`
+   - recomputes the target board column from PR state + labels exactly the same way
+     the current event-driven code does
    - adds the PR to the project board if it is missing
    - updates the project status field to the computed column
 6. Do **not** use `actions/checkout` of the PR head.
