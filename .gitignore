@@ -22,6 +22,9 @@ mesh-state.json
 # Allow company state files (public by design — see spec: first-customer)
 !company/**/*.json
 
+# Allow compat-test fixtures (intentionally checked-in golden corpus per docs/plans/2026-05-08-001-feat-feature-ledger-pim-plan.md U4-U5)
+!testdata/compat/**/*.json
+
 # Allow Nix flake lock (pinned dependencies)
 !flake.lock
 
