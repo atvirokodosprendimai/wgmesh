@@ -1,0 +1,9 @@
+pkg/crypto/envelope_compat_test.go
+  ai_agent 8-9,24-47,61,64-68,83-87,120-121,126-165
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "43785c4b401a05a2e5fce19566fd2b9e762118cd",
+  "prompts": {}
+}
