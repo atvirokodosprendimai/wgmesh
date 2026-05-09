@@ -56,6 +56,8 @@ since: ""
 			contents: `---
 status: implemented
 compat-dimensions: []
+tracking-issue: ""
+since: ""
 tldr: Existing short summary
 category: core
 ---
@@ -67,6 +69,8 @@ category: core
 			name: "missing status",
 			contents: `---
 compat-dimensions: []
+tracking-issue: ""
+since: ""
 ---
 # Missing status
 `,
@@ -77,6 +81,8 @@ compat-dimensions: []
 			contents: `---
 status: done
 compat-dimensions: []
+tracking-issue: ""
+since: ""
 ---
 # Invalid status
 `,
@@ -87,19 +93,23 @@ compat-dimensions: []
 			contents: `---
 status: implemented
 compat-dimensions: []
+tracking-issue: ""
+since: ""
 ---
 # Empty dimensions
 `,
 			want: Meta{Status: StatusImplemented, CompatDimensions: []string{}},
 		},
 		{
-			name: "nil compat-dimensions",
+			name: "missing compat-dimensions",
 			contents: `---
 status: implemented
+tracking-issue: ""
+since: ""
 ---
-# Nil dimensions
+# Missing dimensions
 `,
-			want: Meta{Status: StatusImplemented},
+			wantError: true,
 		},
 		{
 			name: "missing tracking-issue",
@@ -108,15 +118,37 @@ status: provisional
 compat-dimensions: []
 since: ""
 ---
-# Optional issue
+# Missing issue
 `,
-			want: Meta{Status: StatusProvisional, CompatDimensions: []string{}},
+			wantError: true,
+		},
+		{
+			name: "missing since",
+			contents: `---
+status: provisional
+compat-dimensions: []
+tracking-issue: ""
+---
+# Missing since
+`,
+			wantError: true,
+		},
+		{
+			name: "missing all required bookkeeping keys",
+			contents: `---
+status: provisional
+---
+# Missing keys
+`,
+			wantError: true,
 		},
 		{
 			name: "malformed YAML frontmatter",
 			contents: `---
 status: [implemented
 compat-dimensions: []
+tracking-issue: ""
+since: ""
 ---
 # Malformed
 `,
@@ -173,11 +205,27 @@ func TestValidate(t *testing.T) {
 	}{
 		{
 			name: "implemented",
-			meta: Meta{Status: StatusImplemented},
+			meta: Meta{
+				Status:              StatusImplemented,
+				CompatDimensionsSet: true,
+				TrackingIssueSet:    true,
+				SinceSet:            true,
+				CompatDimensions:    []string{},
+				TrackingIssue:       "",
+				Since:               "",
+			},
 		},
 		{
 			name: "provisional",
-			meta: Meta{Status: StatusProvisional},
+			meta: Meta{
+				Status:              StatusProvisional,
+				CompatDimensionsSet: true,
+				TrackingIssueSet:    true,
+				SinceSet:            true,
+				CompatDimensions:    []string{},
+				TrackingIssue:       "",
+				Since:               "",
+			},
 		},
 		{
 			name:      "missing status",
@@ -186,16 +234,35 @@ func TestValidate(t *testing.T) {
 		},
 		{
 			name:      "invalid status",
-			meta:      Meta{Status: Status("done")},
+			meta:      validMeta(Status("done")),
 			wantError: true,
 		},
 		{
 			name: "empty compat dimensions",
-			meta: Meta{Status: StatusImplemented, CompatDimensions: []string{}},
+			meta: validMeta(StatusImplemented),
 		},
 		{
-			name: "nil compat dimensions",
-			meta: Meta{Status: StatusImplemented},
+			name:      "missing compat dimensions",
+			meta:      Meta{Status: StatusImplemented},
+			wantError: true,
+		},
+		{
+			name: "missing tracking issue",
+			meta: Meta{
+				Status:              StatusImplemented,
+				CompatDimensionsSet: true,
+				SinceSet:            true,
+			},
+			wantError: true,
+		},
+		{
+			name: "missing since",
+			meta: Meta{
+				Status:              StatusImplemented,
+				CompatDimensionsSet: true,
+				TrackingIssueSet:    true,
+			},
+			wantError: true,
 		},
 	}
 
@@ -210,6 +277,18 @@ func TestValidate(t *testing.T) {
 				t.Fatalf("Validate() error diag = %v, want %v; diags = %#v", hasError, tt.wantError, diags)
 			}
 		})
+	}
+}
+
+func validMeta(status Status) Meta {
+	return Meta{
+		Status:              status,
+		CompatDimensions:    []string{},
+		CompatDimensionsSet: true,
+		TrackingIssueSet:    true,
+		SinceSet:            true,
+		TrackingIssue:       "",
+		Since:               "",
 	}
 }
 
