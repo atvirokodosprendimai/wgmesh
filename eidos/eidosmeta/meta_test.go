@@ -228,6 +228,10 @@ func TestValidate(t *testing.T) {
 			},
 		},
 		{
+			name: "implementable",
+			meta: validMeta(StatusImplementable),
+		},
+		{
 			name:      "missing status",
 			meta:      Meta{},
 			wantError: true,

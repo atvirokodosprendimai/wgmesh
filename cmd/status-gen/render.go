@@ -40,13 +40,17 @@ func RenderStatus(features []FeatureStatus) string {
 	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
 
 	stats := statusStats{features: len(features)}
-	var gaps []string
+	var provisionalGaps []string
+	var missingArtifactGaps []string
 	for _, feature := range features {
 		switch feature.Status {
 		case eidosmeta.StatusImplemented:
 			stats.implemented++
 		case eidosmeta.StatusProvisional:
 			stats.provisional++
+		}
+		if isProvisionalOrImplementable(feature.Status) {
+			provisionalGaps = append(provisionalGaps, fmt.Sprintf("- %s: %s", feature.Name, feature.Status))
 		}
 
 		byDimension := map[string]DimensionStatus{}
@@ -57,7 +61,10 @@ func RenderStatus(features []FeatureStatus) string {
 				stats.satisfied++
 			} else {
 				stats.missing++
-				gaps = append(gaps, fmt.Sprintf("- %s / %s: %s", feature.Name, dimension.Name, dimension.Note))
+				missingArtifactGaps = append(
+					missingArtifactGaps,
+					fmt.Sprintf("- %s / %s: %s", feature.Name, dimension.Name, dimension.Note),
+				)
 			}
 		}
 
@@ -81,11 +88,22 @@ func RenderStatus(features []FeatureStatus) string {
 	}
 
 	b.WriteString("\n## Gap Roster\n\n")
-	if len(gaps) == 0 {
+	b.WriteString("### Provisional / Implementable Features\n\n")
+	if len(provisionalGaps) == 0 {
+		b.WriteString("No provisional or implementable features.\n")
+	} else {
+		sort.Strings(provisionalGaps)
+		for _, gap := range provisionalGaps {
+			b.WriteString(gap)
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n### Missing Compat Artifacts\n\n")
+	if len(missingArtifactGaps) == 0 {
 		b.WriteString("No missing claimed dimensions.\n")
 	} else {
-		sort.Strings(gaps)
-		for _, gap := range gaps {
+		sort.Strings(missingArtifactGaps)
+		for _, gap := range missingArtifactGaps {
 			b.WriteString(gap)
 			b.WriteString("\n")
 		}
@@ -113,4 +131,8 @@ type statusStats struct {
 
 func escapeTableCell(value string) string {
 	return strings.ReplaceAll(value, "|", "\\|")
+}
+
+func isProvisionalOrImplementable(status eidosmeta.Status) bool {
+	return status == eidosmeta.StatusProvisional || status == eidosmeta.StatusImplementable
 }

@@ -35,6 +35,9 @@ func TestRenderStatusDeterministicAndSorted(t *testing.T) {
 		"| Feature | Status | API | Behavior | CLI | Wire |",
 		"| alpha feature | implemented | MISSING | - | OK | - |",
 		"| zeta feature | provisional | - | - | - | MISSING |",
+		"### Provisional / Implementable Features",
+		"- zeta feature: provisional",
+		"### Missing Compat Artifacts",
 		"- alpha feature / api: openapi.yaml not found or does not reference feature",
 		"- zeta feature / wire: missing fixture",
 		"- Features: 2",
@@ -72,10 +75,64 @@ func TestRenderStatusNoGaps(t *testing.T) {
 		},
 	})
 
+	if !strings.Contains(got, "No provisional or implementable features.") {
+		t.Fatalf("RenderStatus() should render empty provisional bucket, got:\n%s", got)
+	}
 	if !strings.Contains(got, "No missing claimed dimensions.") {
-		t.Fatalf("RenderStatus() should render empty gap roster, got:\n%s", got)
+		t.Fatalf("RenderStatus() should render empty missing-artifacts bucket, got:\n%s", got)
 	}
 	if !strings.Contains(got, "- Missing dimensions: 0") {
 		t.Fatalf("RenderStatus() should render missing dimension summary, got:\n%s", got)
+	}
+}
+
+func TestRenderStatusGapRosterBuckets(t *testing.T) {
+	t.Parallel()
+
+	got := RenderStatus([]FeatureStatus{
+		{
+			Name:       "provisional empty",
+			Slug:       "provisional-empty",
+			Status:     eidosmeta.StatusProvisional,
+			Dimensions: nil,
+		},
+		{
+			Name:   "implemented missing",
+			Slug:   "implemented-missing",
+			Status: eidosmeta.StatusImplemented,
+			Dimensions: []DimensionStatus{
+				{Name: "cli", Present: false, Note: "missing testdata/script/implemented-missing*.txtar"},
+			},
+		},
+		{
+			Name:       "implemented clean",
+			Slug:       "implemented-clean",
+			Status:     eidosmeta.StatusImplemented,
+			Dimensions: nil,
+		},
+	})
+
+	provisionalHeading := strings.Index(got, "### Provisional / Implementable Features")
+	missingHeading := strings.Index(got, "### Missing Compat Artifacts")
+	if provisionalHeading == -1 || missingHeading == -1 || provisionalHeading > missingHeading {
+		t.Fatalf("RenderStatus() did not render gap roster buckets in order:\n%s", got)
+	}
+
+	provisionalEntry := "- provisional empty: provisional"
+	missingEntry := "- implemented missing / cli: missing testdata/script/implemented-missing*.txtar"
+	if !strings.Contains(got, provisionalEntry) {
+		t.Fatalf("RenderStatus() missing provisional entry %q in:\n%s", provisionalEntry, got)
+	}
+	if !strings.Contains(got, missingEntry) {
+		t.Fatalf("RenderStatus() missing missing-artifacts entry %q in:\n%s", missingEntry, got)
+	}
+	if strings.Contains(got, "implemented clean /") || strings.Contains(got, "- implemented clean:") {
+		t.Fatalf("RenderStatus() should not include clean implemented feature in gap roster:\n%s", got)
+	}
+	if strings.Index(got, provisionalEntry) > missingHeading {
+		t.Fatalf("provisional entry rendered outside provisional bucket:\n%s", got)
+	}
+	if strings.Index(got, missingEntry) < missingHeading {
+		t.Fatalf("missing-artifacts entry rendered outside missing-artifacts bucket:\n%s", got)
 	}
 }

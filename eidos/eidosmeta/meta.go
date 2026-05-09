@@ -11,8 +11,9 @@ import (
 type Status string
 
 const (
-	StatusImplemented Status = "implemented"
-	StatusProvisional Status = "provisional"
+	StatusImplemented   Status = "implemented"
+	StatusImplementable Status = "implementable"
+	StatusProvisional   Status = "provisional"
 )
 
 type Meta struct {
@@ -42,7 +43,7 @@ var validCompatDimensions = map[string]struct{}{
 func Validate(meta Meta) []Diag {
 	var diags []Diag
 	switch meta.Status {
-	case StatusImplemented, StatusProvisional:
+	case StatusImplemented, StatusImplementable, StatusProvisional:
 	case "":
 		diags = append(diags, Diag{Severity: "error", Message: "missing status"})
 	default:
