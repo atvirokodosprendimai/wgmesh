@@ -3,6 +3,8 @@ package crypto
 import (
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -39,6 +41,46 @@ func TestEnvelopeCompatibilityFixturesReplayIndependentVersions(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("replayed versions = %v, want %v", got, want)
 		}
+	}
+}
+
+func TestEnvelopeRegenTargetDirUsesCapabilityVersion(t *testing.T) {
+	got := envelopeRegenTargetDir("fixtures")
+	want := filepath.Join("fixtures", fmt.Sprintf("v%d", EnvelopeCapabilityVersion))
+	if got != want {
+		t.Fatalf("envelopeRegenTargetDir() = %q, want %q", got, want)
+	}
+}
+
+func TestPrepareEnvelopeRegenTargetRefusesExistingWithoutForce(t *testing.T) {
+	targetDir := filepath.Join(t.TempDir(), "v1")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("create existing fixture dir: %v", err)
+	}
+	t.Setenv("WGMESH_FORCE_REGEN", "")
+
+	err := prepareEnvelopeRegenTarget(targetDir)
+	if err == nil {
+		t.Fatal("prepareEnvelopeRegenTarget() error = nil, want refusal")
+	}
+	want := fmt.Sprintf(
+		"fixture for v%d already exists; bump EnvelopeCapabilityVersion or rm -rf the directory before regenerating",
+		EnvelopeCapabilityVersion,
+	)
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("prepareEnvelopeRegenTarget() error = %q, want containing %q", err, want)
+	}
+}
+
+func TestPrepareEnvelopeRegenTargetAllowsExistingWithForce(t *testing.T) {
+	targetDir := filepath.Join(t.TempDir(), "v1")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("create existing fixture dir: %v", err)
+	}
+	t.Setenv("WGMESH_FORCE_REGEN", "1")
+
+	if err := prepareEnvelopeRegenTarget(targetDir); err != nil {
+		t.Fatalf("prepareEnvelopeRegenTarget() error = %v, want nil", err)
 	}
 }
 
@@ -123,6 +165,30 @@ func replayEnvelopeCompatibilityFixtures(t *testing.T, fixtureRoot string) []int
 
 const envelopeFixtureSecret = "wgmesh-envelope-compatibility-secret"
 
+func envelopeRegenTargetDir(root string) string {
+	return filepath.Join(root, fmt.Sprintf("v%d", EnvelopeCapabilityVersion))
+}
+
+func prepareEnvelopeRegenTarget(targetDir string) error {
+	info, err := os.Stat(targetDir)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("fixture target %s exists and is not a directory", targetDir)
+		}
+		if os.Getenv("WGMESH_FORCE_REGEN") != "1" {
+			return fmt.Errorf(
+				"fixture for %s already exists; bump EnvelopeCapabilityVersion or rm -rf the directory before regenerating",
+				filepath.Base(targetDir),
+			)
+		}
+		return nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("stat fixture dir: %w", err)
+	}
+	return os.MkdirAll(targetDir, 0o755)
+}
+
 func envelopeFixtureVersion(versionDir string) (int, error) {
 	base := filepath.Base(versionDir)
 	if !strings.HasPrefix(base, "v") {
@@ -189,9 +255,9 @@ func regenEnvelopeFixtures(t *testing.T) {
 		t.Fatalf("marshal fixture plaintext: %v", err)
 	}
 
-	dir := filepath.Join("..", "..", "testdata", "compat", "envelope", "v1")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatalf("create fixture dir: %v", err)
+	dir := envelopeRegenTargetDir(filepath.Join("..", "..", "testdata", "compat", "envelope"))
+	if err := prepareEnvelopeRegenTarget(dir); err != nil {
+		t.Fatalf("%v", err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "envelope.bin"), envelope, 0o644); err != nil {
 		t.Fatalf("write envelope.bin: %v", err)
