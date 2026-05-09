@@ -56,9 +56,11 @@ func DiscoverFeatures(root string) ([]FeatureStatus, []eidosmeta.Diag) {
 		name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		slug := featureSlug(name)
 		feature := FeatureStatus{
-			Name:   name,
-			Slug:   slug,
-			Status: meta.Status,
+			Name:          name,
+			Slug:          slug,
+			Status:        meta.Status,
+			TrackingIssue: meta.TrackingIssue,
+			Since:         meta.Since,
 		}
 		for _, dimension := range meta.CompatDimensions {
 			feature.Dimensions = append(feature.Dimensions, checkDimension(root, slug, name, dimension, openAPIFiles))

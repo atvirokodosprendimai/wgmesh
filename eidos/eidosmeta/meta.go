@@ -11,15 +11,19 @@ import (
 type Status string
 
 const (
-	StatusImplemented Status = "implemented"
-	StatusProvisional Status = "provisional"
+	StatusImplemented   Status = "implemented"
+	StatusImplementable Status = "implementable"
+	StatusProvisional   Status = "provisional"
 )
 
 type Meta struct {
-	Status           Status
-	CompatDimensions []string
-	TrackingIssue    string
-	Since            string
+	Status              Status
+	CompatDimensions    []string
+	TrackingIssue       string
+	Since               string
+	CompatDimensionsSet bool
+	TrackingIssueSet    bool
+	SinceSet            bool
 }
 
 type Diag struct {
@@ -39,11 +43,20 @@ var validCompatDimensions = map[string]struct{}{
 func Validate(meta Meta) []Diag {
 	var diags []Diag
 	switch meta.Status {
-	case StatusImplemented, StatusProvisional:
+	case StatusImplemented, StatusImplementable, StatusProvisional:
 	case "":
 		diags = append(diags, Diag{Severity: "error", Message: "missing status"})
 	default:
 		diags = append(diags, Diag{Severity: "error", Message: fmt.Sprintf("invalid status %q", meta.Status)})
+	}
+	if !meta.CompatDimensionsSet {
+		diags = append(diags, Diag{Severity: "error", Message: "missing compat-dimensions"})
+	}
+	if !meta.TrackingIssueSet {
+		diags = append(diags, Diag{Severity: "error", Message: "missing tracking-issue"})
+	}
+	if !meta.SinceSet {
+		diags = append(diags, Diag{Severity: "error", Message: "missing since"})
 	}
 
 	for _, dimension := range meta.CompatDimensions {
@@ -168,6 +181,7 @@ func parseYAMLLines(lines []frontmatterLine) (Meta, []Diag) {
 			}
 			meta.Status = Status(value)
 		case "compat-dimensions":
+			meta.CompatDimensionsSet = true
 			if rawValue == "" {
 				currentSeqKey = key
 				continue
@@ -179,6 +193,7 @@ func parseYAMLLines(lines []frontmatterLine) (Meta, []Diag) {
 			}
 			meta.CompatDimensions = values
 		case "tracking-issue":
+			meta.TrackingIssueSet = true
 			value, ok := parseScalar(rawValue)
 			if !ok {
 				diags = append(diags, Diag{Severity: "error", Line: line.number, Message: "malformed tracking-issue"})
@@ -186,6 +201,7 @@ func parseYAMLLines(lines []frontmatterLine) (Meta, []Diag) {
 			}
 			meta.TrackingIssue = value
 		case "since":
+			meta.SinceSet = true
 			value, ok := parseScalar(rawValue)
 			if !ok {
 				diags = append(diags, Diag{Severity: "error", Line: line.number, Message: "malformed since"})
