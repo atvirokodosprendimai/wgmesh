@@ -57,6 +57,8 @@ type Daemon struct {
 	localSubnetsFn         func() []*net.IPNet
 	peerHealthFailures     map[string]int
 	lastPeerTransferTotal  map[string]uint64
+	lastPeerTransferRx     map[string]uint64
+	lastPeerTransferTx     map[string]uint64
 	healthMu               sync.Mutex
 	healthProbePort        int
 	probeMu                sync.Mutex
@@ -192,6 +194,8 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		localSubnetsFn:         detectLocalSubnets,
 		peerHealthFailures:     make(map[string]int),
 		lastPeerTransferTotal:  make(map[string]uint64),
+		lastPeerTransferRx:     make(map[string]uint64),
+		lastPeerTransferTx:     make(map[string]uint64),
 		healthProbePort:        int(config.Keys.GossipPort) + MeshProbePortOffset,
 		probeSessions:          make(map[string]*peerProbeSession),
 		probeFailures:          make(map[string]int),
@@ -258,6 +262,27 @@ func (d *Daemon) Run() error {
 	go func() {
 		defer d.wg.Done()
 		d.statusLoop()
+	}()
+
+	// Count new peer joins for analytics.
+	peerEvents := d.peerStore.Subscribe()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		defer d.peerStore.Unsubscribe(peerEvents)
+		for {
+			select {
+			case ev, ok := <-peerEvents:
+				if !ok {
+					return
+				}
+				if ev.Kind == PeerEventNew {
+					RecordPeerJoin()
+				}
+			case <-d.ctx.Done():
+				return
+			}
+		}
 	}()
 
 	// Periodically remove long-stale peers from memory/cache
@@ -902,6 +927,7 @@ func (d *Daemon) staleCleanupLoop() {
 		case <-ticker.C:
 			removed := d.peerStore.CleanupStale()
 			for _, pubKey := range removed {
+				RecordPeerLeave()
 				if err := d.removePeer(pubKey); err != nil {
 					log.Printf("[Peers] Failed to remove stale peer %s: %v", shortKey(pubKey), err)
 				}
@@ -1252,7 +1278,11 @@ func (d *Daemon) checkPeerHealth() {
 
 		d.healthMu.Lock()
 		prevTotal := d.lastPeerTransferTotal[p.WGPubKey]
+		prevRx := d.lastPeerTransferRx[p.WGPubKey]
+		prevTx := d.lastPeerTransferTx[p.WGPubKey]
 		d.lastPeerTransferTotal[p.WGPubKey] = currentTotal
+		d.lastPeerTransferRx[p.WGPubKey] = transfer.RxBytes
+		d.lastPeerTransferTx[p.WGPubKey] = transfer.TxBytes
 		isStale := shouldTreatPeerAsStale(ts, prevTotal, currentTotal, now)
 		if isStale {
 			d.peerHealthFailures[p.WGPubKey]++
@@ -1261,6 +1291,8 @@ func (d *Daemon) checkPeerHealth() {
 		}
 		failures := d.peerHealthFailures[p.WGPubKey]
 		d.healthMu.Unlock()
+
+		UpdateTransferMetrics(p.WGPubKey, prevRx, transfer.RxBytes, prevTx, transfer.TxBytes)
 
 		if !isStale {
 			continue
@@ -1280,6 +1312,8 @@ func (d *Daemon) checkPeerHealth() {
 		if _, ok := activeSet[pubKey]; !ok {
 			delete(d.peerHealthFailures, pubKey)
 			delete(d.lastPeerTransferTotal, pubKey)
+			delete(d.lastPeerTransferRx, pubKey)
+			delete(d.lastPeerTransferTx, pubKey)
 		}
 	}
 	d.healthMu.Unlock()
@@ -1338,6 +1372,7 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	}
 	log.Printf("[Health] Evicting unresponsive peer %s... from active pool", shortKey(peer.WGPubKey))
 	d.markTemporarilyOffline(peer.WGPubKey)
+	RecordPeerLeave()
 	d.peerStore.Remove(peer.WGPubKey)
 	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
 		log.Printf("[Health] Failed to remove evicted peer %s... from WireGuard: %v", shortKey(peer.WGPubKey), err)
@@ -1352,6 +1387,8 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	d.healthMu.Lock()
 	delete(d.peerHealthFailures, peer.WGPubKey)
 	delete(d.lastPeerTransferTotal, peer.WGPubKey)
+	delete(d.lastPeerTransferRx, peer.WGPubKey)
+	delete(d.lastPeerTransferTx, peer.WGPubKey)
 	d.healthMu.Unlock()
 	d.closeProbeSession(peer.WGPubKey)
 	d.probeMu.Lock()
@@ -1547,6 +1584,27 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	go func() {
 		defer d.wg.Done()
 		d.statusLoop()
+	}()
+
+	// Count new peer joins for analytics.
+	peerEvents := d.peerStore.Subscribe()
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		defer d.peerStore.Unsubscribe(peerEvents)
+		for {
+			select {
+			case ev, ok := <-peerEvents:
+				if !ok {
+					return
+				}
+				if ev.Kind == PeerEventNew {
+					RecordPeerJoin()
+				}
+			case <-d.ctx.Done():
+				return
+			}
+		}
 	}()
 
 	// Periodically remove long-stale peers from memory/cache

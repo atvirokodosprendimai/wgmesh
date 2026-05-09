@@ -264,3 +264,58 @@ func TestProbeRTTSummary(t *testing.T) {
 		t.Error("expected summary observation for peer_key=testkey1")
 	}
 }
+
+func TestUpdateTransferMetrics(t *testing.T) {
+	// Reset counters
+	peerTxBytes.DeleteLabelValues("abcdefgh")
+	peerRxBytes.DeleteLabelValues("abcdefgh")
+
+	// First call: counters start at zero, so delta = current - 0.
+	UpdateTransferMetrics("abcdefghXXXXX", 0, 1024, 0, 512)
+
+	rxVal := testutil.ToFloat64(peerRxBytes.WithLabelValues("abcdefgh"))
+	if rxVal != 1024 {
+		t.Errorf("expected rx 1024, got %v", rxVal)
+	}
+	txVal := testutil.ToFloat64(peerTxBytes.WithLabelValues("abcdefgh"))
+	if txVal != 512 {
+		t.Errorf("expected tx 512, got %v", txVal)
+	}
+
+	// Second call: counter advanced by another 256 rx, 128 tx.
+	UpdateTransferMetrics("abcdefghXXXXX", 1024, 1280, 512, 640)
+
+	rxVal = testutil.ToFloat64(peerRxBytes.WithLabelValues("abcdefgh"))
+	if rxVal != 1280 {
+		t.Errorf("expected cumulative rx 1280, got %v", rxVal)
+	}
+	txVal = testutil.ToFloat64(peerTxBytes.WithLabelValues("abcdefgh"))
+	if txVal != 640 {
+		t.Errorf("expected cumulative tx 640, got %v", txVal)
+	}
+
+	// Counter-reset guard: if current < prev, skip.
+	UpdateTransferMetrics("abcdefghXXXXX", 1280, 10, 640, 5) // simulated reset
+
+	rxVal = testutil.ToFloat64(peerRxBytes.WithLabelValues("abcdefgh"))
+	if rxVal != 1280 {
+		t.Errorf("counter reset should not decrease metric; got %v", rxVal)
+	}
+}
+
+func TestPeerJoinLeaveCounters(t *testing.T) {
+	before := testutil.ToFloat64(peerJoinsTotal)
+	RecordPeerJoin()
+	RecordPeerJoin()
+	after := testutil.ToFloat64(peerJoinsTotal)
+	if after-before != 2 {
+		t.Errorf("expected 2 join increments, got %v", after-before)
+	}
+
+	beforeLeave := testutil.ToFloat64(peerLeavesTotal)
+	RecordPeerLeave()
+	afterLeave := testutil.ToFloat64(peerLeavesTotal)
+	if afterLeave-beforeLeave != 1 {
+		t.Errorf("expected 1 leave increment, got %v", afterLeave-beforeLeave)
+	}
+}

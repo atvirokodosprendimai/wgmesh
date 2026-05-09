@@ -53,6 +53,26 @@ var (
 		Name: "wgmesh_nat_traversal_successes_total",
 		Help: "Successful NAT traversal exchanges by method",
 	}, []string{"method"})
+	peerTxBytes = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_peer_tx_bytes_total",
+		Help: "Cumulative bytes transmitted to each peer (WireGuard kernel counter)",
+	}, []string{"peer_key"})
+	peerRxBytes = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_peer_rx_bytes_total",
+		Help: "Cumulative bytes received from each peer (WireGuard kernel counter)",
+	}, []string{"peer_key"})
+	daemonUptime = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "wgmesh_daemon_uptime_seconds",
+		Help: "Seconds since the daemon was started",
+	})
+	peerJoinsTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "wgmesh_peer_joins_total",
+		Help: "Total number of new peers discovered since daemon start",
+	})
+	peerLeavesTotal = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "wgmesh_peer_leaves_total",
+		Help: "Total number of peers evicted or cleaned up since daemon start",
+	})
 
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
@@ -77,6 +97,11 @@ func RegisterMetrics() {
 	prometheus.MustRegister(probeRTTSummary)
 	prometheus.MustRegister(natTraversalAttempts)
 	prometheus.MustRegister(natTraversalSuccesses)
+	prometheus.MustRegister(peerTxBytes)
+	prometheus.MustRegister(peerRxBytes)
+	prometheus.MustRegister(daemonUptime)
+	prometheus.MustRegister(peerJoinsTotal)
+	prometheus.MustRegister(peerLeavesTotal)
 	prometheus.MustRegister(goCollector)
 	prometheus.MustRegister(processCollector)
 }
@@ -106,6 +131,11 @@ func UpdateMetrics(d *Daemon) {
 			v = 1
 		}
 		natType.WithLabelValues(label).Set(v)
+	}
+
+	// Daemon uptime
+	if !d.startTime.IsZero() {
+		daemonUptime.Set(time.Since(d.startTime).Seconds())
 	}
 }
 
@@ -141,4 +171,31 @@ func RecordNATTraversalAttempt(method string) {
 // RecordNATTraversalSuccess increments the success counter for the given method.
 func RecordNATTraversalSuccess(method string) {
 	natTraversalSuccesses.WithLabelValues(method).Inc()
+}
+
+// UpdateTransferMetrics updates the per-peer transfer byte counters from the
+// raw WireGuard kernel counters. prevTx / prevRx are the values observed in
+// the previous call; delta = current - prev is added to the Prometheus counter.
+// If current < prev (counter reset after interface restart) the delta is skipped.
+func UpdateTransferMetrics(pubKey string, prevRx, currRx, prevTx, currTx uint64) {
+	key := pubKey
+	if len(key) > 8 {
+		key = key[:8]
+	}
+	if currRx > prevRx {
+		peerRxBytes.WithLabelValues(key).Add(float64(currRx - prevRx))
+	}
+	if currTx > prevTx {
+		peerTxBytes.WithLabelValues(key).Add(float64(currTx - prevTx))
+	}
+}
+
+// RecordPeerJoin increments the peer-joins counter.
+func RecordPeerJoin() {
+	peerJoinsTotal.Inc()
+}
+
+// RecordPeerLeave increments the peer-leaves counter.
+func RecordPeerLeave() {
+	peerLeavesTotal.Inc()
 }
