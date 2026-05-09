@@ -1,0 +1,26 @@
+company/scripts/pr-review-merge.sh
+  s_6f7cc9734df574::t_9da9bab4306f8e 506-531
+  s_6f7cc9734df574::t_25e5470f4b6c07 413-428,430
+  s_6f7cc9734df574::t_1d725a96d99d90 121-229,237-240,242-258,266
+  s_6f7cc9734df574::t_f8a3e1f196fba4 720-723
+.github/workflows/bot-pr-review-merge.yml
+  s_6f7cc9734df574::t_7febb3333fa8ed 3-19
+company/scripts/pr-review-merge_test.sh
+  s_6f7cc9734df574::t_5a93945e904825 1-88
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "e2f492dee2f0dd847fe2386f964a0d0ad5f5d36a",
+  "prompts": {},
+  "sessions": {
+    "s_6f7cc9734df574": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bda1584-787d-47d4-b69b-3364d9b105b2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
