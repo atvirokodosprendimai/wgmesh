@@ -118,8 +118,115 @@ check_manual_only() {
 }
 
 # ---------------------------------------------------------------------------
-# poll_for_review — wait for Copilot review within a single poll window
-# Returns 0 if review found, 1 on timeout.
+# fetch_effective_review_states — compute most-recent review state per reviewer
+#
+# GitHub review state semantics (per docs.github.com/en/rest/pulls/reviews):
+#   APPROVED          — explicit approval; reviewer signs off
+#   CHANGES_REQUESTED — explicit blocking; merge must not proceed
+#   COMMENTED         — feedback only; NOT an approval signal
+#   DISMISSED         — review explicitly dismissed by maintainer
+#
+# The bug fixed here (issue #595): prior poll_for_review counted reviews via
+# `length`, so any submission of any state passed the gate. Copilot submits
+# inline findings as `state: COMMENTED`. The bot treated those as approvals
+# and admin-merged PRs with unresolved review findings (#577 reverted via
+# #580; #589 → #596 repair; #596 itself shipped 4 more unresolved findings).
+#
+# A reviewer's CURRENT effective state = the state of their most-recent
+# non-DISMISSED review submission. We compute it via GraphQL latestReviews
+# which returns exactly one review per reviewer (the most recent), keyed
+# by author.
+#
+# Outputs: zero or more lines of `<login>:<STATE>` to stdout. Empty output
+# = no reviews on the PR. Returns 0 on success, 1 on API failure.
+# ---------------------------------------------------------------------------
+fetch_effective_review_states() {
+  local pr="$1"
+  local owner repo
+  owner="${TARGET_REPO%%/*}"
+  repo="${TARGET_REPO##*/}"
+
+  if ! gh api graphql \
+    -F owner="$owner" \
+    -F repo="$repo" \
+    -F pr="$pr" \
+    -f query='
+      query($owner: String!, $repo: String!, $pr: Int!) {
+        repository(owner: $owner, name: $repo) {
+          pullRequest(number: $pr) {
+            latestReviews(first: 100) {
+              nodes {
+                state
+                author { login }
+              }
+            }
+          }
+        }
+      }' \
+    --jq '.data.repository.pullRequest.latestReviews.nodes[] | "\(.author.login):\(.state)"' 2>/dev/null; then
+    echo "::error::Failed to fetch effective review states for PR #${pr}"
+    ERRORS=$((ERRORS + 1))
+    check_circuit_breaker
+    return 1
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
+# evaluate_review_states — decide whether the review-state gate passes
+#
+# Reads `<login>:<STATE>` lines on stdin. Echoes one of:
+#   PASS                       — at least one APPROVED, no CHANGES_REQUESTED
+#   BLOCKED:CHANGES_REQUESTED  — at least one reviewer is blocking
+#   PENDING:NONE               — no reviews yet
+#   PENDING:NO_APPROVED        — reviews present, but none APPROVED
+#
+# The PASS condition is conjunctive: APPROVED present AND zero
+# CHANGES_REQUESTED. COMMENTED and DISMISSED are informational — they neither
+# approve nor block. APPROVED from any reviewer in the approving-set counts.
+# Currently every reviewer counts; tighten to a specific allowlist
+# (e.g., copilot-pull-request-reviewer[bot]) only if a "wrong reviewer
+# approved" failure mode is observed in practice.
+# ---------------------------------------------------------------------------
+evaluate_review_states() {
+  local approved_count=0
+  local changes_requested_count=0
+  local total=0
+  local line state
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    total=$((total + 1))
+    state="${line##*:}"
+    case "$state" in
+      APPROVED) approved_count=$((approved_count + 1)) ;;
+      CHANGES_REQUESTED) changes_requested_count=$((changes_requested_count + 1)) ;;
+      *) ;;
+    esac
+  done
+
+  if [[ "$total" -eq 0 ]]; then
+    echo "PENDING:NONE"
+    return
+  fi
+  if [[ "$changes_requested_count" -gt 0 ]]; then
+    echo "BLOCKED:CHANGES_REQUESTED"
+    return
+  fi
+  if [[ "$approved_count" -gt 0 ]]; then
+    echo "PASS"
+    return
+  fi
+  echo "PENDING:NO_APPROVED"
+}
+
+# ---------------------------------------------------------------------------
+# poll_for_review — wait for an APPROVED review within a single poll window
+#
+# Per issue #595: the gate now requires at least one APPROVED reviewer AND
+# zero CHANGES_REQUESTED reviewers. COMMENTED submissions no longer satisfy
+# the gate. Returns 0 only when the state evaluation is PASS, returns 1 on
+# poll-window timeout. On BLOCKED, escalates immediately and returns 1
+# (no point polling further when a reviewer is actively blocking).
 # ---------------------------------------------------------------------------
 poll_for_review() {
   local pr="$1" window="$2"
@@ -127,17 +234,28 @@ poll_for_review() {
   local max_attempts="$POLL_MAX_ATTEMPTS"
 
   for attempt in $(seq 1 "$max_attempts"); do
-    local review_count
-    if ! review_count=$(gh api "repos/${TARGET_REPO}/pulls/${pr}/reviews" --jq 'length' 2>/dev/null); then
-      echo "::warning::Failed to fetch reviews for PR #${pr} (window ${window}, attempt ${attempt})"
-      ERRORS=$((ERRORS + 1))
-      check_circuit_breaker
+    local states verdict
+    if ! states=$(fetch_effective_review_states "$pr"); then
+      # error already logged + counted by fetch_effective_review_states
+      :
     else
-      if [[ "$review_count" -gt 0 ]]; then
-        echo "Review found for PR #${pr} after ${attempt} poll(s) (window ${window})"
-        log_audit "review_detected" "Review found in window ${window}, attempt ${attempt}"
-        return 0
-      fi
+      verdict=$(echo "$states" | evaluate_review_states)
+      case "$verdict" in
+        PASS)
+          echo "Review APPROVED for PR #${pr} after ${attempt} poll(s) (window ${window})"
+          log_audit "review_approved" "APPROVED state in window ${window}, attempt ${attempt}"
+          return 0
+          ;;
+        BLOCKED:*)
+          echo "::warning::Review BLOCKED for PR #${pr}: ${verdict}"
+          log_audit "review_blocked" "Verdict ${verdict} in window ${window}, attempt ${attempt}"
+          escalate "$pr" "Reviewer requested changes (state: CHANGES_REQUESTED) — manual resolution required"
+          return 1
+          ;;
+        PENDING:*)
+          # Keep polling; review may not be in yet, or only COMMENTED so far.
+          ;;
+      esac
     fi
 
     if [[ "$attempt" -lt "$max_attempts" ]]; then
@@ -145,7 +263,7 @@ poll_for_review() {
     fi
   done
 
-  echo "::warning::Review poll window ${window} expired for PR #${pr}"
+  echo "::warning::Review poll window ${window} expired for PR #${pr} (no APPROVED state)"
   return 1
 }
 
@@ -292,8 +410,24 @@ run_guardrails() {
     return 1
   fi
 
+  # 6. Review state belt-and-suspenders (issue #595)
+  # poll_for_review already enforces APPROVED-required, but the merge gate
+  # re-checks here so a race between poll exit and state change cannot land
+  # an unapproved merge. Cheap call (one GraphQL request) compared to the
+  # cost of shipping unverified code.
+  local guardrail_states guardrail_verdict
+  if ! guardrail_states=$(fetch_effective_review_states "$PR_NUMBER"); then
+    return 1
+  fi
+  guardrail_verdict=$(echo "$guardrail_states" | evaluate_review_states)
+  if [[ "$guardrail_verdict" != "PASS" ]]; then
+    escalate "$PR_NUMBER" "Review state guardrail failed (verdict: ${guardrail_verdict}): ${guardrail_states//$'\n'/, }"
+    check_circuit_breaker
+    return 1
+  fi
+
   # All guardrails passed
-  log_audit "guardrails_passed" "All guardrails passed"
+  log_audit "guardrails_passed" "All guardrails passed (review verdict: PASS)"
   return 0
 }
 
@@ -367,6 +501,32 @@ merge_pr() {
     echo "PR #${pr} was closed externally"
     log_audit "closed" "PR closed externally — skipping merge"
     return 0
+  fi
+
+  # Pre-merge audit comment (issue #595): name the approving reviewer + state
+  # explicitly so the audit trail is reconstructible from PR comments alone.
+  # Best-effort — failure to post the audit comment does not block the merge,
+  # but the audit log still records the verdict.
+  local audit_states audit_verdict audit_summary
+  if audit_states=$(fetch_effective_review_states "$pr" 2>/dev/null); then
+    audit_verdict=$(echo "$audit_states" | evaluate_review_states)
+    if [[ -z "$audit_states" ]]; then
+      audit_summary="(no reviews recorded)"
+    else
+      audit_summary=$(echo "$audit_states" | tr '\n' '; ' | sed 's/; $//')
+    fi
+    local audit_body
+    audit_body=$(jq -nc \
+      --arg verdict "$audit_verdict" \
+      --arg summary "$audit_summary" \
+      '"### Bot pre-merge audit\n\n- Verdict: " + $verdict + "\n- Effective review states: " + $summary + "\n\n_Recorded by `bot-pr-review-merge.yml` per issue #595._"')
+    audit_body="${audit_body:1:${#audit_body}-2}"
+    if ! gh pr comment "$pr" --repo "$TARGET_REPO" --body "$audit_body" >/dev/null 2>&1; then
+      echo "::warning::Failed to post pre-merge audit comment on PR #${pr}"
+    fi
+    log_audit "pre_merge_audit" "verdict=${audit_verdict} states=${audit_summary}"
+  else
+    echo "::warning::Pre-merge audit fetch failed for PR #${pr} — proceeding (guardrails already passed)"
   fi
 
   # Attempt merge (up to 2 tries: initial + 1 retry for conflict recovery)
@@ -557,4 +717,7 @@ main() {
   fi
 }
 
-main "$@"
+# Run main only when invoked directly, not when sourced (e.g., by tests).
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+fi

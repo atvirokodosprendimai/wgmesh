@@ -1,5 +1,22 @@
 name: Bot PR Review and Merge
 
+# Autonomous review-and-merge workflow for bot-authored PRs.
+#
+# Policy (per issue #595, fixed 2026-05-09): admin-merge requires AT LEAST
+# ONE review with `state: APPROVED` AND ZERO reviews with
+# `state: CHANGES_REQUESTED`. `COMMENTED` and `DISMISSED` are informational
+# only and do NOT satisfy the gate. Effective state per reviewer = the
+# most-recent review submission (GitHub GraphQL `latestReviews`).
+#
+# Prior bug: the script's `poll_for_review` counted any review via
+# `length`. PRs #577 (reverted via #580), #589 (repaired via #596), and
+# #596 itself all merged with unresolved Copilot inline findings because
+# Copilot submits findings as `state: COMMENTED`. The new gate blocks
+# that pattern. See company/scripts/pr-review-merge_test.sh for the
+# regression guard. Belt-and-suspenders: `run_guardrails` re-checks the
+# verdict before invoking `gh pr merge`, so a race between poll exit and
+# state change cannot land an unapproved merge.
+
 on:
   pull_request:
     types: [opened, reopened]
