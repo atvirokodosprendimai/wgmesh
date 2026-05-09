@@ -26,6 +26,15 @@ jobs:
 
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          # Pages was disabled on this repo around 2026-04-30 (root cause
+          # unclear — possibly during the chimney-to-Hetzner migration).
+          # Every push to docs/** has failed since with `Get Pages site
+          # failed` 404. `enablement: true` tells configure-pages to
+          # auto-create the Pages site on first run if absent. After it
+          # lands, the workflow deploys to atvirokodosprendimai.github.io/wgmesh
+          # and stays self-healing.
+          enablement: true
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
