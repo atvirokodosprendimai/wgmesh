@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Lighthouse is the multi-tenant CDN control plane: a REST API manages orgs/sites/edges backed by a local Dragonfly instance; mutations replicate over the WireGuard mesh via UDP LWW sync; edge nodes pull xDS config or a generated Caddyfile; origin health is tracked via local HTTP probes and edge-reported results.
 category: core
 ---

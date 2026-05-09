@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Two independent health signals — WireGuard handshake staleness and TCP mesh probes — detect unreachable peers and either reconnect or evict them with a 30-second cooldown.
 category: core
 ---

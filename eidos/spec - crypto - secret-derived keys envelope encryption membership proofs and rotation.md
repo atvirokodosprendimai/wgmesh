@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: One shared secret deterministically derives all network parameters via HKDF; AES-256-GCM envelopes carry time-bounded peer announcements; HMAC tokens prove membership; a signed rotation announcement allows live secret migration with a grace period.
 category: core
 ---

@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: GET /api/metrics exposes chimney's internal counters in Prometheus text format — request counts by route and status class, cache hit/miss ratio, GitHub rate limit remaining, Dragonfly status, and panic count. With Coroot running on table.beerpub.dev, this is a secondary output; the primary metrics path is OTEL metrics via OTLP — see the observability spec.
 category: feature
 superseded_by: "[[spec - chimney observability - opentelemetry instrumentation for coroot traces metrics and logs]]"

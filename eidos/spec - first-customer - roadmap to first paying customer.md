@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Autonomous company-in-a-repo that builds, markets, sells, and operates wgmesh as an AI service gateway — driven by an LLM control loop in GitHub Actions, built entirely in public
 ---
 

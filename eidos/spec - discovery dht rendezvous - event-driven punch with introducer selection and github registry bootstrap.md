@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Peer store events trigger rendezvous attempts for unreachable peers; introducers are selected by explicit flag or auto-detection, using synchronized time windows to avoid collision; GitHub Issues provides an encrypted fallback bootstrap channel.
 category: core
 ---

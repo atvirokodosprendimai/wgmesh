@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Daemon derives WireGuard identity and mesh IP from a shared secret; manages the interface lifecycle from startup through graceful shutdown; supports SIGHUP hot-reload of routes and log level without restart.
 category: core
 ---

@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: chimney exposes a POST /api/deploy/events endpoint that receives deploy notifications from the CI pipeline (SHA, PR, slot, outcome); GET /api/deploy/status returns the latest state so table.beerpub.dev can show "last deployed X ago" without GitHub API calls.
 category: feature
 ---

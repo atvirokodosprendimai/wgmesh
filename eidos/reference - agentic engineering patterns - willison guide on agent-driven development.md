@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Simon Willison's collected patterns for working effectively with coding agents — testing, economics, comprehension, prompts
 ---
 

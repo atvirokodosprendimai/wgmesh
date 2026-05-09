@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Full autonomous product pipeline — observe state, assess with LLM, create issues, implement with agents, verify — as a GitHub template repo for AI-native startups
 ---
 

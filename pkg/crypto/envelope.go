@@ -25,6 +25,8 @@ const (
 	MessageTypeRendezvousStart = "RENDEZVOUS_START"
 )
 
+var now = time.Now
+
 // MaxHostnameLength is the RFC 1035 maximum hostname length
 const MaxHostnameLength = 253
 
@@ -296,11 +298,12 @@ func OpenEnvelopeRaw(data []byte, gossipKey [32]byte) (*Envelope, []byte, error)
 	}
 
 	// Check timestamp to prevent replay attacks
+	currentTime := now()
 	msgTime := time.Unix(meta.Timestamp, 0)
-	if time.Since(msgTime) > MaxMessageAge {
-		return nil, nil, fmt.Errorf("message too old: %v", time.Since(msgTime))
+	if currentTime.Sub(msgTime) > MaxMessageAge {
+		return nil, nil, fmt.Errorf("message too old: %v", currentTime.Sub(msgTime))
 	}
-	if msgTime.After(time.Now().Add(MaxMessageAge)) {
+	if msgTime.After(currentTime.Add(MaxMessageAge)) {
 		return nil, nil, fmt.Errorf("message timestamp in future")
 	}
 

@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Every 10s, gossip picks a random active peer and sends an encrypted UDP packet containing the full local peer list to its mesh IP; the receiver extracts direct and transitive peers.
 category: core
 ---

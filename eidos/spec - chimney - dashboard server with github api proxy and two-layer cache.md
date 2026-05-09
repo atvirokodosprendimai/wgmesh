@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: Chimney serves the wgmesh dashboard static files and a caching GitHub API proxy; responses are stored in Dragonfly (DB 0) with an in-memory fallback; ETag-aware conditional fetching and stale-on-error ensure low latency even when GitHub or Dragonfly are unavailable.
 category: core
 ---

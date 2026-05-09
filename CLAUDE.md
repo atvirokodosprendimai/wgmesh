@@ -70,6 +70,8 @@ Daemon watches for `SIGHUP`, reads `/var/lib/wgmesh/{iface}.reload` (KEY=VALUE) 
 - **Testing**: table-driven, `t.Parallel()` for independent tests, mock via `CommandExecutor` interface
 - **CLI tests** (`main_test.go`): build a binary to `/tmp/wgmesh-test`, exec and verify output/exit codes
 
+Scripted CLI compatibility tests live under `testdata/script` as `.txtar` files and run through `TestScript` in `main_test.go`. Use `exec wgmesh ...` in scripts so the test harness invokes the registered test binary instead of a locally installed command. Golden updates are opt-in via `WGMESH_UPDATE_GOLDEN=1`, also exposed by `make update-golden`. New feature specs should claim their compatibility dimensions in `eidos/*.md` frontmatter so `make status` can connect features to CLI, behavior, wire, and API evidence. Keep new scripts focused on one externally visible behavior per file.
+
 ## What NOT to Modify Without Review
 
 - Encryption algorithms or key derivation parameters (`pkg/crypto/`)

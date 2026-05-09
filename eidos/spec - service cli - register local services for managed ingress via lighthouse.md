@@ -1,4 +1,8 @@
 ---
+status: implemented
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: CLI subcommand to register, list, and remove local services on mesh nodes — talks directly to Lighthouse API with credentials derived from the mesh secret
 ---
 

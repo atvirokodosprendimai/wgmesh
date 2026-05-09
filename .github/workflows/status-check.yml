@@ -1,0 +1,20 @@
+name: Status Check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  status-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - run: make lint-eidos
+      - run: make status
+      - run: git diff --exit-code STATUS.md

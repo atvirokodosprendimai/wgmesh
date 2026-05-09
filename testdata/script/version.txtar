@@ -1,0 +1,2 @@
+exec wgmesh --version
+stdout '^wgmesh version'

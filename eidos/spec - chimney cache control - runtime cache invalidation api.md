@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: POST /api/cache/invalidate accepts a path pattern and removes matching entries from both Dragonfly and in-memory cache, letting table.beerpub.dev force-refresh stale GitHub data after a deploy without waiting for TTL expiry.
 category: feature
 ---

@@ -1,4 +1,8 @@
 ---
+status: provisional
+compat-dimensions: []
+tracking-issue:
+since: ""
 tldr: chimney is instrumented with the OpenTelemetry Go SDK — otelhttp wraps all handlers to emit per-request spans, OTEL metrics replace the Prometheus endpoint as primary output, structured slog output carries trace context for log-trace correlation; all telemetry is exported via OTLP to the Coroot agent running on table.beerpub.dev.
 category: feature
 ---
