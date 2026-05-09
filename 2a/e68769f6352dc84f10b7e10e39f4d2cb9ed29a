@@ -1,0 +1,15 @@
+cmd/status-gen/main.go
+  ai_agent 59-63
+STATUS.md
+  ai_agent 6-36,40-55
+cmd/status-gen/render_test.go
+  ai_agent 23-27,37-39,91-104
+cmd/status-gen/render.go
+  ai_agent 14-19,41-42,77-80,145-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "2ae68769f6352dc84f10b7e10e39f4d2cb9ed29a",
+  "prompts": {}
+}
