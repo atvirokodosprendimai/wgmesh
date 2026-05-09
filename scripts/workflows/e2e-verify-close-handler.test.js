@@ -577,10 +577,17 @@ test('handler — failure on reporter-closed issue without verifier label skips 
 
   await handler({ github, context: ctx, core });
 
+  // Round-8 fix: when a closed issue lacks any verifier-controlled label,
+  // the close is owned by another workflow (e.g., verify-comment-close.yml).
+  // Bail entirely instead of mutating labels / reopening / commenting.
   assert.strictEqual(recordCalls.some(c => c.kind === 'update' && c.params.state === 'open'), false,
     'closed reporter-driven issue must not be reopened');
-  assert.ok(infoCalls.some(msg => msg.includes('skipping reopen')),
-    'must log why the closed issue was not reopened');
+  assert.strictEqual(recordCalls.some(c => c.kind === 'addLabels' && c.params.labels.includes('e2e-failed')), false,
+    'closed reporter-driven issue must not get e2e-failed slapped on');
+  assert.strictEqual(recordCalls.some(c => c.kind === 'createComment'), false,
+    'closed reporter-driven issue must not get a verifier failure comment');
+  assert.ok(infoCalls.some(msg => msg.includes('Skipping all failure-path mutations')),
+    'must log that all mutations were skipped to avoid racing reporter close');
 });
 
 test('handler — failure on closed verified issue (re-run on verified SHA) reopens', async () => {

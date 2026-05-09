@@ -262,9 +262,28 @@ async function handler({github, context, core}) {
     return;
   }
 
+  // FAILURE branch.
+  //
+  // Round-8 fix: if the issue is closed AND no verifier-controlled
+  // label is present, the close was driven by something else (e.g.,
+  // reporter via verify-comment-close.yml mid-run). Mutating labels
+  // / commenting / posting an artifact link on someone else's closed
+  // issue is noise at best, contradicts the reporter's intent at
+  // worst. Bail entirely.
+  if (issue.state === 'closed' && !wasVerifierControlled) {
+    core.info(
+      `Issue #${issueNumber} is closed without any verifier-controlled ` +
+      `label (awaiting-verification / verified / e2e-failed). The close ` +
+      `is owned by another workflow (likely verify-comment-close.yml). ` +
+      `Skipping all failure-path mutations to avoid racing a reporter ` +
+      `close.`
+    );
+    return;
+  }
+
   // FAILURE: add `e2e-failed`, remove `awaiting-verification`, reopen
-  // the issue ONLY if currently closed, comment with run URL + artifact
-  // hint.
+  // the issue ONLY if currently closed AND verifier-controlled, comment
+  // with run URL + artifact hint.
   await github.rest.issues.addLabels({
     owner: context.repo.owner,
     repo: context.repo.repo,
