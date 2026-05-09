@@ -1,0 +1,15 @@
+eidos/eidosmeta/meta.go
+  ai_agent 14-16,46
+cmd/status-gen/render.go
+  ai_agent 43-44,52-54,64-67,91-102,105-106,135-137
+cmd/status-gen/render_test.go
+  ai_agent 38-40,78-80,82,88-136
+eidos/eidosmeta/meta_test.go
+  ai_agent 231-233
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "1774b1b0babe36e1657f08f4a4d1b076e45ab883",
+  "prompts": {}
+}
