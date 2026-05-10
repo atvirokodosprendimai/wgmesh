@@ -1,0 +1,20 @@
+.github/workflows/hetzner-integration.yml
+  s_6f7cc9734df574::t_94ef9b8ce7693e 17-21
+  s_6f7cc9734df574::t_afc9eaf40cecf5 144
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "081f9b6b5c39e9a2ed3ecee3dc238caf1d20cdca",
+  "prompts": {},
+  "sessions": {
+    "s_6f7cc9734df574": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bda1584-787d-47d4-b69b-3364d9b105b2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
