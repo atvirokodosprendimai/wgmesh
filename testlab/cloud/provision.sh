@@ -266,6 +266,43 @@ _setup_single_vm() {
         mkdir -p /usr/local/bin /var/lib/wgmesh
     "
 
+    # Optional: install coroot-node-agent for kernel-level (eBPF) observability.
+    # Opt-in via WGMESH_COROOT=1 to avoid paying the install cost on every run.
+    # Collector endpoint defaults to https://table.beerpub.dev (per memory:
+    # Coroot observability setup); override via WGMESH_COROOT_COLLECTOR. Agent
+    # needs root + privileged + debugfs to attach BPF programs. Useful when
+    # diagnosing kernel-level hangs (e.g., wgmesh shutdown blocking on
+    # netlink/RTNL — the symptom from Hetzner run 25609234757).
+    if [ "${WGMESH_COROOT:-0}" = "1" ]; then
+        local coroot_endpoint="${WGMESH_COROOT_COLLECTOR:-https://table.beerpub.dev}"
+        local coroot_arch="arm64"
+        run_on "$node" "
+            export DEBIAN_FRONTEND=noninteractive
+            mkdir -p /opt/coroot
+            curl -fsSL --retry 3 -o /opt/coroot/coroot-node-agent \
+                https://github.com/coroot/coroot-node-agent/releases/latest/download/coroot-node-agent-linux-${coroot_arch} 2>/dev/null
+            chmod +x /opt/coroot/coroot-node-agent
+            cat > /etc/systemd/system/coroot-node-agent.service << 'UNIT'
+[Unit]
+Description=Coroot eBPF node agent (test VM observability)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/coroot/coroot-node-agent --collector-endpoint=${coroot_endpoint} --cgroupfs-root=/sys/fs/cgroup
+Restart=on-failure
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+            systemctl daemon-reload
+            systemctl enable --now coroot-node-agent
+        "
+        log_info "VM $node coroot-node-agent started (collector=${coroot_endpoint})"
+    fi
+
     # Copy binary
     copy_to "$node" "$BINARY_PATH" "/usr/local/bin/wgmesh"
     run_on "$node" "chmod +x /usr/local/bin/wgmesh"
