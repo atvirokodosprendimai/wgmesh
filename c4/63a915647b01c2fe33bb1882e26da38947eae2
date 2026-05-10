@@ -1,0 +1,19 @@
+testlab/cloud/lib.sh
+  s_6f7cc9734df574::t_4655c4e86a9e0c 107-149,152,157-158,162-163,168-169,174-175,180-181
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "c463a915647b01c2fe33bb1882e26da38947eae2",
+  "prompts": {},
+  "sessions": {
+    "s_6f7cc9734df574": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bda1584-787d-47d4-b69b-3364d9b105b2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
