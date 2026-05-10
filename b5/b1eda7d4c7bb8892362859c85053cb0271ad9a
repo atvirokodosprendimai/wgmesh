@@ -1,0 +1,19 @@
+testlab/cloud/provision.sh
+  s_6f7cc9734df574::t_23053ce6238a2b 290-299,301-305,307,318,338-344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "b5b1eda7d4c7bb8892362859c85053cb0271ad9a",
+  "prompts": {},
+  "sessions": {
+    "s_6f7cc9734df574": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bda1584-787d-47d4-b69b-3364d9b105b2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
