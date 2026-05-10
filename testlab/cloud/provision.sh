@@ -266,6 +266,63 @@ _setup_single_vm() {
         mkdir -p /usr/local/bin /var/lib/wgmesh
     "
 
+    # Optional: install coroot-node-agent for kernel-level (eBPF) observability.
+    # Opt-in via WGMESH_COROOT=1 to avoid paying the install cost on every run.
+    # Collector endpoint defaults to https://table.beerpub.dev (per memory:
+    # Coroot observability setup); override via WGMESH_COROOT_COLLECTOR.
+    #
+    # Source defaults to nycterent's PR coroot/coroot-node-agent#301 branch
+    # `fix-l7-memory-oom` (replaces stateful Prometheus objects with
+    # lightweight storage to prevent OOM — fixes the agent OOMing at 9GB on
+    # busy nodes, which would otherwise OOM-kill mid-test and obscure the
+    # very hang we're trying to observe). Override the source with
+    # WGMESH_COROOT_REPO and WGMESH_COROOT_REF for upstream comparison.
+    #
+    # Built from source on each VM so the binary matches whatever revision
+    # WGMESH_COROOT_REF points to. ~1 minute extra setup; only runs when
+    # WGMESH_COROOT=1.
+    #
+    # Agent needs root + privileged + debugfs to attach BPF programs. Useful
+    # when diagnosing kernel-level hangs (e.g., wgmesh shutdown blocking on
+    # netlink/RTNL — the symptom from Hetzner run 25609234757).
+    if [ "${WGMESH_COROOT:-0}" = "1" ]; then
+        local coroot_endpoint="${WGMESH_COROOT_COLLECTOR:-https://table.beerpub.dev}"
+        local coroot_repo="${WGMESH_COROOT_REPO:-https://github.com/coroot/coroot-node-agent.git}"
+        local coroot_ref="${WGMESH_COROOT_REF:-fix-l7-memory-oom}"
+        run_on "$node" "
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get install -y -qq golang-go git build-essential >/dev/null 2>&1
+            mkdir -p /opt/coroot
+            cd /tmp
+            rm -rf coroot-node-agent-src
+            git clone --depth 1 --branch '${coroot_ref}' '${coroot_repo}' coroot-node-agent-src
+            cd coroot-node-agent-src
+            CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o /opt/coroot/coroot-node-agent .
+            cd / && rm -rf /tmp/coroot-node-agent-src
+            chmod +x /opt/coroot/coroot-node-agent
+            cat > /etc/systemd/system/coroot-node-agent.service << 'UNIT'
+[Unit]
+Description=Coroot eBPF node agent (test VM observability — PR #301 fix-l7-memory-oom)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/opt/coroot/coroot-node-agent --collector-endpoint=${coroot_endpoint} --cgroupfs-root=/sys/fs/cgroup
+Restart=on-failure
+LimitNOFILE=65535
+MemoryHigh=2G
+MemoryMax=4G
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+            systemctl daemon-reload
+            systemctl enable --now coroot-node-agent
+        "
+        log_info "VM $node coroot-node-agent built + started (ref=${coroot_ref}, collector=${coroot_endpoint})"
+    fi
+
     # Copy binary
     copy_to "$node" "$BINARY_PATH" "/usr/local/bin/wgmesh"
     run_on "$node" "chmod +x /usr/local/bin/wgmesh"
