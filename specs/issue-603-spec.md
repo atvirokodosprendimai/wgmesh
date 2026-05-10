@@ -57,7 +57,7 @@ Update the static traction/funnel section (Customer Factory + MSC summary) as fo
 
 1. In MSC progress block:
    - Change `.msc-current` from `0` to `5`.
-   - Replace the subtitle text `of 1 customer (90-day target)` with `active subscribers · Stage 5 Revenue achieved`.
+   - Replace the subtitle text `of 1 customer (90-day target)` with `5 active subscribers · Stage 5 Revenue achieved`.
 
 2. In Customer Factory funnel:
    - Change Revenue stage container class from `funnel-stage blocked` to `funnel-stage ready`.
