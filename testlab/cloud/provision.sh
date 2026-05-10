@@ -287,9 +287,24 @@ _setup_single_vm() {
     # netlink/RTNL — the symptom from Hetzner run 25609234757).
     if [ "${WGMESH_COROOT:-0}" = "1" ]; then
         local coroot_endpoint="${WGMESH_COROOT_COLLECTOR:-https://table.beerpub.dev}"
-        local coroot_repo="${WGMESH_COROOT_REPO:-https://github.com/coroot/coroot-node-agent.git}"
+        # Default to nycterent's fork — that's where PR coroot/coroot-node-agent#301
+        # `fix-l7-memory-oom` lives. Upstream `coroot/coroot-node-agent` does NOT
+        # have this branch (verified 2026-05-10 via gh pr view 301 — headRepositoryOwner
+        # is `nycterent`). Run 25625632355 hit this: clone "succeeded" with
+        # "Cloning into ..." but then `cd` failed because the branch was absent
+        # in upstream. The remote bash session lacked `set -e`, so the cd/build/chmod
+        # failures cascaded silently and the systemd unit ended up pointing at a
+        # missing binary. Test VMs reported nothing to Coroot even though the
+        # provision step claimed "built + started".
+        local coroot_repo="${WGMESH_COROOT_REPO:-https://github.com/nycterent/coroot-node-agent.git}"
         local coroot_ref="${WGMESH_COROOT_REF:-fix-l7-memory-oom}"
+        # Wrap in `set -e` so any failure (clone, build, install) aborts the
+        # remote shell with non-zero, propagating to run_on, propagating to
+        # this loop, propagating to the test step. No more lying log lines.
+        # Add a final verification step that confirms the binary exists +
+        # service became active before logging success.
         run_on "$node" "
+            set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
             apt-get install -y -qq golang-go git build-essential >/dev/null 2>&1
             mkdir -p /opt/coroot
@@ -300,6 +315,7 @@ _setup_single_vm() {
             CGO_ENABLED=1 go build -trimpath -ldflags='-s -w' -o /opt/coroot/coroot-node-agent .
             cd / && rm -rf /tmp/coroot-node-agent-src
             chmod +x /opt/coroot/coroot-node-agent
+            test -x /opt/coroot/coroot-node-agent
             cat > /etc/systemd/system/coroot-node-agent.service << 'UNIT'
 [Unit]
 Description=Coroot eBPF node agent (test VM observability — PR #301 fix-l7-memory-oom)
@@ -319,6 +335,13 @@ WantedBy=multi-user.target
 UNIT
             systemctl daemon-reload
             systemctl enable --now coroot-node-agent
+            # Verify service reached active state (give it 5s to start).
+            for i in 1 2 3 4 5; do
+                state=\$(systemctl is-active coroot-node-agent 2>/dev/null || echo failed)
+                [ \"\$state\" = active ] && break
+                sleep 1
+            done
+            test \"\$(systemctl is-active coroot-node-agent)\" = active
         "
         log_info "VM $node coroot-node-agent built + started (ref=${coroot_ref}, collector=${coroot_endpoint})"
     fi
