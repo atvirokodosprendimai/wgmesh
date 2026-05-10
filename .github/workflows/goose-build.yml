@@ -581,4 +581,4 @@ jobs:
             --arg issue "${ISSUE:-}" \
             --arg spec_pr "${SPEC_PR:-}" \
             '{outcome: $outcome, issue_number: $issue, spec_pr_number: $spec_pr}')
-          bash company/scripts/posthog-emit.sh goose_build_run "goose-build" "$PROPS"
+          bash company/scripts/posthog-emit.sh goose_build_run "goose-build" "$PROPS" || true

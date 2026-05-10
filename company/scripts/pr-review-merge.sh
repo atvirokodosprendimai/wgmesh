@@ -85,7 +85,7 @@ escalate() {
 
   # Server-side PostHog event so escalation rate is queryable alongside
   # bot_pr_merged. Non-fatal — the helper itself swallows curl failures.
-  if [ -x "${SCRIPT_DIR}/posthog-emit.sh" ]; then
+  if [ -f "${SCRIPT_DIR}/posthog-emit.sh" ]; then
     local escalation_props
     escalation_props=$(jq -nc \
       --arg pr "$pr" \

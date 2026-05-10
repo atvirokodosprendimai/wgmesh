@@ -8,10 +8,16 @@
 # Env:
 #   POSTHOG_PROJECT_KEY  required; phc_... write-only project ingest key
 #   POSTHOG_HOST         optional; defaults to https://eu.i.posthog.com
-set -euo pipefail
+#
+# Non-fatal contract: any failure inside this script must NOT break the
+# calling workflow step. Trap converts any non-zero exit (incl. jq parse
+# errors, missing tools, curl failures) into a ::warning:: + exit 0.
+set -u
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then echo "::warning::posthog-emit.sh aborted (exit $rc, non-fatal)"; fi; exit 0' EXIT
+trap 'echo "::warning::posthog-emit.sh error at line $LINENO (non-fatal)"' ERR
 
 EVENT="${1:?event name required}"
-DISTINCT_ID="${2:-${GITHUB_REPOSITORY:-ai-pipeline-template}}"
+DISTINCT_ID="${2:-${GITHUB_REPOSITORY:-wgmesh}}"
 # Bash quirk: `${3:-{}}` corrupts a set value with an extra `}` because the
 # parser eats the inner `{}` as part of the default expression. Use explicit
 # branching so a passed JSON object stays intact.
@@ -52,5 +58,5 @@ URL="${POSTHOG_HOST:-https://eu.i.posthog.com}/i/v0/e/"
 curl --fail-with-body --silent --show-error --max-time 10 \
   -X POST -H 'Content-Type: application/json' \
   -d "$PAYLOAD" "$URL" \
-  >/dev/null \
-  || { code=$?; echo "::warning::posthog emit failed for event=$EVENT (curl exit $code, non-fatal)"; }
+  >/dev/null
+# Trap above handles any curl non-zero exit; no inline fallback needed.
