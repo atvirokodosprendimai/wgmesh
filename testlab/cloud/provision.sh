@@ -287,6 +287,11 @@ _setup_single_vm() {
     # netlink/RTNL — the symptom from Hetzner run 25609234757).
     if [ "${WGMESH_COROOT:-0}" = "1" ]; then
         local coroot_endpoint="${WGMESH_COROOT_COLLECTOR:-https://table.beerpub.dev}"
+        local coroot_api_key="${WGMESH_COROOT_API_KEY:-${COROOT_API_TOKEN:-}}"
+        if [ -z "$coroot_api_key" ]; then
+            log_error "VM $node coroot enabled but COROOT_API_TOKEN/WGMESH_COROOT_API_KEY is empty — agent would be silently 401'd at ingestion. Pass the secret through to the test step env."
+            return 1
+        fi
         # Default to nycterent's fork — that's where PR coroot/coroot-node-agent#301
         # `fix-l7-memory-oom` lives. Upstream `coroot/coroot-node-agent` does NOT
         # have this branch (verified 2026-05-10 via gh pr view 301 — headRepositoryOwner
@@ -324,7 +329,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/coroot/coroot-node-agent --collector-endpoint=${coroot_endpoint} --cgroupfs-root=/sys/fs/cgroup
+ExecStart=/opt/coroot/coroot-node-agent --collector-endpoint=${coroot_endpoint} --api-key=${coroot_api_key} --cgroupfs-root=/sys/fs/cgroup
 Restart=on-failure
 LimitNOFILE=65535
 MemoryHigh=2G

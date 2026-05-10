@@ -1,0 +1,15 @@
+# --- Product pulse ---
+
+pulse_product_name: "wgmesh"
+pulse_lookback_default: 7d
+pulse_value_event: "synthetic_probe_handshake_completed"
+pulse_completion_events: "polar_subscription_created,polar_subscription_cancelled,github_star_added"
+pulse_quality_scoring: false
+pulse_analytics_source: chimney
+pulse_tracing_source: coroot
+pulse_payments_source: polar
+pulse_db_enabled: false
+pulse_metric_sources: "paying_customers=polar,cost_coverage_ratio=polar,weekly_active_meshes=chimney,time_to_mesh_p50=synthetic_probe,unsolicited_positive_feedback_rate=github"
+pulse_pending_metrics: "primary_engagement_event,time_to_mesh_p50,synthetic_probe_handshake_completed"
+pulse_excluded_metrics: ""
+pulse_schedule: daily
