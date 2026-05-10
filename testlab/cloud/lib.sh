@@ -104,31 +104,81 @@ _ensure_ssh_opts() {
     )
 }
 
+# Run a foreground command with a per-invocation timeout via pure-bash
+# watchdog. Used by run_on / run_on_ok / copy_to to bound SSH/scp calls
+# the OpenSSH client wedges through despite ConnectTimeout +
+# ServerAliveInterval + ServerAliveCountMax (observed on Hetzner runs
+# 25609234757 → 25636410584, all hung in stop_mesh's post-cleanup SSH
+# loop for ~2h until job-level 120-min cancel).
+#
+# `set -e` discipline (per PR #605 wait_for fix): `wait $pid` returns
+# the child's exit code; under set -e a non-zero return aborts the
+# script before rc=$? captures. Use `wait || rc=$?` chain so the ||
+# short-circuit suppresses set -e while letting us read rc.
+#
+# Returns 124 on watchdog kill (timeout(1) convention) so callers can
+# distinguish timeout from real command failure.
+#
+# Why a bash watchdog instead of `timeout(1)`: keeps behavior identical
+# to wait_for (PR #600), no external program dependency, no exec-vs-fork
+# subtlety with shell builtins or background processes.
+_run_with_timeout() {
+    local timeout_sec="$1"; shift
+    ( "$@" ) &
+    local pid=$!
+    local deadline=$(( $(date +%s) + timeout_sec ))
+    local rc=124
+    local done=0
+    while [ "$(date +%s)" -lt "$deadline" ]; do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            rc=0
+            wait "$pid" 2>/dev/null || rc=$?
+            done=1
+            break
+        fi
+        sleep 1
+    done
+    if [ "$done" -eq 0 ]; then
+        kill -KILL "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        rc=124
+        echo "::error::run_on watchdog killed PID $pid after ${timeout_sec}s on command: $*" >&2
+    fi
+    return "$rc"
+}
+
 # Run a command on a remote node via SSH.
 # Usage: run_on <node-name> <command...>
+# Bounded by RUN_ON_TIMEOUT_SEC (default 60s).
 run_on() {
     _ensure_ssh_opts
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
-    ssh "${SSH_OPTS[@]}" "root@${ip}" "$@"
+    local t="${RUN_ON_TIMEOUT_SEC:-60}"
+    _run_with_timeout "$t" ssh "${SSH_OPTS[@]}" "root@${ip}" "$@"
 }
 
 # Run a command on a remote node, tolerating failure.
-# Always returns 0 — errors are silently swallowed.
+# Always returns 0 — errors are silently swallowed (including watchdog
+# timeouts, which still print ::error:: above for visibility).
 run_on_ok() {
     _ensure_ssh_opts
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
-    ssh "${SSH_OPTS[@]}" "root@${ip}" "$@" 2>/dev/null || true
+    local t="${RUN_ON_TIMEOUT_SEC:-60}"
+    _run_with_timeout "$t" ssh "${SSH_OPTS[@]}" "root@${ip}" "$@" 2>/dev/null || true
 }
 
 # Copy a file to a remote node.
 # Usage: copy_to <node-name> <local-path> <remote-path>
+# Bounded by COPY_TO_TIMEOUT_SEC (default 120s — wgmesh binary is ~30MB,
+# legitimate scp under 5s on Hetzner; 120s is generous safety margin).
 copy_to() {
     _ensure_ssh_opts
     local node="$1" src="$2" dst="$3"
     local ip="${NODE_IPS[$node]}"
-    scp "${SSH_OPTS[@]}" "$src" "root@${ip}:${dst}"
+    local t="${COPY_TO_TIMEOUT_SEC:-120}"
+    _run_with_timeout "$t" scp "${SSH_OPTS[@]}" "$src" "root@${ip}:${dst}"
 }
 
 # Run a command on ALL nodes in parallel, wait for all.
