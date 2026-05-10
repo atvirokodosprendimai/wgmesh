@@ -1,0 +1,193 @@
+name: Coroot Snapshot
+
+# Pull a snapshot of Coroot observability data for a given hetzner-integration
+# run, save as artifact. Use when the integration run hangs or fails and we
+# need to see kernel-level state of the test VMs without browser access.
+#
+# Coroot is at table.beerpub.dev. Auth uses COROOT_API_TOKEN (org-level
+# secret, all-repos scope). The exact auth header is determined empirically
+# by trying common patterns and recording which yields JSON.
+#
+# Hostnames follow the testlab/cloud convention:
+#   wgmesh-t<TIER>-<RUN_ID>-t<TIER>-{introducer,node-a,node-b,node-c,node-d}
+
+on:
+  workflow_dispatch:
+    inputs:
+      hetzner_run_id:
+        description: 'GitHub Actions run ID of the hetzner-integration run to snapshot (e.g. 25625632355)'
+        required: true
+        type: string
+      window_min:
+        description: 'Minutes back from now to capture (default 180 = 3h to cover a full job timeout)'
+        required: false
+        default: '180'
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Probe Coroot API auth pattern + dump common endpoints
+        env:
+          COROOT_API_TOKEN: ${{ secrets.COROOT_API_TOKEN }}
+          COROOT_BASE: https://table.beerpub.dev
+          RUN_ID: ${{ inputs.hetzner_run_id }}
+          WINDOW_MIN: ${{ inputs.window_min }}
+        run: |
+          set -uo pipefail
+          mkdir -p /tmp/coroot-snapshot
+          cd /tmp/coroot-snapshot
+
+          if [ -z "$COROOT_API_TOKEN" ]; then
+            echo "::error::COROOT_API_TOKEN secret is empty — workflow cannot authenticate"
+            exit 1
+          fi
+
+          # Probe auth patterns. Save the FIRST one that returns JSON content-type
+          # for /api/projects.
+          AUTH_HEADER=""
+          for pattern in "Authorization: Bearer $COROOT_API_TOKEN" "X-API-Key: $COROOT_API_TOKEN" "Cookie: auth=$COROOT_API_TOKEN" "Cookie: token=$COROOT_API_TOKEN"; do
+            ct=$(curl -sS -o /dev/null -w "%{content_type}" -H "$pattern" "$COROOT_BASE/api/projects" || echo "")
+            echo "Pattern: ${pattern%%:*}  → content_type=$ct"
+            if echo "$ct" | grep -qi "application/json"; then
+              AUTH_HEADER="$pattern"
+              echo "::notice::Auth pattern works: ${pattern%%:*}"
+              break
+            fi
+          done
+
+          if [ -z "$AUTH_HEADER" ]; then
+            echo "::warning::No auth pattern returned JSON. Saving raw HTML responses for diagnosis."
+            for pattern in "Authorization: Bearer $COROOT_API_TOKEN" "X-API-Key: $COROOT_API_TOKEN"; do
+              tag=$(echo "${pattern%%:*}" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+              curl -sS -H "$pattern" "$COROOT_BASE/api/projects" -o "auth-probe-${tag}.html" || true
+            done
+            echo "Continuing with Bearer; expect HTML in dumps."
+            AUTH_HEADER="Authorization: Bearer $COROOT_API_TOKEN"
+          fi
+
+          # Helper for authenticated GETs
+          fetch() {
+            local path="$1" out="$2"
+            curl -sS -H "$AUTH_HEADER" "$COROOT_BASE$path" -o "$out" -w "  → $path (%{http_code}, ct=%{content_type}, %{size_download}B)\n" || true
+          }
+
+          # Dump endpoints. Some won't exist; ignore failures.
+          echo ""
+          echo "=== Listing projects + global ==="
+          fetch "/api/projects" projects.json
+          fetch "/api/overview" overview.json
+          fetch "/api/configs" configs.json
+          fetch "/api/stats" stats.json
+          fetch "/api/v1/projects" projects-v1.json
+          fetch "/api/agents" agents.json
+          fetch "/api/integrations" integrations.json
+
+          echo ""
+          echo "=== Project-scoped (trying common project ids: wgmesh, default, beerpub) ==="
+          for proj in wgmesh default beerpub; do
+            fetch "/api/project/$proj/overview" "proj-${proj}-overview.json"
+            fetch "/api/project/$proj/applications" "proj-${proj}-apps.json"
+            fetch "/api/project/$proj/nodes" "proj-${proj}-nodes.json"
+            fetch "/api/project/$proj/incidents" "proj-${proj}-incidents.json"
+            fetch "/api/project/$proj/events" "proj-${proj}-events.json"
+            fetch "/api/project/$proj/configs" "proj-${proj}-configs.json"
+          done
+
+          echo ""
+          echo "=== Per-VM (hostnames from run $RUN_ID) ==="
+          # Try fetching per-node state for the 10 expected VMs (5 per tier × 2 tiers).
+          for tier in 2 4; do
+            for node in introducer node-a node-b node-c node-d; do
+              hostname="wgmesh-t${tier}-${RUN_ID}-t${tier}-${node}"
+              for proj in wgmesh default beerpub; do
+                fetch "/api/project/$proj/node/$hostname" "node-${hostname}-${proj}.json"
+              done
+            done
+          done
+
+          echo ""
+          echo "=== Bytes per file (non-empty only) ==="
+          du -b ./*.json 2>/dev/null | awk '$1 > 0 {print}' | sort -nr | head -50
+
+          # Quick summary
+          echo ""
+          echo "=== JSON-shape files (filter HTML noise) ==="
+          for f in ./*.json; do
+            head -c 1 "$f" 2>/dev/null | grep -qE '\{|\[' && echo "  $f ($(wc -c < "$f")B)" || true
+          done
+
+          # Verification: did Coroot receive data for THIS run's VMs?
+          # Counts how many of the 10 expected hostnames produced a JSON-shape
+          # response (i.e., a real node entry rather than 404 / SPA HTML).
+          # Writes a verification summary at /tmp/coroot-snapshot/VERIFICATION.txt.
+          echo ""
+          echo "=== Verification: Coroot data for run $RUN_ID ==="
+          expected=0
+          received=0
+          missing_hostnames=()
+          for tier in 2 4; do
+            for node in introducer node-a node-b node-c node-d; do
+              hostname="wgmesh-t${tier}-${RUN_ID}-t${tier}-${node}"
+              expected=$((expected + 1))
+              found=0
+              for proj in wgmesh default beerpub; do
+                f="node-${hostname}-${proj}.json"
+                if [ -f "$f" ] && head -c 1 "$f" 2>/dev/null | grep -qE '\{|\['; then
+                  size=$(wc -c < "$f")
+                  if [ "$size" -gt 50 ]; then
+                    found=1
+                    break
+                  fi
+                fi
+              done
+              if [ "$found" -eq 1 ]; then
+                received=$((received + 1))
+              else
+                missing_hostnames+=("$hostname")
+              fi
+            done
+          done
+
+          echo "Expected hostnames: $expected"
+          echo "Received: $received"
+          echo "Missing: $((expected - received))"
+          if [ "${#missing_hostnames[@]}" -gt 0 ]; then
+            echo "Missing hostnames:"
+            for h in "${missing_hostnames[@]}"; do echo "  - $h"; done
+          fi
+
+          {
+            echo "Coroot snapshot verification — run $RUN_ID"
+            echo "Captured at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo ""
+            echo "Expected hostnames: $expected"
+            echo "Received: $received"
+            echo "Missing: $((expected - received))"
+            if [ "${#missing_hostnames[@]}" -gt 0 ]; then
+              echo ""
+              echo "Missing hostnames (no JSON-shape per-node data found):"
+              for h in "${missing_hostnames[@]}"; do echo "  $h"; done
+            fi
+          } > VERIFICATION.txt
+
+          if [ "$received" -eq 0 ]; then
+            echo "::error::Coroot has ZERO data for any of the $expected expected hostnames. Either auth is wrong, project id is wrong, or agents never reported."
+          elif [ "$received" -lt "$expected" ]; then
+            echo "::warning::Coroot has data for $received/$expected hostnames. Some agents may have failed to install or never reported."
+          else
+            echo "::notice::Coroot has data for all $expected hostnames."
+          fi
+
+      - name: Upload snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: coroot-snapshot-${{ inputs.hetzner_run_id }}
+          path: /tmp/coroot-snapshot/
+          retention-days: 14
+          if-no-files-found: warn
