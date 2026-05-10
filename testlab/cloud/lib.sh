@@ -149,12 +149,18 @@ _run_with_timeout() {
 
 # Run a command on a remote node via SSH.
 # Usage: run_on <node-name> <command...>
-# Bounded by RUN_ON_TIMEOUT_SEC (default 60s).
+# Bounded by RUN_ON_TIMEOUT_SEC (default 300s — generous because setup-phase
+# commands legitimately take 60-180s: apt-get update+install with 5 parallel
+# VMs hitting Hetzner mirrors, then `go build` of coroot-node-agent CGO
+# package. Run 25638477323 hit the 60s default mid-apt-install and false-
+# positived on all 5 nodes simultaneously. Bumped to 300s; if a real wedge
+# happens it still bounds within an order of magnitude of the prior 7200s
+# silent hang).
 run_on() {
     _ensure_ssh_opts
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
-    local t="${RUN_ON_TIMEOUT_SEC:-60}"
+    local t="${RUN_ON_TIMEOUT_SEC:-300}"
     _run_with_timeout "$t" ssh "${SSH_OPTS[@]}" "root@${ip}" "$@"
 }
 
@@ -165,7 +171,7 @@ run_on_ok() {
     _ensure_ssh_opts
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
-    local t="${RUN_ON_TIMEOUT_SEC:-60}"
+    local t="${RUN_ON_TIMEOUT_SEC:-300}"
     _run_with_timeout "$t" ssh "${SSH_OPTS[@]}" "root@${ip}" "$@" 2>/dev/null || true
 }
 
