@@ -48,33 +48,70 @@ jobs:
             exit 1
           fi
 
-          # Probe auth patterns. Save the FIRST one that returns JSON content-type
-          # for /api/projects.
+          # Probe auth patterns against /api/user — the only Coroot endpoint
+          # confirmed to return 401 without auth (other paths return SPA HTML
+          # regardless). A successful pattern returns 200 + JSON.
+          # Founder direction (2026-05-10): COROOT_API_TOKEN is the way; figure
+          # out the right header.
           AUTH_HEADER=""
-          for pattern in "Authorization: Bearer $COROOT_API_TOKEN" "X-API-Key: $COROOT_API_TOKEN" "Cookie: auth=$COROOT_API_TOKEN" "Cookie: token=$COROOT_API_TOKEN"; do
-            ct=$(curl -sS -o /dev/null -w "%{content_type}" -H "$pattern" "$COROOT_BASE/api/projects" || echo "")
-            echo "Pattern: ${pattern%%:*}  → content_type=$ct"
-            if echo "$ct" | grep -qi "application/json"; then
+          declare -a CANDIDATES=(
+            "Authorization: Bearer $COROOT_API_TOKEN"
+            "Authorization: $COROOT_API_TOKEN"
+            "X-API-Key: $COROOT_API_TOKEN"
+            "X-Api-Key: $COROOT_API_TOKEN"
+            "X-Coroot-API-Key: $COROOT_API_TOKEN"
+            "X-Coroot-Auth: $COROOT_API_TOKEN"
+            "X-Auth-Token: $COROOT_API_TOKEN"
+            "Cookie: auth=$COROOT_API_TOKEN"
+            "Cookie: token=$COROOT_API_TOKEN"
+            "Cookie: coroot_session=$COROOT_API_TOKEN"
+            "Cookie: session=$COROOT_API_TOKEN"
+          )
+          for pattern in "${CANDIDATES[@]}"; do
+            # Truncate pattern for log readability (don't echo the full token).
+            short_label="${pattern%%=*}"
+            short_label="${short_label:0:60}"
+            code=$(curl -sS -o /dev/null -w "%{http_code}" -H "$pattern" "$COROOT_BASE/api/user")
+            echo "Pattern (/api/user): $short_label → $code"
+            if [ "$code" = "200" ]; then
               AUTH_HEADER="$pattern"
-              echo "::notice::Auth pattern works: ${pattern%%:*}"
+              echo "::notice::Auth pattern works: $short_label"
               break
             fi
           done
 
+          # Try query-param auth as fallback (Coroot Enterprise pattern).
           if [ -z "$AUTH_HEADER" ]; then
-            echo "::warning::No auth pattern returned JSON. Saving raw HTML responses for diagnosis."
-            for pattern in "Authorization: Bearer $COROOT_API_TOKEN" "X-API-Key: $COROOT_API_TOKEN"; do
-              tag=$(echo "${pattern%%:*}" | tr -d ' ' | tr '[:upper:]' '[:lower:]')
-              curl -sS -H "$pattern" "$COROOT_BASE/api/projects" -o "auth-probe-${tag}.html" || true
+            for qp in "api-key" "token" "api_key" "auth"; do
+              code=$(curl -sS -o /dev/null -w "%{http_code}" "$COROOT_BASE/api/user?${qp}=$COROOT_API_TOKEN")
+              echo "Pattern (query): ?${qp}= → $code"
+              if [ "$code" = "200" ]; then
+                AUTH_HEADER=""  # signal: use query, not header
+                AUTH_QUERY="?${qp}=$COROOT_API_TOKEN"
+                echo "::notice::Auth pattern works: query ?${qp}="
+                break
+              fi
             done
-            echo "Continuing with Bearer; expect HTML in dumps."
-            AUTH_HEADER="Authorization: Bearer $COROOT_API_TOKEN"
           fi
 
-          # Helper for authenticated GETs
+          if [ -z "${AUTH_HEADER:-}" ] && [ -z "${AUTH_QUERY:-}" ]; then
+            echo "::error::No auth pattern unlocked /api/user (all returned non-200). COROOT_API_TOKEN may be wrong shape, expired, or for a different endpoint."
+            echo "Saving raw response for the most-promising pattern (Bearer) for diagnosis."
+            curl -sS -i -H "Authorization: Bearer $COROOT_API_TOKEN" "$COROOT_BASE/api/user" -o auth-probe-bearer.txt || true
+            head -20 auth-probe-bearer.txt
+            exit 1
+          fi
+          AUTH_QUERY="${AUTH_QUERY:-}"
+
+          # Helper for authenticated GETs (header-based or query-based)
           fetch() {
             local path="$1" out="$2"
-            curl -sS -H "$AUTH_HEADER" "$COROOT_BASE$path" -o "$out" -w "  → $path (%{http_code}, ct=%{content_type}, %{size_download}B)\n" || true
+            local url="${COROOT_BASE}${path}${AUTH_QUERY}"
+            if [ -n "$AUTH_HEADER" ]; then
+              curl -sS -H "$AUTH_HEADER" "$url" -o "$out" -w "  → $path (%{http_code}, ct=%{content_type}, %{size_download}B)\n" || true
+            else
+              curl -sS "$url" -o "$out" -w "  → $path (%{http_code}, ct=%{content_type}, %{size_download}B)\n" || true
+            fi
           }
 
           # Dump endpoints. Some won't exist; ignore failures.
