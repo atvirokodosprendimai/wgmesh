@@ -1,0 +1,26 @@
+company/scripts/posthog-emit.sh
+  s_afc92c7f2735b4::t_1141d071d2a5b7 11-17,20
+  s_afc92c7f2735b4::t_ef22763e2fcec2 61-62
+company/scripts/pr-review-merge.sh
+  s_afc92c7f2735b4::t_3f131f778b09ba 88
+.github/workflows/goose-build.yml
+  s_afc92c7f2735b4::t_ea6f43217d0a28 584
+.github/workflows/bot-pr-review-merge.yml
+  s_afc92c7f2735b4::t_aa987790fa019b 46-49,57-58,63-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "bc0865f21fd9793704b2ce24ef686c2d7a0373df",
+  "prompts": {},
+  "sessions": {
+    "s_afc92c7f2735b4": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "d9f0418e-ce5a-4170-82f0-d09f393be1f1",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
