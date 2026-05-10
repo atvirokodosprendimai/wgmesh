@@ -185,21 +185,32 @@ wait_for() {
         # Run the predicate in a subshell so functions are visible, and
         # poll its PID with kill -0 against a per-probe deadline. On
         # deadline, SIGKILL the subshell and treat the probe as failed.
+        #
+        # `set -e` discipline (the bug in the first cut of this code,
+        # caught on Hetzner run 25622099770): `wait $pid` returns the
+        # exit code of the waited child. Under `set -e`, that non-zero
+        # rc kills the entire script before we can capture rc. Use
+        # `cmd || rc=$?` chain so the `||` short-circuit suppresses
+        # set -e while still letting us read the rc. Same pattern around
+        # the post-kill wait. The success branch sets rc=0 first so
+        # `|| rc=$?` only updates rc on non-zero.
         ( "$@" 2>/dev/null ) &
         local probe_pid=$!
         local probe_deadline=$(( $(date +%s) + probe_timeout ))
         local rc=124  # convention: 124 = bash watchdog killed
+        local probe_done=0
         while [ "$(date +%s)" -lt "$probe_deadline" ]; do
             if ! kill -0 "$probe_pid" 2>/dev/null; then
-                wait "$probe_pid" 2>/dev/null
-                rc=$?
+                rc=0
+                wait "$probe_pid" 2>/dev/null || rc=$?
+                probe_done=1
                 break
             fi
             sleep 1
         done
-        if kill -0 "$probe_pid" 2>/dev/null; then
-            kill -KILL "$probe_pid" 2>/dev/null
-            wait "$probe_pid" 2>/dev/null
+        if [ "$probe_done" -eq 0 ]; then
+            kill -KILL "$probe_pid" 2>/dev/null || true
+            wait "$probe_pid" 2>/dev/null || true
             rc=124
         fi
 
