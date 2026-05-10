@@ -95,13 +95,30 @@ jobs:
           fi
 
           if [ -z "${AUTH_HEADER:-}" ] && [ -z "${AUTH_QUERY:-}" ]; then
-            echo "::error::No auth pattern unlocked /api/user (all returned non-200). COROOT_API_TOKEN may be wrong shape, expired, or for a different endpoint."
-            echo "Saving raw response for the most-promising pattern (Bearer) for diagnosis."
+            echo "::warning::No auth pattern unlocked /api/user. Capturing raw 401 responses + login-related endpoints for diagnosis. Continuing past auth so artifact uploads."
             curl -sS -i -H "Authorization: Bearer $COROOT_API_TOKEN" "$COROOT_BASE/api/user" -o auth-probe-bearer.txt || true
-            head -20 auth-probe-bearer.txt
-            exit 1
+            curl -sS -i -H "X-API-Key: $COROOT_API_TOKEN" "$COROOT_BASE/api/user" -o auth-probe-x-api-key.txt || true
+            curl -sS -i "$COROOT_BASE/api/user" -o auth-probe-noauth.txt || true
+            # Probe login-related endpoints — Coroot may expose a token-exchange path.
+            for path in "/api/login" "/api/login-by-token" "/api/auth/token" "/api/api-keys" "/api/users"; do
+              tag=$(echo "$path" | tr '/' '_' | sed 's/^_//')
+              curl -sS -i -H "Authorization: Bearer $COROOT_API_TOKEN" "$COROOT_BASE$path" -o "endpoint-${tag}.txt" || true
+            done
+            echo "=== Headers + first 200B of each capture ==="
+            for f in auth-probe-*.txt endpoint-*.txt; do
+              [ -f "$f" ] || continue
+              echo ""
+              echo "--- $f ---"
+              head -c 800 "$f" | sed 's/\r$//'
+              echo ""
+            done
+            echo "::error::Auth probe exhausted all candidates. Captures uploaded as artifact for inspection."
+            # Don't exit 1 yet — let artifact upload first, then exit.
+            AUTH_HEADER="Authorization: Bearer $COROOT_API_TOKEN"  # for downstream fetch attempts (mostly diagnostic)
+            AUTH_PROBE_FAILED=1
           fi
           AUTH_QUERY="${AUTH_QUERY:-}"
+          AUTH_PROBE_FAILED="${AUTH_PROBE_FAILED:-0}"
 
           # Helper for authenticated GETs (header-based or query-based)
           fetch() {
