@@ -152,14 +152,58 @@ run_on_all() {
 
 # Wait until a condition command succeeds, with timeout.
 # Usage: wait_for <description> <timeout_sec> <command...>
+#
+# Each probe attempt is itself bounded by WAIT_FOR_PROBE_TIMEOUT_SEC
+# (default 15s) via a pure-bash watchdog. Without this bound, a probe
+# predicate that hangs — most commonly an SSH call to a node whose wgmesh
+# has deadlocked or whose link is impaired — will block this loop forever;
+# the outer timeout check below only fires between probe attempts, not
+# during one. Hetzner integration run 25609234757 (2026-05-09) hit
+# exactly this: Tier 2 + Tier 4 each blocked for ~2 hours inside a single
+# probe call until the GitHub Actions job-level timeout-minutes: 120
+# force-cancelled the run. The per-probe watchdog converts an indefinite
+# hang into a probe failure that the outer loop can register and either
+# retry or time out from.
+#
+# Why a bash watchdog instead of `timeout(1)`: predicates here are shell
+# functions like `_t1_check`, `_t5_check` defined in test-cloud.sh.
+# `timeout` is an external program; once it execs into its child it
+# cannot see shell functions, so `timeout 15 _t1_check ...` would fail
+# with "command not found". The subshell + background-watchdog pattern
+# preserves function visibility while bounding the probe.
+#
+# See docs/solutions/test-failures/tier3-t14-80pct-loss-ssh-hang.md for
+# the same SSH-on-impaired-target pattern.
 wait_for() {
     local desc="$1" timeout="$2"; shift 2
+    local probe_timeout="${WAIT_FOR_PROBE_TIMEOUT_SEC:-15}"
     local start end
     start=$(date +%s)
     end=$((start + timeout))
 
     while true; do
-        if "$@" 2>/dev/null; then
+        # Run the predicate in a subshell so functions are visible, and
+        # poll its PID with kill -0 against a per-probe deadline. On
+        # deadline, SIGKILL the subshell and treat the probe as failed.
+        ( "$@" 2>/dev/null ) &
+        local probe_pid=$!
+        local probe_deadline=$(( $(date +%s) + probe_timeout ))
+        local rc=124  # convention: 124 = bash watchdog killed
+        while [ "$(date +%s)" -lt "$probe_deadline" ]; do
+            if ! kill -0 "$probe_pid" 2>/dev/null; then
+                wait "$probe_pid" 2>/dev/null
+                rc=$?
+                break
+            fi
+            sleep 1
+        done
+        if kill -0 "$probe_pid" 2>/dev/null; then
+            kill -KILL "$probe_pid" 2>/dev/null
+            wait "$probe_pid" 2>/dev/null
+            rc=124
+        fi
+
+        if [ "$rc" -eq 0 ]; then
             local elapsed=$(( $(date +%s) - start ))
             log_info "$desc — succeeded after ${elapsed}s"
             return 0
