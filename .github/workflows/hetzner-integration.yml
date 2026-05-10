@@ -14,6 +14,11 @@ on:
         description: 'Number of VMs per tier (1 introducer + N-1 nodes)'
         required: false
         default: '5'
+      coroot:
+        description: 'Install coroot-node-agent on each test VM (PR #301 fix-l7-memory-oom build) for kernel-level diagnosis'
+        required: false
+        default: 'false'
+        type: boolean
 
 # Only one integration test run at a time (shared Hetzner infra)
 concurrency:
@@ -136,6 +141,7 @@ jobs:
           WGMESH_RUN_ID: "${{ github.run_id }}-t${{ matrix.tier }}"
           VM_PREFIX: "wgmesh-t${{ matrix.tier }}"
           WGMESH_PPROF: "1"
+          WGMESH_COROOT: ${{ inputs.coroot && '1' || '0' }}
 
       - name: Generate test report
         if: always()
