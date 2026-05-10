@@ -1,0 +1,21 @@
+.github/workflows/coroot-snapshot.yml
+  s_6f7cc9734df574::t_c337c04fc07a78 71-73
+  s_6f7cc9734df574::t_35090ee5d287b6 106,109-114
+  s_6f7cc9734df574::t_7c76993f47868d 51-55,57-70,74-76,78,83,85-93,97-104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "687dd75d7a431092c043afb369c510506cadfc88",
+  "prompts": {},
+  "sessions": {
+    "s_6f7cc9734df574": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2bda1584-787d-47d4-b69b-3364d9b105b2",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
