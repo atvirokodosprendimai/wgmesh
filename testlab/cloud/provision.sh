@@ -306,7 +306,7 @@ _setup_single_vm() {
         run_on "$node" "
             set -euo pipefail
             export DEBIAN_FRONTEND=noninteractive
-            apt-get install -y -qq golang-go git build-essential >/dev/null 2>&1
+            apt-get install -y -qq golang-go git build-essential libsystemd-dev libelf-dev pkg-config clang llvm linux-headers-generic >/dev/null 2>&1
             mkdir -p /opt/coroot
             cd /tmp
             rm -rf coroot-node-agent-src
