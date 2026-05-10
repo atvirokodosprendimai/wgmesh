@@ -55,9 +55,13 @@ Keep wording factual and concise; do not add unverified claims beyond the four m
 
 Update the static traction/funnel section (Customer Factory + MSC summary) as follows:
 
-1. In MSC progress block (`<div class="msc-bar" ...>` near the “Minimum Success Criteria — 3-Year Target: $100K ARR” heading):
+1. In MSC progress block under:
+   - `<h3>Minimum Success Criteria — 3-Year Target: $100K ARR</h3>`
    - Change `.msc-current` from `0` to `5`.
-   - In the sibling `<span style="color:var(--muted);font-size:0.875rem">...`, replace text `of 1 customer (90-day target)` with `5 active subscribers · Stage 5 Revenue achieved`.
+   - Directly below `<span class="msc-current">0</span>`, replace the exact sibling line:
+     - `<span style="color:var(--muted);font-size:0.875rem">of 1 customer (90-day target)</span>`
+     - with:
+     - `<span style="color:var(--muted);font-size:0.875rem">5 active subscribers · Stage 5 Revenue achieved</span>`
 
 2. In Customer Factory funnel:
    - Change Revenue stage container class from `funnel-stage blocked` to `funnel-stage ready`.
