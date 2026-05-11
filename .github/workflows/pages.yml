@@ -3,7 +3,9 @@ name: Deploy Dashboard to GitHub Pages
 on:
   push:
     branches: [main]
-    paths: ['docs/**']
+    paths:
+      - 'docs/**'
+      - '!docs/pulse-reports/**'
   workflow_dispatch:
 
 permissions:
