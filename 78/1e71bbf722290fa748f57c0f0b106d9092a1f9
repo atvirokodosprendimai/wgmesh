@@ -1,0 +1,38 @@
+.gitignore
+  s_33ece7903a5e39::t_640154a76af6db 55-57
+Makefile
+  s_4d0c4f4a505775::t_4b853441ae23b6 20-21
+  s_4d0c4f4a505775::t_187151a9d0bdcc 1,19
+.github/workflows/docker-build.yml
+  s_4d0c4f4a505775::t_187151a9d0bdcc 10-11
+scripts/pulse.sh
+  s_4d0c4f4a505775::t_187151a9d0bdcc 1-117,119-437,439-481
+  s_4d0c4f4a505775::t_6490f60b48a394 438
+  s_4d0c4f4a505775::t_ecc328eef38c0f 118
+.github/workflows/pages.yml
+  s_4d0c4f4a505775::t_187151a9d0bdcc 6-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "781e71bbf722290fa748f57c0f0b106d9092a1f9",
+  "prompts": {},
+  "sessions": {
+    "s_33ece7903a5e39": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a3d18a70-8485-4849-8952-2cf89f2d3d20",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    },
+    "s_4d0c4f4a505775": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dfd41-69bf-7753-9569-542e590df118",
+        "model": "gpt-5.5"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
