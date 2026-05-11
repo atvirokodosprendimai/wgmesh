@@ -111,7 +111,7 @@ should_run_tier() {
 
 # --- T1: Basic mesh (3 nodes) ---
 test_t1_basic_mesh() {
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 2
 
     # Start only introducer + 2 nodes
@@ -144,7 +144,7 @@ _t1_check() {
 
 # --- T2: Full mesh ---
 test_t2_full_mesh() {
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 2
     start_mesh 30
     verify_full_mesh 90
@@ -217,7 +217,7 @@ test_t4_cross_dc_latency() {
 
 # --- T5: Late peer join ---
 test_t5_late_join() {
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 2
 
     # Collect nodes
@@ -272,7 +272,7 @@ _t5_check() {
 # --- T6: Graceful leave ---
 test_t6_graceful_leave() {
     # Ensure clean mesh state
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 2
     start_mesh 30
     verify_full_mesh 60
@@ -294,7 +294,7 @@ test_t6_graceful_leave() {
 # --- T7: Peer crash ---
 test_t7_crash() {
     # Ensure clean mesh state
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 2
     start_mesh 30
     verify_full_mesh 60
@@ -316,7 +316,7 @@ test_t7_crash() {
 # --- T8: Peer rejoin after crash ---
 test_t8_rejoin() {
     # Ensure clean mesh, then crash a node and verify it rejoins
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 3
     start_mesh 45
     verify_full_mesh 180
@@ -341,7 +341,7 @@ test_t8_rejoin() {
 # --- T9: Introducer crash ---
 test_t9_introducer_crash() {
     # Ensure clean mesh state (longer settle after multiple prior tests)
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 3
     start_mesh 45
     verify_full_mesh 180
@@ -361,7 +361,7 @@ test_t9_introducer_crash() {
 # --- T10: Introducer rejoin ---
 test_t10_introducer_rejoin() {
     # Ensure clean mesh, crash introducer, then verify it rejoins
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 3
     start_mesh 45
     verify_full_mesh 180
@@ -403,7 +403,7 @@ _pick_two_nodes() {
 _chaos_setup() {
     emit_event "chaos_setup_start" "_chaos_setup"
     chaos_clear_all 2>/dev/null || true
-    stop_mesh 2>/dev/null || true
+    stop_mesh || true
     sleep 2
     start_mesh 30
     verify_full_mesh 60
