@@ -7,6 +7,8 @@ on:
       - master
     tags:
       - 'v*.*.*'
+    paths-ignore:
+      - 'docs/pulse-reports/**'
   pull_request:
     branches:
       - main

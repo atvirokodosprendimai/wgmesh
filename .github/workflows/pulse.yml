@@ -1,0 +1,45 @@
+name: Product Pulse
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      window:
+        description: 'Pulse lookback window, e.g. 24h or 7d'
+        required: false
+        default: '7d'
+
+jobs:
+  pulse:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Generate pulse report
+        env:
+          POLAR_TOKEN: ${{ secrets.POLAR_TOKEN }}
+          COROOT_API_TOKEN: ${{ secrets.COROOT_API_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WINDOW: ${{ inputs.window || '7d' }}
+          GH_REPO: ${{ github.repository }}
+        run: bash scripts/pulse.sh
+
+      - name: Commit pulse report
+        run: |
+          git config user.name "wgmesh-pulse[bot]"
+          git config user.email "pulse@wgmesh.local"
+          git add docs/pulse-reports/
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(pulse): $(date -u +'%Y-%m-%d') report [skip ci]"
+            git push origin HEAD:main
+          else
+            echo "No pulse report changes to commit."
+          fi
