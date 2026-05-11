@@ -1,0 +1,19 @@
+testlab/cloud/test-cloud.sh
+  s_56bb592ccdbf19::t_4828e8e9340113 114,147,220,275,297,319,344,364,406
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.4",
+  "base_commit_sha": "d6b363bde9655db93848659198b12d75141b6cbb",
+  "prompts": {},
+  "sessions": {
+    "s_56bb592ccdbf19": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "120578d9-b449-49f5-9c43-b9febc2a9f5c",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
