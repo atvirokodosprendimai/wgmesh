@@ -423,19 +423,19 @@ run_guardrails() {
   fi
 
   # 6. Review state belt-and-suspenders (issue #595)
-  # poll_for_review already enforces APPROVED-required, but the merge gate
-  # re-checks here so a race between poll exit and state change cannot land
-  # an unapproved merge. Cheap call (one GraphQL request) compared to the
-  # cost of shipping unverified code.
-  local guardrail_states guardrail_verdict
-  if ! guardrail_states=$(fetch_effective_review_states "$PR_NUMBER"); then
-    return 1
-  fi
-  guardrail_verdict=$(echo "$guardrail_states" | evaluate_review_states)
-  if [[ "$guardrail_verdict" != "PASS" ]]; then
-    escalate "$PR_NUMBER" "Review state guardrail failed (verdict: ${guardrail_verdict}): ${guardrail_states//$'\n'/, }"
-    check_circuit_breaker
-    return 1
+  # Skipped when review_bypassed=true (trusted human author — no Copilot review
+  # exists by design; the bypass already replaced the poll gate).
+  if [[ "${review_bypassed:-false}" != "true" ]]; then
+    local guardrail_states guardrail_verdict
+    if ! guardrail_states=$(fetch_effective_review_states "$PR_NUMBER"); then
+      return 1
+    fi
+    guardrail_verdict=$(echo "$guardrail_states" | evaluate_review_states)
+    if [[ "$guardrail_verdict" != "PASS" ]]; then
+      escalate "$PR_NUMBER" "Review state guardrail failed (verdict: ${guardrail_verdict}): ${guardrail_states//$'\n'/, }"
+      check_circuit_breaker
+      return 1
+    fi
   fi
 
   # All guardrails passed
