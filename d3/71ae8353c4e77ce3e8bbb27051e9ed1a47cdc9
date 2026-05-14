@@ -1,0 +1,21 @@
+.github/workflows/bot-pr-review-merge.yml
+  s_c58648ccd70b9c::t_91eac52ec2c1c4 57
+company/scripts/pr-review-merge.sh
+  s_c58648ccd70b9c::t_464e2efe0caddc 16,630-639,641-647,650-670
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "d371ae8353c4e77ce3e8bbb27051e9ed1a47cdc9",
+  "prompts": {},
+  "sessions": {
+    "s_c58648ccd70b9c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019e2824-f3aa-7912-964b-8e52ab489998",
+        "model": "gpt-5.5"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
