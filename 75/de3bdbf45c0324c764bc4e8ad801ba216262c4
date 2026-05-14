@@ -1,0 +1,21 @@
+.github/workflows/pulse.yml
+  s_9363f20af58819::t_a81e87f2941294 24
+scripts/pulse.sh
+  s_9363f20af58819::t_8e97f184d66434 289-294
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "75de3bdbf45c0324c764bc4e8ad801ba216262c4",
+  "prompts": {},
+  "sessions": {
+    "s_9363f20af58819": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de36fb83-0d36-4b8c-8a7d-226114b25474",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
