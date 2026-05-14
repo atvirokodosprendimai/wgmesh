@@ -54,6 +54,7 @@ jobs:
           TARGET_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           APPROVED_AUTHORS: ${{ github.event.pull_request.user.login }}
+          BYPASS_REVIEW_AUTHORS: nycterent
           POSTHOG_PROJECT_KEY: ${{ secrets.POSTHOG_PROJECT_KEY }}
           POSTHOG_HOST: ${{ vars.POSTHOG_HOST }}
         run: |

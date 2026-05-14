@@ -13,6 +13,7 @@ APPROVED_AUTHORS="${APPROVED_AUTHORS:-copilot-swe-agent[bot],goose[bot]}"
 POLL_INTERVAL="${POLL_INTERVAL:-30}"
 POLL_MAX_ATTEMPTS="${POLL_MAX_ATTEMPTS:-6}"
 REVIEW_WINDOWS="${REVIEW_WINDOWS:-2}"
+BYPASS_REVIEW_AUTHORS="${BYPASS_REVIEW_AUTHORS:-}"
 PROTECTED_PATHS="${PROTECTED_PATHS:-}"
 SECURITY_KEYWORDS="${SECURITY_KEYWORDS:-secret,token,password,api_key,private_key,credentials,authorization}"
 
@@ -626,25 +627,47 @@ main() {
     exit 0
   fi
 
-  # T1.2: Poll for Copilot review across configured windows
-  local review_found="false"
-  for window in $(seq 1 "$REVIEW_WINDOWS"); do
-    if poll_for_review "$PR_NUMBER" "$window"; then
-      review_found="true"
-      break
-    fi
-  done
-
-  if [[ "$review_found" != "true" ]]; then
-    local total_seconds=$(( POLL_MAX_ATTEMPTS * POLL_INTERVAL * REVIEW_WINDOWS ))
-    escalate "$PR_NUMBER" "Copilot review timeout after ${REVIEW_WINDOWS} poll windows (${total_seconds}s)"
-    exit 0
+  # T1.2: Trusted-author bypass — skip review gate for known human authors.
+  # GitHub blocks self-approval and Copilot only submits COMMENTED, so the
+  # review poll always times out for human-authored PRs. Guardrails still run.
+  local pr_author
+  if ! pr_author=$(gh pr view "$PR_NUMBER" --repo "$TARGET_REPO" --json author --jq '.author.login'); then
+    echo "::error::Failed to fetch PR author for bypass check on PR #${PR_NUMBER}"
+    ERRORS=$((ERRORS + 1))
+    check_circuit_breaker
+    pr_author=""
   fi
 
-  # T1.2: Check for inline review comments + retry loop
-  local comment_count
-  comment_count=$(check_unresolved_threads "$PR_NUMBER")
-  log_audit "review_detected" "Review found, ${comment_count} unresolved threads"
+  local review_bypassed="false"
+  if [[ -n "$BYPASS_REVIEW_AUTHORS" && -n "$pr_author" ]]; then
+    if echo "$BYPASS_REVIEW_AUTHORS" | tr ',' '\n' | grep -qxF "$pr_author"; then
+      echo "Author $pr_author is in BYPASS_REVIEW_AUTHORS — skipping Copilot review gate"
+      log_audit "review_gate_bypassed" "Trusted author $pr_author skipped Copilot poll"
+      review_bypassed="true"
+    fi
+  fi
+
+  local comment_count=0
+  if [[ "$review_bypassed" != "true" ]]; then
+    # T1.2: Poll for Copilot review across configured windows
+    local review_found="false"
+    for window in $(seq 1 "$REVIEW_WINDOWS"); do
+      if poll_for_review "$PR_NUMBER" "$window"; then
+        review_found="true"
+        break
+      fi
+    done
+
+    if [[ "$review_found" != "true" ]]; then
+      local total_seconds=$(( POLL_MAX_ATTEMPTS * POLL_INTERVAL * REVIEW_WINDOWS ))
+      escalate "$PR_NUMBER" "Copilot review timeout after ${REVIEW_WINDOWS} poll windows (${total_seconds}s)"
+      exit 0
+    fi
+
+    # T1.2: Check for inline review comments + retry loop
+    comment_count=$(check_unresolved_threads "$PR_NUMBER")
+    log_audit "review_detected" "Review found, ${comment_count} unresolved threads"
+  fi
   local retry_count=0
 
   while [[ "$comment_count" -gt 0 ]] && [[ "$retry_count" -lt "$MAX_RETRY_COUNT" ]]; do
