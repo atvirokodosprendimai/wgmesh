@@ -81,7 +81,7 @@ jobs:
   #   Tier 2 (Peer Lifecycle):  ~12 min
   #   Tier 3 (Network Chaos):   ~55 min  (9 tests × ~6 min each)
   #   Tier 4 (Partitions):      ~15 min
-  #   Tier 5 (NAT Simulation):   ~1 min  (all SKIP — not yet implemented)
+  #   Tier 5 (NAT Simulation):  ~25 min  (T25–T29: cone, symmetric, mixed, relay-required, flap)
   #   Tier 6 (Chaos Monkey):    ~35 min
   #   Tier 7 (Stability Soak):  ~37 min  (5+10+15 min soaks)
   #
