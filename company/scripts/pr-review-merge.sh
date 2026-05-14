@@ -13,8 +13,19 @@ APPROVED_AUTHORS="${APPROVED_AUTHORS:-copilot-swe-agent[bot],goose[bot]}"
 POLL_INTERVAL="${POLL_INTERVAL:-30}"
 POLL_MAX_ATTEMPTS="${POLL_MAX_ATTEMPTS:-6}"
 REVIEW_WINDOWS="${REVIEW_WINDOWS:-2}"
+BYPASS_REVIEW_AUTHORS="${BYPASS_REVIEW_AUTHORS:-}"
 PROTECTED_PATHS="${PROTECTED_PATHS:-}"
 SECURITY_KEYWORDS="${SECURITY_KEYWORDS:-secret,token,password,api_key,private_key,credentials,authorization}"
+
+# normalize_author — strip GitHub App login variants so comparisons are
+# format-agnostic. GitHub returns 'app/foo' in webhook events but
+# 'foo[bot]' via REST/GraphQL; strip both decorations to compare base names.
+normalize_author() {
+  local raw="${1:-}"
+  raw="${raw#app/}"     # strip app/ prefix
+  raw="${raw%\[bot\]}"  # strip [bot] suffix
+  printf '%s\n' "$raw"
+}
 
 # ---------------------------------------------------------------------------
 # Required env vars — fail fast
@@ -335,15 +346,17 @@ run_guardrails() {
   fi
 
   local approved_found="false"
+  local author_norm
+  author_norm=$(normalize_author "$author")
   IFS=',' read -ra approved_list <<< "$APPROVED_AUTHORS"
   for approved in "${approved_list[@]}"; do
-    if [[ "$author" == "$approved" ]]; then
+    if [[ "$author_norm" == "$(normalize_author "$approved")" ]]; then
       approved_found="true"
       break
     fi
   done
   if [[ "$approved_found" != "true" ]]; then
-    escalate "$PR_NUMBER" "Unknown author: ${author}"
+    escalate "$PR_NUMBER" "Unknown author: ${author} (normalized: ${author_norm})"
     check_circuit_breaker
     return 1
   fi
@@ -598,9 +611,11 @@ check_manual_push() {
 
   # Check if author is NOT a known bot
   local is_bot="false"
+  local latest_author_norm
+  latest_author_norm=$(normalize_author "$latest_author")
   IFS=',' read -ra approved_list <<< "$APPROVED_AUTHORS"
   for approved in "${approved_list[@]}"; do
-    if [[ "$latest_author" == "$approved" ]]; then
+    if [[ "$latest_author_norm" == "$(normalize_author "$approved")" ]]; then
       is_bot="true"
       break
     fi
@@ -626,25 +641,53 @@ main() {
     exit 0
   fi
 
-  # T1.2: Poll for Copilot review across configured windows
-  local review_found="false"
-  for window in $(seq 1 "$REVIEW_WINDOWS"); do
-    if poll_for_review "$PR_NUMBER" "$window"; then
-      review_found="true"
-      break
-    fi
-  done
-
-  if [[ "$review_found" != "true" ]]; then
-    local total_seconds=$(( POLL_MAX_ATTEMPTS * POLL_INTERVAL * REVIEW_WINDOWS ))
-    escalate "$PR_NUMBER" "Copilot review timeout after ${REVIEW_WINDOWS} poll windows (${total_seconds}s)"
-    exit 0
+  # T1.2: Trusted-author bypass — skip review gate for known human authors.
+  # GitHub blocks self-approval and Copilot only submits COMMENTED, so the
+  # review poll always times out for human-authored PRs. Guardrails still run.
+  local pr_author
+  if ! pr_author=$(gh pr view "$PR_NUMBER" --repo "$TARGET_REPO" --json author --jq '.author.login'); then
+    echo "::error::Failed to fetch PR author for bypass check on PR #${PR_NUMBER}"
+    ERRORS=$((ERRORS + 1))
+    check_circuit_breaker
+    pr_author=""
   fi
 
-  # T1.2: Check for inline review comments + retry loop
-  local comment_count
-  comment_count=$(check_unresolved_threads "$PR_NUMBER")
-  log_audit "review_detected" "Review found, ${comment_count} unresolved threads"
+  local review_bypassed="false"
+  local pr_author_norm
+  pr_author_norm=$(normalize_author "$pr_author")
+  if [[ -n "$BYPASS_REVIEW_AUTHORS" && -n "$pr_author" ]]; then
+    local bypass_match="false"
+    while IFS= read -r bypass_entry; do
+      [[ "$(normalize_author "$bypass_entry")" == "$pr_author_norm" ]] && bypass_match="true" && break
+    done < <(echo "$BYPASS_REVIEW_AUTHORS" | tr ',' '\n')
+    if [[ "$bypass_match" == "true" ]]; then
+      echo "Author $pr_author is in BYPASS_REVIEW_AUTHORS — skipping Copilot review gate"
+      log_audit "review_gate_bypassed" "Trusted author $pr_author skipped Copilot poll"
+      review_bypassed="true"
+    fi
+  fi
+
+  local comment_count=0
+  if [[ "$review_bypassed" != "true" ]]; then
+    # T1.2: Poll for Copilot review across configured windows
+    local review_found="false"
+    for window in $(seq 1 "$REVIEW_WINDOWS"); do
+      if poll_for_review "$PR_NUMBER" "$window"; then
+        review_found="true"
+        break
+      fi
+    done
+
+    if [[ "$review_found" != "true" ]]; then
+      local total_seconds=$(( POLL_MAX_ATTEMPTS * POLL_INTERVAL * REVIEW_WINDOWS ))
+      escalate "$PR_NUMBER" "Copilot review timeout after ${REVIEW_WINDOWS} poll windows (${total_seconds}s)"
+      exit 0
+    fi
+
+    # T1.2: Check for inline review comments + retry loop
+    comment_count=$(check_unresolved_threads "$PR_NUMBER")
+    log_audit "review_detected" "Review found, ${comment_count} unresolved threads"
+  fi
   local retry_count=0
 
   while [[ "$comment_count" -gt 0 ]] && [[ "$retry_count" -lt "$MAX_RETRY_COUNT" ]]; do
