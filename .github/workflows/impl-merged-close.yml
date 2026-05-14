@@ -20,9 +20,18 @@ name: Implementation Merged — Close Issue
 #         "Steps to Reproduce" (or whole body fallback) must appear in the
 #         new test names OR the PR body. No keyword match → block close,
 #         add `awaiting-tests` label with details.
-#       - both pass → add `awaiting-verification` label, ping reporter.
-#         Closure happens via verify-comment-close.yml when the reporter
-#         confirms.
+#       - L4 (post-#568): if the PR diff touches `pkg/daemon/`,
+#         `pkg/discovery/`, or `pkg/rpc/`, at least one
+#         `*_integration_test.go` file must appear in the same diff.
+#         Predicate-only unit tests cannot reproduce relay-flap,
+#         hole-punch, NAT-traversal, or peer-discovery bug classes.
+#         No integration test → block close, add `awaiting-tests`.
+#       - all pass → add `awaiting-verification` label, ping reporter.
+#         For network-path bugs the verifier workflow (e2e-verifier.yml)
+#         then runs against the merge SHA; e2e-verify-close.yml flips
+#         `awaiting-verification` to `verified` (close) or `e2e-failed`
+#         (reopen) by conclusion. Non-network bugs still close on a
+#         reporter "verified" comment via verify-comment-close.yml.
 
 on:
   # pull_request_target instead of pull_request so Copilot-coding-agent

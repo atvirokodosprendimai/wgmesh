@@ -1,0 +1,46 @@
+name: E2E Stalled Watcher
+
+# Runs every 30 minutes. Flags any open issue that has been carrying the
+# `awaiting-verification` label for more than 6 hours without ever
+# receiving an e2e-verifier conclusion (no `verified`, `e2e-failed`, or
+# `e2e-stalled` label) by adding `e2e-stalled`. The pulse report picks
+# the count up the next morning.
+#
+# Decision lives in scripts/workflows/e2e-stalled-watcher.js (testable;
+# see e2e-stalled-watcher.test.js). Idempotent — re-runs are safe.
+#
+# Token: PUSH_TOKEN, mirroring the rest of the verifier pipeline.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (handler module)
+        uses: actions/checkout@v4
+
+      - name: Ensure e2e-stalled label exists
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+        run: |
+          gh label create e2e-stalled \
+            --repo "${{ github.repository }}" \
+            --description "E2E verifier did not produce a conclusion within the SLA budget" \
+            --color D4C5F9 \
+            --force 2>/dev/null || true
+
+      - name: Flag stalled awaiting-verification issues
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const handler = require('./scripts/workflows/e2e-stalled-watcher.js');
+            await handler({github, context, core});

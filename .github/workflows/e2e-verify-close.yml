@@ -1,0 +1,66 @@
+name: E2E Verify — Close Issue
+
+# Companion to e2e-verifier.yml. When the verifier completes, this
+# workflow inspects its conclusion and flips the linked issue's labels:
+#
+#   - 'success'   → add `verified`, remove `awaiting-verification` +
+#                   `e2e-failed` + `e2e-stalled`, close the issue,
+#                   comment with run URL. `awaiting-tests` is NOT
+#                   removed — the L4 gate in impl-merged-close-handler.js
+#                   owns that label.
+#   - 'failure'   → add `e2e-failed`, remove `awaiting-verification` +
+#                   `verified` + `e2e-stalled`, reopen the issue iff
+#                   it was closed AND verifier-controlled, comment
+#                   with run URL + artifact link.
+#   - other       → log + exit (no label change).
+#
+# Decoupled from the verifier on purpose: workflow_run keeps the closer
+# from racing with the verifier's own job graph. Re-runs flow through
+# the verifier itself (which then triggers this closer); there is no
+# direct workflow_dispatch trigger here. PR correlation falls back to
+# scanning the workflow run's commit message for `Issue #N` when
+# `workflow_run.pull_requests` is empty (forks, dispatches without
+# `pr_number`).
+#
+# Token: PUSH_TOKEN (mirrors impl-merged-close.yml). GITHUB_TOKEN cannot
+# trigger downstream workflows or modify labels in some org policies.
+
+on:
+  workflow_run:
+    workflows: ['E2E Verifier']
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  flip-labels:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (handler module)
+        uses: actions/checkout@v4
+
+      - name: Ensure verifier labels exist
+        env:
+          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+        run: |
+          gh label create verified \
+            --repo "${{ github.repository }}" \
+            --description "Bug fix verified end-to-end by the e2e-verifier workflow" \
+            --color 0E8A16 \
+            --force 2>/dev/null || true
+          gh label create e2e-failed \
+            --repo "${{ github.repository }}" \
+            --description "E2E verifier reported a failure on the merge commit; issue stays open" \
+            --color B60205 \
+            --force 2>/dev/null || true
+
+      - name: Flip labels by verifier conclusion
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.PUSH_TOKEN }}
+          script: |
+            const handler = require('./scripts/workflows/e2e-verify-close-handler.js');
+            await handler({github, context, core});

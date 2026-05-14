@@ -26,6 +26,15 @@
 const TEST_FUNC_REGEX_ADDED = /^\+func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*t\s+\*testing\.T\s*\)/gm;
 const TEST_FUNC_REGEX_ANY = /^\s*func\s+(Test[A-Z][A-Za-z0-9_]*)\s*\(\s*t\s+\*testing\.T\s*\)/gm;
 
+// L4 network-path gate. Bug PRs touching these prefixes must add at least
+// one `*_integration_test.go` file in the same diff — predicate-only unit
+// tests are insufficient to reproduce relay-flap, hole-punch, NAT-traversal,
+// or peer-discovery bug classes. Policy lives in
+// `.github/workflows/impl-merged-close.yml`'s top-of-file comment block.
+const NETWORK_PATH_PREFIXES = ['pkg/daemon/', 'pkg/discovery/', 'pkg/rpc/'];
+
+const INTEGRATION_TEST_REGEX = /_integration_test\.go$/;
+
 const REPRO_REGEX = /(?:^|\n)#{1,6}\s+(?:steps to reproduce|reproduction|how to reproduce|repro)\b[^\n]*\n([\s\S]*?)(?:\n#{1,6}\s|\n*$)/i;
 
 const STOP_WORDS = new Set([
@@ -56,7 +65,7 @@ function extractRepoTokens(body) {
 
 // labelNamesOf — issue.labels can be ['name'] or [{name: 'foo'}, ...]. Normalize.
 function labelNamesOf(issue) {
-  return (issue.labels || []).map(l => typeof l === 'string' ? l : l.name);
+  return (issue.labels || []).map(l => typeof l === 'string' ? l : (l && l.name) || '');
 }
 
 function isBug(labelNames) {
@@ -92,10 +101,41 @@ async function fetchFileFuncs({github, core, context, path, ref}) {
   }
 }
 
+// touchesNetworkPaths — true if the PR diff includes any file (added,
+// modified, renamed, OR removed) whose path lives under one of the
+// network-path prefixes (`pkg/daemon/`, `pkg/discovery/`, `pkg/rpc/`).
+// Note: removed files are still a network-path touch — deleting code
+// under those prefixes is a meaningful change that belongs inside the
+// L4 gate.
+function touchesNetworkPaths(prFiles) {
+  return (prFiles || []).some(f => {
+    if (!f) return false;
+    return NETWORK_PATH_PREFIXES.some(prefix =>
+      (f.filename && f.filename.startsWith(prefix)) ||
+      (f.previous_filename && f.previous_filename.startsWith(prefix))
+    );
+  });
+}
+
+// hasIntegrationTest — true if the PR diff adds or modifies (i.e. does not
+// remove) any file whose name ends with `_integration_test.go`.
+function hasIntegrationTest(prFiles) {
+  return (prFiles || []).some(f => {
+    if (!f || f.status === 'removed') return false;
+    const filename = f.filename || '';
+    if (filename.split('/').includes('testdata')) return false;
+    return INTEGRATION_TEST_REGEX.test(filename);
+  });
+}
+
 // detectNewTestFuncs — for each *_test.go file in the PR diff, run BOTH
 // patch parsing AND content diff (always-on, even when patch parsing finds
 // matches, to defeat truncated-patch false negatives). Union the results.
-// Returns { newTestFuncs: string[], indeterminateFiles: string[] }.
+// Returns { newTestFuncs: string[], indeterminateFiles: string[], prFiles: object[] }.
+//
+// `prFiles` is returned alongside the gate inputs so the handler can pass
+// the same payload into `touchesNetworkPaths` / `hasIntegrationTest` (L4)
+// without re-paginating `pulls.listFiles`.
 async function detectNewTestFuncs({github, context, core, pr}) {
   const prFiles = await github.paginate(github.rest.pulls.listFiles, {
     owner: context.repo.owner,
@@ -158,7 +198,7 @@ async function detectNewTestFuncs({github, context, core, pr}) {
     for (const fn of fromContent) newTestFuncSet.add(fn);
   }
 
-  return { newTestFuncs: [...newTestFuncSet], indeterminateFiles };
+  return { newTestFuncs: [...newTestFuncSet], indeterminateFiles, prFiles };
 }
 
 // removeLabels — best-effort removal. Tries each candidate unconditionally
@@ -190,11 +230,21 @@ async function handler({github, context, core}) {
 
   const issueNumber = parseInt(issueMatch[1], 10);
 
-  const { data: issue } = await github.rest.issues.get({
-    owner: context.repo.owner,
-    repo: context.repo.repo,
-    issue_number: issueNumber
-  });
+  let issue;
+  try {
+    const result = await github.rest.issues.get({
+      owner: context.repo.owner,
+      repo: context.repo.repo,
+      issue_number: issueNumber
+    });
+    issue = result.data;
+  } catch (e) {
+    if (e.status === 404) {
+      core.warning(`Issue #${issueNumber} referenced by PR #${pr.number} was not found; skipping close handler.`);
+      return;
+    }
+    throw e;
+  }
 
   const labelNames = labelNamesOf(issue);
 
@@ -251,7 +301,7 @@ async function handler({github, context, core}) {
     });
   }
 
-  const { newTestFuncs, indeterminateFiles } = await detectNewTestFuncs({github, context, core, pr});
+  const { newTestFuncs, indeterminateFiles, prFiles } = await detectNewTestFuncs({github, context, core, pr});
 
   const hasNewTest = newTestFuncs.length > 0;
   const l2Passes = hasNewTest;
@@ -261,7 +311,16 @@ async function handler({github, context, core}) {
   const matchedTokens = reproTokens.filter(t => haystack.includes(t));
   const hasKeywordMatch = matchedTokens.length > 0;
 
-  if (!l2Passes || !hasKeywordMatch) {
+  // L4 network-path gate. If the PR touches `pkg/{daemon,discovery,rpc}/`
+  // it MUST add at least one `*_integration_test.go` file in the same diff.
+  // PRs that don't touch network paths skip L4 entirely — the gate is
+  // scoped to the bug classes that predicate-only unit tests cannot
+  // reproduce (relay-flap, hole-punch, NAT traversal, peer discovery).
+  const l4Applicable = touchesNetworkPaths(prFiles);
+  const integrationTestPresent = hasIntegrationTest(prFiles);
+  const l4Passes = !l4Applicable || integrationTestPresent;
+
+  if (!l2Passes || !hasKeywordMatch || !l4Passes) {
     const failedGates = [];
     if (!l2Passes) failedGates.push('L2 — no new `func TestXxx(t *testing.T)` declaration in any `*_test.go` file in this PR diff');
     if (!hasKeywordMatch) {
@@ -270,6 +329,9 @@ async function handler({github, context, core}) {
       } else {
         failedGates.push(`L3 — none of the reproduction tokens (\`${reproTokens.slice(0, 8).join('`, `')}\`...) appear in the new test names or PR description`);
       }
+    }
+    if (l4Applicable && !l4Passes) {
+      failedGates.push('L4 — PR touches `pkg/{daemon,discovery,rpc}/` and must add at least one `*_integration_test.go` file in the same diff (predicate-only unit tests cannot reproduce relay-flap, hole-punch, NAT-traversal, or peer-discovery bug classes)');
     }
 
     // FAILURE PATH ordering: REMOVE stale labels before ADD.
@@ -366,4 +428,7 @@ module.exports.extractRepoTokens = extractRepoTokens;
 module.exports.labelNamesOf = labelNamesOf;
 module.exports.isBug = isBug;
 module.exports.detectNewTestFuncs = detectNewTestFuncs;
+module.exports.touchesNetworkPaths = touchesNetworkPaths;
+module.exports.hasIntegrationTest = hasIntegrationTest;
+module.exports.NETWORK_PATH_PREFIXES = NETWORK_PATH_PREFIXES;
 module.exports.STOP_WORDS = STOP_WORDS;

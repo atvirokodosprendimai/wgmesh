@@ -11,7 +11,15 @@ const test = require('node:test');
 const assert = require('node:assert');
 
 const handler = require('./impl-merged-close-handler.js');
-const { extractRepoTokens, labelNamesOf, isBug, detectNewTestFuncs } = handler;
+const {
+  extractRepoTokens,
+  labelNamesOf,
+  isBug,
+  detectNewTestFuncs,
+  touchesNetworkPaths,
+  hasIntegrationTest,
+  NETWORK_PATH_PREFIXES
+} = handler;
 
 // ---------------------------------------------------------------------------
 // helpers
@@ -27,7 +35,7 @@ function mockCore() {
 
 // makeGithub builds an Octokit-shaped mock. `issuesData` maps issue_number to issue object.
 // `prFiles` is the listFiles return; `contentByRefPath` maps "ref:path" → base64 content.
-function makeGithub({ issuesData = {}, prFiles = [], contentByRefPath = {}, recordCalls = [] } = {}) {
+function makeGithub({ issuesData = {}, prFiles = [], contentByRefPath = {}, issuesGetImpl, recordCalls = [] } = {}) {
   return {
     paginate: async (fn, params) => {
       // The handler calls github.paginate(github.rest.pulls.listFiles, {...}).
@@ -37,11 +45,11 @@ function makeGithub({ issuesData = {}, prFiles = [], contentByRefPath = {}, reco
     },
     rest: {
       issues: {
-        get: async ({ issue_number }) => {
+        get: issuesGetImpl || (async ({ issue_number }) => {
           const issue = issuesData[issue_number];
           if (!issue) throw new Error(`issue ${issue_number} not found`);
           return { data: issue };
-        },
+        }),
         update: async (params) => { recordCalls.push({ kind: 'update', params }); },
         addLabels: async (params) => { recordCalls.push({ kind: 'addLabels', params }); },
         removeLabel: async (params) => { recordCalls.push({ kind: 'removeLabel', params }); },
@@ -136,6 +144,11 @@ test('labelNamesOf — handles string form', () => {
 
 test('labelNamesOf — handles missing labels', () => {
   assert.deepStrictEqual(labelNamesOf({}), []);
+});
+
+test('labelNamesOf — handles nullish object labels defensively', () => {
+  const issue = { labels: [{ name: 'bug' }, null, {}, { name: 'urgent' }] };
+  assert.deepStrictEqual(labelNamesOf(issue), ['bug', '', '', 'urgent']);
 });
 
 test('isBug — matches type: bug', () => {
@@ -286,6 +299,10 @@ test('handler — non-bug issue auto-closes', async () => {
 
 test('handler — bug with new test + repro keyword: awaiting-verification', async () => {
   const recordCalls = [];
+  // Note: with the L4 gate (post-#568), a network-path bug fix must ship
+  // an `*_integration_test.go` file. Filename is `rotation_integration_test.go`
+  // so this scenario also satisfies L4. Plain `rotation_test.go` would now
+  // fail L4 — covered by the L4-specific scenarios below.
   const github = makeGithub({
     issuesData: {
       540: {
@@ -296,12 +313,12 @@ test('handler — bug with new test + repro keyword: awaiting-verification', asy
       }
     },
     prFiles: [{
-      filename: 'pkg/daemon/rotation_test.go',
+      filename: 'pkg/daemon/rotation_integration_test.go',
       status: 'added',
       patch: '@@ +1,5 @@\n+func TestRotationKeepsMeshIP(t *testing.T) {}\n'
     }],
     contentByRefPath: {
-      'h:pkg/daemon/rotation_test.go': 'package daemon\nfunc TestRotationKeepsMeshIP(t *testing.T) {}\n'
+      'h:pkg/daemon/rotation_integration_test.go': 'package daemon\nfunc TestRotationKeepsMeshIP(t *testing.T) {}\n'
     },
     recordCalls
   });
@@ -420,6 +437,26 @@ test('handler — PR title without Issue #N is no-op', async () => {
   const ctx = makeContext({ pr: { number: 1, title: 'chore: cleanup' } });
   await handler({ github, context: ctx, core });
   assert.strictEqual(recordCalls.length, 0);
+});
+
+test('handler — nonexistent referenced issue exits cleanly on issues.get 404', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesGetImpl: async () => {
+      const e = new Error('not found');
+      e.status = 404;
+      throw e;
+    },
+    recordCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: { number: 999, title: 'impl: Issue #999 - feat: thing', body: '' }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  assert.strictEqual(recordCalls.length, 0, '404 issue lookup should not perform follow-up API writes');
 });
 
 // ---------------------------------------------------------------------------
@@ -646,4 +683,269 @@ test('detectNewTestFuncs — patch with matches + getContent fails: NOT indeterm
   // Patch found a test, so file is NOT indeterminate even though content failed
   assert.deepStrictEqual(result.newTestFuncs, ['TestFromPatch']);
   assert.deepStrictEqual(result.indeterminateFiles, []);
+});
+
+// ---------------------------------------------------------------------------
+// L4 network-path gate — touchesNetworkPaths + hasIntegrationTest helpers
+// ---------------------------------------------------------------------------
+
+test('touchesNetworkPaths — true when pkg/daemon/ touched', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/daemon/relay.go', status: 'modified' }
+  ]), true);
+});
+
+test('touchesNetworkPaths — true when pkg/discovery/ touched', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/discovery/lan.go', status: 'added' }
+  ]), true);
+});
+
+test('touchesNetworkPaths — true when pkg/rpc/ touched', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/rpc/server.go', status: 'modified' }
+  ]), true);
+});
+
+test('touchesNetworkPaths — false on non-network paths', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'cmd/main.go', status: 'modified' },
+    { filename: 'pkg/crypto/derive.go', status: 'modified' }
+  ]), false);
+});
+
+test('touchesNetworkPaths — removed files under network path DO count (delete-bypass guard)', () => {
+  // Round-3 fix: deleting a file under pkg/{daemon,discovery,rpc}/ is a
+  // meaningful network-path change and must stay inside the L4 gate.
+  // Previously this returned false, allowing a delete-only PR to bypass
+  // the integration-test requirement.
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/daemon/relay.go', status: 'removed' }
+  ]), true);
+});
+
+test('touchesNetworkPaths — empty array returns false', () => {
+  assert.strictEqual(touchesNetworkPaths([]), false);
+});
+
+test('hasIntegrationTest — matches *_integration_test.go', () => {
+  assert.strictEqual(hasIntegrationTest([
+    { filename: 'pkg/daemon/relay_integration_test.go', status: 'added' }
+  ]), true);
+});
+
+test('hasIntegrationTest — ignores integration tests under testdata', () => {
+  assert.strictEqual(hasIntegrationTest([
+    { filename: 'pkg/daemon/testdata/x_integration_test.go', status: 'added' }
+  ]), false);
+});
+
+test('hasIntegrationTest — real integration test wins when testdata file is also present', () => {
+  assert.strictEqual(hasIntegrationTest([
+    { filename: 'pkg/daemon/testdata/x_integration_test.go', status: 'added' },
+    { filename: 'pkg/daemon/relay_integration_test.go', status: 'added' }
+  ]), true);
+});
+
+test('hasIntegrationTest — does not match plain *_test.go', () => {
+  assert.strictEqual(hasIntegrationTest([
+    { filename: 'pkg/daemon/relay_test.go', status: 'added' }
+  ]), false);
+});
+
+test('hasIntegrationTest — cross-package integration test counts', () => {
+  // R1's "PR touches pkg/rpc/server.go and pkg/discovery/exchange_integration_test.go"
+  // scenario — the integration test does not have to live in the same package
+  // as the production change, only in the same diff.
+  assert.strictEqual(hasIntegrationTest([
+    { filename: 'pkg/rpc/server.go', status: 'modified' },
+    { filename: 'pkg/discovery/exchange_integration_test.go', status: 'added' }
+  ]), true);
+});
+
+test('hasIntegrationTest — removed integration test does not satisfy gate', () => {
+  assert.strictEqual(hasIntegrationTest([
+    { filename: 'pkg/daemon/relay_integration_test.go', status: 'removed' }
+  ]), false);
+});
+
+test('NETWORK_PATH_PREFIXES — exposed as module constant', () => {
+  assert.ok(Array.isArray(NETWORK_PATH_PREFIXES));
+  assert.deepStrictEqual(NETWORK_PATH_PREFIXES, ['pkg/daemon/', 'pkg/discovery/', 'pkg/rpc/']);
+});
+
+// ---------------------------------------------------------------------------
+// L4 — gate decision scenarios (plan U1)
+// ---------------------------------------------------------------------------
+
+test('L4 — pkg/daemon/relay.go + pkg/daemon/relay_integration_test.go → L4 passes', () => {
+  const prFiles = [
+    { filename: 'pkg/daemon/relay.go', status: 'modified' },
+    { filename: 'pkg/daemon/relay_integration_test.go', status: 'added' }
+  ];
+  const l4Applicable = touchesNetworkPaths(prFiles);
+  const integrationTestPresent = hasIntegrationTest(prFiles);
+  assert.strictEqual(l4Applicable, true);
+  assert.strictEqual(integrationTestPresent, true);
+  const l4Passes = !l4Applicable || integrationTestPresent;
+  assert.strictEqual(l4Passes, true);
+});
+
+test('L4 — cmd/main.go + cmd/main_test.go → L4 not applicable (no network touch)', () => {
+  const prFiles = [
+    { filename: 'cmd/main.go', status: 'modified' },
+    { filename: 'cmd/main_test.go', status: 'added' }
+  ];
+  const l4Applicable = touchesNetworkPaths(prFiles);
+  assert.strictEqual(l4Applicable, false);
+  assert.strictEqual(!l4Applicable || hasIntegrationTest(prFiles), true);
+});
+
+test('L4 — pkg/discovery/lan.go + pkg/discovery/lan_test.go (unit) → L4 fails', () => {
+  const prFiles = [
+    { filename: 'pkg/discovery/lan.go', status: 'modified' },
+    { filename: 'pkg/discovery/lan_test.go', status: 'added' }
+  ];
+  const l4Applicable = touchesNetworkPaths(prFiles);
+  const integrationTestPresent = hasIntegrationTest(prFiles);
+  assert.strictEqual(l4Applicable, true);
+  assert.strictEqual(integrationTestPresent, false);
+  assert.strictEqual(!l4Applicable || integrationTestPresent, false, 'L4 must fail');
+});
+
+test('L4 — pkg/rpc/server.go + pkg/discovery/exchange_integration_test.go → L4 passes (cross-package OK)', () => {
+  const prFiles = [
+    { filename: 'pkg/rpc/server.go', status: 'modified' },
+    { filename: 'pkg/discovery/exchange_integration_test.go', status: 'added' }
+  ];
+  assert.strictEqual(touchesNetworkPaths(prFiles), true);
+  assert.strictEqual(hasIntegrationTest(prFiles), true);
+});
+
+test('L4 — empty prFiles → L4 not applicable, gate proceeds (other gates may still fail)', () => {
+  const prFiles = [];
+  const l4Applicable = touchesNetworkPaths(prFiles);
+  assert.strictEqual(l4Applicable, false);
+  assert.strictEqual(!l4Applicable || hasIntegrationTest(prFiles), true);
+});
+
+test('handler — bug touching pkg/daemon/ with only unit test fails L4 → awaiting-tests + L4 in comment', async () => {
+  // Plan U1 final scenario: full handler invocation with mocked github
+  // returning network paths + only unit tests → asserts addLabels called
+  // with awaiting-tests and comment body contains L4.
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      556: {
+        number: 556,
+        user: { login: 'reporter' },
+        labels: [{ name: 'type: bug' }],
+        body: '### Steps to Reproduce\n\nrelay flap during NAT traversal\n'
+      }
+    },
+    prFiles: [
+      { filename: 'pkg/daemon/relay.go', status: 'modified', patch: '+// fix code\n' },
+      {
+        filename: 'pkg/daemon/relay_test.go',
+        status: 'added',
+        patch: '+func TestRelayFlapPredicate(t *testing.T) {}\n'
+      }
+    ],
+    contentByRefPath: {
+      'h:pkg/daemon/relay_test.go': 'package daemon\nfunc TestRelayFlapPredicate(t *testing.T) {}\n'
+    },
+    recordCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: {
+      number: 564,
+      title: 'impl: Issue #556 - relay flap fix',
+      body: 'Adds TestRelayFlapPredicate covering the relay flap.'
+    }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  const adds = recordCalls.filter(c => c.kind === 'addLabels');
+  const comments = recordCalls.filter(c => c.kind === 'createComment');
+  const updates = recordCalls.filter(c => c.kind === 'update' && c.params.state === 'closed');
+
+  assert.ok(adds.some(a => a.params.labels.includes('awaiting-tests')),
+    'L4 failure should add awaiting-tests label');
+  assert.strictEqual(updates.length, 0, 'L4 failure must not close the issue');
+  assert.ok(comments[0].params.body.includes('L4'),
+    'failure comment must enumerate L4 gate failure');
+  assert.ok(comments[0].params.body.includes('integration_test'),
+    'failure comment must reference integration_test requirement');
+});
+
+test('handler — bug touching pkg/daemon/ with integration test passes L4 → awaiting-verification', async () => {
+  const recordCalls = [];
+  const github = makeGithub({
+    issuesData: {
+      556: {
+        number: 556,
+        user: { login: 'reporter' },
+        labels: [{ name: 'type: bug' }],
+        body: '### Steps to Reproduce\n\nrelay flap during NAT traversal\n'
+      }
+    },
+    prFiles: [
+      { filename: 'pkg/daemon/relay.go', status: 'modified', patch: '+// fix code\n' },
+      {
+        filename: 'pkg/daemon/relay_integration_test.go',
+        status: 'added',
+        patch: '+func TestRelayFlapIntegration(t *testing.T) {}\n'
+      }
+    ],
+    contentByRefPath: {
+      'h:pkg/daemon/relay_integration_test.go': 'package daemon\nfunc TestRelayFlapIntegration(t *testing.T) {}\n'
+    },
+    recordCalls
+  });
+  const core = mockCore();
+  const ctx = makeContext({
+    pr: {
+      number: 564,
+      title: 'impl: Issue #556 - relay flap fix',
+      body: 'Adds TestRelayFlapIntegration exercising the relay flap reproduction.'
+    }
+  });
+
+  await handler({ github, context: ctx, core });
+
+  const adds = recordCalls.filter(c => c.kind === 'addLabels');
+  assert.ok(adds.some(a => a.params.labels.includes('awaiting-verification')),
+    'L4 pass + L2/L3 pass should reach awaiting-verification');
+});
+
+test('touchesNetworkPaths — renamed file from network path counts previous_filename', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/util/x.go', previous_filename: 'pkg/daemon/old.go', status: 'renamed' }
+  ]), true);
+});
+
+test('touchesNetworkPaths — modified network path still counts filename', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/daemon/x.go', status: 'modified' }
+  ]), true);
+});
+
+test('touchesNetworkPaths — modified non-network path stays false', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/util/x.go', status: 'modified' }
+  ]), false);
+});
+
+test('touchesNetworkPaths — removed file under network path counts (delete-bypass guard)', () => {
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/daemon/old.go', status: 'removed' }
+  ]), true);
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/discovery/peers.go', status: 'removed' }
+  ]), true);
+  assert.strictEqual(touchesNetworkPaths([
+    { filename: 'pkg/util/helper.go', status: 'removed' }
+  ]), false);
 });
