@@ -1,0 +1,19 @@
+STRATEGY.md
+  s_9363f20af58819::t_985236cf5d8665 27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "3c3d02cc2873d47fa243e25df65e3716552a61be",
+  "prompts": {},
+  "sessions": {
+    "s_9363f20af58819": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de36fb83-0d36-4b8c-8a7d-226114b25474",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
