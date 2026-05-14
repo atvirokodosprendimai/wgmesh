@@ -286,23 +286,12 @@ query_coroot_probe() {
 		return 0
 	fi
 
-	local body count reason
-	if ! body="$(curl -fsS -m 10 -H "Authorization: Bearer $COROOT_API_TOKEN" "https://table.beerpub.dev/api/projects" 2>&1)"; then
-		reason="$(sanitize_reason "$body")"
-		QUERY_FAILURES+=("coroot: query failed: $reason")
-		COROOT_RENDER="no data (query failed: $reason)"
-		COROOT_PROJECT_RENDER="no data (query failed: $reason)"
-		return 0
-	fi
-	if ! count="$(printf '%s' "$body" | jq -r 'if type == "array" then length elif .projects then (.projects | length) elif .items then (.items | length) else 0 end' 2>&1)"; then
-		reason="$(sanitize_reason "$count")"
-		QUERY_FAILURES+=("coroot: query failed: $reason")
-		COROOT_RENDER="no data (query failed: $reason)"
-		COROOT_PROJECT_RENDER="no data (query failed: $reason)"
-		return 0
-	fi
-	COROOT_PROJECT_RENDER="${count} projects visible"
-	COROOT_RENDER="no data (Coroot query shape not finalized — see scripts/pulse.sh TODO)"
+	# COROOT_API_TOKEN is the ingestion key (X-Api-Key on collector endpoint).
+	# The dashboard /api/* routes return SPA HTML regardless of auth header — they require
+	# a cookie session obtained via POST /api/login {"email","password"}.
+	# Until COROOT_EMAIL + COROOT_PASSWORD are stored as org secrets, this probe is a no-op.
+	COROOT_PROJECT_RENDER="no data (UI credentials required — set COROOT_EMAIL + COROOT_PASSWORD org secrets)"
+	COROOT_RENDER="no data (UI credentials required — COROOT_API_TOKEN is ingestion-only)"
 }
 
 GITHUB_STAR_RENDER="no data (not queried)"
