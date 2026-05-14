@@ -7,7 +7,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration (all overridable via environment)
 # ---------------------------------------------------------------------------
-PR_MAX_LINES="${PR_MAX_LINES:-500}"
+PR_MAX_LINES="${PR_MAX_LINES:-3000}"
 MAX_RETRY_COUNT="${MAX_RETRY_COUNT:-3}"
 APPROVED_AUTHORS="${APPROVED_AUTHORS:-copilot-swe-agent[bot],goose[bot]}"
 POLL_INTERVAL="${POLL_INTERVAL:-30}"
