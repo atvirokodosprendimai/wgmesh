@@ -383,6 +383,26 @@ wg_active_peer_count() {
     " 2>/dev/null
 }
 
+# Get the WireGuard endpoint for a peer identified by its mesh IP, as seen
+# from a given node.  Uses `wg show <iface> dump` (tab-separated fields):
+#   pubkey  psk  endpoint  allowed-ips  last-handshake  rx  tx  keepalive
+# Returns the endpoint string (e.g. "1.2.3.4:51821") or empty string.
+# Usage: wg_peer_endpoint <from_node> <mesh_ip>
+#
+# Pattern mirrors wg_handshake_age(): $WG_INTERFACE and $mesh_ip expand
+# locally before SSH; \$aips / \$endpoint are escaped for the remote shell.
+wg_peer_endpoint() {
+    local from="$1" mesh_ip="$2"
+    run_on "$from" "
+        wg show $WG_INTERFACE dump 2>/dev/null | while IFS=$'\t' read -r pubkey psk endpoint aips hs rx tx ka; do
+            if echo \"\$aips\" | grep -qF '$mesh_ip'; then
+                echo \"\$endpoint\"
+                exit 0
+            fi
+        done
+    " 2>/dev/null
+}
+
 # Check all N*(N-1)/2 pairs are connected.
 # Usage: verify_full_mesh [timeout_sec]
 verify_full_mesh() {
