@@ -850,12 +850,165 @@ test_t27_mixed_nat() {
     scan_logs_for_errors
 }
 
+# --- T28: NAT relay required (relay fallback must activate) ---
+# Reproduces the #457/#556 failure class: symmetric NAT + hole-punch blocked
+# → wgmesh must fall back to relay; traffic must stay alive with at most
+# 5 consecutive ping failures during a 5-minute soak.
+test_t28_nat_relay_required() {
+    _nat_pick_roles || return $?
+    _chaos_setup
+
+    # Set up symmetric NAT.  Symmetric NAT assigns a different source port for
+    # each destination, so classic hole-punch never succeeds.
+    nat_setup "$NAT_GW" "$NAT_NODE" "symmetric"
+
+    # Block WireGuard UDP from the natted node to every non-gateway peer.
+    # This ensures the WireGuard handshake can NEVER complete directly, making
+    # relay the only viable path.  We use an autoclear safety net (same SSH
+    # command) in case cleanup hangs — mirrors the tier-3 T14 lesson.
+    local autoclear_secs=400
+    for peer in "${!NODE_IPS[@]}"; do
+        [ "$peer" = "$NAT_NODE" ] && continue
+        [ "$peer" = "$NAT_GW" ]  && continue
+        local peer_ip="${NODE_IPS[$peer]}"
+        run_on "$NAT_NODE" "
+            iptables -A OUTPUT -d $peer_ip -p udp -j DROP
+            iptables -A INPUT  -s $peer_ip -p udp -j DROP
+            (sleep $autoclear_secs
+             iptables -D OUTPUT -d $peer_ip -p udp -j DROP 2>/dev/null
+             iptables -D INPUT  -s $peer_ip -p udp -j DROP 2>/dev/null
+            ) </dev/null >/dev/null 2>&1 &
+        "
+    done
+
+    restart_mesh_node "$NAT_NODE"
+    sleep 15
+
+    # Relay must activate within 120 s.
+    wait_for "relay-required NAT initial peering" 120 mesh_ping "$NAT_NODE" "$NAT_GW" 1
+
+    # Soak: 5-minute ping loop.  Count consecutive failures — more than 5 in a
+    # row means relay dropped (the "2 min online, 2 min offline" pattern).
+    local soak_secs=300 interval=5 max_consecutive=5
+    local start consecutive_fail=0
+    start=$(date +%s)
+
+    # Pick a public reference node (not NAT_NODE, not NAT_GW)
+    local ref_node=""
+    for node in "${!NODE_IPS[@]}"; do
+        [ "$node" = "$NAT_NODE" ] && continue
+        [ "$node" = "$NAT_GW" ]  && continue
+        ref_node="$node"
+        break
+    done
+    if [ -z "$ref_node" ]; then
+        log_warn "T28: no third node available for relay soak — skipping soak phase"
+    else
+        while [ $(( $(date +%s) - start )) -lt "$soak_secs" ]; do
+            if mesh_ping "$NAT_NODE" "$ref_node" 1 2>/dev/null; then
+                consecutive_fail=0
+            else
+                consecutive_fail=$(( consecutive_fail + 1 ))
+                log_warn "T28: ping fail streak=$consecutive_fail at $(( $(date +%s) - start ))s"
+                if [ "$consecutive_fail" -gt "$max_consecutive" ]; then
+                    log_error "T28: relay dropped — $consecutive_fail consecutive ping failures"
+                    nat_teardown "$NAT_GW" "$NAT_NODE"
+                    return 1
+                fi
+            fi
+            sleep "$interval"
+        done
+    fi
+
+    nat_teardown "$NAT_GW" "$NAT_NODE"
+    # Flush the WG-UDP drop rules before restart
+    for peer in "${!NODE_IPS[@]}"; do
+        [ "$peer" = "$NAT_NODE" ] && continue
+        [ "$peer" = "$NAT_GW" ]  && continue
+        local peer_ip="${NODE_IPS[$peer]}"
+        run_on_ok "$NAT_NODE" "
+            iptables -D OUTPUT -d $peer_ip -p udp -j DROP 2>/dev/null
+            iptables -D INPUT  -s $peer_ip -p udp -j DROP 2>/dev/null
+        "
+    done
+    sleep 5
+    restart_mesh_node "$NAT_NODE"
+    verify_full_mesh 60
+    scan_logs_for_errors
+}
+
+# --- T29: NAT route flap stability ---
+# Verifies that under cone NAT the WireGuard endpoint seen by a reference
+# node transitions ≤ 2 times in a 5-minute window.
+# > 2 transitions = the "2 min alive, 2 min dead" relay-flap bug.
+test_t29_nat_route_flap() {
+    _nat_pick_roles || return $?
+    _chaos_setup
+
+    nat_setup "$NAT_GW" "$NAT_NODE" "cone"
+    restart_mesh_node "$NAT_NODE"
+
+    # Wait for initial peering
+    wait_for "T29: initial cone NAT peering" 120 mesh_ping "$NAT_NODE" "$NAT_GW" 1
+
+    # Identify a reference node that is public (not natted, not gateway)
+    local ref_node=""
+    for node in "${!NODE_IPS[@]}"; do
+        [ "$node" = "$NAT_NODE" ] && continue
+        [ "$node" = "$NAT_GW" ]  && continue
+        ref_node="$node"
+        break
+    done
+    if [ -z "$ref_node" ]; then
+        log_warn "T29: no public reference node — using gateway as reference"
+        ref_node="$NAT_GW"
+    fi
+
+    # Discover NAT node's mesh IP
+    populate_mesh_ips 2>/dev/null || true
+    local nat_mesh_ip="${NODE_MESH_IPS[$NAT_NODE]:-}"
+    if [ -z "$nat_mesh_ip" ]; then
+        log_error "T29: cannot determine mesh IP of $NAT_NODE"
+        nat_teardown "$NAT_GW" "$NAT_NODE"
+        return 1
+    fi
+
+    # Monitor endpoint transitions for 5 minutes
+    local soak_secs=300 interval=10 flap_threshold=2
+    local start flaps=0 prev_endpoint=""
+    start=$(date +%s)
+
+    while [ $(( $(date +%s) - start )) -lt "$soak_secs" ]; do
+        local curr_endpoint
+        curr_endpoint=$(wg_peer_endpoint "$ref_node" "$nat_mesh_ip")
+        if [ -n "$prev_endpoint" ] && [ -n "$curr_endpoint" ] && \
+           [ "$curr_endpoint" != "$prev_endpoint" ]; then
+            flaps=$(( flaps + 1 ))
+            log_warn "T29: flap #$flaps at $(( $(date +%s) - start ))s: $prev_endpoint -> $curr_endpoint"
+        fi
+        [ -n "$curr_endpoint" ] && prev_endpoint="$curr_endpoint"
+        sleep "$interval"
+    done
+
+    nat_teardown "$NAT_GW" "$NAT_NODE"
+    sleep 5
+    restart_mesh_node "$NAT_NODE"
+    verify_full_mesh 60
+    scan_logs_for_errors
+
+    if [ "$flaps" -gt "$flap_threshold" ]; then
+        log_error "T29: $flaps route flaps in ${soak_secs}s (threshold: $flap_threshold)"
+        return 1
+    fi
+    log_info "T29: $flaps route flaps in ${soak_secs}s — within threshold"
+}
+
 # ===========================================================================
 # TIER 6 — Chaos Monkey / Fuzzing
 # ===========================================================================
 
-# --- T28: Rapid peer cycling ---
-test_t28_rapid_cycling() {
+# --- T30: Rapid peer cycling ---
+test_t30_rapid_cycling() {
     _chaos_setup
     local node
     node=$(_pick_node)
@@ -874,8 +1027,8 @@ test_t28_rapid_cycling() {
     scan_logs_for_errors
 }
 
-# --- T29: Rolling restart ---
-test_t29_rolling_restart() {
+# --- T31: Rolling restart ---
+test_t31_rolling_restart() {
     _chaos_setup
     local all_nodes=("${!NODE_IPS[@]}")
 
@@ -888,8 +1041,8 @@ test_t29_rolling_restart() {
     scan_logs_for_errors
 }
 
-# --- T30: Simultaneous restart ---
-test_t30_simultaneous_restart() {
+# --- T32: Simultaneous restart ---
+test_t32_simultaneous_restart() {
     _chaos_setup
 
     # Restart all nodes at once
@@ -903,8 +1056,8 @@ test_t30_simultaneous_restart() {
     scan_logs_for_errors
 }
 
-# --- T31: Random impairment rotation (5 min) ---
-test_t31_random_chaos() {
+# --- T33: Random impairment rotation (5 min) ---
+test_t33_random_chaos() {
     _chaos_setup
     local duration=300  # 5 minutes
     local start
@@ -921,8 +1074,8 @@ test_t31_random_chaos() {
     scan_logs_for_errors
 }
 
-# --- T32: UDP flood ---
-test_t32_udp_flood() {
+# --- T34: UDP flood ---
+test_t34_udp_flood() {
     _chaos_setup
     local pair
     pair=$(_pick_two_nodes)
@@ -946,8 +1099,8 @@ test_t32_udp_flood() {
     scan_logs_for_errors
 }
 
-# --- T33: Port flap (WG listen port) ---
-test_t33_port_flap() {
+# --- T35: Port flap (WG listen port) ---
+test_t35_port_flap() {
     _chaos_setup
     local node
     node=$(_pick_node)
@@ -964,8 +1117,8 @@ test_t33_port_flap() {
     scan_logs_for_errors
 }
 
-# --- T34: DNS blackhole ---
-test_t34_dns_blackhole() {
+# --- T36: DNS blackhole ---
+test_t36_dns_blackhole() {
     _chaos_setup
     local node
     node=$(_pick_node)
@@ -982,8 +1135,8 @@ test_t34_dns_blackhole() {
     scan_logs_for_errors
 }
 
-# --- T35: Clock skew +5min (within replay window) ---
-test_t35_clock_skew_5min() {
+# --- T37: Clock skew +5min (within replay window) ---
+test_t37_clock_skew_5min() {
     _chaos_setup
     local node
     node=$(_pick_node)
@@ -998,8 +1151,8 @@ test_t35_clock_skew_5min() {
     scan_logs_for_errors
 }
 
-# --- T36: Severe clock skew +15min (outside replay window) ---
-test_t36_clock_skew_15min() {
+# --- T38: Severe clock skew +15min (outside replay window) ---
+test_t38_clock_skew_15min() {
     _chaos_setup
     local node
     node=$(_pick_node)
@@ -1017,8 +1170,8 @@ test_t36_clock_skew_15min() {
     scan_logs_for_errors
 }
 
-# --- T37: GOODBYE forgery resistance ---
-test_t37_goodbye_forgery() {
+# --- T39: GOODBYE forgery resistance ---
+test_t39_goodbye_forgery() {
     # This test is informational — documents behavior.
     # Since all nodes share the same secret, any node CAN forge a valid GOODBYE.
     # We just verify no panics occur.
@@ -1027,8 +1180,8 @@ test_t37_goodbye_forgery() {
     echo "GOODBYE forgery test: documented as known limitation (shared secret)"
 }
 
-# --- T38: Stale cache resurrection ---
-test_t38_stale_cache() {
+# --- T40: Stale cache resurrection ---
+test_t40_stale_cache() {
     _chaos_setup
     local node
     node=$(_pick_node)
@@ -1054,8 +1207,8 @@ test_t38_stale_cache() {
 # TIER 7 — Stability Soak
 # ===========================================================================
 
-# --- T39: 5-min clean soak ---
-test_t39_clean_soak() {
+# --- T41: 5-min clean soak ---
+test_t41_clean_soak() {
     _chaos_setup
     local duration=300
     local interval=10
@@ -1074,8 +1227,8 @@ test_t39_clean_soak() {
     [ "$failures" -eq 0 ] || { echo "Soak had $failures connectivity gaps"; return 1; }
 }
 
-# --- T40: 10-min chaos soak ---
-test_t40_chaos_soak() {
+# --- T42: 10-min chaos soak ---
+test_t42_chaos_soak() {
     _chaos_setup
     local duration=600
     local start
@@ -1109,31 +1262,31 @@ test_t40_chaos_soak() {
     log_info "Chaos soak: $gaps connectivity gaps during chaos (expected)"
 }
 
-# --- T41: 15-min long-form with churn ---
-test_t41_long_soak() {
+# --- T43: 15-min long-form with churn ---
+test_t43_long_soak() {
     _chaos_setup
     local node
     node=$(_pick_node)
 
     # Phase 1: clean run for 5 min
-    log_info "T41 phase 1: clean run (5min)..."
+    log_info "T43 phase 1: clean run (5min)..."
     sleep 300
     verify_full_mesh 30
 
     # Phase 2: churn event at 5min
-    log_info "T41 phase 2: peer churn..."
+    log_info "T43 phase 2: peer churn..."
     crash_mesh_node "$node"
     sleep 60
     start_mesh_node "$node"
     verify_full_mesh 90
 
     # Phase 3: run for another 5min
-    log_info "T41 phase 3: post-churn stability (5min)..."
+    log_info "T43 phase 3: post-churn stability (5min)..."
     sleep 300
     verify_full_mesh 30
 
     # Phase 4: second churn event
-    log_info "T41 phase 4: second churn..."
+    log_info "T43 phase 4: second churn..."
     restart_mesh_node "$node"
     sleep 60
     verify_full_mesh 60
@@ -1241,7 +1394,7 @@ fi
 
 if should_run_tier 5; then
     CURRENT_TIER=5
-    TOTAL_TESTS_IN_TIER=3
+    TOTAL_TESTS_IN_TIER=5
     log_bold "\n=========================================="
     log_bold "  TIER 5: NAT Simulation ($TOTAL_TESTS_IN_TIER tests)"
     log_bold "=========================================="
@@ -1251,6 +1404,8 @@ if should_run_tier 5; then
     run_test T25 "Cone NAT"                      test_t25_cone_nat
     run_test T26 "Symmetric NAT"                 test_t26_symmetric_nat
     run_test T27 "Mixed NAT topology"            test_t27_mixed_nat
+    run_test T28 "NAT relay required"            test_t28_nat_relay_required
+    run_test T29 "NAT route flap stability"      test_t29_nat_route_flap
     log_info "Tier 5 data plane gate..."
     verify_data_plane
     TIER_END_EPOCH[5]=$(date +%s)
@@ -1267,17 +1422,17 @@ if should_run_tier 6; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[6]=$tier_start
     emit_event "tier_start" "tier_6" "tests=$TOTAL_TESTS_IN_TIER"
-    run_test T28 "Rapid peer cycling"            test_t28_rapid_cycling
-    run_test T29 "Rolling restart"               test_t29_rolling_restart
-    run_test T30 "Simultaneous restart"          test_t30_simultaneous_restart
-    run_test T31 "Random impairment rotation"    test_t31_random_chaos
-    run_test T32 "UDP flood"                     test_t32_udp_flood
-    run_test T33 "Port flap"                     test_t33_port_flap
-    run_test T34 "DNS blackhole"                 test_t34_dns_blackhole
-    run_test T35 "Clock skew +5min"              test_t35_clock_skew_5min
-    run_test T36 "Clock skew +15min (isolation)" test_t36_clock_skew_15min
-    run_test T37 "GOODBYE forgery resistance"    test_t37_goodbye_forgery
-    run_test T38 "Stale cache resurrection"      test_t38_stale_cache
+    run_test T30 "Rapid peer cycling"            test_t30_rapid_cycling
+    run_test T31 "Rolling restart"               test_t31_rolling_restart
+    run_test T32 "Simultaneous restart"          test_t32_simultaneous_restart
+    run_test T33 "Random impairment rotation"    test_t33_random_chaos
+    run_test T34 "UDP flood"                     test_t34_udp_flood
+    run_test T35 "Port flap"                     test_t35_port_flap
+    run_test T36 "DNS blackhole"                 test_t36_dns_blackhole
+    run_test T37 "Clock skew +5min"              test_t37_clock_skew_5min
+    run_test T38 "Clock skew +15min (isolation)" test_t38_clock_skew_15min
+    run_test T39 "GOODBYE forgery resistance"    test_t39_goodbye_forgery
+    run_test T40 "Stale cache resurrection"      test_t40_stale_cache
     log_info "Tier 6 data plane gate..."
     verify_data_plane
     TIER_END_EPOCH[6]=$(date +%s)
@@ -1294,9 +1449,9 @@ if should_run_tier 7; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[7]=$tier_start
     emit_event "tier_start" "tier_7" "tests=$TOTAL_TESTS_IN_TIER"
-    run_test T39 "5-min clean soak"              test_t39_clean_soak
-    run_test T40 "10-min chaos soak"             test_t40_chaos_soak
-    run_test T41 "15-min long soak with churn"   test_t41_long_soak
+    run_test T41 "5-min clean soak"              test_t41_clean_soak
+    run_test T42 "10-min chaos soak"             test_t42_chaos_soak
+    run_test T43 "15-min long soak with churn"   test_t43_long_soak
     log_info "Tier 7 data plane gate..."
     verify_data_plane_full   # final comprehensive benchmark
     collect_all_pprof  # final profiles after full test suite
