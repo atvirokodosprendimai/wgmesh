@@ -70,7 +70,7 @@ Each phase:
 
 The template ships with a company-oriented system prompt that includes:
 
-- **Funnel stages** (Foundation → Dogfood → Presence → Reachable → Pipeline → Revenue) — users customise stages to their business
+- **Funnel stages** (Foundation → Dogfood → Presence → Reachable → Pipeline → Revenue → Growth) — users customise stages to their business
 - **Frugality constraint** — runway tracking, survival mode when runway < 3 months
 - **Reciprocity tracking** — contributors (human, AI, OSS dependencies) logged and flagged for reciprocation
 - **Function labels** — `fn:dev`, `fn:ops`, `fn:gtm`, `fn:billing`, `fn:support`, `fn:legal`, `needs-human`

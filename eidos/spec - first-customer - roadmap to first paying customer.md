@@ -109,9 +109,21 @@ Maps to the customer factory already visualised on chimney.beerpub.dev (acquisit
   - Exit when: billing integration live, customer can sign up and get invoiced for managed ingress
 - **Stage 4: Pipeline** — people can pay but nobody has
   - Exit when: first customer onboarded from personal network
-- **Stage 5: Revenue** — first invoice paid
-  - Exit when: payment received, retention signal (customer still active after 30 days)
-  - Traction roadmap on chimney.beerpub.dev updates to reflect real ARR
+- **Stage 5: Revenue** — early recurring revenue exists but is still fragile
+  - Entry when: first successful paid subscription exists
+  - Exit when all conditions hold for a trailing 30-day window:
+    - `>= 5` paying subscribers are still active after 30+ days from first payment
+    - MRR is `>= €0.04` for 30 consecutive days (no full drop to zero)
+    - 30-day gross customer retention is `>= 80%`
+    - Usage baseline exists for all paying subscribers (at least one `wgmesh` activity signal per subscriber in the last 14 days)
+- **Stage 6: Growth** — recurring revenue is real; focus shifts to compounding growth efficiency
+  - Objective: scale paying usage without collapsing retention quality
+  - Success milestones (evaluate monthly):
+    - Net subscriber growth `>= 20%` month-over-month
+    - Net MRR growth `>= 25%` month-over-month
+    - 30-day gross customer retention `>= 85%`
+    - At least `1` expansion revenue event per month (upgrade, add-on, or seat increase)
+  - Primary risks to monitor: churn spikes, inactive paid subscribers, growth driven only by one-off low-value payments
 
 ### What the loop observes
 
@@ -351,7 +363,8 @@ company/
 - `fn:dev` issues created by the loop flow through Copilot → Goose → merge without manual intervention
 - Service registration + managed ingress work end-to-end (Stage 0 exit)
 - Landing page deployed and accessible (Stage 2 exit)
-- First payment received (Stage 5 exit)
+- Stage 5 exit evidence recorded: `>=5` active 30+ day subscribers, `>=€0.04` MRR sustained for 30 days, retention and usage thresholds met
+- Stage 6 monthly scorecard recorded: subscriber growth, MRR growth, retention, and expansion revenue trend
 - All customer data resides in EU infrastructure
 - Loop requests human intervention only when genuinely needed (capital, legal entity, judgment calls)
 
