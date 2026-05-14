@@ -24,6 +24,7 @@ wgmesh is autonomous — the mesh discovers, peers, and heals itself with no con
 - **Weekly active meshes** — distinct rendezvous IDs alive in DHT/registry over rolling 7d. Source: chimney.
 - **Time-to-mesh (p50)** — median seconds from `wgmesh join` to first handshake on internet path. Source: daemon logs / synthetic probe.
 - **Unsolicited positive feedback rate** — count/week of GitHub issues, DMs, Show HN comments tagged positive.
+- **Verified resolution rate** — share of closed issues that had a passing Hetzner integration run within 48h of close. Distinguishes "impl merged" from "actually works." Source: GitHub Actions + issue events.
 
 ## Tracks
 
