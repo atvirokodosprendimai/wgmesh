@@ -17,6 +17,16 @@ BYPASS_REVIEW_AUTHORS="${BYPASS_REVIEW_AUTHORS:-}"
 PROTECTED_PATHS="${PROTECTED_PATHS:-}"
 SECURITY_KEYWORDS="${SECURITY_KEYWORDS:-secret,token,password,api_key,private_key,credentials,authorization}"
 
+# normalize_author — strip GitHub App login variants so comparisons are
+# format-agnostic. GitHub returns 'app/foo' in webhook events but
+# 'foo[bot]' via REST/GraphQL; strip both decorations to compare base names.
+normalize_author() {
+  local raw="${1:-}"
+  raw="${raw#app/}"     # strip app/ prefix
+  raw="${raw%\[bot\]}"  # strip [bot] suffix
+  printf '%s\n' "$raw"
+}
+
 # ---------------------------------------------------------------------------
 # Required env vars — fail fast
 # ---------------------------------------------------------------------------
@@ -336,15 +346,17 @@ run_guardrails() {
   fi
 
   local approved_found="false"
+  local author_norm
+  author_norm=$(normalize_author "$author")
   IFS=',' read -ra approved_list <<< "$APPROVED_AUTHORS"
   for approved in "${approved_list[@]}"; do
-    if [[ "$author" == "$approved" ]]; then
+    if [[ "$author_norm" == "$(normalize_author "$approved")" ]]; then
       approved_found="true"
       break
     fi
   done
   if [[ "$approved_found" != "true" ]]; then
-    escalate "$PR_NUMBER" "Unknown author: ${author}"
+    escalate "$PR_NUMBER" "Unknown author: ${author} (normalized: ${author_norm})"
     check_circuit_breaker
     return 1
   fi
@@ -599,9 +611,11 @@ check_manual_push() {
 
   # Check if author is NOT a known bot
   local is_bot="false"
+  local latest_author_norm
+  latest_author_norm=$(normalize_author "$latest_author")
   IFS=',' read -ra approved_list <<< "$APPROVED_AUTHORS"
   for approved in "${approved_list[@]}"; do
-    if [[ "$latest_author" == "$approved" ]]; then
+    if [[ "$latest_author_norm" == "$(normalize_author "$approved")" ]]; then
       is_bot="true"
       break
     fi
@@ -639,8 +653,14 @@ main() {
   fi
 
   local review_bypassed="false"
+  local pr_author_norm
+  pr_author_norm=$(normalize_author "$pr_author")
   if [[ -n "$BYPASS_REVIEW_AUTHORS" && -n "$pr_author" ]]; then
-    if echo "$BYPASS_REVIEW_AUTHORS" | tr ',' '\n' | grep -qxF "$pr_author"; then
+    local bypass_match="false"
+    while IFS= read -r bypass_entry; do
+      [[ "$(normalize_author "$bypass_entry")" == "$pr_author_norm" ]] && bypass_match="true" && break
+    done < <(echo "$BYPASS_REVIEW_AUTHORS" | tr ',' '\n')
+    if [[ "$bypass_match" == "true" ]]; then
       echo "Author $pr_author is in BYPASS_REVIEW_AUTHORS — skipping Copilot review gate"
       log_audit "review_gate_bypassed" "Trusted author $pr_author skipped Copilot poll"
       review_bypassed="true"
