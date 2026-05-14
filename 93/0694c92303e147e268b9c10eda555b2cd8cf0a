@@ -1,0 +1,19 @@
+company/scripts/pr-review-merge.sh
+  s_9363f20af58819::t_1ad4902718f49e 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "930694c92303e147e268b9c10eda555b2cd8cf0a",
+  "prompts": {},
+  "sessions": {
+    "s_9363f20af58819": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de36fb83-0d36-4b8c-8a7d-226114b25474",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
