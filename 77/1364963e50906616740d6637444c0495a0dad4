@@ -1,0 +1,21 @@
+.github/workflows/pulse.yml
+  s_9363f20af58819::t_a387e1b43c70ef 24
+docs/pulse-reports/2026-05-14_19-49.md
+  s_9363f20af58819::t_84cd975761d56c 1-48
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "771364963e50906616740d6637444c0495a0dad4",
+  "prompts": {},
+  "sessions": {
+    "s_9363f20af58819": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de36fb83-0d36-4b8c-8a7d-226114b25474",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
