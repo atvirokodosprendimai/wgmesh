@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # lib.sh — Shared functions for wgmesh cloud integration tests
 #
+# shellcheck disable=SC2034
+# This file owns globals consumed by sibling sourced scripts.
+#
 # Source this file from other scripts:
 #   SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 #   source "$SCRIPT_DIR/lib.sh"
@@ -373,6 +376,34 @@ mesh_ping6() {
     run_on "$from" "ping6 -c $count -W 3 $to_ip6" >/dev/null 2>&1
 }
 
+# Continuous ping soak from one node to another, fail if loss exceeds threshold.
+# Crosses WireGuard handshake refresh windows (~120-180s) so it catches stale-key
+# regressions that brief mesh-formation tests miss.
+#
+# Usage: mesh_ping_soak <from-node> <to-node> <duration_sec> <max_loss_pct>
+mesh_ping_soak() {
+    local from="$1" to="$2" dur="${3:-300}" max_loss="${4:-5}"
+    local to_ip="${NODE_MESH_IPS[$to]}"
+    log_info "soak: ping $from -> $to ($to_ip) for ${dur}s, max ${max_loss}% loss"
+    local out
+    out=$(RUN_ON_TIMEOUT_SEC=$((dur + 30)) run_on "$from" "ping -i 1 -w $dur -q $to_ip 2>&1 || true")
+    echo "$out"
+    local loss
+    loss=$(echo "$out" | grep -oE '[0-9]+(\.[0-9]+)?% packet loss' | head -1 | grep -oE '^[0-9]+(\.[0-9]+)?' || true)
+    if [ -z "$loss" ]; then
+        log_error "soak: could not parse packet loss from ping output"
+        return 1
+    fi
+    local loss_int
+    loss_int=$(awk -v l="$loss" 'BEGIN { printf "%d", l + 0.999 }')
+    if [ "$loss_int" -gt "$max_loss" ]; then
+        log_error "soak: $from -> $to loss ${loss}% exceeds ${max_loss}%"
+        return 1
+    fi
+    log_info "soak: $from -> $to loss ${loss}% (under ${max_loss}%) OK"
+    return 0
+}
+
 # Get WG handshake age for a specific peer on a node.
 # Returns seconds since last handshake, or 999999 if no handshake.
 wg_handshake_age() {
@@ -552,7 +583,7 @@ mesh_transfer() {
         emit_event "data_transfer" "$from->$to" "size_mb=$size_mb" "result=ok"
         return 0
     else
-        log_error "mesh_transfer $from->$to: checksum MISMATCH (src=$src_hash[$src_size] dst=$dst_hash[$dst_size])"
+        log_error "mesh_transfer $from->$to: checksum MISMATCH (src=${src_hash}[$src_size] dst=${dst_hash}[$dst_size])"
         emit_event "data_transfer" "$from->$to" "size_mb=$size_mb" "result=mismatch" "src_size=$src_size" "dst_size=$dst_size"
         return 1
     fi
