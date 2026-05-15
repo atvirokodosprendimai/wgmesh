@@ -280,6 +280,14 @@ wait_for() {
             sleep 1
         done
         if [ "$probe_done" -eq 0 ]; then
+            # PID-mismatch fix (runs 25887582606, 25895530964): ( cmd ) &
+            # forks a subshell so $! is the SUBSHELL pid. SIGKILL'ing the
+            # subshell alone orphans its ssh children, which hold TCP
+            # connections indefinitely. Kill descendants first via pkill -P,
+            # then the subshell itself. Repeat to catch grandchildren.
+            pkill -KILL -P "$probe_pid" 2>/dev/null || true
+            sleep 0.2
+            pkill -KILL -P "$probe_pid" 2>/dev/null || true
             kill -KILL "$probe_pid" 2>/dev/null || true
             wait "$probe_pid" 2>/dev/null || true
             rc=124
