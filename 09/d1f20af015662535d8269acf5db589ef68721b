@@ -1,0 +1,21 @@
+testlab/cloud/provision.sh
+  s_9363f20af58819::t_e791225359ba86 378-379
+testlab/cloud/lib.sh
+  s_9363f20af58819::t_7698d78d5a5d59 159-167,173-179,183-184,190,202
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "09d1f20af015662535d8269acf5db589ef68721b",
+  "prompts": {},
+  "sessions": {
+    "s_9363f20af58819": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de36fb83-0d36-4b8c-8a7d-226114b25474",
+        "model": "claude-sonnet-4-6"
+      },
+      "human_author": null
+    }
+  }
+}
