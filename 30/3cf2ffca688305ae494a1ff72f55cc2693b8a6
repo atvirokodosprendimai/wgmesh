@@ -1,0 +1,27 @@
+docs/solutions/test-failures/subshell-pid-orphan-ssh-ci-hang-2026-05-15.md
+  s_9363f20af58819::t_3ce03d69a11409 1-191
+AGENTS.md
+  s_9363f20af58819::t_8f6eb38321d99a 153-156
+docs/solutions/test-failures/tier3-t14-80pct-loss-ssh-hang.md
+  s_9363f20af58819::t_4d1a35ad4fa3b8 98
+  s_9363f20af58819::t_40f4ad85f155a3 5
+  s_9363f20af58819::t_d2d45ec5beca9b 89-90
+CLAUDE.md
+  s_9363f20af58819::t_e2ab9265e887b2 95-98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.4.8",
+  "base_commit_sha": "303cf2ffca688305ae494a1ff72f55cc2693b8a6",
+  "prompts": {},
+  "sessions": {
+    "s_9363f20af58819": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "de36fb83-0d36-4b8c-8a7d-226114b25474",
+        "model": "claude-opus-4-7"
+      },
+      "human_author": "~.~ <saint@ghost.lt>"
+    }
+  }
+}
