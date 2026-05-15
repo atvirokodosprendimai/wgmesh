@@ -369,24 +369,26 @@ chaos_random_hit() {
 # ---------------------------------------------------------------------------
 
 # Set up a NAT gateway: traffic from natted_node goes through gw_node.
-# Usage: nat_setup <gw_node> <natted_node> <nat_type>
+# Usage: nat_setup <gw_node> <natted_node> <nat_type> [suffix]
 #   nat_type: "cone" | "symmetric"
 #     cone      = endpoint-independent mapping (same ext port for all destinations)
 #     symmetric = endpoint-dependent mapping (different ext port per destination)
 nat_setup() {
-    local gw="$1" natted="$2" nat_type="${3:-cone}"
+    local gw="$1" natted="$2" nat_type="${3:-cone}" suffix="${4:-}"
     local gw_ip="${NODE_IPS[$gw]}"
     local natted_ip="${NODE_IPS[$natted]}"
 
     # Create a GRE tunnel between natted node and gateway
-    local tun_natted="10.99.0.2"
-    local tun_gw="10.99.0.1"
+    local offset="${suffix:-0}"
+    local tun="gre-nat${suffix}"
+    local tun_natted="10.99.${offset}.2"
+    local tun_gw="10.99.${offset}.1"
 
     # On gateway: create GRE tunnel endpoint, enable forwarding and MASQUERADE
     run_on "$gw" "
-        ip tunnel add gre-nat mode gre remote $natted_ip local $gw_ip ttl 255 2>/dev/null || true
-        ip addr add $tun_gw/30 dev gre-nat 2>/dev/null || true
-        ip link set gre-nat up
+        ip tunnel add $tun mode gre remote $natted_ip local $gw_ip ttl 255 2>/dev/null || true
+        ip addr add $tun_gw/30 dev $tun 2>/dev/null || true
+        ip link set $tun up
         sysctl -w net.ipv4.ip_forward=1 >/dev/null
 
         # MASQUERADE all traffic from the NATted node's tunnel
@@ -405,9 +407,9 @@ nat_setup() {
 
     # On natted node: create GRE tunnel, route mesh traffic through it
     run_on "$natted" "
-        ip tunnel add gre-nat mode gre remote $gw_ip local $natted_ip ttl 255 2>/dev/null || true
-        ip addr add $tun_natted/30 dev gre-nat 2>/dev/null || true
-        ip link set gre-nat up
+        ip tunnel add $tun mode gre remote $gw_ip local $natted_ip ttl 255 2>/dev/null || true
+        ip addr add $tun_natted/30 dev $tun 2>/dev/null || true
+        ip link set $tun up
     "
 
     # Block natted node's direct traffic to all other mesh nodes (except gateway)
@@ -427,25 +429,26 @@ nat_setup() {
         [ "$peer" = "$natted" ] && continue
         [ "$peer" = "$gw" ] && continue
         local peer_ip="${NODE_IPS[$peer]}"
-        run_on "$natted" "ip route add $peer_ip via $tun_gw dev gre-nat 2>/dev/null || true"
+        run_on "$natted" "ip route add $peer_ip via $tun_gw dev $tun 2>/dev/null || true"
     done
 
     log_info "nat: $natted is now behind $nat_type NAT via $gw"
 }
 
 # Tear down NAT simulation on a pair.
-# Usage: nat_teardown <gw_node> <natted_node>
+# Usage: nat_teardown <gw_node> <natted_node> [suffix]
 nat_teardown() {
-    local gw="$1" natted="$2"
-    local gw_ip="${NODE_IPS[$gw]}"
-    local natted_ip="${NODE_IPS[$natted]}"
+    local gw="$1" natted="$2" suffix="${3:-}"
+    local offset="${suffix:-0}"
+    local tun="gre-nat${suffix}"
+    local tun_gw="10.99.${offset}.1"
 
     # Remove routes on natted node
     for peer in "${!NODE_IPS[@]}"; do
         [ "$peer" = "$natted" ] && continue
         [ "$peer" = "$gw" ] && continue
         local peer_ip="${NODE_IPS[$peer]}"
-        run_on_ok "$natted" "ip route del $peer_ip via 10.99.0.1 dev gre-nat 2>/dev/null"
+        run_on_ok "$natted" "ip route del $peer_ip via $tun_gw dev $tun 2>/dev/null"
     done
 
     # Flush iptables on both
@@ -453,8 +456,8 @@ nat_teardown() {
     run_on_ok "$gw" "iptables -t nat -F POSTROUTING"
 
     # Delete GRE tunnels
-    run_on_ok "$natted" "ip tunnel del gre-nat 2>/dev/null"
-    run_on_ok "$gw" "ip tunnel del gre-nat 2>/dev/null"
+    run_on_ok "$natted" "ip tunnel del $tun 2>/dev/null"
+    run_on_ok "$gw" "ip tunnel del $tun 2>/dev/null"
 
     log_info "nat: teardown complete for $natted via $gw"
 }
