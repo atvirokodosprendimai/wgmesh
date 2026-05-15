@@ -420,13 +420,28 @@ start_mesh() {
 }
 
 # Stop mesh on all nodes.
+#
+# Uses explicit PID tracking (NOT bare `wait`). Bare `wait` blocks on every
+# background child of the current shell — including any leaked from earlier
+# steps (provisioning probes, monitoring loops). The 2h hang in runs
+# 25887582606 + 25895530964 persisted after PR #631's timeout(1) fix because
+# the bash watchdog in wait_for ALSO orphaned subshells; bare wait here
+# blocked on those orphans forever.
 stop_mesh() {
     emit_event "mesh_stop" "stop_mesh"
+    log_info "stop_mesh: spawning stop_mesh_node for ${#NODE_IPS[@]} nodes"
+    local pids=()
     for node in "${!NODE_IPS[@]}"; do
         stop_mesh_node "$node" &
+        pids+=($!)
     done
-    wait
-    # Clean up WG interfaces
+    log_info "stop_mesh: waiting for ${#pids[@]} stop_mesh_node pids"
+    local pid
+    for pid in "${pids[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
+    log_info "stop_mesh: all stop_mesh_node returned, cleaning up WG interfaces"
+    # Clean up WG interfaces — sequential, bounded by run_on_ok's timeout(1)
     for node in "${!NODE_IPS[@]}"; do
         run_on_ok "$node" "ip link del $WG_INTERFACE 2>/dev/null"
     done
