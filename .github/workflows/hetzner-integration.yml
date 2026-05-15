@@ -87,13 +87,16 @@ jobs:
   #
   # When all 7 tiers run in parallel (35 VMs), shared Hetzner infra
   # adds ~30% overhead. Tier 3 solo takes ~69 min but can reach ~90 min
-  # under parallel load. 120 min gives safe buffer.
+  # under parallel load. 180 min margin (Tier 6 hit 120 in run 25903017060
+  # — T31 alone was 6.4 min, 11 tests + 15-min T41 soak + provisioning
+  # easily exceeds 120 once the SSH-watchdog fixes from #631+#632 wait
+  # for full timeouts instead of hanging silently).
   # -----------------------------------------------------------------------
   tier:
     name: "Tier ${{ matrix.tier }}"
     runs-on: ubuntu-latest
     needs: build
-    timeout-minutes: 120
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
