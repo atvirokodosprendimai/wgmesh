@@ -1045,11 +1045,20 @@ test_t31_rolling_restart() {
 test_t32_simultaneous_restart() {
     _chaos_setup
 
-    # Restart all nodes at once
+    # Restart all nodes at once. Use explicit PID tracking (NOT bare `wait`)
+    # because bare wait blocks on every background child of the shell —
+    # same hang pattern that bit stop_mesh (fixed in PR #632). Run
+    # 25919050735 hit this exact bug: trace stopped at chaos_setup_end of
+    # T30 and the shell hung for 229 minutes inside this wait.
+    local pids=()
     for node in "${!NODE_IPS[@]}"; do
         restart_mesh_node "$node" &
+        pids+=($!)
     done
-    wait
+    local pid
+    for pid in "${pids[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
 
     sleep 10
     verify_full_mesh 90
