@@ -150,3 +150,7 @@ When triaging an issue, do NOT write implementation code. Create a spec at `spec
 ## CI/CD
 
 Docker images: `ghcr.io`, built on push to main and tags (`v*.*.*`). Goose automated implementation triggered by `approved-for-build` label on spec PRs. Always check GitHub Actions for errors after pushing.
+
+## Documented Solutions
+
+`docs/solutions/` — documented solutions to past problems (bugs, best practices, workflow patterns), organized by category (test-failures, integration-issues, logic-errors, etc.) with YAML frontmatter (`module`, `tags`, `problem_type`). Relevant when implementing or debugging in documented areas.

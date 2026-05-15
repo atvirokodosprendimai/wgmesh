@@ -2,6 +2,7 @@
 title: "Tier 3 T14 (80% packet loss) hangs indefinitely due to SSH control plane impairment"
 category: test-failures
 date: 2026-03-12
+last_refreshed: 2026-05-15
 tags: [chaos-testing, ssh, tc-netem, integration-tests, bash]
 modules: [testlab/cloud/chaos.sh, testlab/cloud/lib.sh, testlab/cloud/test-cloud.sh]
 prs: ["#433", "#434", "#435", "#436", "#437"]
@@ -85,6 +86,8 @@ This is analogous to setting a hardware watchdog timer before entering a potenti
 - **NODE_MESH_IPS lost in subshell** (PR #432, #437): `run_test` used `| tee` which creates a subshell, losing associative array modifications.
   Fixed by switching to `> >(tee)` process substitution.
 - **Release gating** (PR #430): Releases are gated behind integration test success via `workflow_run` trigger.
+- **Sibling: bash `( cmd ) &` PID mismatch orphans ssh** — see [`subshell-pid-orphan-ssh-ci-hang-2026-05-15.md`](subshell-pid-orphan-ssh-ci-hang-2026-05-15.md).
+  Same symptom family (orphan `ssh` on the GHA runner causing 2h job hangs) but a different root cause on the runner side: bash's `( cmd ) &` returns the subshell PID via `$!`, so `kill -KILL $pid` kills only the subshell wrapper while ssh persists. The SSH keepalive fix in this doc protects the VM-side connection, but did not save us from the runner-side PID-mismatch trap that surfaced months later in PRs #631, #632, #636.
 
 ## Prevention
 
@@ -92,3 +95,4 @@ This is analogous to setting a hardware watchdog timer before entering a potenti
 2. **Schedule cleanup atomically** with the operation that creates the mess.
 3. **Test chaos tests themselves** — a chaos test that can't clean up after itself is worse than no test.
 4. **Avoid `| tee` in bash** when the left side modifies globals — use `> >(tee)` instead.
+5. **Don't wrap external commands in `( cmd ) &` watchdogs.** `$!` after a subshell-with-`&` captures the subshell PID, not the command PID — `kill -KILL $pid` kills the wrapper and orphans the actual process (e.g., ssh keeps its TCP socket). Use `timeout(1)` for external commands (it execs the target, no subshell) and `pkill -P "$pid"` to clean descendants when wrapping shell functions. See the sibling doc above.

@@ -92,3 +92,7 @@ When triaging issues (not implementing): create `specs/issue-{NUMBER}-spec.md` w
 ## Eidos Specs
 
 Design specs live in `eidos/`. Plans and decisions live in `memory/`. See the eidos system prompt for workflow details.
+
+## Documented Solutions
+
+`docs/solutions/` — documented solutions to past problems (bugs, best practices, workflow patterns), organized by category (test-failures, integration-issues, logic-errors, etc.) with YAML frontmatter (`module`, `tags`, `problem_type`). Relevant when implementing or debugging in documented areas.
