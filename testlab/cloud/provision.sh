@@ -375,6 +375,8 @@ ExecStart=/usr/local/bin/wgmesh join \\
     ${extra_flags}
 Restart=no
 LimitNOFILE=65535
+TimeoutStopSec=10
+KillMode=mixed
 
 [Install]
 WantedBy=multi-user.target
