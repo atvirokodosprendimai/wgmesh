@@ -156,23 +156,38 @@ _run_with_timeout() {
 # positived on all 5 nodes simultaneously. Bumped to 300s; if a real wedge
 # happens it still bounds within an order of magnitude of the prior 7200s
 # silent hang).
+#
+# Prior bash watchdog (( ssh ) & + kill -KILL $pid) had a PID-mismatch bug:
+# bash forks a subshell for ( cmd ) & so $! is the SUBSHELL pid, not the ssh
+# pid. kill -KILL kills the subshell but orphans ssh, which keeps the TCP
+# connection open indefinitely — the root cause of the 2h hang observed in
+# runs 25887582606, 25609234757, etc.
+#
+# Fix: use timeout(1) which exec's ssh directly — no subshell, no PID
+# mismatch. --kill-after=5 sends SIGKILL 5s after SIGTERM if ssh ignores it.
 run_on() {
     _ensure_ssh_opts
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
     local t="${RUN_ON_TIMEOUT_SEC:-300}"
-    _run_with_timeout "$t" ssh "${SSH_OPTS[@]}" "root@${ip}" "$@"
+    local rc
+    timeout --kill-after=5 "$t" ssh "${SSH_OPTS[@]}" "root@${ip}" "$@"
+    rc=$?
+    if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+        echo "::error::run_on timed out after ${t}s on $node: $*" >&2
+    fi
+    return "$rc"
 }
 
 # Run a command on a remote node, tolerating failure.
-# Always returns 0 — errors are silently swallowed (including watchdog
-# timeouts, which still print ::error:: above for visibility).
+# Always returns 0 — errors are silently swallowed (including timeouts,
+# which still print ::error:: above for visibility).
 run_on_ok() {
     _ensure_ssh_opts
     local node="$1"; shift
     local ip="${NODE_IPS[$node]}"
     local t="${RUN_ON_TIMEOUT_SEC:-300}"
-    _run_with_timeout "$t" ssh "${SSH_OPTS[@]}" "root@${ip}" "$@" 2>/dev/null || true
+    timeout --kill-after=5 "$t" ssh "${SSH_OPTS[@]}" "root@${ip}" "$@" 2>/dev/null || true
 }
 
 # Copy a file to a remote node.
@@ -184,7 +199,7 @@ copy_to() {
     local node="$1" src="$2" dst="$3"
     local ip="${NODE_IPS[$node]}"
     local t="${COPY_TO_TIMEOUT_SEC:-120}"
-    _run_with_timeout "$t" scp "${SSH_OPTS[@]}" "$src" "root@${ip}:${dst}"
+    timeout --kill-after=5 "$t" scp "${SSH_OPTS[@]}" "$src" "root@${ip}:${dst}"
 }
 
 # Run a command on ALL nodes in parallel, wait for all.
