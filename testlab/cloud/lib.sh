@@ -890,12 +890,16 @@ run_test() {
     local id="$1" name="$2" func="$3"; shift 3
     local total="${TOTAL_TESTS_IN_TIER:-?}"
     local seq=$(( TESTS_PASSED + TESTS_FAILED + TESTS_SKIPPED + 1 ))
+    CURRENT_TEST_ID="$id"
+    CURRENT_TEST_START_EPOCH=$(date +%s)
+    echo "::group::Test $id - $name"
+    echo "::notice title=$id started::$name"
 
     echo ""
     log_test "=== [$seq/$total] $id: $name ==="
 
     local start rc tmpfile
-    start=$(date +%s)
+    start="$CURRENT_TEST_START_EPOCH"
     tmpfile=$(mktemp)
     emit_event "test_start" "$id" "name=$name"
 
@@ -906,7 +910,8 @@ run_test() {
     set +e
     "$func" "$@" > >(tee "$tmpfile") 2>&1
     rc=$?
-    wait  # ensure tee flushes before we read tmpfile
+    local tee_pid=$!
+    wait "$tee_pid" 2>/dev/null || true  # ensure tee flushes before we read tmpfile
     set -e
 
     local output
@@ -934,6 +939,10 @@ run_test() {
     # Record timing for Gantt chart
     TEST_TIMING_EVENTS+=("${CURRENT_TIER:-0}|${id}|${name}|${start}|${end_epoch}|${result}")
     emit_event "test_end" "$id" "name=$name" "result=$result" "duration=$duration"
+    echo "::notice title=$id $result::duration=${duration}s"
+    echo "::endgroup::"
+    CURRENT_TEST_ID=""
+    CURRENT_TEST_START_EPOCH=""
 
     # Running tally after each test
     log_test "  Progress: ${GREEN}${TESTS_PASSED} passed${NC}, ${RED}${TESTS_FAILED} failed${NC}, ${YELLOW}${TESTS_SKIPPED} skipped${NC} of $total"
