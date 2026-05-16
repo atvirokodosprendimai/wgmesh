@@ -989,7 +989,7 @@ _progress_heartbeat() {
                 function json_value(line, key, pattern, raw) {
                     pattern = "\"" key "\":\"[^\"]*\""
                     if (match(line, pattern)) {
-                        raw = substr(line, RSTART + length(key) + 4, RLENGTH - length(key) - 4)
+                        raw = substr(line, RSTART + length(key) + 4, RLENGTH - length(key) - 5)
                         return raw
                     }
                     pattern = "\"" key "\":[^,}]*"
@@ -1061,7 +1061,7 @@ _progress_heartbeat() {
                 function json_value(line, key, pattern, raw) {
                     pattern = "\"" key "\":\"[^\"]*\""
                     if (match(line, pattern)) {
-                        raw = substr(line, RSTART + length(key) + 4, RLENGTH - length(key) - 4)
+                        raw = substr(line, RSTART + length(key) + 4, RLENGTH - length(key) - 5)
                         gsub(/\|/, "\\|", raw)
                         return raw
                     }
