@@ -1096,20 +1096,6 @@ _progress_heartbeat() {
                 }
             ' || true
             echo ""
-
-            echo "### VM Log Tails"
-            echo ""
-            local log_file node
-            for log_file in "$LOG_DIR"/*.log; do
-                [ -e "$log_file" ] || continue
-                node=$(basename "$log_file" .log)
-                echo "#### $node"
-                echo ""
-                echo '```text'
-                tail -5 "$log_file" || true
-                echo '```'
-                echo ""
-            done
         } > "$tmp" || true
         mv "$tmp" "$out" || true
         sleep 30 || true
