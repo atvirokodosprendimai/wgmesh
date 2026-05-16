@@ -385,22 +385,69 @@ mesh_ping_soak() {
     local from="$1" to="$2" dur="${3:-300}" max_loss="${4:-5}"
     local to_ip="${NODE_MESH_IPS[$to]}"
     log_info "soak: ping $from -> $to ($to_ip) for ${dur}s, max ${max_loss}% loss"
-    local out
-    out=$(RUN_ON_TIMEOUT_SEC=$((dur + 30)) run_on "$from" "ping -i 1 -w $dur -q $to_ip 2>&1 || true")
+    local snapshot="${LOG_DIR}/soak-current.txt"
+    local snapshot_tmp="${snapshot}.tmp"
+    rm -f "$snapshot" "$snapshot_tmp"
+
+    local out="" transmitted=0 received=0 elapsed=0
+    while [ "$elapsed" -lt "$dur" ]; do
+        local remaining=$(( dur - elapsed ))
+        local count=10
+        [ "$remaining" -lt "$count" ] && count="$remaining"
+        [ "$count" -lt 1 ] && count=1
+
+        local chunk_out
+        chunk_out=$(RUN_ON_TIMEOUT_SEC=$((count + 30)) run_on "$from" "ping -i 1 -w $count -W 2 -q $to_ip 2>&1 || true")
+        out="${out}${chunk_out}"$'\n'
+
+        local chunk_transmitted chunk_received
+        chunk_transmitted=$(echo "$chunk_out" | awk '/packets transmitted/ {print $1; exit}' || true)
+        chunk_received=$(echo "$chunk_out" | awk -F',' '/packets transmitted/ {gsub(/^[[:space:]]+/, "", $2); print $2 + 0; exit}' || true)
+        transmitted=$(( transmitted + ${chunk_transmitted:-0} ))
+        received=$(( received + ${chunk_received:-0} ))
+        elapsed=$(( elapsed + count ))
+
+        local loss_now updated_at
+        loss_now=$(awk -v tx="$transmitted" -v rx="$received" 'BEGIN {
+            if (tx <= 0) { print "100"; exit }
+            printf "%.1f", ((tx - rx) * 100) / tx
+        }')
+        updated_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        {
+            echo "state=in_flight"
+            echo "from=$from"
+            echo "to=$to"
+            echo "to_ip=$to_ip"
+            echo "elapsed_sec=$elapsed"
+            echo "duration_sec=$dur"
+            echo "received=$received"
+            echo "transmitted=$transmitted"
+            echo "loss_pct=$loss_now"
+            echo "updated_at=$updated_at"
+        } > "$snapshot_tmp"
+        mv "$snapshot_tmp" "$snapshot"
+    done
+
     echo "$out"
     local loss
-    loss=$(echo "$out" | grep -oE '[0-9]+(\.[0-9]+)?% packet loss' | head -1 | grep -oE '^[0-9]+(\.[0-9]+)?' || true)
+    loss=$(awk -v tx="$transmitted" -v rx="$received" 'BEGIN {
+        if (tx <= 0) { exit 1 }
+        printf "%.1f", ((tx - rx) * 100) / tx
+    }' || true)
     if [ -z "$loss" ]; then
         log_error "soak: could not parse packet loss from ping output"
+        rm -f "$snapshot" "$snapshot_tmp"
         return 1
     fi
     local loss_int
     loss_int=$(awk -v l="$loss" 'BEGIN { printf "%d", l + 0.999 }')
     if [ "$loss_int" -gt "$max_loss" ]; then
         log_error "soak: $from -> $to loss ${loss}% exceeds ${max_loss}%"
+        rm -f "$snapshot" "$snapshot_tmp"
         return 1
     fi
     log_info "soak: $from -> $to loss ${loss}% (under ${max_loss}%) OK"
+    rm -f "$snapshot" "$snapshot_tmp"
     return 0
 }
 
