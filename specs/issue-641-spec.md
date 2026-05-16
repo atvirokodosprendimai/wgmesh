@@ -22,7 +22,7 @@ Issue #641 requires a concrete revenue funnel dashboard published at `company/re
 
 ## Proposed Approach
 
-Create one source-of-truth markdown dashboard at `/home/runner/work/wgmesh/wgmesh/company/revenue-funnel-metrics.md` with:
+Create one source-of-truth markdown dashboard at `company/revenue-funnel-metrics.md` with:
 
 1. Explicit funnel stage definitions and stage-entry/exit events.
 2. A channel attribution model with formulas for conversion, CAC, attributed revenue, and LTV.
@@ -34,7 +34,7 @@ The document must be implementation-ready and deterministic: all required sectio
 
 ## Implementation Tasks
 
-### Task 1: Create `/home/runner/work/wgmesh/wgmesh/company/revenue-funnel-metrics.md` with exact section structure
+### Task 1: Create `company/revenue-funnel-metrics.md` with exact section structure
 
 Create a new file with these top-level headings in this exact order:
 
@@ -106,7 +106,7 @@ In `## 4. Current Baseline Snapshot`, add a two-column table (`Metric`, `Current
 
 Use the latest pulse report in-repo (`docs/pulse-reports/2026-05-16_08-03.md`) as baseline source and include a `Source` line directly below the table:
 
-- `Source: /home/runner/work/wgmesh/wgmesh/docs/pulse-reports/2026-05-16_08-03.md`
+- `Source: docs/pulse-reports/2026-05-16_08-03.md`
 
 When a metric is missing in source data, write `no data (instrumentation pending)` exactly (do not invent values).
 
@@ -210,7 +210,7 @@ In `## 10. Data Gaps and Instrumentation Backlog`, add a checklist with at least
 
 ## Affected Files
 
-- `/home/runner/work/wgmesh/wgmesh/company/revenue-funnel-metrics.md` (new)
+- `company/revenue-funnel-metrics.md` (new)
 
 ## Test Strategy
 
