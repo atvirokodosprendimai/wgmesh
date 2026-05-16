@@ -45,6 +45,9 @@ declare -a TEST_RESULTS=()
 TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_SKIPPED=0
+HEARTBEAT_PID=""
+CURRENT_TEST_ID=""
+CURRENT_TEST_START_EPOCH=""
 
 # Observability: timing + tracing
 CURRENT_TIER=""
@@ -959,6 +962,153 @@ print_summary() {
     echo "------------------------------------------------------------------------------------------------------------"
     echo -e "Total: ${GREEN}${TESTS_PASSED} passed${NC}, ${RED}${TESTS_FAILED} failed${NC}, ${YELLOW}${TESTS_SKIPPED} skipped${NC}"
     echo ""
+}
+
+# Emit a live progress view for long-running GitHub Actions tier jobs.
+_progress_heartbeat() {
+    local tier="$1"
+    while true; do
+        local out="${GITHUB_STEP_SUMMARY:-${LOG_DIR}/heartbeat-status.md}"
+        local tmp="${out}.tmp"
+        local now elapsed=0 current_test="${CURRENT_TEST_ID:-}"
+        local current_start="${CURRENT_TEST_START_EPOCH:-}"
+        local passed="$TESTS_PASSED" failed="$TESTS_FAILED" skipped="$TESTS_SKIPPED"
+        now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        if [ -f "$TRACE_FILE" ]; then
+            local trace_state
+            trace_state=$(awk '
+                function json_value(line, key, pattern, raw) {
+                    pattern = "\"" key "\":\"[^\"]*\""
+                    if (match(line, pattern)) {
+                        raw = substr(line, RSTART + length(key) + 4, RLENGTH - length(key) - 4)
+                        return raw
+                    }
+                    pattern = "\"" key "\":[^,}]*"
+                    if (match(line, pattern)) {
+                        raw = substr(line, RSTART + length(key) + 3, RLENGTH - length(key) - 3)
+                        return raw
+                    }
+                    return ""
+                }
+                {
+                    type = json_value($0, "type")
+                    name = json_value($0, "name")
+                    result = json_value($0, "result")
+                    ts = int(json_value($0, "ts"))
+                    if (type == "test_start") {
+                        current = name
+                        start = ts
+                    } else if (type == "test_end") {
+                        if (result == "PASS") {
+                            pass++
+                        } else if (result == "FAIL") {
+                            fail++
+                        } else if (result == "SKIP") {
+                            skip++
+                        }
+                        if (name == current) {
+                            current = ""
+                            start = ""
+                        }
+                    }
+                }
+                END {
+                    printf "%s|%s|%d|%d|%d\n", current, start, pass, fail, skip
+                }
+            ' "$TRACE_FILE" || true)
+            IFS='|' read -r current_test current_start passed failed skipped <<< "$trace_state"
+        fi
+        if [ -n "$current_start" ]; then
+            elapsed=$(( $(date +%s) - current_start ))
+        fi
+
+        mkdir -p "$(dirname "$out")" || true
+        {
+            echo "## wgmesh Live Progress"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Tier | $tier |"
+            echo "| Current test | ${current_test:-none} |"
+            echo "| Current test elapsed | ${elapsed}s |"
+            echo "| Updated at | $now |"
+            echo "| Results | ${passed} passed, ${failed} failed, ${skipped} skipped |"
+            echo ""
+
+            if [ -n "$current_test" ] && [ -f "${LOG_DIR}/soak-current.txt" ]; then
+                echo "### In-Flight Soak"
+                echo ""
+                echo '```text'
+                cat "${LOG_DIR}/soak-current.txt" || true
+                echo '```'
+                echo ""
+            fi
+
+            echo "### Recent Trace Events"
+            echo ""
+            echo "| timestamp | event | detail |"
+            echo "|---|---|---|"
+            tail -30 "$TRACE_FILE" 2>/dev/null | awk '
+                function json_value(line, key, pattern, raw) {
+                    pattern = "\"" key "\":\"[^\"]*\""
+                    if (match(line, pattern)) {
+                        raw = substr(line, RSTART + length(key) + 4, RLENGTH - length(key) - 4)
+                        gsub(/\|/, "\\|", raw)
+                        return raw
+                    }
+                    pattern = "\"" key "\":[^,}]*"
+                    if (match(line, pattern)) {
+                        raw = substr(line, RSTART + length(key) + 3, RLENGTH - length(key) - 3)
+                        gsub(/\|/, "\\|", raw)
+                        return raw
+                    }
+                    return ""
+                }
+                {
+                    ts = json_value($0, "ts")
+                    event = json_value($0, "type")
+                    name = json_value($0, "name")
+                    detail = name
+                    if (detail == "") {
+                        detail = $0
+                    }
+                    gsub(/\|/, "\\|", detail)
+                    printf "| %s | %s | %s |\n", ts, event, detail
+                }
+            ' || true
+            echo ""
+
+            echo "### VM Log Tails"
+            echo ""
+            local log_file node
+            for log_file in "$LOG_DIR"/*.log; do
+                [ -e "$log_file" ] || continue
+                node=$(basename "$log_file" .log)
+                echo "#### $node"
+                echo ""
+                echo '```text'
+                tail -5 "$log_file" || true
+                echo '```'
+                echo ""
+            done
+        } > "$tmp" || true
+        mv "$tmp" "$out" || true
+        sleep 30 || true
+    done
+}
+
+heartbeat_start() {
+    local tier="$1"
+    _progress_heartbeat "$tier" &
+    HEARTBEAT_PID=$!
+}
+
+heartbeat_stop() {
+    if [ -n "${HEARTBEAT_PID:-}" ] && kill -0 "$HEARTBEAT_PID" 2>/dev/null; then
+        kill "$HEARTBEAT_PID" 2>/dev/null || true
+        wait "$HEARTBEAT_PID" 2>/dev/null || true
+    fi
+    HEARTBEAT_PID=""
 }
 
 # Output results as GitHub Actions job summary (markdown).
