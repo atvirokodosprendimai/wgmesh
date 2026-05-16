@@ -399,13 +399,23 @@ mesh_ping_soak() {
         [ "$remaining" -lt "$count" ] && count="$remaining"
         [ "$count" -lt 1 ] && count=1
 
-        local chunk_out
+        local chunk_out="" chunk_rc=0
+        set +e
         chunk_out=$(RUN_ON_TIMEOUT_SEC=$((count + 30)) run_on "$from" "ping -i 1 -w $count -W 2 -q $to_ip 2>&1 || true")
+        chunk_rc=$?
+        set -e
         out="${out}${chunk_out}"$'\n'
 
-        local chunk_transmitted chunk_received
-        chunk_transmitted=$(echo "$chunk_out" | awk '/packets transmitted/ {print $1; exit}' || true)
-        chunk_received=$(echo "$chunk_out" | awk -F',' '/packets transmitted/ {gsub(/^[[:space:]]+/, "", $2); print $2 + 0; exit}' || true)
+        local chunk_transmitted="" chunk_received=""
+        if [ "$chunk_rc" -eq 0 ]; then
+            chunk_transmitted=$(echo "$chunk_out" | awk '/packets transmitted/ {print $1; exit}' || true)
+            chunk_received=$(echo "$chunk_out" | awk -F',' '/packets transmitted/ {gsub(/^[[:space:]]+/, "", $2); print $2 + 0; exit}' || true)
+        fi
+        if [ "$chunk_rc" -ne 0 ] || [ -z "$chunk_transmitted" ]; then
+            log_warn "soak: chunk failed (run_on rc=$chunk_rc) — counting as full loss for ${count}s window"
+            chunk_transmitted="$count"
+            chunk_received=0
+        fi
         transmitted=$(( transmitted + ${chunk_transmitted:-0} ))
         received=$(( received + ${chunk_received:-0} ))
         elapsed=$(( elapsed + count ))
