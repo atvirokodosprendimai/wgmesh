@@ -45,6 +45,9 @@ declare -a TEST_RESULTS=()
 TESTS_PASSED=0
 TESTS_FAILED=0
 TESTS_SKIPPED=0
+HEARTBEAT_PID=""
+CURRENT_TEST_ID=""
+CURRENT_TEST_START_EPOCH=""
 
 # Observability: timing + tracing
 CURRENT_TIER=""
@@ -385,22 +388,69 @@ mesh_ping_soak() {
     local from="$1" to="$2" dur="${3:-300}" max_loss="${4:-5}"
     local to_ip="${NODE_MESH_IPS[$to]}"
     log_info "soak: ping $from -> $to ($to_ip) for ${dur}s, max ${max_loss}% loss"
-    local out
-    out=$(RUN_ON_TIMEOUT_SEC=$((dur + 30)) run_on "$from" "ping -i 1 -w $dur -q $to_ip 2>&1 || true")
+    local snapshot="${LOG_DIR}/soak-current.txt"
+    local snapshot_tmp="${snapshot}.tmp"
+    rm -f "$snapshot" "$snapshot_tmp"
+
+    local out="" transmitted=0 received=0 elapsed=0
+    while [ "$elapsed" -lt "$dur" ]; do
+        local remaining=$(( dur - elapsed ))
+        local count=10
+        [ "$remaining" -lt "$count" ] && count="$remaining"
+        [ "$count" -lt 1 ] && count=1
+
+        local chunk_out
+        chunk_out=$(RUN_ON_TIMEOUT_SEC=$((count + 30)) run_on "$from" "ping -i 1 -w $count -W 2 -q $to_ip 2>&1 || true")
+        out="${out}${chunk_out}"$'\n'
+
+        local chunk_transmitted chunk_received
+        chunk_transmitted=$(echo "$chunk_out" | awk '/packets transmitted/ {print $1; exit}' || true)
+        chunk_received=$(echo "$chunk_out" | awk -F',' '/packets transmitted/ {gsub(/^[[:space:]]+/, "", $2); print $2 + 0; exit}' || true)
+        transmitted=$(( transmitted + ${chunk_transmitted:-0} ))
+        received=$(( received + ${chunk_received:-0} ))
+        elapsed=$(( elapsed + count ))
+
+        local loss_now updated_at
+        loss_now=$(awk -v tx="$transmitted" -v rx="$received" 'BEGIN {
+            if (tx <= 0) { print "100"; exit }
+            printf "%.1f", ((tx - rx) * 100) / tx
+        }')
+        updated_at=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        {
+            echo "state=in_flight"
+            echo "from=$from"
+            echo "to=$to"
+            echo "to_ip=$to_ip"
+            echo "elapsed_sec=$elapsed"
+            echo "duration_sec=$dur"
+            echo "received=$received"
+            echo "transmitted=$transmitted"
+            echo "loss_pct=$loss_now"
+            echo "updated_at=$updated_at"
+        } > "$snapshot_tmp"
+        mv "$snapshot_tmp" "$snapshot"
+    done
+
     echo "$out"
     local loss
-    loss=$(echo "$out" | grep -oE '[0-9]+(\.[0-9]+)?% packet loss' | head -1 | grep -oE '^[0-9]+(\.[0-9]+)?' || true)
+    loss=$(awk -v tx="$transmitted" -v rx="$received" 'BEGIN {
+        if (tx <= 0) { exit 1 }
+        printf "%.1f", ((tx - rx) * 100) / tx
+    }' || true)
     if [ -z "$loss" ]; then
         log_error "soak: could not parse packet loss from ping output"
+        rm -f "$snapshot" "$snapshot_tmp"
         return 1
     fi
     local loss_int
     loss_int=$(awk -v l="$loss" 'BEGIN { printf "%d", l + 0.999 }')
     if [ "$loss_int" -gt "$max_loss" ]; then
         log_error "soak: $from -> $to loss ${loss}% exceeds ${max_loss}%"
+        rm -f "$snapshot" "$snapshot_tmp"
         return 1
     fi
     log_info "soak: $from -> $to loss ${loss}% (under ${max_loss}%) OK"
+    rm -f "$snapshot" "$snapshot_tmp"
     return 0
 }
 
@@ -840,12 +890,16 @@ run_test() {
     local id="$1" name="$2" func="$3"; shift 3
     local total="${TOTAL_TESTS_IN_TIER:-?}"
     local seq=$(( TESTS_PASSED + TESTS_FAILED + TESTS_SKIPPED + 1 ))
+    CURRENT_TEST_ID="$id"
+    CURRENT_TEST_START_EPOCH=$(date +%s)
+    echo "::group::Test $id - $name"
+    echo "::notice title=$id started::$name"
 
     echo ""
     log_test "=== [$seq/$total] $id: $name ==="
 
     local start rc tmpfile
-    start=$(date +%s)
+    start="$CURRENT_TEST_START_EPOCH"
     tmpfile=$(mktemp)
     emit_event "test_start" "$id" "name=$name"
 
@@ -856,7 +910,8 @@ run_test() {
     set +e
     "$func" "$@" > >(tee "$tmpfile") 2>&1
     rc=$?
-    wait  # ensure tee flushes before we read tmpfile
+    local tee_pid=$!
+    wait "$tee_pid" 2>/dev/null || true  # ensure tee flushes before we read tmpfile
     set -e
 
     local output
@@ -884,6 +939,10 @@ run_test() {
     # Record timing for Gantt chart
     TEST_TIMING_EVENTS+=("${CURRENT_TIER:-0}|${id}|${name}|${start}|${end_epoch}|${result}")
     emit_event "test_end" "$id" "name=$name" "result=$result" "duration=$duration"
+    echo "::notice title=$id $result::duration=${duration}s"
+    echo "::endgroup::"
+    CURRENT_TEST_ID=""
+    CURRENT_TEST_START_EPOCH=""
 
     # Running tally after each test
     log_test "  Progress: ${GREEN}${TESTS_PASSED} passed${NC}, ${RED}${TESTS_FAILED} failed${NC}, ${YELLOW}${TESTS_SKIPPED} skipped${NC} of $total"
@@ -912,6 +971,153 @@ print_summary() {
     echo "------------------------------------------------------------------------------------------------------------"
     echo -e "Total: ${GREEN}${TESTS_PASSED} passed${NC}, ${RED}${TESTS_FAILED} failed${NC}, ${YELLOW}${TESTS_SKIPPED} skipped${NC}"
     echo ""
+}
+
+# Emit a live progress view for long-running GitHub Actions tier jobs.
+_progress_heartbeat() {
+    local tier="$1"
+    while true; do
+        local out="${GITHUB_STEP_SUMMARY:-${LOG_DIR}/heartbeat-status.md}"
+        local tmp="${out}.tmp"
+        local now elapsed=0 current_test="${CURRENT_TEST_ID:-}"
+        local current_start="${CURRENT_TEST_START_EPOCH:-}"
+        local passed="$TESTS_PASSED" failed="$TESTS_FAILED" skipped="$TESTS_SKIPPED"
+        now=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+        if [ -f "$TRACE_FILE" ]; then
+            local trace_state
+            trace_state=$(awk '
+                function json_value(line, key, pattern, raw) {
+                    pattern = "\"" key "\":\"[^\"]*\""
+                    if (match(line, pattern)) {
+                        raw = substr(line, RSTART + length(key) + 4, RLENGTH - length(key) - 4)
+                        return raw
+                    }
+                    pattern = "\"" key "\":[^,}]*"
+                    if (match(line, pattern)) {
+                        raw = substr(line, RSTART + length(key) + 3, RLENGTH - length(key) - 3)
+                        return raw
+                    }
+                    return ""
+                }
+                {
+                    type = json_value($0, "type")
+                    name = json_value($0, "name")
+                    result = json_value($0, "result")
+                    ts = int(json_value($0, "ts"))
+                    if (type == "test_start") {
+                        current = name
+                        start = ts
+                    } else if (type == "test_end") {
+                        if (result == "PASS") {
+                            pass++
+                        } else if (result == "FAIL") {
+                            fail++
+                        } else if (result == "SKIP") {
+                            skip++
+                        }
+                        if (name == current) {
+                            current = ""
+                            start = ""
+                        }
+                    }
+                }
+                END {
+                    printf "%s|%s|%d|%d|%d\n", current, start, pass, fail, skip
+                }
+            ' "$TRACE_FILE" || true)
+            IFS='|' read -r current_test current_start passed failed skipped <<< "$trace_state"
+        fi
+        if [ -n "$current_start" ]; then
+            elapsed=$(( $(date +%s) - current_start ))
+        fi
+
+        mkdir -p "$(dirname "$out")" || true
+        {
+            echo "## wgmesh Live Progress"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Tier | $tier |"
+            echo "| Current test | ${current_test:-none} |"
+            echo "| Current test elapsed | ${elapsed}s |"
+            echo "| Updated at | $now |"
+            echo "| Results | ${passed} passed, ${failed} failed, ${skipped} skipped |"
+            echo ""
+
+            if [ -n "$current_test" ] && [ -f "${LOG_DIR}/soak-current.txt" ]; then
+                echo "### In-Flight Soak"
+                echo ""
+                echo '```text'
+                cat "${LOG_DIR}/soak-current.txt" || true
+                echo '```'
+                echo ""
+            fi
+
+            echo "### Recent Trace Events"
+            echo ""
+            echo "| timestamp | event | detail |"
+            echo "|---|---|---|"
+            tail -30 "$TRACE_FILE" 2>/dev/null | awk '
+                function json_value(line, key, pattern, raw) {
+                    pattern = "\"" key "\":\"[^\"]*\""
+                    if (match(line, pattern)) {
+                        raw = substr(line, RSTART + length(key) + 4, RLENGTH - length(key) - 4)
+                        gsub(/\|/, "\\|", raw)
+                        return raw
+                    }
+                    pattern = "\"" key "\":[^,}]*"
+                    if (match(line, pattern)) {
+                        raw = substr(line, RSTART + length(key) + 3, RLENGTH - length(key) - 3)
+                        gsub(/\|/, "\\|", raw)
+                        return raw
+                    }
+                    return ""
+                }
+                {
+                    ts = json_value($0, "ts")
+                    event = json_value($0, "type")
+                    name = json_value($0, "name")
+                    detail = name
+                    if (detail == "") {
+                        detail = $0
+                    }
+                    gsub(/\|/, "\\|", detail)
+                    printf "| %s | %s | %s |\n", ts, event, detail
+                }
+            ' || true
+            echo ""
+
+            echo "### VM Log Tails"
+            echo ""
+            local log_file node
+            for log_file in "$LOG_DIR"/*.log; do
+                [ -e "$log_file" ] || continue
+                node=$(basename "$log_file" .log)
+                echo "#### $node"
+                echo ""
+                echo '```text'
+                tail -5 "$log_file" || true
+                echo '```'
+                echo ""
+            done
+        } > "$tmp" || true
+        mv "$tmp" "$out" || true
+        sleep 30 || true
+    done
+}
+
+heartbeat_start() {
+    local tier="$1"
+    _progress_heartbeat "$tier" &
+    HEARTBEAT_PID=$!
+}
+
+heartbeat_stop() {
+    if [ -n "${HEARTBEAT_PID:-}" ] && kill -0 "$HEARTBEAT_PID" 2>/dev/null; then
+        kill "$HEARTBEAT_PID" 2>/dev/null || true
+        wait "$HEARTBEAT_PID" 2>/dev/null || true
+    fi
+    HEARTBEAT_PID=""
 }
 
 # Output results as GitHub Actions job summary (markdown).

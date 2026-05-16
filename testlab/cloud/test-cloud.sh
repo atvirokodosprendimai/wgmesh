@@ -60,6 +60,7 @@ done
 
 cleanup_on_exit() {
     local rc=$?
+    heartbeat_stop || true
     if [ "$SKIP_TEARDOWN" = "true" ]; then
         log_warn "Skipping teardown (--skip-teardown). VMs are still running!"
         collect_logs || true
@@ -1425,6 +1426,7 @@ if should_run_tier 1; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[1]=$tier_start
     emit_event "tier_start" "tier_1" "tests=$TOTAL_TESTS_IN_TIER"
+    heartbeat_start "tier_1"
     run_test T1  "Basic mesh (3 nodes)"         test_t1_basic_mesh
     run_test T2  "Full mesh (${#NODE_IPS[@]} nodes)" test_t2_full_mesh
     run_test T3  "IPv6 mesh connectivity"        test_t3_ipv6
@@ -1434,6 +1436,7 @@ if should_run_tier 1; then
     collect_all_pprof  # baseline profiles after first mesh formation
     TIER_END_EPOCH[1]=$(date +%s)
     emit_event "tier_end" "tier_1"
+    heartbeat_stop
     log_bold "  Tier 1 complete in $(( TIER_END_EPOCH[1] - tier_start ))s"
 fi
 
@@ -1446,6 +1449,7 @@ if should_run_tier 2; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[2]=$tier_start
     emit_event "tier_start" "tier_2" "tests=$TOTAL_TESTS_IN_TIER"
+    heartbeat_start "tier_2"
     run_test T5  "Late peer join"                test_t5_late_join
     run_test T6  "Graceful peer leave"           test_t6_graceful_leave
     run_test T7  "Peer crash (SIGKILL)"          test_t7_crash
@@ -1456,6 +1460,7 @@ if should_run_tier 2; then
     verify_data_plane
     TIER_END_EPOCH[2]=$(date +%s)
     emit_event "tier_end" "tier_2"
+    heartbeat_stop
     log_bold "  Tier 2 complete in $(( TIER_END_EPOCH[2] - tier_start ))s"
 fi
 
@@ -1468,6 +1473,7 @@ if should_run_tier 3; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[3]=$tier_start
     emit_event "tier_start" "tier_3" "tests=$TOTAL_TESTS_IN_TIER"
+    heartbeat_start "tier_3"
     run_test T11 "10% packet loss (2 nodes)"     test_t11_loss_10
     run_test T12 "30% packet loss (1 node)"      test_t12_loss_30
     run_test T13 "50% packet loss (flap OK)"     test_t13_loss_50
@@ -1481,6 +1487,7 @@ if should_run_tier 3; then
     verify_data_plane
     TIER_END_EPOCH[3]=$(date +%s)
     emit_event "tier_end" "tier_3"
+    heartbeat_stop
     log_bold "  Tier 3 complete in $(( TIER_END_EPOCH[3] - tier_start ))s"
 fi
 
@@ -1493,6 +1500,7 @@ if should_run_tier 4; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[4]=$tier_start
     emit_event "tier_start" "tier_4" "tests=$TOTAL_TESTS_IN_TIER"
+    heartbeat_start "tier_4"
     run_test T20 "Partial partition"             test_t20_partial_partition
     run_test T21 "Full node isolation"           test_t21_full_isolation
     run_test T22 "Split brain"                   test_t22_split_brain
@@ -1502,6 +1510,7 @@ if should_run_tier 4; then
     verify_data_plane
     TIER_END_EPOCH[4]=$(date +%s)
     emit_event "tier_end" "tier_4"
+    heartbeat_stop
     log_bold "  Tier 4 complete in $(( TIER_END_EPOCH[4] - tier_start ))s"
 fi
 
@@ -1514,6 +1523,7 @@ if should_run_tier 5; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[5]=$tier_start
     emit_event "tier_start" "tier_5" "tests=$TOTAL_TESTS_IN_TIER"
+    heartbeat_start "tier_5"
     run_test T25 "Cone NAT"                      test_t25_cone_nat
     run_test T26 "Symmetric NAT"                 test_t26_symmetric_nat
     run_test T27 "Mixed NAT topology"            test_t27_mixed_nat
@@ -1525,6 +1535,7 @@ if should_run_tier 5; then
     verify_data_plane
     TIER_END_EPOCH[5]=$(date +%s)
     emit_event "tier_end" "tier_5"
+    heartbeat_stop
     log_bold "  Tier 5 complete in $(( TIER_END_EPOCH[5] - tier_start ))s"
 fi
 
@@ -1537,6 +1548,7 @@ if should_run_tier 6; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[6]=$tier_start
     emit_event "tier_start" "tier_6" "tests=$TOTAL_TESTS_IN_TIER"
+    heartbeat_start "tier_6"
     run_test T32 "Rapid peer cycling"            test_t32_rapid_cycling
     run_test T33 "Rolling restart"               test_t33_rolling_restart
     run_test T34 "Simultaneous restart"          test_t34_simultaneous_restart
@@ -1552,6 +1564,7 @@ if should_run_tier 6; then
     verify_data_plane
     TIER_END_EPOCH[6]=$(date +%s)
     emit_event "tier_end" "tier_6"
+    heartbeat_stop
     log_bold "  Tier 6 complete in $(( TIER_END_EPOCH[6] - tier_start ))s"
 fi
 
@@ -1564,6 +1577,7 @@ if should_run_tier 7; then
     tier_start=$(date +%s)
     TIER_START_EPOCH[7]=$tier_start
     emit_event "tier_start" "tier_7" "tests=$TOTAL_TESTS_IN_TIER"
+    heartbeat_start "tier_7"
     run_test T43 "5-min clean soak"              test_t43_clean_soak
     run_test T44 "10-min chaos soak"             test_t44_chaos_soak
     run_test T45 "15-min long soak with churn"   test_t45_long_soak
@@ -1572,6 +1586,7 @@ if should_run_tier 7; then
     collect_all_pprof  # final profiles after full test suite
     TIER_END_EPOCH[7]=$(date +%s)
     emit_event "tier_end" "tier_7"
+    heartbeat_stop
     log_bold "  Tier 7 complete in $(( TIER_END_EPOCH[7] - tier_start ))s"
 fi
 
