@@ -61,7 +61,9 @@ Populate with concrete values sourced from existing repository docs:
   `docs/use-cases/multi-cloud.md`.
 - **Tailscale comparison number**: use the setup/pricing values currently
   documented in `specs/issue-551-spec.md` and mark them as “repository internal
-  benchmark reference”.
+  benchmark reference”. If `specs/issue-551-spec.md` is missing or the values
+  are absent, omit Tailscale numeric rows and add a `Data gap` note instead of
+  inventing replacement values.
 
 Required tables:
 
@@ -76,7 +78,8 @@ Required tables:
 
 Formatting/quality rules:
 
-- Keep content to ~1 printed page equivalent (target: 450–700 words + tables).
+- Keep content to ~1 printed page equivalent (target: 450–900 prose words,
+  excluding table cells).
 - Do **not** introduce unsourced numbers.
 - Every numeric claim must include a source file path in-table.
 - Explicitly label each non-measured value as **Estimated**.
