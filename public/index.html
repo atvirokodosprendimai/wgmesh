@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wgmesh.dev - Secure, Decentralized Mesh Networking</title>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7f6;
+            color: #333;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 30px auto;
+            padding: 20px 30px;
+            background-color: #ffffff;
+            border-radius: 10px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+        }
+        header {
+            background-color: #0056b3;
+            color: white;
+            padding: 30px 20px;
+            text-align: center;
+            border-bottom: 5px solid #004085;
+        }
+        header h1 {
+            margin: 0;
+            font-size: 2.8em;
+            letter-spacing: 1px;
+        }
+        header p {
+            font-size: 1.2em;
+            margin-top: 10px;
+        }
+        h2 {
+            color: #0056b3;
+            font-size: 2em;
+            margin-top: 40px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 10px;
+        }
+        section {
+            margin-bottom: 30px;
+            padding: 15px 0;
+        }
+        ul {
+            list-style-type: disc;
+            margin-left: 25px;
+            padding: 0;
+        }
+        ul li {
+            margin-bottom: 8px;
+        }
+        .pricing-section {
+            text-align: center;
+            background-color: #e6f2ff;
+            padding: 40px 20px;
+            border-radius: 8px;
+            margin-top: 40px;
+            margin-bottom: 40px;
+            border: 1px dashed #a0d1ff;
+        }
+        .pricing-section h2 {
+            margin-top: 0; /* Override default h2 margin-top */
+            border-bottom: none; /* No border for this h2 */
+        }
+        .pricing-tiers {
+            display: flex;
+            justify-content: center;
+            gap: 25px; /* Space between cards */
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+            margin-top: 30px;
+        }
+        .tier-card {
+            background-color: #ffffff;
+            border: 1px solid #d1e0ff;
+            border-radius: 10px;
+            padding: 30px 20px;
+            width: 280px; /* Fixed width for cards */
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            display: flex; /* Flexbox for internal alignment */
+            flex-direction: column;
+            justify-content: space-between; /* Push button to bottom */
+            text-align: left;
+        }
+        .tier-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+        }
+        .tier-card h3 {
+            color: #0056b3;
+            font-size: 1.6em;
+            margin-top: 0;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .tier-card p {
+            font-size: 1em;
+            color: #555;
+            margin-bottom: 25px;
+            flex-grow: 1; /* Allow description to take available space */
+            text-align: center;
+        }
+        .cta-button {
+            display: inline-block;
+            background-color: #28a745; /* Green for call to action */
+            color: white;
+            padding: 15px 35px;
+            text-decoration: none;
+            border-radius: 8px;
+            font-size: 1.3em;
+            font-weight: bold;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            box-shadow: 0 4px 10px rgba(40, 167, 69, 0.3);
+            text-align: center;
+            width: fit-content; /* Adjust width based on content */
+            margin: 0 auto; /* Center button */
+        }
+        .tier-card .cta-button {
+            margin-top: auto; /* Push button to the bottom of the card */
+            width: 100%; /* Make button full width of card */
+            padding: 12px 20px;
+            font-size: 1.1em;
+        }
+        .cta-button:hover {
+            background-color: #218838;
+            transform: translateY(-2px);
+        }
+        .cta-button:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 5px rgba(40, 167, 69, 0.3);
+        }
+
+        /* Feature the $20 tier */
+        .tier-card.featured-tier {
+            border-color: #28a745; /* Green border */
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.2);
+            transform: scale(1.03); /* Slightly larger */
+        }
+        .tier-card.featured-tier:hover {
+            transform: translateY(-8px) scale(1.05);
+            box-shadow: 0 10px 30px rgba(40, 167, 69, 0.3);
+        }
+        .tier-card.featured-tier h3 {
+            color: #28a745;
+        }
+
+        .links-section a {
+            color: #007bff;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: bold;
+        }
+        .links-section a:hover {
+            text-decoration: underline;
+        }
+        footer {
+            text-align: center;
+            padding: 25px;
+            margin-top: 50px;
+            background-color: #e9ecef;
+            color: #6c757d;
+            border-top: 1px solid #dee2e6;
+            font-size: 0.9em;
+        }
+        footer a {
+            color: #007bff;
+            text-decoration: none;
+            font-weight: bold;
+        }
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive adjustments for pricing tiers */
+        @media (max-width: 768px) {
+            .pricing-tiers {
+                flex-direction: column;
+                align-items: center;
+            }
+            .tier-card {
+                width: 90%; /* Take more width on smaller screens */
+                max-width: 350px; /* But not too wide */
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>wgmesh.dev</h1>
+        <p>The ultimate solution for secure, decentralized, and resilient mesh networks.</p>
+    </header>
+
+    <div class="container">
+        <section id="pricing" class="pricing-section">
+            <h2>#pricing - Choose Your Sponsorship Tier</h2>
+            <p>Support the development of wgmesh and gain exclusive benefits.</p>
+
+            <div class="pricing-tiers">
+                <div class="tier-card">
+                    <h3>$5 Founding Member</h3>
+                    <p>Get early access to community discussions and exclusive updates.</p>
+                    <a href="https://polar.sh/checkout?productId=3f5d75de-936b-49d8-a21b-4b79d9fd22c1" class="cta-button" target="_blank" rel="noopener noreferrer">
+                        Become a Founding Member
+                    </a>
+                </div>
+                <div class="tier-card featured-tier">
+                    <h3>$20 Edge Node</h3>
+                    <p>Access advanced network features and prioritized support.</p>
+                    <a href="https://polar.sh/checkout?productId=1927e637-4cfd-4c94-8bee-c5518803bc89" class="cta-button" target="_blank" rel="noopener noreferrer">
+                        Sponsor an Edge Node
+                    </a>
+                </div>
+                <div class="tier-card">
+                    <h3>$100 Mesh Operator</h3>
+                    <p>Receive dedicated consultations and influence future roadmap decisions.</p>
+                    <a href="https://polar.sh/checkout?productId=eb20683e-55ea-4354-9d8c-070e55a4eff5" class="cta-button" target="_blank" rel="noopener noreferrer">
+                        Become a Mesh Operator
+                    </a>
+                </div>
+            </div>
+        </section>
+
+        <section id="features">
+            <h2>#features</h2>
+            <p>Discover the core capabilities that make wgmesh stand out:</p>
+            <ul>
+                <li><strong>Truly Decentralized:</strong> No single point of control or failure.</li>
+                <li><strong>WireGuard Powered:</strong> Leveraging the simplicity and security of WireGuard for robust VPN tunnels.</li>
+                <li><strong>Effortless Deployment:</strong> Streamlined setup and management for all skill levels.</li>
+                <li><strong>Dynamic Routing:</strong> Adapts to network changes for maximum reliability.</li>
+                <li><strong>Multi-platform Support:</strong> Seamless integration across various operating systems and devices.</li>
+            </ul>
+        </section>
+
+        <section id="how-it-works">
+            <h2>#how-it-works</h2>
+            <p>wgmesh simplifies the creation and management of secure mesh networks:</p>
+            <p>It acts as an intelligent overlay network, automatically discovering peers and establishing secure WireGuard tunnels. Configuration is abstracted, allowing you to define your network logic rather than struggling with low-level details. This results in a self-healing and robust network fabric.</p>
+            <!-- Placeholder for diagrams or further explanation -->
+        </section>
+
+        <section id="install">
+            <h2>#install</h2>
+            <p>Getting wgmesh up and running is straightforward. Here's a brief overview:</p>
+            <p>1. <strong>Download:</strong> Obtain the latest wgmesh package for your system.</p>
+            <p>2. <strong>Configure:</strong> Define your network peers and their policies in a simple configuration file.</p>
+            <p>3. <strong>Run:</strong> Start the wgmesh daemon, and watch your network form automatically.</p>
+            <p>For detailed instructions, please refer to our <a href="README.md" target="_blank" rel="noopener noreferrer">official README</a>.</p>
+        </section>
+
+        <section id="modes">
+            <h2>#modes</h2>
+            <p>wgmesh supports various operational modes to suit your specific networking needs:</p>
+            <ul>
+                <li><strong>Peer-to-Peer Mesh:</strong> Direct connections between all participants.</li>
+                <li><strong>Hub-and-Spoke:</strong> Centralized routing through a main node for specific scenarios.</li>
+                <li><strong>Hybrid Topologies:</strong> Combine different modes for complex network architectures.</li>
+            </ul>
+        </section>
+
+        <section id="story">
+            <h2>#story</h2>
+            <p>wgmesh was born from a need for simpler, more resilient, and truly decentralized networking solutions. Frustrated with the complexities and single points of failure in traditional VPNs and mesh implementations, our team embarked on a mission to build a tool that empowers users to control their networks with ease and security. The project continues to evolve with community feedback and cutting-edge advancements in network technology.</p>
+        </section>
+
+        <section class="links-section" style="text-align: center;">
+            <h2>Explore Further</h2>
+            <p>
+                <a href="https://github.com/atvirokodosprendimai/wgmeshdev" target="_blank" rel="noopener noreferrer">GitHub Repository</a> |
+                <a href="https://discord.gg/your-wgmesh-discord" target="_blank" rel="noopener noreferrer">Join Our Discord Community</a> |
+                <a href="README.md" target="_blank" rel="noopener noreferrer">Detailed README</a>
+            </p>
+        </section>
+    </div>
+
+    <footer>
+        <p>&copy; 2024 wgmesh.dev. All rights reserved.</p>
+        <p>Powered by WireGuard®. <a href="https://polar.sh/" target="_blank" rel="noopener noreferrer">Payment via Polar.sh</a></p>
+    </footer>
+</body>
+</html>
