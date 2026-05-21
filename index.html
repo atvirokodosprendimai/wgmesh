@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wgmesh.dev - Your Decentralized Mesh Networking Solution</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
+            color: #333;
+            background-color: #f4f4f4;
+        }
+        header {
+            background-color: #333;
+            color: #fff;
+            padding: 1rem 0;
+            text-align: center;
+        }
+        header h1 {
+            margin: 0;
+            padding-bottom: 10px;
+        }
+        nav {
+            margin-top: 10px;
+        }
+        nav a {
+            color: #fff;
+            text-decoration: none;
+            margin: 0 15px;
+            font-weight: bold;
+        }
+        nav a:hover {
+            text-decoration: underline;
+        }
+        main {
+            padding: 20px;
+            max-width: 960px;
+            margin: auto;
+            background-color: #fff;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        section {
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #eee;
+        }
+        section:last-of-type {
+            border-bottom: none;
+        }
+        h2 {
+            color: #007bff;
+        }
+        /* New styles for the pricing section */
+        .pricing-section {
+            text-align: center;
+            margin: 50px 0;
+            padding: 40px;
+            background-color: #e9f7ff; /* Lighter background for emphasis */
+            border-radius: 8px;
+            border: 1px solid #b3d9ff;
+        }
+        .pricing-section h2 {
+            color: #0056b3;
+            margin-bottom: 20px;
+        }
+        .pricing-section p {
+            margin-bottom: 30px;
+            font-size: 1.1em;
+            color: #555;
+        }
+        .pricing-tiers-container {
+            display: flex;
+            justify-content: center;
+            gap: 20px; /* Space between tiers */
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+        }
+        .pricing-tier {
+            background-color: #fff;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 30px;
+            width: 280px; /* Fixed width for each tier */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .pricing-tier:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.2);
+        }
+        .pricing-tier h3 {
+            color: #007bff;
+            font-size: 1.8em;
+            margin-bottom: 15px;
+        }
+        .pricing-tier p {
+            font-size: 0.95em;
+            color: #666;
+            flex-grow: 1; /* Make description take available space */
+            margin-bottom: 25px;
+        }
+        .tier-button {
+            display: inline-block;
+            padding: 12px 25px;
+            font-size: 1.1em;
+            color: #fff;
+            background-color: #28a745; /* Green for call to action */
+            border: none;
+            border-radius: 5px;
+            text-decoration: none;
+            transition: background-color 0.3s ease, transform 0.2s ease;
+            font-weight: bold;
+        }
+        .tier-button:hover {
+            background-color: #218838;
+            transform: translateY(-2px);
+        }
+        /* Highlight a featured tier, e.g., $20 Edge Node */
+        .pricing-tier.featured-tier {
+            border-color: #007bff;
+            transform: scale(1.05);
+            box-shadow: 0 6px 20px rgba(0,0,0,0.15);
+        }
+        .pricing-tier.featured-tier .tier-button {
+            background-color: #007bff;
+        }
+        .pricing-tier.featured-tier .tier-button:hover {
+            background-color: #0056b3;
+        }
+        footer {
+            text-align: center;
+            padding: 20px;
+            background-color: #333;
+            color: #fff;
+            margin-top: 40px;
+        }
+        footer a {
+            color: #fff;
+            text-decoration: underline;
+        }
+        footer a:hover {
+            text-decoration: none;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>wgmesh.dev</h1>
+        <nav>
+            <a href="#features">Features</a>
+            <a href="#how-it-works">How It Works</a>
+            <a href="#install">Install</a>
+            <a href="#modes">Modes</a>
+            <a href="#story">Story</a>
+            <a href="#pricing">Pricing</a> <!-- Added Pricing link -->
+            <a href="https://github.com/atvirokodosprendimai/wgmeshdev" target="_blank">GitHub Repo</a>
+            <a href="https://discord.gg/your-discord-invite" target="_blank">Discord</a>
+        </nav>
+    </header>
+
+    <main>
+        <section id="intro">
+            <h2>Harness the Power of Decentralized Networking</h2>
+            <p>wgmesh offers a revolutionary approach to secure and scalable mesh networking, enabling seamless connectivity for all your devices, anywhere in the world.</p>
+        </section>
+
+        <!-- Optimized #pricing section with all 3 tiers, above the fold -->
+        <section id="pricing" class="pricing-section">
+            <h2>#pricing - Empower Your Network</h2>
+            <p>Choose the tier that best fits your needs and help support the development of wgmesh. Your sponsorship directly funds innovation and community growth.</p>
+            <div class="pricing-tiers-container">
+                <div class="pricing-tier">
+                    <h3>$5 Founding Member</h3>
+                    <p>Gain early access, support core development, and receive exclusive community updates.</p>
+                    <a href="https://polar.sh/checkout?productId=3f5d75de-936b-49d8-a21b-4b79d9fd22c1" target="_blank" class="tier-button">Become a Founding Member</a>
+                </div>
+                <div class="pricing-tier featured-tier">
+                    <h3>$20 Edge Node</h3>
+                    <p>Unlock advanced features, priority support, and contribute to network expansion.</p>
+                    <a href="https://polar.sh/checkout?productId=1927e637-4cfd-4c94-8bee-c5518803bc89" target="_blank" class="tier-button">Support as Edge Node</a>
+                </div>
+                <div class="pricing-tier">
+                    <h3>$100 Mesh Operator</h3>
+                    <p>Enterprise-grade benefits, dedicated consultations, and influence future roadmap decisions.</p>
+                    <a href="https://polar.sh/checkout?productId=eb20683e-55ea-4354-9d8c-070e55a4eff5" target="_blank" class="tier-button">Lead as Mesh Operator</a>
+                </div>
+            </div>
+        </section>
+        <!-- End #pricing section -->
+
+        <section id="features">
+            <h2>#features</h2>
+            <p>Discover the core functionalities that make wgmesh stand out:</p>
+            <ul>
+                <li><strong>Secure End-to-End Encryption:</strong> Leveraging WireGuard for robust security.</li>
+                <li><strong>Automatic Peer Discovery:</strong> Simplify network setup with intelligent discovery.</li>
+                <li><strong>Cross-Platform Compatibility:</strong> Works on Linux, Windows, macOS, Android, and iOS.</li>
+                <li><strong>High Performance:</strong> Optimized for speed and low latency.</li>
+                <li><strong>Flexible Deployment:</strong> Deploy on cloud, bare metal, or edge devices.</li>
+            </ul>
+        </section>
+
+        <section id="how-it-works">
+            <h2>#how-it-works</h2>
+            <p>wgmesh creates a virtual overlay network that connects your devices directly, regardless of their physical location or underlying network topology. By using a secure mesh, data is routed efficiently and privately.</p>
+            <p>Learn more about the technical details in our <a href="https://github.com/atvirokodosprendimai/wgmeshdev/blob/main/README.md" target="_blank">README</a>.</p>
+        </section>
+
+        <section id="install">
+            <h2>#install</h2>
+            <p>Getting started with wgmesh is simple and straightforward. Follow our detailed installation guides for your preferred operating system or platform:</p>
+            <p><code>curl -sSfL https://install.wgmesh.dev | sh</code></p>
+            <p>Visit our GitHub repository for more installation options and advanced configurations.</p>
+        </section>
+
+        <section id="modes">
+            <h2>#modes</h2>
+            <p>wgmesh supports various operational modes to fit your specific needs:</p>
+            <ul>
+                <li><strong>Client Mode:</strong> Connect individual devices to an existing wgmesh network.</li>
+                <li><strong>Server Mode:</strong> Establish a central hub for managing your mesh network.</li>
+                <li><strong>Bridge Mode:</strong> Connect separate local networks into a unified mesh.</li>
+                <li><strong>Anycast CDN Mode:</strong> Optimize content delivery with intelligent routing.</li>
+            </ul>
+        </section>
+
+        <section id="story">
+            <h2>#story</h2>
+            <p>The journey of wgmesh began with a vision to simplify secure, global connectivity. Born from the need for a resilient and decentralized networking solution, wgmesh evolved to provide robust, high-performance, and easy-to-manage mesh networks for individuals and enterprises alike.</p>
+        </section>
+
+    </main>
+
+    <footer>
+        <p>&copy; 2023 wgmesh.dev. All rights reserved.</p>
+        <p>Payment via <a href="https://polar.sh/" target="_blank">Polar.sh</a></p> <!-- Added footer link -->
+    </footer>
+</body>
+</html>
