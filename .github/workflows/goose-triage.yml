@@ -26,12 +26,19 @@ jobs:
 
     steps:
       # ── Setup ──────────────────────────────────────────
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           ref: main
           fetch-depth: 0
-          token: ${{ secrets.PUSH_TOKEN }}
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Setup Go
         uses: actions/setup-go@v5
@@ -61,7 +68,7 @@ jobs:
         id: issue
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const fs = require('fs');
             const issueNumber = context.issue.number;
@@ -239,14 +246,15 @@ jobs:
           git commit -m "spec: Issue #${ISSUE_NUM} - Goose triage"
           git push origin "$SPEC_BRANCH"
 
-      - name: Open spec PR and swap issue label
+      - name: Open spec PR
+        id: spec-pr
         uses: actions/github-script@v7
         env:
           ISSUE_NUM: ${{ steps.issue.outputs.issue_number }}
           SAFE_TITLE: ${{ steps.issue.outputs.safe_title }}
           SPEC_BRANCH: ${{ steps.issue.outputs.spec_branch }}
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const issueNum = process.env.ISSUE_NUM;
             const safeTitle = process.env.SAFE_TITLE;
@@ -269,11 +277,25 @@ jobs:
               ].join('\n')
             });
 
+            core.setOutput('pr_number', String(pr.number));
+            console.log(`Opened spec PR #${pr.number} for issue #${issueNum}`);
+
+      - name: Swap issue label
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUM: ${{ steps.issue.outputs.issue_number }}
+          PR_NUM: ${{ steps.spec-pr.outputs.pr_number }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issueNum = process.env.ISSUE_NUM;
+            const prNum = process.env.PR_NUM;
+
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
               issue_number: parseInt(issueNum),
-              body: `Goose-authored specification PR created: #${pr.number}`
+              body: `Goose-authored specification PR created: #${prNum}`
             });
 
             try {
@@ -294,4 +316,4 @@ jobs:
               labels: ['copilot-triaging']
             });
 
-            console.log(`Opened spec PR #${pr.number} and moved issue #${issueNum} to copilot-triaging`);
+            console.log(`Moved issue #${issueNum} to copilot-triaging`);
