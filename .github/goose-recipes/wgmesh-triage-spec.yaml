@@ -1,6 +1,9 @@
+---
 version: "1.0.0"
 title: "wgmesh Implementation"
-description: "Implements code and/or documentation changes for wgmesh based on a specification"
+description: >-
+  Implements code and/or documentation changes for wgmesh based on a
+  specification
 
 parameters:
   - key: spec_file
@@ -13,11 +16,13 @@ extensions:
     name: developer
 
 prompt: |
-  You are writing a specification document only for the wgmesh project, a Go-based WireGuard mesh network builder.
+  You are writing a specification document only for the wgmesh project, a
+  Go-based WireGuard mesh network builder.
 
   Project Context:
   - Language: Go 1.25, module: github.com/atvirokodosprendimai/wgmesh
-  - The output must be a concrete specification for a later Goose implementation run
+  - The output must be a concrete specification for a later Goose
+    implementation run
   - Do NOT write implementation code
   - Do NOT modify files outside {{ spec_file }}
   - Do NOT create commits, branches, labels, comments, or pull requests
@@ -40,16 +45,20 @@ prompt: |
      before writing the spec.
   3. Create {{ spec_file }} using the template and specificity requirements in
      /tmp/spec-instructions.md.
-  4. Include classification, problem analysis, concrete implementation tasks,
-     affected files, acceptance criteria, and estimated complexity.
-  5. Make every implementation task exact enough that a later Goose run can
+  4. Include a `## Proposed Approach` section between `## Problem Analysis`
+     and `## Implementation Tasks`, with 2-4 sentences describing at a high
+     level how the proposed implementation tasks solve the identified problem.
+  5. Include `## Classification`, `## Problem Analysis`, `## Proposed Approach`,
+     concrete implementation tasks, affected files, acceptance criteria, and
+     estimated complexity.
+  6. Make every implementation task exact enough that a later Goose run can
      execute it without judgment or guesswork.
-  6. If the issue should not be implemented, classify it as wont-do or needs-info
-     and write concrete rationale plus the next human action.
+  7. If the issue should not be implemented, classify it as wont-do or
+     needs-info and write concrete rationale plus the next human action.
 
   IMPORTANT: /tmp/spec-instructions.md contains legacy instructions telling the
-  Copilot agent to open a PR. In this Goose workflow, treat those PR lines as the
-  title/body convention only. Do not run git or gh commands.
+  Copilot agent to open a PR. In this Goose workflow, treat those PR lines as
+  the title/body convention only. Do not run git or gh commands.
 
   Now write the specification to {{ spec_file }}.
 
