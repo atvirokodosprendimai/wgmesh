@@ -30,6 +30,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Move item to correct column
+        # Best-effort board cosmetics: a dead/expired PUSH_TOKEN (401 Bad
+        # credentials on the Projects GraphQL API) must not fail-loud on every
+        # PR. Rotate PUSH_TOKEN (or migrate to an app token with Projects
+        # write) to restore live board sync.
+        continue-on-error: true
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PUSH_TOKEN }}
