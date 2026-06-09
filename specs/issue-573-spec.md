@@ -1,117 +1,61 @@
 # Specification: Issue #573
 
 ## Classification
-fix
-
-## Deliverables
-code
+bug
 
 ## Problem Analysis
 
-`.github/workflows/copilot-triage.yml` currently fires only on `issues: types: [labeled]` with a
-guard `if: github.event.label.name == 'needs-triage'` (lines 8–17 of the file).
+The triage workflow (`goose-triage.yml`) triggers only on issue label events via the `issues: [labeled]` trigger. When a closed issue is reopened, GitHub does not fire a label event even if the issue retains the `needs-triage` label. This creates a cold-start gap: reopened issues stall at the `needs-triage` label without triggering specification generation, preventing the Goose implementation pipeline from activating.
 
-When an issue is **reopened** (`closed → open`), GitHub emits an `issues` event with
-`action: reopened` but does **not** re-emit a `labeled` event for labels that are already on the
-issue. As a result, the triage workflow is never triggered on reopen.
+**Current trigger (line 9-10):**
+```yaml
+'on':
+  issues:
+    types: [labeled]
+```
 
-Additionally, an issue that went through a previous triage round will carry a stale
-`copilot-triaging` label from that round. If the workflow is triggered on reopen without cleaning
-up that stale label first, the next triage round starts in an inconsistent label state.
+**GitHub behavior:** reopening a closed issue fires `reopened` event type, not `labeled`. The workflow ignores this event, leaving the issue in a triage state with no automated path forward.
 
-Two lines in the workflow need changing, and the inline `github-script` block needs a small guard
-added at its start to remove the stale `copilot-triaging` label on the `reopened` path.
+**Impact:** Manual intervention is required to either remove/re-add the `needs-triage` label (inefficient) or manually draft the specification (bypasses automation). This breaks the self-service triage-to-implementation pipeline.
+
+## Proposed Approach
+
+Add `reopened` to the workflow trigger types so that `goose-triage.yml` executes when an issue with the `needs-triage` label is reopened. The existing `if: github.event.label.name == 'needs-triage'` guard on line 47 prevents spurious execution for issues without the label, so no additional gating is required.
 
 ## Implementation Tasks
 
-### Task 1: Extend `on:` trigger to include `reopened`
+### Task 1: Add reopened trigger type
+- **File:** `.github/workflows/goose-triage.yml` (modify)
+- **What:** Add `reopened` to the `types` array on line 10
+- **Detail:** Change `types: [labeled]` to `types: [labeled, reopened]`. The conditional on line 47 already checks for the `needs-triage` label, which covers both events. For reopened events, we must read the label from `github.event.issue.labels` instead of `github.event.label.name`.
 
-- **File:** `.github/workflows/copilot-triage.yml` (modify)
-- **What:** Add `reopened` to the `on.issues.types` list so the workflow is queued by GitHub
-  whenever an issue transitions from closed to open.
-- **Detail:** Locate the `on:` block at lines 7–9:
-  ```yaml
-  on:
-    issues:
-      types: [labeled]
-  ```
-  Replace it with:
-  ```yaml
-  on:
-    issues:
-      types: [labeled, reopened]
-  ```
-  No other changes to the `on:` block.
+### Task 2: Handle reopened event label extraction
+- **File:** `.github/workflows/goose-triage.yml` (modify)
+- **Detail:** The workflow uses `github.event.label.name` in step "Validate prerequisites" (line 47) and step "Extract issue context" (embedded script). For `reopened` events, `github.event.label` is undefined. Add logic to detect the event type and extract the label name from `github.event.issue.labels` array when the event is `reopened`. Specifically:
 
-### Task 2: Update the job-level `if:` guard
+1. In the "Validate prerequisites" step (currently line 47), the `if` condition must handle both cases:
+   - For `labeled`: check `github.event.label.name == 'needs-triage'`
+   - For `reopened`: check if any label in `github.event.issue.labels` has name `'needs-triage'`
 
-- **File:** `.github/workflows/copilot-triage.yml` (modify)
-- **What:** Expand the `triage` job's `if:` condition to pass on either a `needs-triage` label
-  event or a `reopened` event. The current single-expression guard (`github.event.label.name`)
-  would throw on `reopened` events because `github.event.label` is undefined when there is no
-  label event.
-- **Detail:** Locate the `triage` job declaration around line 16–17:
-  ```yaml
-  jobs:
-    triage:
-      if: github.event.label.name == 'needs-triage'
-  ```
-  Replace the `if:` line with the following multi-line expression. Use the `>-` folded-stripped
-  scalar so GitHub Actions receives a single-line expression with no trailing newline:
-  ```yaml
-  jobs:
-    triage:
-      if: >-
-        (github.event.action == 'labeled' && github.event.label.name == 'needs-triage')
-        || github.event.action == 'reopened'
-  ```
-
-### Task 3: Remove stale `copilot-triaging` label at the top of the script step
-
-- **File:** `.github/workflows/copilot-triage.yml` (modify)
-- **What:** At the very beginning of the `Assign Copilot coding agent to write specification`
-  step's `script:` block, insert a guard that removes the stale `copilot-triaging` label when
-  the event is `reopened`. This ensures each new triage round starts from a clean label state.
-- **Detail:** The `script:` block currently starts by defining `issueNumber` and `issue`
-  (lines 25–26 in the existing file). Insert the following block **immediately after** those two
-  constant declarations and **before** the `specInstructions` constant:
-  ```javascript
-  // On reopen: remove stale copilot-triaging from the previous triage round so
-  // the new round starts from a clean label state.
-  if (context.payload.action === 'reopened') {
-    try {
-      await github.rest.issues.removeLabel({
-        owner: context.repo.owner,
-        repo: context.repo.repo,
-        issue_number: issueNumber,
-        name: 'copilot-triaging'
-      });
-      console.log('Removed stale copilot-triaging label (reopen path)');
-    } catch (e) {
-      console.log('copilot-triaging not present or already removed:', e.message);
-    }
-  }
-  ```
-  The existing `try/catch` that removes `needs-triage` (further down in the script) already
-  handles the case where `needs-triage` is not present — no change needed there.
+2. In the "Extract issue context" step (around line 77), the script constructs issue context but does not explicitly validate the label. Ensure the validation logic handles both event types.
 
 ## Affected Files
 
 ```
-.github/workflows/copilot-triage.yml   (modify: 3 targeted edits)
+.github/workflows/goose-triage.yml  (modify: add reopened trigger type and update label extraction logic)
 ```
 
 ## Acceptance Criteria
 
-- `copilot-triage.yml` passes YAML lint (`yamllint .github/workflows/copilot-triage.yml`).
-- Manually re-opening a previously closed issue that carries `copilot-triaging` (stale) causes
-  the workflow to queue, strip `copilot-triaging`, assign `copilot-swe-agent[bot]`, add
-  `copilot-triaging`, and post the triage comment — identical to the `labeled: needs-triage` path.
-- Manually re-opening a previously closed issue that does **not** carry `copilot-triaging` causes
-  the workflow to queue and complete without error on the `removeLabel` call (the try/catch
-  absorbs the 404).
-- The `labeled: needs-triage` path is unaffected: applying `needs-triage` to an open issue still
-  fires the workflow as before.
+- Workflow YAML syntax is valid (`yamllint` passes)
+- Workflow triggers on `issues: [labeled]` events (existing behavior preserved)
+- Workflow triggers on `issues: [reopened]` events when `needs-triage` label is present
+- Workflow does not trigger on `issues: [reopened]` events when `needs-triage` label is absent
+- No changes to spec generation logic or branch naming
 
-## Estimated Complexity
-low
+## Out of scope
+
+- Modifying label removal/swapping logic (lines 247-264 remain unchanged)
+- Changes to spec auto-approve workflow (`spec-auto-approve.yml`)
+- Changes to Goose build workflow (`goose-build.yml`)
+- Modifying the sanitise gate or empty output guard
