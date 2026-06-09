@@ -29,6 +29,9 @@ permissions:
   pull-requests: write
   contents: write
   issues: write
+  # createWorkflowDispatch(goose-build.yml) needs actions:write — without it
+  # the dispatch 403s "Resource not accessible by integration" after approval.
+  actions: write
 
 jobs:
   # ── Event-driven path: runs immediately when a spec PR is opened/edited ──
