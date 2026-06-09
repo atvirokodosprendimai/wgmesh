@@ -174,7 +174,7 @@ jobs:
           echo "Auto-approving spec PR #$PR_NUM"
 
           # Approve the PR
-          gh pr review $PR_NUM --approve --body "## Auto-Approved ✅
+          GH_TOKEN="$ISSUE_WRITE_TOKEN" gh pr review $PR_NUM --approve --body "## Auto-Approved ✅
 
           This spec PR passed all validation checks:
 
@@ -409,7 +409,7 @@ jobs:
                 // All checks passed — approve and trigger Goose
                 core.info(`PR #${pr.number}: all checks passed, approving`);
 
-                await github.rest.pulls.createReview({
+                await issueGithub.rest.pulls.createReview({
                   owner, repo,
                   pull_number: pr.number,
                   event: 'APPROVE',
