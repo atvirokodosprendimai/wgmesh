@@ -72,7 +72,7 @@ jobs:
 
       - name: Ensure verification + tests labels exist
         env:
-          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           gh label create awaiting-verification \
             --repo "${{ github.repository }}" \
@@ -88,7 +88,7 @@ jobs:
       - name: Close linked issue, gate on tests, or send to verification
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const handler = require('./scripts/workflows/impl-merged-close-handler.js');
             await handler({github, context, core});
