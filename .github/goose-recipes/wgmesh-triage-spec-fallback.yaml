@@ -1,0 +1,34 @@
+---
+version: "1.0.0"
+title: "wgmesh Triage Spec (Fast)"
+description: >-
+  Fast spec generation for wgmesh using optimized prompt
+
+parameters:
+  - key: spec_file
+    input_type: string
+    requirement: required
+    description: "Path to the specification file (specs/issue-N-spec.md)"
+
+extensions:
+  - type: builtin
+    name: developer
+
+prompt: |
+  You are writing a spec ONLY for wgmesh (Go 1.25 WireGuard mesh).
+
+  Read /tmp/issue-context.md then create {{ spec_file }} with:
+  - ## Classification (single word: bug/feature/chore)
+  - ## Problem Analysis (2-4 sentences)
+  - ## Proposed Approach (2-4 sentences)
+  - ## Implementation Tasks (numbered, concrete steps)
+  - ## Affected Files (list)
+  - ## Acceptance Criteria (bullet list)
+  - ## Out of Scope (bullet list)
+
+  NO code. NO git commands. PR created by workflow.
+  Read relevant source files before writing.
+
+settings:
+  goose_provider: "anthropic"
+  goose_model: "claude-3-5-sonnet-20241022"
