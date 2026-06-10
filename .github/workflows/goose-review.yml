@@ -209,7 +209,7 @@ jobs:
               2>&1 | tee /tmp/goose-review-output.log || code=$?
 
             # Check for credit/auth/model errors
-            if grep -qiE '(add more credits|insufficient.*(funds|credits|balance)|rate.limit|unauthorized|api.key.not.found|model.*not.*found|not.*available)' /tmp/goose-review-output.log; then
+            if grep -qiE '(add more credits|insufficient.*(funds|credits|balance)|rate.limit|unauthorized|api.key.not.found|model.*not.*found|not.*available|request failed|resource not found)' /tmp/goose-review-output.log; then
               echo "::warning::$label: error detected, trying next provider"
               git checkout -- . 2>/dev/null || true
               git clean -fd 2>/dev/null || true
@@ -237,13 +237,15 @@ jobs:
           # GLM-5 uses Z.ai direct (subscription). The rest use OpenRouter with BYOK keys
           # so no OpenRouter credits are consumed.
 
-          # 1. GLM-5 via Z.ai direct (GLM Coding Plan subscription)
+          # 1. GLM-4.6 via Z.ai direct (GLM Coding Plan subscription).
+          # Anthropic-compatible endpoint - the SAME config the pipeline box and
+          # spec recipe use in production. The previous openai-compat leg
+          # (glm-5 at /api/coding/paas/v4) 404d on every run.
           if [ "$goose_ok" = false ] && [ -n "$ZAI_API_KEY" ]; then
-            export OPENAI_API_KEY="$ZAI_API_KEY"
-            export OPENAI_HOST="https://api.z.ai"
-            export OPENAI_BASE_PATH="/api/coding/paas/v4"
-            run_goose "openai" "glm-5" "Z.ai GLM-5" && goose_ok=true
-            unset OPENAI_API_KEY OPENAI_HOST OPENAI_BASE_PATH
+            export ANTHROPIC_API_KEY="$ZAI_API_KEY"
+            export ANTHROPIC_HOST="https://api.z.ai/api/anthropic"
+            run_goose "anthropic" "glm-4.6" "Z.ai GLM-4.6" && goose_ok=true
+            unset ANTHROPIC_API_KEY ANTHROPIC_HOST
           fi
 
           # 2. GPT-5.4 via OpenRouter (BYOK: OpenAI key)
@@ -301,8 +303,10 @@ jobs:
             echo "changes=none" >> "$GITHUB_OUTPUT"
           fi
 
+      # Only after a real push: resolving threads when Goose changed nothing
+      # dismissed findings without fixes (runs 06:37Z 2026-06-10, 9 threads on #706).
       - name: Resolve Copilot review threads
-        if: steps.pr.outputs.skip != 'true'
+        if: steps.pr.outputs.skip != 'true' && steps.push.outputs.changes == 'pushed'
         uses: actions/github-script@v7
         with:
           github-token: ${{ github.token }}
