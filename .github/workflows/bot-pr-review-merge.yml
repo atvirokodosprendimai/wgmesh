@@ -50,9 +50,19 @@ jobs:
         with:
           ref: main
 
+      # App token, not PUSH_TOKEN (expired PAT, lane dead since ~06-07: "GH_TOKEN
+      # must be set") and not GITHUB_TOKEN (its merge events would not trigger
+      # the downstream impl-merged-close / spec-merged-build chain).
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Autonomous PR review and merge
         env:
-          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
           TARGET_REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           APPROVED_AUTHORS: ${{ github.event.pull_request.user.login }}
