@@ -192,9 +192,8 @@ jobs:
 
           RECIPE=".github/goose-recipes/wgmesh-review.yaml"
 
-          # Cascade: GLM-5 via Z.ai direct (subscription) → Claude Sonnet via OpenRouter.
-          # Z.ai exposes an OpenAI-compatible API, so Goose uses the "openai" provider
-          # with OPENAI_HOST pointed at Z.ai's coding endpoint.
+          # Cascade: GLM-4.6 via Z.ai direct (subscription, anthropic-compatible
+          # endpoint) → OpenRouter BYOK fallbacks.
           run_goose() {
             local provider="$1" model="$2" label="$3"
             echo "::group::Trying $label ($provider/$model)"
@@ -233,8 +232,8 @@ jobs:
 
           goose_ok=false
 
-          # Cascade: Z.ai GLM-5 → OpenRouter BYOK models (GPT-5.4 → Mistral → Venice)
-          # GLM-5 uses Z.ai direct (subscription). The rest use OpenRouter with BYOK keys
+          # Cascade: Z.ai GLM-4.6 → OpenRouter BYOK models (GPT-5.4 → Mistral → Venice)
+          # GLM-4.6 uses Z.ai direct (subscription). The rest use OpenRouter with BYOK keys
           # so no OpenRouter credits are consumed.
 
           # 1. GLM-4.6 via Z.ai direct (GLM Coding Plan subscription).
