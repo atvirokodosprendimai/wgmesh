@@ -1,0 +1,3 @@
+# Test that --json without --secret fails with error
+! exec wgmesh status --json
+stderr 'Error: --secret is required'

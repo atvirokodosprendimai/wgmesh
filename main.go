@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -15,6 +16,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/pilot"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -77,6 +79,9 @@ func main() {
 			return
 		case "service":
 			serviceCmd()
+			return
+		case "pilot":
+			pilotCmd()
 			return
 		}
 	}
@@ -522,9 +527,21 @@ func testPeerCmd() {
 }
 
 // statusCmd handles the "status --secret" subcommand
+// StatusOutput defines the JSON structure for status output
+type StatusOutput struct {
+	Interface      string `json:"interface"`
+	NetworkID      string `json:"network_id"`
+	MeshSubnet     string `json:"mesh_subnet"`
+	MeshIPv6Prefix string `json:"mesh_ipv6_prefix"`
+	GossipPort     int    `json:"gossip_port"`
+	RendezvousID   string `json:"rendezvous_id"`
+	ServiceStatus  string `json:"service_status,omitempty"`
+}
+
 func statusCmd() {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
+	jsonOutput := fs.Bool("json", false, "Output in JSON format")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	fs.Parse(os.Args[2:])
@@ -546,28 +563,59 @@ func statusCmd() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Mesh Status\n")
-	fmt.Printf("===========\n")
-	fmt.Printf("Interface: %s\n", cfg.InterfaceName)
-	fmt.Printf("Network ID: %x\n", cfg.Keys.NetworkID[:8])
-	if cfg.CustomSubnet != nil {
-		fmt.Printf("Mesh Subnet: %s (custom)\n", cfg.CustomSubnet)
-	} else {
-		fmt.Printf("Mesh Subnet: 10.%d.0.0/16\n", cfg.Keys.MeshSubnet[0])
+	// Prepare output
+	output := StatusOutput{
+		Interface:      cfg.InterfaceName,
+		NetworkID:      fmt.Sprintf("%x", cfg.Keys.NetworkID[:8]),
+		MeshIPv6Prefix: formatIPv6Prefix(cfg.Keys.MeshPrefixV6),
+		GossipPort:     int(cfg.Keys.GossipPort),
+		RendezvousID:   fmt.Sprintf("%x", cfg.Keys.RendezvousID),
 	}
-	fmt.Printf("Mesh IPv6 Prefix: %s\n", formatIPv6Prefix(cfg.Keys.MeshPrefixV6))
-	fmt.Printf("Gossip Port: %d\n", cfg.Keys.GossipPort)
-	fmt.Printf("Rendezvous ID: %x\n", cfg.Keys.RendezvousID)
-	fmt.Println()
 
-	// Show service status if available
+	// Set mesh subnet based on custom or derived
+	if cfg.CustomSubnet != nil {
+		output.MeshSubnet = cfg.CustomSubnet.String()
+	} else {
+		output.MeshSubnet = fmt.Sprintf("10.%d.0.0/16", cfg.Keys.MeshSubnet[0])
+	}
+
+	// Get service status if available
 	status, err := daemon.ServiceStatus()
 	if err == nil {
-		fmt.Printf("Service Status: %s\n", status)
+		output.ServiceStatus = status
 	}
 
-	fmt.Println()
-	fmt.Println("(Run 'wg show' to see connected peers)")
+	// Output in requested format
+	if *jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(output); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode JSON: %v\n", err)
+			os.Exit(1)
+		}
+	} else {
+		// Text format (original behavior)
+		fmt.Printf("Mesh Status\n")
+		fmt.Printf("===========\n")
+		fmt.Printf("Interface: %s\n", output.Interface)
+		fmt.Printf("Network ID: %s\n", output.NetworkID)
+		if cfg.CustomSubnet != nil {
+			fmt.Printf("Mesh Subnet: %s (custom)\n", output.MeshSubnet)
+		} else {
+			fmt.Printf("Mesh Subnet: %s\n", output.MeshSubnet)
+		}
+		fmt.Printf("Mesh IPv6 Prefix: %s\n", output.MeshIPv6Prefix)
+		fmt.Printf("Gossip Port: %d\n", output.GossipPort)
+		fmt.Printf("Rendezvous ID: %s\n", output.RendezvousID)
+		fmt.Println()
+
+		if output.ServiceStatus != "" {
+			fmt.Printf("Service Status: %s\n", output.ServiceStatus)
+		}
+
+		fmt.Println()
+		fmt.Println("(Run 'wg show' to see connected peers)")
+	}
 }
 
 // qrCmd handles the "qr" subcommand - displays secret as a text-based QR code
@@ -1131,4 +1179,329 @@ func formatDuration(d time.Duration) string {
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
+}
+
+// pilotCmd handles the "pilot" subcommand
+func pilotCmd() {
+	if len(os.Args) < 3 {
+		printPilotUsage()
+		os.Exit(1)
+	}
+
+	subcommand := os.Args[2]
+
+	switch subcommand {
+	case "init":
+		runPilotInit()
+	case "start":
+		runPilotStart()
+	case "status":
+		runPilotStatus()
+	case "report":
+		runPilotReport()
+	case "complete":
+		runPilotComplete()
+	case "validate":
+		runPilotValidate()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown pilot subcommand: %s\n", subcommand)
+		printPilotUsage()
+		os.Exit(1)
+	}
+}
+
+// printPilotUsage shows pilot command usage
+func printPilotUsage() {
+	fmt.Println(`wgmesh pilot - Pilot evaluation management
+
+SUBCOMMANDS:
+  pilot init [--org <name>] [--contact <email>] [--nodes <n>] [--mode <mode>] [--duration <days>]
+                          Initialize a new pilot evaluation
+  pilot start              Start the pilot evaluation
+  pilot status            Show pilot status and progress
+  pilot report [--format <format>] [--output <file>]
+                          Generate pilot evaluation report
+  pilot complete          Finalize pilot and generate summary
+  pilot validate          Run pilot validation checks
+
+OPTIONS:
+  --org <name>            Organization name (required for init)
+  --contact <email>       Contact email (required for init)
+  --nodes <n>             Expected number of nodes (default: 3)
+  --mode <mode>           Operational mode: decentralized or centralized (default: decentralized)
+  --duration <days>       Pilot duration in days (default: 30)
+  --format <format>       Report format: console, json, html (default: console)
+  --output <file>         Output file path (default: stdout)`)
+}
+
+// runPilotInit initializes a new pilot
+func runPilotInit() {
+	var org, contact, mode string
+	var nodes, duration int
+
+	// Parse flags
+	args := os.Args[3:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--org":
+			if i+1 < len(args) {
+				org = args[i+1]
+				i++
+			}
+		case "--contact":
+			if i+1 < len(args) {
+				contact = args[i+1]
+				i++
+			}
+		case "--nodes":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%d", &nodes)
+				i++
+			}
+		case "--mode":
+			if i+1 < len(args) {
+				mode = args[i+1]
+				i++
+			}
+		case "--duration":
+			if i+1 < len(args) {
+				fmt.Sscanf(args[i+1], "%d", &duration)
+				i++
+			}
+		}
+	}
+
+	// Set defaults
+	if nodes == 0 {
+		nodes = 3
+	}
+	if mode == "" {
+		mode = "decentralized"
+	}
+	if duration == 0 {
+		duration = 30
+	}
+
+	// Validate required flags
+	if org == "" {
+		fmt.Fprintln(os.Stderr, "Error: --org is required")
+		printPilotUsage()
+		os.Exit(1)
+	}
+	if contact == "" {
+		fmt.Fprintln(os.Stderr, "Error: --contact is required")
+		printPilotUsage()
+		os.Exit(1)
+	}
+
+	p := pilot.New(pilot.PilotConfigPath)
+	if err := p.Initialize(org, contact, nodes, mode, duration); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize pilot: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := p.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to save pilot configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Pilot initialized successfully: %s\n", p.Config().PilotID)
+	fmt.Printf("Configuration saved to %s\n", pilot.PilotConfigPath)
+	fmt.Printf("\nNext steps:\n")
+	fmt.Printf("  1. Deploy wgmesh to your pilot nodes\n")
+	fmt.Printf("  2. Run: wgmesh pilot start\n")
+	fmt.Printf("  3. Monitor progress: wgmesh pilot status\n")
+}
+
+// runPilotStart starts the pilot
+func runPilotStart() {
+	p := pilot.New(pilot.PilotConfigPath)
+
+	// Load existing configuration
+	if err := p.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load pilot configuration: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Make sure you have run 'wgmesh pilot init' first")
+		os.Exit(1)
+	}
+
+	if err := p.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to start pilot: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := p.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to save pilot state: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Pilot started: %s\n", p.Config().PilotID)
+	fmt.Printf("Start date: %s\n", p.Config().StartDate.Format("2006-01-02"))
+	fmt.Printf("End date: %s\n", p.Config().EndDate.Format("2006-01-02"))
+	fmt.Printf("Duration: %d days\n", int(p.Config().EndDate.Sub(p.Config().StartDate).Hours()/24))
+	fmt.Printf("\nUse 'wgmesh pilot status' to check progress\n")
+}
+
+// runPilotStatus shows pilot status
+func runPilotStatus() {
+	p := pilot.New(pilot.PilotConfigPath)
+
+	if err := p.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load pilot configuration: %v\n", err)
+		fmt.Fprintln(os.Stderr, "Make sure you have run 'wgmesh pilot init' first")
+		os.Exit(1)
+	}
+
+	state, err := p.Status()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get pilot status: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("wgmesh Pilot Status\n")
+	fmt.Printf("====================\n\n")
+	fmt.Printf("Pilot ID: %s\n", state.Config.PilotID)
+	fmt.Printf("Organization: %s\n", state.Config.Organization)
+	fmt.Printf("Contact: %s\n", state.Config.ContactEmail)
+	fmt.Printf("Mode: %s\n", state.Config.Mode)
+	fmt.Printf("Node Count: %d\n\n", state.Config.NodeCount)
+
+	fmt.Printf("Timeline\n")
+	fmt.Printf("--------\n")
+	fmt.Printf("Start: %s\n", state.Config.StartDate.Format("2006-01-02"))
+	fmt.Printf("End: %s\n", state.Config.EndDate.Format("2006-01-02"))
+	fmt.Printf("Current: Day %d of %d\n", state.DaysElapsed, int(state.Config.EndDate.Sub(state.Config.StartDate).Hours()/24))
+	fmt.Printf("Phase: %s\n\n", state.CurrentPhase)
+
+	fmt.Printf("Milestones\n")
+	fmt.Printf("----------\n")
+	milestoneOrder := []string{"baseline", "mesh_stability", "production_traffic", "advanced_scenarios"}
+	for _, key := range milestoneOrder {
+		milestone := state.Config.Milestones[key]
+		if milestone == nil {
+			continue
+		}
+		status := "○"
+		if milestone.Completed {
+			status = "✓"
+		}
+		fmt.Printf("%s %s", status, milestone.Name)
+		if milestone.Completed {
+			fmt.Printf(" (completed Day %d)", int(milestone.CompletedAt.Sub(state.Config.StartDate).Hours()/24))
+		} else {
+			targetDay := int(milestone.TargetDate.Sub(state.Config.StartDate).Hours() / 24)
+			fmt.Printf(" (target: Day %d)", targetDay)
+		}
+		fmt.Printf("\n")
+	}
+}
+
+// runPilotReport generates a pilot report
+func runPilotReport() {
+	var format, output string
+
+	// Parse flags
+	args := os.Args[3:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--format":
+			if i+1 < len(args) {
+				format = args[i+1]
+				i++
+			}
+		case "--output":
+			if i+1 < len(args) {
+				output = args[i+1]
+				i++
+			}
+		}
+	}
+
+	// Set defaults
+	if format == "" {
+		format = "console"
+	}
+
+	p := pilot.New(pilot.PilotConfigPath)
+
+	if err := p.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load pilot configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	reportFormat := pilot.FormatConsole
+	switch format {
+	case "json":
+		reportFormat = pilot.FormatJSON
+	case "html":
+		reportFormat = pilot.FormatHTML
+	case "console":
+		// default
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown format: %s (use console, json, or html)\n", format)
+		os.Exit(1)
+	}
+
+	if err := p.GenerateReport(reportFormat, output); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to generate report: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// runPilotComplete finalizes the pilot
+func runPilotComplete() {
+	p := pilot.New(pilot.PilotConfigPath)
+
+	if err := p.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load pilot configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	report, err := p.Complete()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to complete pilot: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Print(report.FormatConsole())
+
+	// Also save JSON output if output path is provided
+	args := os.Args[3:]
+	outputPath := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--output" && i+1 < len(args) {
+			outputPath = args[i+1]
+			break
+		}
+	}
+
+	if outputPath != "" {
+		if err := os.WriteFile(outputPath, []byte(report.FormatJSON()), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to write report: %v\n", err)
+		} else {
+			fmt.Printf("\nReport saved to %s\n", outputPath)
+		}
+	}
+}
+
+// runPilotValidate runs validation checks
+func runPilotValidate() {
+	p := pilot.New(pilot.PilotConfigPath)
+
+	if err := p.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load pilot configuration: %v\n", err)
+		os.Exit(1)
+	}
+
+	result, err := p.Validate()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to validate pilot: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println(result.FormatConsole())
+
+	// Set exit code based on validation result
+	if !result.Passed {
+		os.Exit(1)
+	}
 }

@@ -9,6 +9,7 @@ require (
 	github.com/prometheus/client_model v0.2.0
 	golang.org/x/crypto v0.47.0
 	golang.org/x/term v0.39.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
