@@ -153,7 +153,17 @@ func GetCurrentAndPreviousNetworkIDs(secret string) (current, previous [20]byte,
 // Both subnet bytes are used. The last octet is clamped to [1,254] to avoid
 // network (.0) and broadcast (.255) addresses.
 func DeriveMeshIP(meshSubnet [2]byte, wgPubKey, secret string) string {
-	input := wgPubKey + secret
+	return DeriveMeshIPWithSalt(meshSubnet, wgPubKey, secret, "")
+}
+
+// DeriveMeshIPWithSalt derives a deterministic mesh IP from WG public key, secret,
+// and an optional node-unique salt. The salt persists across key rotations to
+// ensure IP stability. When salt is empty, behaves identically to DeriveMeshIP.
+// Format: 10.<meshSubnet[0]>.<meshSubnet[1] XOR high>.<low>
+// Both subnet bytes are used. The last octet is clamped to [1,254] to avoid
+// network (.0) and broadcast (.255) addresses.
+func DeriveMeshIPWithSalt(meshSubnet [2]byte, wgPubKey, secret, nodeSalt string) string {
+	input := wgPubKey + secret + nodeSalt
 	hash := sha256.Sum256([]byte(input))
 
 	// Use first two bytes of hash for host part
@@ -177,7 +187,14 @@ func DeriveMeshIP(meshSubnet [2]byte, wgPubKey, secret string) string {
 // DeriveMeshIPv6 derives a deterministic ULA IPv6 address from WG public key and secret.
 // Prefix is a mesh-scoped /64, interface ID is a stable SLAAC-like value from pubkey+secret hash.
 func DeriveMeshIPv6(meshPrefixV6 [8]byte, wgPubKey, secret string) string {
-	input := wgPubKey + "|" + secret + "|ipv6"
+	return DeriveMeshIPv6WithSalt(meshPrefixV6, wgPubKey, secret, "")
+}
+
+// DeriveMeshIPv6WithSalt derives a deterministic ULA IPv6 address from WG public key,
+// secret, and an optional node-unique salt. When salt is empty, behaves identically
+// to DeriveMeshIPv6.
+func DeriveMeshIPv6WithSalt(meshPrefixV6 [8]byte, wgPubKey, secret, nodeSalt string) string {
+	input := wgPubKey + "|" + secret + "|" + nodeSalt + "|ipv6"
 	hash := sha256.Sum256([]byte(input))
 
 	var iid [8]byte
@@ -234,6 +251,16 @@ func addHostNum(base net.IP, hostNum uint64) net.IP {
 // skipping the network (.0) and broadcast (last) addresses.
 // Returns an error if the subnet is IPv6 or too small (fewer than 2 host bits).
 func DeriveMeshIPInSubnet(subnet *net.IPNet, wgPubKey, secret string) (string, error) {
+	return DeriveMeshIPInSubnetWithSalt(subnet, wgPubKey, secret, "")
+}
+
+// DeriveMeshIPInSubnetWithSalt derives a deterministic mesh IP within an arbitrary
+// IPv4 subnet using an optional node-unique salt for IP stability across key rotations.
+// When salt is empty, behaves identically to DeriveMeshIPInSubnet.
+// The host part is computed as: hash(wgPubKey + secret + salt) mod (hostSpace - 2) + 1,
+// skipping the network (.0) and broadcast (last) addresses.
+// Returns an error if the subnet is IPv6 or too small (fewer than 2 host bits).
+func DeriveMeshIPInSubnetWithSalt(subnet *net.IPNet, wgPubKey, secret, nodeSalt string) (string, error) {
 	hostBits, err := validateIPv4Subnet(subnet)
 	if err != nil {
 		return "", err
@@ -242,7 +269,7 @@ func DeriveMeshIPInSubnet(subnet *net.IPNet, wgPubKey, secret string) (string, e
 	// Number of usable host addresses (exclude network and broadcast)
 	maxHosts := (uint64(1) << hostBits) - 2
 
-	input := wgPubKey + secret
+	input := wgPubKey + secret + nodeSalt
 	hash := sha256.Sum256([]byte(input))
 
 	// Use first 8 bytes of hash for host number to support large subnets
@@ -255,6 +282,13 @@ func DeriveMeshIPInSubnet(subnet *net.IPNet, wgPubKey, secret string) (string, e
 // DeriveMeshIPInSubnetWithNonce derives a mesh IP within an arbitrary IPv4 subnet
 // using a collision avoidance nonce. Used when the primary derivation collides.
 func DeriveMeshIPInSubnetWithNonce(subnet *net.IPNet, wgPubKey, secret string, nonce int) (string, error) {
+	return DeriveMeshIPInSubnetWithSaltAndNonce(subnet, wgPubKey, secret, "", nonce)
+}
+
+// DeriveMeshIPInSubnetWithSaltAndNonce derives a mesh IP within an arbitrary IPv4 subnet
+// using a node salt and collision avoidance nonce. Used when the primary derivation
+// collides and salt-based stability is required.
+func DeriveMeshIPInSubnetWithSaltAndNonce(subnet *net.IPNet, wgPubKey, secret, nodeSalt string, nonce int) (string, error) {
 	hostBits, err := validateIPv4Subnet(subnet)
 	if err != nil {
 		return "", err
@@ -262,7 +296,7 @@ func DeriveMeshIPInSubnetWithNonce(subnet *net.IPNet, wgPubKey, secret string, n
 
 	maxHosts := (uint64(1) << hostBits) - 2
 
-	input := fmt.Sprintf("%d:%s|%d:%s|nonce=%d", len(wgPubKey), wgPubKey, len(secret), secret, nonce)
+	input := fmt.Sprintf("%d:%s|%d:%s|salt=%s|nonce=%d", len(wgPubKey), wgPubKey, len(secret), secret, nodeSalt, nonce)
 	hash := sha256.Sum256([]byte(input))
 
 	hostNum := binary.BigEndian.Uint64(hash[:8]) % maxHosts

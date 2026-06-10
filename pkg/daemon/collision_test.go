@@ -76,15 +76,15 @@ func TestDeriveMeshIPWithCollisionCheck(t *testing.T) {
 
 	existingIPs := map[string]string{} // No existing IPs
 
-	// Legacy mode (nil custom subnet)
-	ip := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs, nil)
+	// Legacy mode (nil custom subnet, empty salt)
+	ip := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, "", existingIPs, nil)
 	if ip == "" {
 		t.Error("Expected non-empty IP")
 	}
 
 	// Test with a collision
 	existingIPs[ip] = "other-pubkey"
-	ip2 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs, nil)
+	ip2 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, "", existingIPs, nil)
 
 	// Should get a different IP due to nonce
 	if ip == ip2 {
@@ -99,7 +99,7 @@ func TestDeriveMeshIPWithCollisionCheckCustomSubnet(t *testing.T) {
 
 	existingIPs := map[string]string{}
 
-	ip := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs, customSubnet)
+	ip := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, "", existingIPs, customSubnet)
 	if ip == "" {
 		t.Error("Expected non-empty IP")
 	}
@@ -112,12 +112,116 @@ func TestDeriveMeshIPWithCollisionCheckCustomSubnet(t *testing.T) {
 
 	// Test collision within custom subnet
 	existingIPs[ip] = "other-pubkey"
-	ip2 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, existingIPs, customSubnet)
+	ip2 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, "", existingIPs, customSubnet)
 	if ip == ip2 {
 		t.Error("Should derive different IP when collision exists")
 	}
 	parsed2 := net.ParseIP(ip2)
 	if !customSubnet.Contains(parsed2) {
 		t.Errorf("Collision-resolved IP %s not in custom subnet %s", ip2, customSubnet)
+	}
+}
+
+func TestDeriveMeshIPWithSaltAndNonce(t *testing.T) {
+	meshSubnet := [2]byte{42, 0}
+	secret := "test-secret-that-is-long-enough"
+	salt := "test-salt"
+
+	// Salt with nonce=0 should differ from salt with nonce=1
+	ip0 := DeriveMeshIPWithSaltAndNonce(meshSubnet, "pubkey1", secret, salt, 0)
+	ip1 := DeriveMeshIPWithSaltAndNonce(meshSubnet, "pubkey1", secret, salt, 1)
+
+	if ip0 == ip1 {
+		t.Error("Different nonces with same salt should produce different IPs")
+	}
+
+	// Should be deterministic
+	ip1b := DeriveMeshIPWithSaltAndNonce(meshSubnet, "pubkey1", secret, salt, 1)
+	if ip1 != ip1b {
+		t.Error("Same salt and nonce should produce same IP")
+	}
+
+	// Different salts should produce different IPs even with same nonce
+	differentSalt := "different-salt"
+	ipDifferentSalt := DeriveMeshIPWithSaltAndNonce(meshSubnet, "pubkey1", secret, differentSalt, 1)
+	if ip1 == ipDifferentSalt {
+		t.Error("Different salts should produce different IPs with same nonce")
+	}
+}
+
+func TestResolveCollisionWithSalt(t *testing.T) {
+	meshSubnet := [2]byte{42, 0}
+	secret := "test-secret-that-is-long-enough"
+	salt := "collision-test-salt"
+
+	peer1 := &PeerInfo{WGPubKey: "aaa", MeshIP: "10.42.1.1"}
+	peer2 := &PeerInfo{WGPubKey: "bbb", MeshIP: "10.42.1.1"} // Collision
+
+	collision := CollisionInfo{
+		MeshIP: "10.42.1.1",
+		Peer1:  peer1,
+		Peer2:  peer2,
+	}
+
+	// Resolve with salt
+	newIP := ResolveCollision(collision, meshSubnet, secret, salt, nil)
+	if newIP == "" {
+		t.Error("Expected non-empty IP from collision resolution")
+	}
+
+	// Should differ from the collided IP
+	if newIP == collision.MeshIP {
+		t.Error("Resolved IP should differ from original collision IP")
+	}
+
+	// Resolution should be deterministic
+	newIP2 := ResolveCollision(collision, meshSubnet, secret, salt, nil)
+	if newIP != newIP2 {
+		t.Error("Collision resolution with salt should be deterministic")
+	}
+
+	// Different salt should produce different resolution
+	differentSalt := "different-salt"
+	newIPDifferentSalt := ResolveCollision(collision, meshSubnet, secret, differentSalt, nil)
+	if newIP == newIPDifferentSalt {
+		t.Error("Different salts should produce different collision resolutions")
+	}
+}
+
+func TestDeriveMeshIPWithCollisionCheckWithSalt(t *testing.T) {
+	meshSubnet := [2]byte{42, 0}
+	secret := "test-secret-that-is-long-enough"
+	salt := "collision-check-salt"
+
+	existingIPs := map[string]string{}
+
+	// No collision - should return base derivation
+	ip1 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, salt, existingIPs, nil)
+	if ip1 == "" {
+		t.Error("Expected non-empty IP")
+	}
+
+	// Same pubkey should get same IP (no self-collision)
+	ip2 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, salt, existingIPs, nil)
+	if ip1 != ip2 {
+		t.Error("Same pubkey should get same IP with salt")
+	}
+
+	// Now create a collision
+	existingIPs[ip1] = "other-pubkey"
+	ip3 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, salt, existingIPs, nil)
+	if ip3 == "" {
+		t.Error("Expected non-empty IP after collision")
+	}
+
+	// Collision-resolved IP should differ from original
+	if ip1 == ip3 {
+		t.Error("Collision should produce different IP with salt")
+	}
+
+	// Resolution should be deterministic
+	ip4 := DeriveMeshIPWithCollisionCheck(meshSubnet, "pubkey1", secret, salt, existingIPs, nil)
+	if ip3 != ip4 {
+		t.Error("Collision resolution with salt should be deterministic")
 	}
 }

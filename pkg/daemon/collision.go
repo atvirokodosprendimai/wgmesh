@@ -56,11 +56,12 @@ func DeterministicWinner(peer1, peer2 *node.PeerInfo) (*node.PeerInfo, *node.Pee
 
 // ResolveCollision resolves a mesh IP collision by re-deriving the loser's IP with a nonce.
 // If customSubnet is non-nil, uses subnet-aware derivation; otherwise uses legacy derivation.
-func ResolveCollision(collision CollisionInfo, meshSubnet [2]byte, secret string, customSubnet *net.IPNet) string {
+// The nodeSalt parameter ensures IP stability across key rotations.
+func ResolveCollision(collision CollisionInfo, meshSubnet [2]byte, secret, nodeSalt string, customSubnet *net.IPNet) string {
 	_, loser := DeterministicWinner(collision.Peer1, collision.Peer2)
 
 	if customSubnet != nil {
-		ip, err := crypto.DeriveMeshIPInSubnetWithNonce(customSubnet, loser.WGPubKey, secret, 1)
+		ip, err := crypto.DeriveMeshIPInSubnetWithSaltAndNonce(customSubnet, loser.WGPubKey, secret, nodeSalt, 1)
 		if err != nil {
 			log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet: %v", err)
 			// Do NOT fall back to legacy derivation — that would put the IP in the wrong address space
@@ -68,12 +69,17 @@ func ResolveCollision(collision CollisionInfo, meshSubnet [2]byte, secret string
 		}
 		return ip
 	}
-	return DeriveMeshIPWithNonce(meshSubnet, loser.WGPubKey, secret, 1)
+	return DeriveMeshIPWithSaltAndNonce(meshSubnet, loser.WGPubKey, secret, nodeSalt, 1)
 }
 
 // DeriveMeshIPWithNonce derives a mesh IP with a collision avoidance nonce
 func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce int) string {
-	input := fmt.Sprintf("%d:%s|%d:%s|nonce=%d", len(wgPubKey), wgPubKey, len(secret), secret, nonce)
+	return DeriveMeshIPWithSaltAndNonce(meshSubnet, wgPubKey, secret, "", nonce)
+}
+
+// DeriveMeshIPWithSaltAndNonce derives a mesh IP with a node salt and collision avoidance nonce
+func DeriveMeshIPWithSaltAndNonce(meshSubnet [2]byte, wgPubKey, secret, nodeSalt string, nonce int) string {
+	input := fmt.Sprintf("%d:%s|%d:%s|salt=%s|nonce=%d", len(wgPubKey), wgPubKey, len(secret), secret, nodeSalt, nonce)
 	hash := sha256.Sum256([]byte(input))
 
 	suffix := binary.BigEndian.Uint16(hash[:2])
@@ -107,14 +113,14 @@ func (d *Daemon) CheckAndResolveCollisions() {
 		if loser.WGPubKey == d.localNode.WGPubKey {
 			var newIP string
 			if d.config.CustomSubnet != nil {
-				ip, err := crypto.DeriveMeshIPInSubnetWithNonce(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
+				ip, err := crypto.DeriveMeshIPInSubnetWithSaltAndNonce(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret, d.localNode.NodeSalt, 1)
 				if err != nil {
 					log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet: %v — keeping current IP", err)
 					continue
 				}
 				newIP = ip
 			} else {
-				newIP = DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
+				newIP = DeriveMeshIPWithSaltAndNonce(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, d.localNode.NodeSalt, 1)
 			}
 			log.Printf("[Collision] We lost collision, re-deriving mesh IP: %s -> %s", d.localNode.MeshIP, newIP)
 			d.localNode.MeshIP = newIP
@@ -125,10 +131,8 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 		} else {
 			// The loser is a remote peer - update our expectation of their IP
-			newIP := ResolveCollision(collision, d.config.Keys.MeshSubnet, d.config.Secret, d.config.CustomSubnet)
-			if newIP != "" {
-				log.Printf("[Collision] Remote peer %s should re-derive to %s", safeKeyPrefix(loser.WGPubKey), newIP)
-			}
+			// We don't know their salt, so we can't predict their IP exactly
+			log.Printf("[Collision] Remote peer %s should re-derive with their salt", safeKeyPrefix(loser.WGPubKey))
 		}
 	}
 }
@@ -143,17 +147,18 @@ func safeKeyPrefix(key string) string {
 
 // DeriveMeshIPWithCollisionCheck derives a mesh IP and checks for collisions.
 // If customSubnet is non-nil, uses subnet-aware derivation.
-func DeriveMeshIPWithCollisionCheck(meshSubnet [2]byte, wgPubKey, secret string, existingIPs map[string]string, customSubnet *net.IPNet) string {
+// The nodeSalt parameter ensures IP stability across key rotations.
+func DeriveMeshIPWithCollisionCheck(meshSubnet [2]byte, wgPubKey, secret, nodeSalt string, existingIPs map[string]string, customSubnet *net.IPNet) string {
 	var ip string
 	if customSubnet != nil {
-		derived, err := crypto.DeriveMeshIPInSubnet(customSubnet, wgPubKey, secret)
+		derived, err := crypto.DeriveMeshIPInSubnetWithSalt(customSubnet, wgPubKey, secret, nodeSalt)
 		if err != nil {
 			log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet: %v", err)
 			return ""
 		}
 		ip = derived
 	} else {
-		ip = crypto.DeriveMeshIP(meshSubnet, wgPubKey, secret)
+		ip = crypto.DeriveMeshIPWithSalt(meshSubnet, wgPubKey, secret, nodeSalt)
 	}
 
 	// Check for collision
@@ -162,14 +167,14 @@ func DeriveMeshIPWithCollisionCheck(meshSubnet [2]byte, wgPubKey, secret string,
 			return ip
 		}
 		if customSubnet != nil {
-			derived, err := crypto.DeriveMeshIPInSubnetWithNonce(customSubnet, wgPubKey, secret, nonce)
+			derived, err := crypto.DeriveMeshIPInSubnetWithSaltAndNonce(customSubnet, wgPubKey, secret, nodeSalt, nonce)
 			if err != nil {
 				log.Printf("[Collision] CRITICAL: Failed to derive IP with nonce in custom subnet: %v", err)
 				return ""
 			}
 			ip = derived
 		} else {
-			ip = DeriveMeshIPWithNonce(meshSubnet, wgPubKey, secret, nonce)
+			ip = DeriveMeshIPWithSaltAndNonce(meshSubnet, wgPubKey, secret, nodeSalt, nonce)
 		}
 	}
 

@@ -3,6 +3,8 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -102,6 +104,7 @@ type LocalNode struct {
 	WGPrivateKey     string
 	MeshIP           string
 	MeshIPv6         string
+	NodeSalt         string // Node-unique salt for IP stability across key rotations
 	RoutableNetworks []string
 	Introducer       bool
 	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
@@ -332,6 +335,18 @@ func (d *Daemon) initLocalNode() error {
 	if err == nil && node != nil {
 		d.localNode = node
 
+		// Generate salt if missing (migration for pre-salt state files)
+		if d.localNode.NodeSalt == "" {
+			// Deterministic fallback: derive salt from existing public key
+			saltHash := sha256.Sum256([]byte(d.localNode.WGPubKey))
+			d.localNode.NodeSalt = hex.EncodeToString(saltHash[:16])
+			log.Printf("Generated node salt for legacy state: %s...", shortKey(d.localNode.NodeSalt))
+			// Persist the salt immediately
+			if err := saveLocalNode(stateFile, d.localNode); err != nil {
+				log.Printf("Warning: failed to save local node state with salt: %v", err)
+			}
+		}
+
 		// Use the persisted mesh IP when it is present and falls within the
 		// expected subnet. Re-derive only when the field is absent (old state
 		// file) or the configured subnet has changed.
@@ -340,13 +355,13 @@ func (d *Daemon) initLocalNode() error {
 			// change the node's address.
 		} else {
 			if d.config.CustomSubnet != nil {
-				ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret)
+				ip, err := crypto.DeriveMeshIPInSubnetWithSalt(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret, d.localNode.NodeSalt)
 				if err != nil {
 					return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
 				}
 				d.localNode.MeshIP = ip
 			} else {
-				d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
+				d.localNode.MeshIP = crypto.DeriveMeshIPWithSalt(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, d.localNode.NodeSalt)
 			}
 			// Persist the newly derived IP so subsequent starts reuse it.
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
@@ -357,7 +372,7 @@ func (d *Daemon) initLocalNode() error {
 		// Always re-derive IPv6; IPv6 addresses are not globally routable and
 		// subnet pinning is not applicable for the /64 ULA prefix.
 		if node.MeshIPv6 == "" {
-			d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret)
+			d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6WithSalt(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret, d.localNode.NodeSalt)
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
 				log.Printf("Warning: failed to save local node state: %v", err)
 			}
@@ -375,24 +390,29 @@ func (d *Daemon) initLocalNode() error {
 		return fmt.Errorf("failed to generate keypair: %w", err)
 	}
 
-	// Derive mesh IP from public key
+	// Generate node salt for IP stability across key rotations
+	saltHash := sha256.Sum256([]byte(publicKey))
+	nodeSalt := hex.EncodeToString(saltHash[:16])
+
+	// Derive mesh IP from public key using salt
 	var meshIP string
 	if d.config.CustomSubnet != nil {
-		ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, publicKey, d.config.Secret)
+		ip, err := crypto.DeriveMeshIPInSubnetWithSalt(d.config.CustomSubnet, publicKey, d.config.Secret, nodeSalt)
 		if err != nil {
 			return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
 		}
 		meshIP = ip
 	} else {
-		meshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, publicKey, d.config.Secret)
+		meshIP = crypto.DeriveMeshIPWithSalt(d.config.Keys.MeshSubnet, publicKey, d.config.Secret, nodeSalt)
 	}
-	meshIPv6 := crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, publicKey, d.config.Secret)
+	meshIPv6 := crypto.DeriveMeshIPv6WithSalt(d.config.Keys.MeshPrefixV6, publicKey, d.config.Secret, nodeSalt)
 
 	d.localNode = &LocalNode{
 		WGPubKey:         publicKey,
 		WGPrivateKey:     privateKey,
 		MeshIP:           meshIP,
 		MeshIPv6:         meshIPv6,
+		NodeSalt:         nodeSalt,
 		RoutableNetworks: d.config.AdvertiseRoutes,
 		Introducer:       d.config.Introducer,
 		Hostname:         hostname,

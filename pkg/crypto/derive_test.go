@@ -446,3 +446,116 @@ func TestRendezvousIDLength(t *testing.T) {
 		t.Error("RendezvousID should not be zero")
 	}
 }
+
+func TestDeriveMeshIPWithSalt(t *testing.T) {
+	meshSubnet := [2]byte{42, 0}
+	secret := "test-secret-that-is-long-enough"
+	pubkey := "pubkey1"
+	salt := "node-salt-123"
+
+	// With salt should produce different IP than without salt
+	ipNoSalt := DeriveMeshIP(meshSubnet, pubkey, secret)
+	ipWithSalt := DeriveMeshIPWithSalt(meshSubnet, pubkey, secret, salt)
+
+	if ipNoSalt == ipWithSalt {
+		t.Error("IP with salt should differ from IP without salt")
+	}
+
+	// Empty salt should behave like no salt (backward compatibility)
+	ipvEmptySalt := DeriveMeshIPWithSalt(meshSubnet, pubkey, secret, "")
+	if ipvEmptySalt != ipNoSalt {
+		t.Error("Empty salt should produce same IP as DeriveMeshIP")
+	}
+
+	// Salt ensures IP stability across key changes
+	newPubkey := "pubkey2-different"
+	ipNewPubkeyWithSalt := DeriveMeshIPWithSalt(meshSubnet, newPubkey, secret, salt)
+	if ipNewPubkeyWithSalt == ipWithSalt {
+		t.Error("Different pubkeys with same salt should produce different IPs")
+	}
+
+	// But same salt with same inputs is deterministic
+	ipWithSalt2 := DeriveMeshIPWithSalt(meshSubnet, pubkey, secret, salt)
+	if ipWithSalt != ipWithSalt2 {
+		t.Error("Same inputs with salt should produce same IP")
+	}
+}
+
+func TestDeriveMeshIPInSubnetWithSalt(t *testing.T) {
+	_, subnet, _ := net.ParseCIDR("192.168.100.0/24")
+	secret := "test-secret-that-is-long-enough"
+	pubkey := "pubkey1"
+	salt := "node-salt-456"
+
+	// With salt should produce different IP than without salt
+	ipNoSalt, _ := DeriveMeshIPInSubnet(subnet, pubkey, secret)
+	ipWithSalt, _ := DeriveMeshIPInSubnetWithSalt(subnet, pubkey, secret, salt)
+
+	if ipNoSalt == ipWithSalt {
+		t.Error("IP with salt should differ from IP without salt")
+	}
+
+	// Empty salt should behave like no salt (backward compatibility)
+	ipvEmptySalt, _ := DeriveMeshIPInSubnetWithSalt(subnet, pubkey, secret, "")
+	if ipvEmptySalt != ipNoSalt {
+		t.Error("Empty salt should produce same IP as DeriveMeshIPInSubnet")
+	}
+
+	// Salt provides stability
+	ipWithSalt2, _ := DeriveMeshIPInSubnetWithSalt(subnet, pubkey, secret, salt)
+	if ipWithSalt != ipWithSalt2 {
+		t.Error("Salt-based derivation should be deterministic")
+	}
+
+	// Different salts produce different IPs
+	differentSalt := "different-salt-789"
+	ipDifferentSalt, _ := DeriveMeshIPInSubnetWithSalt(subnet, pubkey, secret, differentSalt)
+	if ipWithSalt == ipDifferentSalt {
+		t.Error("Different salts should produce different IPs")
+	}
+
+	// All IPs should be in subnet
+	parsed := net.ParseIP(ipWithSalt)
+	if !subnet.Contains(parsed) {
+		t.Errorf("IP %s not in subnet %s", ipWithSalt, subnet)
+	}
+}
+
+func TestDeriveMeshIPv6WithSalt(t *testing.T) {
+	prefix := [8]byte{0xfd, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc, 0xde}
+	secret := "test-secret-that-is-long-enough"
+	pubkey := "pubkey1"
+	salt := "node-salt-abc"
+
+	// With salt should produce different IP than without salt
+	ipNoSalt := DeriveMeshIPv6(prefix, pubkey, secret)
+	ipWithSalt := DeriveMeshIPv6WithSalt(prefix, pubkey, secret, salt)
+
+	if ipNoSalt == ipWithSalt {
+		t.Error("IPv6 with salt should differ from IPv6 without salt")
+	}
+
+	// Empty salt should behave like no salt (backward compatibility)
+	ipvEmptySalt := DeriveMeshIPv6WithSalt(prefix, pubkey, secret, "")
+	if ipvEmptySalt != ipNoSalt {
+		t.Error("Empty salt should produce same IPv6 as DeriveMeshIPv6")
+	}
+
+	// Salt provides stability
+	ipWithSalt2 := DeriveMeshIPv6WithSalt(prefix, pubkey, secret, salt)
+	if ipWithSalt != ipWithSalt2 {
+		t.Error("Salt-based IPv6 derivation should be deterministic")
+	}
+
+	// Different salts produce different IPs
+	differentSalt := "different-salt-def"
+	ipDifferentSalt := DeriveMeshIPv6WithSalt(prefix, pubkey, secret, differentSalt)
+	if ipWithSalt == ipDifferentSalt {
+		t.Error("Different salts should produce different IPv6 addresses")
+	}
+
+	// All should start with fd (ULA)
+	if len(ipWithSalt) < 2 || ipWithSalt[:2] != "fd" {
+		t.Errorf("Expected ULA to start with fd, got %s", ipWithSalt)
+	}
+}
