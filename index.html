@@ -120,6 +120,11 @@
             background-color: #218838;
             transform: translateY(-2px);
         }
+        .hero-cta {
+            font-size: 1.3em;
+            padding: 16px 35px;
+            box-shadow: 0 6px 20px rgba(40, 167, 69, 0.4);
+        }
         /* Highlight a featured tier, e.g., $20 Edge Node */
         .pricing-tier.featured-tier {
             border-color: #007bff;
@@ -167,7 +172,10 @@
         <section id="intro">
             <h2>Harness the Power of Decentralized Networking</h2>
             <p>wgmesh offers a revolutionary approach to secure and scalable mesh networking, enabling seamless connectivity for all your devices, anywhere in the world.</p>
-        </section>
+            <div style="text-align:center; margin-top:20px;">
+                <a href="https://polar.sh/checkout?productId=1927e637-4cfd-4c94-8bee-c5518803bc89" class="tier-button hero-cta" target="_blank" rel="noopener noreferrer">Start Free Trial</a>
+                <a href="#pricing" class="tier-button" style="background-color:#007bff; margin-left:15px;">View Pricing</a>
+            </div>        </section>
 
         <!-- Optimized #pricing section with all 3 tiers, above the fold -->
         <section id="pricing" class="pricing-section">
@@ -203,6 +211,9 @@
                 <li><strong>High Performance:</strong> Optimized for speed and low latency.</li>
                 <li><strong>Flexible Deployment:</strong> Deploy on cloud, bare metal, or edge devices.</li>
             </ul>
+            <div style="text-align:center; margin-top:20px;">
+                <a href="#pricing" class="tier-button">Choose Your Plan</a>
+            </div>
         </section>
 
         <section id="how-it-works">
@@ -238,7 +249,7 @@
 
     <footer>
         <p>&copy; 2023 wgmesh.dev. All rights reserved.</p>
-        <p>Payment via <a href="https://polar.sh/" target="_blank">Polar.sh</a></p> <!-- Added footer link -->
+        <p>Payment via <a href="https://polar.sh/" target="_blank">Polar.sh</a> | <a href="https://polar.sh/checkout?productId=1927e637-4cfd-4c94-8bee-c5518803bc89" target="_blank" style="color:#28a745; font-weight:bold;">Start Free Trial</a></p>
     </footer>
 </body>
 </html>
