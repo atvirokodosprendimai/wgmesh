@@ -436,7 +436,12 @@ jobs:
                   labels: ['approved-for-build'],
                 });
 
-                await github.rest.actions.createWorkflowDispatch({
+                // Dispatch through the GITHUB_TOKEN client (issueGithub): the default
+                // `github` client here is the app token, and the app installation has
+                // no `actions` permission - dispatching with it 403s
+                // "Resource not accessible by integration". GITHUB_TOKEN carries
+                // actions:write from this workflow's permissions block.
+                await issueGithub.rest.actions.createWorkflowDispatch({
                   owner, repo,
                   workflow_id: 'goose-build.yml',
                   ref: 'main',
