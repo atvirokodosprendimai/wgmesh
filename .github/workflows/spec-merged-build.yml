@@ -1,12 +1,10 @@
 name: Spec Merged — Trigger Build
 
+# Retired as auto-trigger 2026-06-10: the pipeline box (live mode) implements
+# from approved specs directly; assigning a Copilot build agent on spec merge
+# raced it (failed run on #715, pulse 2026-06-10). Manual dispatch only.
 on:
-  # pull_request_target so Copilot-coding-agent `copilot/*` spec PRs do
-  # not freeze in `action_required` during their draft phase. Safe for
-  # the closed-merged path: merge is already on main and maintainer-
-  # approved by the time we fire. See #79 (extended scope).
-  pull_request_target:
-    types: [closed]
+  workflow_dispatch:
 
 permissions:
   contents: read
