@@ -42,7 +42,7 @@ jobs:
         id: pr
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const prNumber = parseInt('${{ github.event.inputs.pr_number }}', 10);
             const owner = context.repo.owner;
@@ -294,7 +294,7 @@ jobs:
         if: steps.pr.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const prNumber = parseInt('${{ github.event.inputs.pr_number }}', 10);
             const gooseOk = '${{ steps.goose.outputs.goose_ok }}' === 'true';
@@ -356,7 +356,7 @@ jobs:
         if: steps.pr.outputs.skip != 'true'
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ github.token }}
           script: |
             const prNumber = parseInt('${{ github.event.inputs.pr_number }}', 10);
             const gooseOk = '${{ steps.goose.outputs.goose_ok }}' === 'true';
