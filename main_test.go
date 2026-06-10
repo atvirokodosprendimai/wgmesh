@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"strings"
@@ -164,5 +165,125 @@ func TestVersionFormatConsistency(t *testing.T) {
 				[]string{"version", "--version", "-v"}[0], outputs[0],
 				[]string{"version", "--version", "-v"}[i], outputs[i])
 		}
+	}
+}
+
+func TestStatusJSONOutput(t *testing.T) {
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test-status", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test-status")
+
+	testSecret := "wgmesh://v1/dGVzdHNlY3JldGZvcnN0YXR1c2pzb250ZXN0aW5nMTIz"
+
+	tests := []struct {
+		name        string
+		args        []string
+		wantKeys    []string
+		wantCompact bool
+	}{
+		{
+			name:        "compact json",
+			args:        []string{"status", "--secret", testSecret, "--json"},
+			wantKeys:    []string{"interface", "network_id", "mesh_subnet", "mesh_ipv6_prefix", "gossip_port", "rendezvous_id", "active_peers", "total_peers", "peers"},
+			wantCompact: true,
+		},
+		{
+			name:        "pretty json",
+			args:        []string{"status", "--secret", testSecret, "--json", "--pretty"},
+			wantKeys:    []string{"interface", "network_id", "mesh_subnet", "mesh_ipv6_prefix", "gossip_port", "rendezvous_id", "active_peers", "total_peers", "peers"},
+			wantCompact: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command("/tmp/wgmesh-test-status", tt.args...)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("Command failed: %v\nOutput: %s", err, output)
+			}
+
+			trimmed := strings.TrimSpace(string(output))
+
+			// Validate JSON parses cleanly.
+			var parsed map[string]interface{}
+			if jsonErr := json.Unmarshal([]byte(trimmed), &parsed); jsonErr != nil {
+				t.Fatalf("Output is not valid JSON: %v\nOutput: %s", jsonErr, trimmed)
+			}
+
+			// Check required top-level keys are present.
+			for _, key := range tt.wantKeys {
+				if _, ok := parsed[key]; !ok {
+					t.Errorf("Missing JSON key %q in output: %s", key, trimmed)
+				}
+			}
+
+			// Compact check: output must be a single line.
+			if tt.wantCompact {
+				lines := strings.Split(trimmed, "\n")
+				if len(lines) != 1 {
+					t.Errorf("Expected single-line compact JSON, got %d lines", len(lines))
+				}
+			}
+
+			// Pretty check: output must have more than one line.
+			if !tt.wantCompact {
+				lines := strings.Split(trimmed, "\n")
+				if len(lines) < 5 {
+					t.Errorf("Expected multi-line pretty JSON, got %d lines", len(lines))
+				}
+			}
+
+			// peers field must be a JSON array (even if empty).
+			if peersRaw, ok := parsed["peers"]; ok {
+				if _, ok := peersRaw.([]interface{}); !ok {
+					t.Errorf("peers field must be a JSON array, got %T", peersRaw)
+				}
+			}
+
+			// gossip_port must be a number.
+			if port, ok := parsed["gossip_port"]; ok {
+				if _, ok := port.(float64); !ok {
+					t.Errorf("gossip_port must be a number, got %T", port)
+				}
+			}
+		})
+	}
+}
+
+func TestStatusTextOutputUnchanged(t *testing.T) {
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test-status-text", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test-status-text")
+
+	testSecret := "wgmesh://v1/dGVzdHNlY3JldGZvcnN0YXR1c2pzb250ZXN0aW5nMTIz"
+
+	cmd := exec.Command("/tmp/wgmesh-test-status-text", "status", "--secret", testSecret)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Command failed: %v\nOutput: %s", err, output)
+	}
+
+	result := string(output)
+
+	// Text output must contain the human-readable header.
+	if !strings.Contains(result, "Mesh Status") {
+		t.Errorf("Expected text output to contain 'Mesh Status', got: %s", result)
+	}
+	if !strings.Contains(result, "Interface:") {
+		t.Errorf("Expected text output to contain 'Interface:', got: %s", result)
+	}
+	if !strings.Contains(result, "Network ID:") {
+		t.Errorf("Expected text output to contain 'Network ID:', got: %s", result)
+	}
+
+	// Text output must NOT start with '{'.
+	trimmed := strings.TrimSpace(result)
+	if strings.HasPrefix(trimmed, "{") {
+		t.Errorf("Text output must not be JSON, got: %s", trimmed)
 	}
 }

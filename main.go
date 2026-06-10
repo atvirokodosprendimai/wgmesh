@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
@@ -521,12 +523,46 @@ func testPeerCmd() {
 	fmt.Printf("  Peer mesh IP: %s\n", reply.MeshIP)
 }
 
+// statusPeerOutput is the JSON representation of a single peer in the status output.
+type statusPeerOutput struct {
+	PubKey           string   `json:"pubkey"`
+	Hostname         string   `json:"hostname,omitempty"`
+	MeshIP           string   `json:"mesh_ip"`
+	Endpoint         string   `json:"endpoint"`
+	LastSeen         string   `json:"last_seen"`
+	DiscoveredVia    []string `json:"discovered_via"`
+	RoutableNetworks []string `json:"routable_networks,omitempty"`
+	LatencyMs        *float64 `json:"latency_ms,omitempty"`
+	LastHandshake    *string  `json:"last_handshake,omitempty"`
+	RxBytes          *uint64  `json:"rx_bytes,omitempty"`
+	TxBytes          *uint64  `json:"tx_bytes,omitempty"`
+}
+
+// statusOutput is the top-level JSON document emitted by `wgmesh status --json`.
+type statusOutput struct {
+	Interface     string             `json:"interface"`
+	NetworkID     string             `json:"network_id"`
+	MeshSubnet    string             `json:"mesh_subnet"`
+	MeshIPv6      string             `json:"mesh_ipv6_prefix"`
+	GossipPort    uint16             `json:"gossip_port"`
+	RendezvousID  string             `json:"rendezvous_id"`
+	ServiceStatus string             `json:"service_status"`
+	DaemonMeshIP  string             `json:"daemon_mesh_ip,omitempty"`
+	DaemonPubKey  string             `json:"daemon_pubkey,omitempty"`
+	UptimeSeconds float64            `json:"uptime_seconds,omitempty"`
+	ActivePeers   int                `json:"active_peers"`
+	TotalPeers    int                `json:"total_peers"`
+	Peers         []statusPeerOutput `json:"peers"`
+}
+
 // statusCmd handles the "status --secret" subcommand
 func statusCmd() {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
+	jsonOut := fs.Bool("json", false, "Output status as JSON")
+	pretty := fs.Bool("pretty", false, "Pretty-print JSON output (requires --json)")
 	fs.Parse(os.Args[2:])
 
 	if *secret == "" {
@@ -535,7 +571,6 @@ func statusCmd() {
 		os.Exit(1)
 	}
 
-	// Create config to derive keys
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{
 		Secret:        *secret,
 		InterfaceName: *iface,
@@ -546,28 +581,176 @@ func statusCmd() {
 		os.Exit(1)
 	}
 
-	fmt.Printf("Mesh Status\n")
-	fmt.Printf("===========\n")
-	fmt.Printf("Interface: %s\n", cfg.InterfaceName)
-	fmt.Printf("Network ID: %x\n", cfg.Keys.NetworkID[:8])
-	if cfg.CustomSubnet != nil {
-		fmt.Printf("Mesh Subnet: %s (custom)\n", cfg.CustomSubnet)
+	if !*jsonOut {
+		// ── existing text path (unchanged) ──────────────────────────────────
+		fmt.Printf("Mesh Status\n")
+		fmt.Printf("===========\n")
+		fmt.Printf("Interface: %s\n", cfg.InterfaceName)
+		fmt.Printf("Network ID: %x\n", cfg.Keys.NetworkID[:8])
+		if cfg.CustomSubnet != nil {
+			fmt.Printf("Mesh Subnet: %s (custom)\n", cfg.CustomSubnet)
+		} else {
+			fmt.Printf("Mesh Subnet: 10.%d.0.0/16\n", cfg.Keys.MeshSubnet[0])
+		}
+		fmt.Printf("Mesh IPv6 Prefix: %s\n", formatIPv6Prefix(cfg.Keys.MeshPrefixV6))
+		fmt.Printf("Gossip Port: %d\n", cfg.Keys.GossipPort)
+		fmt.Printf("Rendezvous ID: %x\n", cfg.Keys.RendezvousID)
+		fmt.Println()
+
+		svcStatus, svcErr := daemon.ServiceStatus()
+		if svcErr == nil {
+			fmt.Printf("Service Status: %s\n", svcStatus)
+		}
+
+		fmt.Println()
+		fmt.Println("(Run 'wg show' to see connected peers)")
+		return
+	}
+
+	// ── JSON path ────────────────────────────────────────────────────────────
+	out := buildStatusOutput(cfg)
+
+	var data []byte
+	if *pretty {
+		data, err = json.MarshalIndent(out, "", "  ")
 	} else {
-		fmt.Printf("Mesh Subnet: 10.%d.0.0/16\n", cfg.Keys.MeshSubnet[0])
+		data, err = json.Marshal(out)
 	}
-	fmt.Printf("Mesh IPv6 Prefix: %s\n", formatIPv6Prefix(cfg.Keys.MeshPrefixV6))
-	fmt.Printf("Gossip Port: %d\n", cfg.Keys.GossipPort)
-	fmt.Printf("Rendezvous ID: %x\n", cfg.Keys.RendezvousID)
-	fmt.Println()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to marshal JSON: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Println(string(data))
+}
 
-	// Show service status if available
-	status, err := daemon.ServiceStatus()
-	if err == nil {
-		fmt.Printf("Service Status: %s\n", status)
+// buildStatusOutput assembles the JSON status document from config, RPC, and wg stats.
+func buildStatusOutput(cfg *daemon.Config) statusOutput {
+	// 1. Static fields derived from the secret / config.
+	meshSubnet := fmt.Sprintf("10.%d.0.0/16", cfg.Keys.MeshSubnet[0])
+	if cfg.CustomSubnet != nil {
+		meshSubnet = cfg.CustomSubnet.String()
 	}
 
-	fmt.Println()
-	fmt.Println("(Run 'wg show' to see connected peers)")
+	out := statusOutput{
+		Interface:    cfg.InterfaceName,
+		NetworkID:    fmt.Sprintf("%x", cfg.Keys.NetworkID[:8]),
+		MeshSubnet:   meshSubnet,
+		MeshIPv6:     formatIPv6Prefix(cfg.Keys.MeshPrefixV6),
+		GossipPort:   cfg.Keys.GossipPort,
+		RendezvousID: fmt.Sprintf("%x", cfg.Keys.RendezvousID),
+		Peers:        []statusPeerOutput{},
+	}
+
+	// 2. Service status (systemd / launchd) — best-effort.
+	if svc, err := daemon.ServiceStatus(); err == nil {
+		out.ServiceStatus = svc
+	}
+
+	// 3. Daemon RPC — best-effort. Connect to the running daemon socket.
+	socketPath := getRPCSocketPath()
+	client, rpcErr := rpc.NewClient(socketPath)
+	if rpcErr == nil {
+		defer client.Close()
+
+		// daemon.status → local node info + uptime.
+		if result, err := client.Call("daemon.status", nil); err == nil {
+			if m, ok := result.(map[string]interface{}); ok {
+				if v, ok := m["mesh_ip"].(string); ok {
+					out.DaemonMeshIP = v
+				}
+				if v, ok := m["pubkey"].(string); ok {
+					out.DaemonPubKey = v
+				}
+				if v, ok := m["uptime"].(float64); ok {
+					// uptime comes back as nanoseconds (time.Duration serialized)
+					out.UptimeSeconds = v / 1e9
+				}
+			}
+		}
+
+		// peers.list → peer list.
+		if result, err := client.Call("peers.list", nil); err == nil {
+			if m, ok := result.(map[string]interface{}); ok {
+				if peersRaw, ok := m["peers"].([]interface{}); ok {
+					for _, pRaw := range peersRaw {
+						p, ok := pRaw.(map[string]interface{})
+						if !ok {
+							continue
+						}
+						sp := statusPeerOutput{
+							DiscoveredVia: []string{},
+						}
+						if v, ok := p["pubkey"].(string); ok {
+							sp.PubKey = v
+						}
+						if v, ok := p["hostname"].(string); ok {
+							sp.Hostname = v
+						}
+						if v, ok := p["mesh_ip"].(string); ok {
+							sp.MeshIP = v
+						}
+						if v, ok := p["endpoint"].(string); ok {
+							sp.Endpoint = v
+						}
+						if v, ok := p["last_seen"].(string); ok {
+							sp.LastSeen = v
+						}
+						if v, ok := p["latency_ms"].(float64); ok {
+							sp.LatencyMs = &v
+						}
+						if vs, ok := p["discovered_via"].([]interface{}); ok {
+							for _, s := range vs {
+								if str, ok := s.(string); ok {
+									sp.DiscoveredVia = append(sp.DiscoveredVia, str)
+								}
+							}
+						}
+						if vs, ok := p["routable_networks"].([]interface{}); ok {
+							for _, s := range vs {
+								if str, ok := s.(string); ok {
+									sp.RoutableNetworks = append(sp.RoutableNetworks, str)
+								}
+							}
+						}
+						out.Peers = append(out.Peers, sp)
+					}
+				}
+			}
+		}
+
+		// peers.count → active/total counters.
+		if result, err := client.Call("peers.count", nil); err == nil {
+			if m, ok := result.(map[string]interface{}); ok {
+				if v, ok := m["active"].(float64); ok {
+					out.ActivePeers = int(v)
+				}
+				if v, ok := m["total"].(float64); ok {
+					out.TotalPeers = int(v)
+				}
+			}
+		}
+	}
+
+	// 4. WireGuard per-peer stats (handshakes + transfer) — best-effort.
+	//    Enrich the peers already collected from the RPC list.
+	handshakes, _ := wireguard.GetLatestHandshakes(cfg.InterfaceName)
+	transfers, _ := wireguard.GetPeerTransfers(cfg.InterfaceName)
+
+	for i := range out.Peers {
+		pubkey := out.Peers[i].PubKey
+		if ts, ok := handshakes[pubkey]; ok && ts > 0 {
+			s := time.Unix(ts, 0).UTC().Format(time.RFC3339)
+			out.Peers[i].LastHandshake = &s
+		}
+		if t, ok := transfers[pubkey]; ok {
+			rx := t.RxBytes
+			tx := t.TxBytes
+			out.Peers[i].RxBytes = &rx
+			out.Peers[i].TxBytes = &tx
+		}
+	}
+
+	return out
 }
 
 // qrCmd handles the "qr" subcommand - displays secret as a text-based QR code
