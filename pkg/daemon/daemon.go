@@ -102,6 +102,7 @@ type LocalNode struct {
 	WGPrivateKey     string
 	MeshIP           string
 	MeshIPv6         string
+	MeshIPSeed       string // original pubkey used for IP derivation — preserved across key rotation
 	RoutableNetworks []string
 	Introducer       bool
 	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
@@ -332,6 +333,19 @@ func (d *Daemon) initLocalNode() error {
 	if err == nil && node != nil {
 		d.localNode = node
 
+		// Backward compatibility: if MeshIPSeed is missing (old state file),
+		// use the persisted WGPubKey as the seed so that the IP derivation
+		// remains stable across future key rotations.
+		if d.localNode.MeshIPSeed == "" {
+			d.localNode.MeshIPSeed = d.localNode.WGPubKey
+		}
+
+		// Determine the public key to use for IP derivation. When MeshIPSeed
+		// is present (set above for legacy files, or loaded from a newer state
+		// file), we use it instead of the current WGPubKey so that mesh IP
+		// remains stable across WireGuard key rotations.
+		ipSeed := d.localNode.MeshIPSeed
+
 		// Use the persisted mesh IP when it is present and falls within the
 		// expected subnet. Re-derive only when the field is absent (old state
 		// file) or the configured subnet has changed.
@@ -340,13 +354,13 @@ func (d *Daemon) initLocalNode() error {
 			// change the node's address.
 		} else {
 			if d.config.CustomSubnet != nil {
-				ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret)
+				ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, ipSeed, d.config.Secret)
 				if err != nil {
 					return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
 				}
 				d.localNode.MeshIP = ip
 			} else {
-				d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
+				d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, ipSeed, d.config.Secret)
 			}
 			// Persist the newly derived IP so subsequent starts reuse it.
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
@@ -354,10 +368,11 @@ func (d *Daemon) initLocalNode() error {
 			}
 		}
 
-		// Always re-derive IPv6; IPv6 addresses are not globally routable and
-		// subnet pinning is not applicable for the /64 ULA prefix.
+		// Always re-derive IPv6 using the IP seed; IPv6 addresses are not
+		// globally routable and subnet pinning is not applicable for the /64
+		// ULA prefix.
 		if node.MeshIPv6 == "" {
-			d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret)
+			d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, ipSeed, d.config.Secret)
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
 				log.Printf("Warning: failed to save local node state: %v", err)
 			}
@@ -393,6 +408,7 @@ func (d *Daemon) initLocalNode() error {
 		WGPrivateKey:     privateKey,
 		MeshIP:           meshIP,
 		MeshIPv6:         meshIPv6,
+		MeshIPSeed:       publicKey, // first keypair is the seed
 		RoutableNetworks: d.config.AdvertiseRoutes,
 		Introducer:       d.config.Introducer,
 		Hostname:         hostname,

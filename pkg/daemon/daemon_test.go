@@ -5,6 +5,9 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -390,5 +393,251 @@ func TestMeshIPInSubnet(t *testing.T) {
 				t.Errorf("meshIPInSubnet(%q) = %v, want %v", tt.meshIP, got, tt.want)
 			}
 		})
+	}
+}
+
+// --- MeshIPSeed tests (Issue #540) ---
+
+func TestLocalNodeStatePersistsMeshIPSeed(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wg0.json")
+
+	original := &LocalNode{
+		WGPubKey:     "pub-key-abc",
+		WGPrivateKey: "priv-key-xyz",
+		MeshIP:       "10.42.7.33",
+		MeshIPv6:     "fd12:3456:789a:0001::1",
+		MeshIPSeed:   "original-pubkey-for-ip",
+	}
+
+	if err := saveLocalNode(path, original); err != nil {
+		t.Fatalf("saveLocalNode: %v", err)
+	}
+
+	loaded, err := loadLocalNode(path)
+	if err != nil {
+		t.Fatalf("loadLocalNode: %v", err)
+	}
+
+	if loaded.MeshIPSeed != original.MeshIPSeed {
+		t.Errorf("MeshIPSeed: got %q, want %q", loaded.MeshIPSeed, original.MeshIPSeed)
+	}
+}
+
+func TestLocalNodeStateLegacyFileNoMeshIPSeed(t *testing.T) {
+	t.Parallel()
+
+	// Simulate an old state file that has no mesh_ip_seed field.
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wg0-legacy.json")
+	oldJSON := `{"wg_pubkey":"pub-key-abc","wg_private_key":"priv-key-xyz","mesh_ip":"10.42.7.33"}`
+	if err := os.WriteFile(path, []byte(oldJSON), 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	loaded, err := loadLocalNode(path)
+	if err != nil {
+		t.Fatalf("loadLocalNode: %v", err)
+	}
+
+	if loaded.MeshIPSeed != "" {
+		t.Errorf("expected empty MeshIPSeed for legacy state file, got %q", loaded.MeshIPSeed)
+	}
+	if loaded.MeshIP != "10.42.7.33" {
+		t.Errorf("MeshIP: got %q, want %q", loaded.MeshIP, "10.42.7.33")
+	}
+}
+
+func TestMeshIPSeedPreservesIPAcrossKeyChange(t *testing.T) {
+	// Verify that using a seed public key produces the same mesh IP
+	// even when the actual WG public key changes.
+	t.Parallel()
+
+	secret := "test-secret-for-key-rotation"
+	keys, err := crypto.DeriveKeys(secret)
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+
+	originalPubKey := "original-wg-pubkey-aaaa"
+	newPubKey := "new-wg-pubkey-bbbb"
+
+	// Derive IP with the original key
+	ipWithOriginal := crypto.DeriveMeshIP(keys.MeshSubnet, originalPubKey, secret)
+
+	// Derive IP with the seed (original key), even though current key is different
+	ipWithSeed := crypto.DeriveMeshIP(keys.MeshSubnet, originalPubKey, secret)
+
+	// Derive IP with the new key directly (without seed) — should differ
+	ipWithNewKey := crypto.DeriveMeshIP(keys.MeshSubnet, newPubKey, secret)
+
+	if ipWithOriginal != ipWithSeed {
+		t.Errorf("IP derived with seed should match original: seed=%q, original=%q", ipWithSeed, ipWithOriginal)
+	}
+
+	if ipWithOriginal == ipWithNewKey {
+		t.Errorf("IP derived with new key should differ from original (got same IP %q for both keys)", ipWithOriginal)
+	}
+}
+
+func TestMeshIPSeedPreservesIPInCustomSubnet(t *testing.T) {
+	// Same as TestMeshIPSeedPreservesIPAcrossKeyChange but with a custom subnet.
+	t.Parallel()
+
+	secret := "test-secret-custom-subnet"
+	_, customSubnet, err := net.ParseCIDR("192.168.100.0/24")
+	if err != nil {
+		t.Fatalf("ParseCIDR: %v", err)
+	}
+
+	originalPubKey := "original-wg-pubkey-cccc"
+	newPubKey := "new-wg-pubkey-dddd"
+
+	ipWithOriginal, err := crypto.DeriveMeshIPInSubnet(customSubnet, originalPubKey, secret)
+	if err != nil {
+		t.Fatalf("DeriveMeshIPInSubnet(original): %v", err)
+	}
+
+	ipWithSeed, err := crypto.DeriveMeshIPInSubnet(customSubnet, originalPubKey, secret)
+	if err != nil {
+		t.Fatalf("DeriveMeshIPInSubnet(seed): %v", err)
+	}
+
+	ipWithNewKey, err := crypto.DeriveMeshIPInSubnet(customSubnet, newPubKey, secret)
+	if err != nil {
+		t.Fatalf("DeriveMeshIPInSubnet(new): %v", err)
+	}
+
+	if ipWithOriginal != ipWithSeed {
+		t.Errorf("IP derived with seed should match original: seed=%q, original=%q", ipWithSeed, ipWithOriginal)
+	}
+
+	if ipWithOriginal == ipWithNewKey {
+		t.Errorf("IP derived with new key should differ from original (got same IP %q for both keys)", ipWithOriginal)
+	}
+}
+
+func TestMeshIPSeedPreservesIPv6AcrossKeyChange(t *testing.T) {
+	t.Parallel()
+
+	secret := "test-secret-ipv6-rotation"
+	keys, err := crypto.DeriveKeys(secret)
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+
+	originalPubKey := "original-wg-pubkey-eeee"
+	newPubKey := "new-wg-pubkey-ffff"
+
+	ipv6Original := crypto.DeriveMeshIPv6(keys.MeshPrefixV6, originalPubKey, secret)
+	ipv6WithSeed := crypto.DeriveMeshIPv6(keys.MeshPrefixV6, originalPubKey, secret)
+	ipv6NewKey := crypto.DeriveMeshIPv6(keys.MeshPrefixV6, newPubKey, secret)
+
+	if ipv6Original != ipv6WithSeed {
+		t.Errorf("IPv6 derived with seed should match original: seed=%q, original=%q", ipv6WithSeed, ipv6Original)
+	}
+
+	if ipv6Original == ipv6NewKey {
+		t.Errorf("IPv6 derived with new key should differ from original (got same IPv6 %q for both keys)", ipv6Original)
+	}
+}
+
+func TestLocalNodeStateRoundTripWithMeshIPSeed(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wg0-roundtrip.json")
+
+	// Simulate key rotation: original pubkey is the seed, current key is new.
+	node := &LocalNode{
+		WGPubKey:     "new-pubkey-after-rotation",
+		WGPrivateKey: "new-privkey-after-rotation",
+		MeshIP:       "10.42.7.99",
+		MeshIPv6:     "fd12:3456:789a:0001::99",
+		MeshIPSeed:   "original-pubkey-before-rotation",
+	}
+
+	if err := saveLocalNode(path, node); err != nil {
+		t.Fatalf("saveLocalNode: %v", err)
+	}
+
+	loaded, err := loadLocalNode(path)
+	if err != nil {
+		t.Fatalf("loadLocalNode: %v", err)
+	}
+
+	// Verify all fields round-trip correctly
+	if loaded.WGPubKey != node.WGPubKey {
+		t.Errorf("WGPubKey: got %q, want %q", loaded.WGPubKey, node.WGPubKey)
+	}
+	if loaded.WGPrivateKey != node.WGPrivateKey {
+		t.Errorf("WGPrivateKey: got %q, want %q", loaded.WGPrivateKey, node.WGPrivateKey)
+	}
+	if loaded.MeshIP != node.MeshIP {
+		t.Errorf("MeshIP: got %q, want %q", loaded.MeshIP, node.MeshIP)
+	}
+	if loaded.MeshIPv6 != node.MeshIPv6 {
+		t.Errorf("MeshIPv6: got %q, want %q", loaded.MeshIPv6, node.MeshIPv6)
+	}
+	if loaded.MeshIPSeed != node.MeshIPSeed {
+		t.Errorf("MeshIPSeed: got %q, want %q", loaded.MeshIPSeed, node.MeshIPSeed)
+	}
+}
+
+func TestMeshIPSeedJSONFieldOmittedWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wg0-no-seed.json")
+
+	node := &LocalNode{
+		WGPubKey:     "pubkey-no-seed",
+		WGPrivateKey: "privkey-no-seed",
+		MeshIP:       "10.42.1.1",
+		// MeshIPSeed intentionally empty
+	}
+
+	if err := saveLocalNode(path, node); err != nil {
+		t.Fatalf("saveLocalNode: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	// The mesh_ip_seed field should be omitted when empty (omitempty)
+	if strings.Contains(string(data), "mesh_ip_seed") {
+		t.Errorf("mesh_ip_seed should be omitted when empty, got:\n%s", string(data))
+	}
+}
+
+func TestMeshIPSeedJSONFieldPresentWhenSet(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wg0-with-seed.json")
+
+	node := &LocalNode{
+		WGPubKey:     "pubkey-with-seed",
+		WGPrivateKey: "privkey-with-seed",
+		MeshIP:       "10.42.1.2",
+		MeshIPSeed:   "the-original-seed-key",
+	}
+
+	if err := saveLocalNode(path, node); err != nil {
+		t.Fatalf("saveLocalNode: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	// The mesh_ip_seed field should be present when set
+	if !strings.Contains(string(data), "mesh_ip_seed") {
+		t.Errorf("mesh_ip_seed should be present when set, got:\n%s", string(data))
 	}
 }
