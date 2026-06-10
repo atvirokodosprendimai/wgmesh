@@ -211,6 +211,11 @@ func TestStatusJSONOutput(t *testing.T) {
 		t.Error("RendezvousID field is empty")
 	}
 
+	// Verify new fields are present
+	if status.Version == "" {
+		t.Error("Version field is empty")
+	}
+
 	// Verify format expectations
 	if !strings.Contains(status.MeshSubnet, "/") {
 		t.Errorf("MeshSubnet should be CIDR format, got: %s", status.MeshSubnet)
@@ -218,6 +223,9 @@ func TestStatusJSONOutput(t *testing.T) {
 	if !strings.Contains(status.MeshIPv6Prefix, "/") {
 		t.Errorf("MeshIPv6Prefix should contain CIDR, got: %s", status.MeshIPv6Prefix)
 	}
+
+	// MeshIP, PubKey, and Uptime are optional (only present when daemon is running)
+	// They should be empty when only querying derived status
 }
 
 func TestStatusTextOutput(t *testing.T) {
@@ -243,6 +251,7 @@ func TestStatusTextOutput(t *testing.T) {
 	expectedStrings := []string{
 		"Mesh Status",
 		"===========",
+		"Version:",
 		"Interface:",
 		"Network ID:",
 		"Mesh Subnet:",
@@ -367,5 +376,87 @@ func TestStatusBackwardCompatibility(t *testing.T) {
 	// Should NOT be JSON
 	if strings.Contains(outputStr, "\"interface\":") {
 		t.Error("Default output should not be JSON format")
+	}
+}
+
+func TestStatusJSONVersionField(t *testing.T) {
+	// Build the binary for testing
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test")
+
+	// Test secret
+	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+
+	cmd := exec.Command("/tmp/wgmesh-test", "status", "--secret", testSecret, "--json")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Command failed: %v, output: %s", err, output)
+	}
+
+	// Parse JSON output
+	var status StatusOutput
+	if err := json.Unmarshal(output, &status); err != nil {
+		t.Fatalf("Failed to parse JSON output: %v\nOutput: %s", err, output)
+	}
+
+	// Verify version field is present and starts with "wgmesh "
+	if !strings.HasPrefix(status.Version, "wgmesh ") {
+		t.Errorf("Version field should start with 'wgmesh ', got: %s", status.Version)
+	}
+
+	// Version should not be empty
+	if status.Version == "" {
+		t.Error("Version field should not be empty")
+	}
+}
+
+func TestStatusJSONDaemonNotRunning(t *testing.T) {
+	// Build the binary for testing
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test")
+
+	// Test secret
+	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+
+	// Ensure no daemon is running by using a non-existent socket path
+	cmd := exec.Command("/tmp/wgmesh-test", "status", "--secret", testSecret, "--json")
+	cmd.Env = append(os.Environ(), "WGMESH_SOCKET=/tmp/nonexistent-wgmesh-socket.sock")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Command failed: %v, output: %s", err, output)
+	}
+
+	// Parse JSON output - should still work even when daemon is not running
+	var status StatusOutput
+	if err := json.Unmarshal(output, &status); err != nil {
+		t.Fatalf("Failed to parse JSON output when daemon not running: %v\nOutput: %s", err, output)
+	}
+
+	// Verify derived fields are still present
+	if status.Interface == "" {
+		t.Error("Interface field should be present even without daemon")
+	}
+	if status.NetworkID == "" {
+		t.Error("NetworkID field should be present even without daemon")
+	}
+	if status.Version == "" {
+		t.Error("Version field should be present even without daemon")
+	}
+
+	// Verify daemon-specific fields are empty when daemon is not running
+	if status.MeshIP != "" {
+		t.Error("MeshIP should be empty when daemon is not running")
+	}
+	if status.PubKey != "" {
+		t.Error("PubKey should be empty when daemon is not running")
+	}
+	if status.Uptime != 0 {
+		t.Error("Uptime should be zero when daemon is not running")
 	}
 }

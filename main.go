@@ -528,6 +528,9 @@ func testPeerCmd() {
 
 // statusCmd handles the "status --secret" subcommand
 // StatusOutput defines the JSON structure for status output
+// StatusOutput defines the JSON structure for status output.
+// When using --json flag, output is a JSON object with these fields.
+// All fields are always present in JSON output (optional fields are omitted if empty).
 type StatusOutput struct {
 	Interface      string `json:"interface"`
 	NetworkID      string `json:"network_id"`
@@ -536,6 +539,12 @@ type StatusOutput struct {
 	GossipPort     int    `json:"gossip_port"`
 	RendezvousID   string `json:"rendezvous_id"`
 	ServiceStatus  string `json:"service_status,omitempty"`
+
+	// Additional fields for programmatic consumption
+	Version string        `json:"version"`
+	MeshIP  string        `json:"mesh_ip,omitempty"`
+	PubKey  string        `json:"pubkey,omitempty"`
+	Uptime  time.Duration `json:"uptime,omitempty"`
 }
 
 func statusCmd() {
@@ -585,6 +594,38 @@ func statusCmd() {
 		output.ServiceStatus = status
 	}
 
+	// Add version
+	output.Version = versionOutput()
+
+	// Try to get richer status from daemon RPC if available
+	socketPath := os.Getenv("WGMESH_SOCKET")
+	if socketPath == "" {
+		socketPath = getRPCSocketPath()
+	}
+	client, err := rpc.NewClient(socketPath)
+	if err == nil {
+		defer client.Close()
+		result, err := client.Call("daemon.status", nil)
+		if err == nil {
+			resultMap, ok := result.(map[string]interface{})
+			if ok {
+				if meshIP, ok := resultMap["mesh_ip"].(string); ok {
+					output.MeshIP = meshIP
+				}
+				if pubkey, ok := resultMap["pubkey"].(string); ok {
+					output.PubKey = pubkey
+				}
+				if iface, ok := resultMap["interface"].(string); ok && iface != "" {
+					output.Interface = iface
+				}
+				// Uptime comes as a float64 from JSON (seconds in Go duration format)
+				if uptimeVal, ok := resultMap["uptime"].(float64); ok {
+					output.Uptime = time.Duration(uptimeVal)
+				}
+			}
+		}
+	}
+
 	// Output in requested format
 	if *jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
@@ -597,6 +638,7 @@ func statusCmd() {
 		// Text format (original behavior)
 		fmt.Printf("Mesh Status\n")
 		fmt.Printf("===========\n")
+		fmt.Printf("Version: %s\n", output.Version)
 		fmt.Printf("Interface: %s\n", output.Interface)
 		fmt.Printf("Network ID: %s\n", output.NetworkID)
 		if cfg.CustomSubnet != nil {
@@ -608,6 +650,20 @@ func statusCmd() {
 		fmt.Printf("Gossip Port: %d\n", output.GossipPort)
 		fmt.Printf("Rendezvous ID: %s\n", output.RendezvousID)
 		fmt.Println()
+
+		// Daemon-specific information (if available)
+		if output.MeshIP != "" {
+			fmt.Printf("Mesh IP: %s\n", output.MeshIP)
+		}
+		if output.PubKey != "" {
+			fmt.Printf("Public Key: %s\n", output.PubKey)
+		}
+		if output.Uptime > 0 {
+			fmt.Printf("Uptime: %s\n", output.Uptime.String())
+		}
+		if output.MeshIP != "" || output.PubKey != "" || output.Uptime > 0 {
+			fmt.Println()
+		}
 
 		if output.ServiceStatus != "" {
 			fmt.Printf("Service Status: %s\n", output.ServiceStatus)
