@@ -87,6 +87,23 @@ For end-to-end walkthroughs of the most common deployment patterns, see the
 Evaluating whether wgmesh fits your infrastructure? Use the
 [15-minute evaluation checklist](docs/evaluation-checklist.md) to reach a go/no-go decision.
 
+For a guided 30-day pilot with milestone tracking, health checks, and stakeholder
+reports, see the [pilot evaluation guide](docs/pilot-evaluation.md).
+
+```bash
+# Initialize pilot tracking
+wgmesh pilot init --mode decentralized --use-case remote-team --nodes 3
+
+# Check progress anytime
+wgmesh pilot status
+
+# Run automated health checks
+wgmesh pilot validate
+
+# Generate a stakeholder report
+wgmesh pilot report --format markdown
+```
+
 ## How It Works
 
 ### Mesh Topology

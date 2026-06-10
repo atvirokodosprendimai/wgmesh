@@ -78,6 +78,9 @@ func main() {
 		case "service":
 			serviceCmd()
 			return
+		case "pilot":
+			pilotCmd()
+			return
 		}
 	}
 
@@ -215,6 +218,13 @@ SUBCOMMANDS (decentralized mode):
 	     [--introducer]           Enable rendezvous introducer role in service
   uninstall-service             Remove systemd service
   rotate-secret                 Rotate mesh secret
+
+PILOT EVALUATION:
+  pilot init                    Initialize 30-day pilot evaluation
+  pilot status                  Show pilot progress and health summary
+  pilot validate                Run automated health checks
+  pilot report                  Generate evaluation report
+  pilot milestone <name>        Mark a milestone as completed
 
 QUERY SUBCOMMANDS (decentralized mode):
   peers list                    List all active peers
