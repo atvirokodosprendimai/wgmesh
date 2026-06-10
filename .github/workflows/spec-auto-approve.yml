@@ -196,11 +196,9 @@ jobs:
           # permission, so dispatching with it fails "Resource not accessible by
           # integration". actions:write comes from this workflow's permissions block.
           echo "Triggering Goose implementation for issue #${ISSUE_NUM} (spec PR #${PR_NUM})"
-          GH_TOKEN="$ISSUE_WRITE_TOKEN" gh workflow run goose-build.yml \
-            -f issue_number="${ISSUE_NUM}" \
-            -f spec_pr_number="${PR_NUM}"
-
-          echo "Goose implementation triggered"
+          # goose-build dispatch removed 2026-06-10: the pipeline box (live
+          # mode) implements from approved specs; the Actions lane raced it.
+          echo "Approved — pipeline box will implement"
 
       # ── Agent metrics: spec validation ────────────────
       - name: Collect agent metrics
@@ -444,15 +442,10 @@ jobs:
                 // no `actions` permission - dispatching with it 403s
                 // "Resource not accessible by integration". GITHUB_TOKEN carries
                 // actions:write from this workflow's permissions block.
-                await issueGithub.rest.actions.createWorkflowDispatch({
-                  owner, repo,
-                  workflow_id: 'goose-build.yml',
-                  ref: 'main',
-                  inputs: {
-                    issue_number: issueNum,
-                    spec_pr_number: String(pr.number),
-                  },
-                });
+                // goose-build dispatch removed 2026-06-10: the pipeline box
+                // (live mode) implements from approved specs; the Actions lane
+                // raced it (duplicate implementations, pulse 2026-06-10).
+                core.info(`PR #${pr.number}: approved — pipeline box will implement`);
 
                 core.info(`PR #${pr.number}: approved + Goose triggered for issue #${issueNum}`);
 

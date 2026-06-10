@@ -6,9 +6,11 @@ name: Goose Implementation
 # 1. A spec PR is labeled 'approved-for-build' (normal flow)
 # 2. Manually via workflow_dispatch (re-trigger for merged PRs or retries)
 
+# The pipeline box (live mode) owns implementation since 2026-06-10 — it
+# implements from approved specs on bot/impl-N branches. This Actions lane
+# stays manual-only for emergencies; the labeled trigger raced the box and
+# produced duplicate implementations (pulse 2026-06-10).
 'on':
-  pull_request:
-    types: [labeled]
   workflow_dispatch:
     inputs:
       issue_number:
