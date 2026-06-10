@@ -192,8 +192,11 @@ jobs:
           GH_TOKEN="$ISSUE_WRITE_TOKEN" gh pr edit $PR_NUM --add-label approved-for-build
 
           # Directly trigger Goose implementation via workflow_dispatch.
+          # GITHUB_TOKEN, not the app token: the app installation has no `actions`
+          # permission, so dispatching with it fails "Resource not accessible by
+          # integration". actions:write comes from this workflow's permissions block.
           echo "Triggering Goose implementation for issue #${ISSUE_NUM} (spec PR #${PR_NUM})"
-          gh workflow run goose-build.yml \
+          GH_TOKEN="$ISSUE_WRITE_TOKEN" gh workflow run goose-build.yml \
             -f issue_number="${ISSUE_NUM}" \
             -f spec_pr_number="${PR_NUM}"
 
