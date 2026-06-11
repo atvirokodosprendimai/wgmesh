@@ -238,3 +238,51 @@ Stop the evaluation and investigate (or file a bug) if:
 If all rows are **Go**: proceed to production rollout using [docs/quickstart.md](quickstart.md) (decentralized) or [docs/centralized-mode.md](centralized-mode.md) (centralized).
 
 If any row is **No-Go**: file an issue at https://github.com/atvirokodosprendimai/wgmesh/issues with the failing section and debug output.
+
+---
+
+## Section 6 — Structured 30-Day Pilot (Optional)
+
+For a more rigorous, multi-week evaluation with automated milestone tracking and metrics collection, use the built-in pilot framework. This is recommended for production-readiness assessments.
+
+See [pilot-evaluation-guide.md](pilot-evaluation-guide.md) for the full walkthrough.
+
+### Quick pilot setup
+
+```bash
+# 1. Initialize pilot with your organization details
+wgmesh pilot init --org "Your Org" --contact admin@yourorg.com --nodes 5
+
+# 2. Generate a mesh secret
+wgmesh init --secret
+
+# 3. Start the pilot clock
+wgmesh pilot start
+
+# 4. Deploy to pilot nodes
+wgmesh join --secret "wgmesh://v1/..."
+
+# 5. Monitor progress at any time
+wgmesh pilot status
+wgmesh pilot validate
+wgmesh pilot report
+
+# 6. Finalize after evaluation period
+wgmesh pilot complete
+```
+
+### Pilot milestones
+
+| Phase | Days | Goal |
+|-------|------|------|
+| Baseline Setup | 1–3 | Successful deployment and basic connectivity |
+| Mesh Stability | 4–7 | ≥99.9% connectivity uptime, zero crashes |
+| Production Traffic | 8–14 | Throughput and latency within targets |
+| Advanced Scenarios | 15–30 | NAT traversal, relay fallback, secret rotation |
+
+### Pilot success criteria
+
+- [ ] Pilot report shows ≥99.9% mesh connectivity
+- [ ] All four milestones completed
+- [ ] Overall rating: Good or Excellent
+- [ ] Zero daemon crashes over the evaluation period
