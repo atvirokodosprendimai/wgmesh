@@ -80,6 +80,9 @@ type Daemon struct {
 	// RPC server
 	rpcServer RPCServer
 
+	// WireGuard device (system-managed or FD-based)
+	wgDevice wireguard.WGDevice
+
 	// startTime is recorded when the daemon starts, used for uptime reporting.
 	startTime time.Time
 
@@ -408,27 +411,35 @@ func (d *Daemon) initLocalNode() error {
 
 // setupWireGuard creates and configures the WireGuard interface
 func (d *Daemon) setupWireGuard() error {
-	log.Printf("Setting up WireGuard interface %s...", d.config.InterfaceName)
+	var err error
 
-	// Check if interface exists
-	if interfaceExists(d.config.InterfaceName) {
-		// Check if existing interface already has our port
-		existingPort := getWGInterfacePort(d.config.InterfaceName)
-		if existingPort == d.config.WGListenPort {
-			// Same interface with same port - just reset it
-			log.Printf("Interface %s exists with same port, resetting...", d.config.InterfaceName)
-		} else {
-			log.Printf("Interface %s exists, resetting...", d.config.InterfaceName)
+	// Check if we should use FD-based device (Android VPN mode) or system device
+	if d.config.VPNFD > 0 {
+		log.Printf("Setting up WireGuard FD device for Android VPN (fd=%d)...", d.config.VPNFD)
+
+		// Parse private key from base64 to bytes
+		privKeyBytes, err := wireguard.ParseKey(d.localNode.WGPrivateKey)
+		if err != nil {
+			return fmt.Errorf("parsing private key: %w", err)
 		}
-		if err := resetInterface(d.config.InterfaceName); err != nil {
-			return fmt.Errorf("failed to reset interface: %w", err)
+
+		// Create FD-based device
+		d.wgDevice, err = wireguard.NewFDDevice(d.config.VPNFD, privKeyBytes, d.config.WGListenPort)
+		if err != nil {
+			return fmt.Errorf("creating FD device: %w", err)
 		}
-	} else {
-		// Create interface
-		if err := createInterface(d.config.InterfaceName); err != nil {
-			return fmt.Errorf("failed to create interface: %w", err)
+
+		// Start the device
+		if err := d.wgDevice.Start(); err != nil {
+			return fmt.Errorf("starting FD device: %w", err)
 		}
+
+		log.Printf("WireGuard FD device ready on port %d", d.config.WGListenPort)
+		return nil
 	}
+
+	// Traditional system-managed interface
+	log.Printf("Setting up WireGuard interface %s...", d.config.InterfaceName)
 
 	// Check if port is in use by another interface
 	listenPort := d.config.WGListenPort
@@ -443,9 +454,15 @@ func (d *Daemon) setupWireGuard() error {
 		d.config.WGListenPort = availablePort
 	}
 
-	// Configure interface with private key and listen port
-	if err := configureInterface(d.config.InterfaceName, d.localNode.WGPrivateKey, listenPort); err != nil {
-		return fmt.Errorf("failed to configure interface: %w", err)
+	// Create system device
+	d.wgDevice, err = wireguard.NewSysDevice(d.config.InterfaceName, d.localNode.WGPrivateKey, listenPort)
+	if err != nil {
+		return fmt.Errorf("creating system device: %w", err)
+	}
+
+	// Start the device (creates and configures the interface)
+	if err := d.wgDevice.Start(); err != nil {
+		return fmt.Errorf("starting system device: %w", err)
 	}
 
 	// Set IP address with correct prefix length
@@ -458,28 +475,28 @@ func (d *Daemon) setupWireGuard() error {
 		}
 	}
 
-	// Bring interface up
-	if err := setInterfaceUp(d.config.InterfaceName); err != nil {
-		return fmt.Errorf("failed to bring interface up: %w", err)
-	}
-
 	log.Printf("WireGuard interface %s ready on port %d", d.config.InterfaceName, listenPort)
 	return nil
 }
 
 func (d *Daemon) teardownWireGuard() {
-	if d == nil || d.config == nil || d.config.InterfaceName == "" {
+	if d == nil {
 		return
 	}
 
-	if err := setInterfaceDown(d.config.InterfaceName); err != nil {
-		log.Printf("[Shutdown] Failed to bring down interface %s: %v", d.config.InterfaceName, err)
+	if d.wgDevice != nil {
+		// Stop the device
+		if err := d.wgDevice.Stop(); err != nil {
+			log.Printf("[Shutdown] Failed to stop WireGuard device: %v", err)
+		}
+
+		// Close and cleanup
+		if err := d.wgDevice.Close(); err != nil {
+			log.Printf("[Shutdown] Failed to close WireGuard device: %v", err)
+		}
+
+		log.Printf("[Shutdown] WireGuard device cleaned up")
 	}
-	if err := deleteInterface(d.config.InterfaceName); err != nil {
-		log.Printf("[Shutdown] Failed to delete interface %s: %v", d.config.InterfaceName, err)
-		return
-	}
-	log.Printf("[Shutdown] WireGuard interface %s removed", d.config.InterfaceName)
 }
 
 // reconcileLoop periodically reconciles the WireGuard configuration
@@ -738,15 +755,19 @@ func (d *Daemon) addAllowedIP(desired map[string]*desiredPeerConfig, peer *PeerI
 }
 
 func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) error {
-	existing, err := wireguard.GetPeers(d.config.InterfaceName)
+	if d.wgDevice == nil {
+		return fmt.Errorf("WireGuard device not initialized")
+	}
+
+	existing, err := d.wgDevice.GetPeers()
 	if err == nil {
-		for _, current := range existing {
-			if _, ok := desired[current.PublicKey]; !ok {
-				if err := wireguard.RemovePeer(d.config.InterfaceName, current.PublicKey); err != nil {
-					log.Printf("Failed to remove obsolete peer %s...: %v", shortKey(current.PublicKey), err)
+		for _, currentPubKey := range existing {
+			if _, ok := desired[currentPubKey]; !ok {
+				if err := d.wgDevice.RemovePeer(currentPubKey); err != nil {
+					log.Printf("Failed to remove obsolete peer %s...: %v", shortKey(currentPubKey), err)
 				}
 				d.appliedMu.Lock()
-				delete(d.lastAppliedPeerConfigs, current.PublicKey)
+				delete(d.lastAppliedPeerConfigs, currentPubKey)
 				d.appliedMu.Unlock()
 			}
 		}
@@ -763,8 +784,7 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		if len(allowed) == 0 {
 			continue
 		}
-		allowedCSV := strings.Join(allowed, ",")
-		signature := cfg.peer.Endpoint + "|" + allowedCSV
+		signature := cfg.peer.Endpoint + "|" + strings.Join(allowed, ",")
 
 		// Check-and-mark under the same lock to avoid TOCTOU (W4)
 		d.appliedMu.Lock()
@@ -776,7 +796,7 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		d.lastAppliedPeerConfigs[pubKey] = signature
 		d.appliedMu.Unlock()
 
-		if err := wireguard.SetPeer(d.config.InterfaceName, pubKey, d.config.Keys.PSK, cfg.peer.Endpoint, allowedCSV); err != nil {
+		if err := d.wgDevice.SetPeer(pubKey, cfg.peer.Endpoint, allowed, 25); err != nil {
 			// Rollback the optimistic write on failure
 			d.appliedMu.Lock()
 			delete(d.lastAppliedPeerConfigs, pubKey)
@@ -873,7 +893,10 @@ func endpointOnAnyLocalSubnet(endpoint string, subnets []*net.IPNet) bool {
 
 // removePeer removes a peer from the WireGuard configuration
 func (d *Daemon) removePeer(pubKey string) error {
-	return wireguard.RemovePeer(d.config.InterfaceName, pubKey)
+	if d.wgDevice == nil {
+		return fmt.Errorf("WireGuard device not initialized")
+	}
+	return d.wgDevice.RemovePeer(pubKey)
 }
 
 // statusLoop periodically prints mesh status
@@ -1323,7 +1346,13 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	if err := wireguard.SetPeer(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, peer.Endpoint, allowedCSV); err != nil {
+	if d.wgDevice == nil {
+		log.Printf("[Health] Failed to reconnect peer %s...: WireGuard device not initialized", shortKey(peer.WGPubKey))
+		return
+	}
+
+	allowedList := mapKeysSorted(allowed)
+	if err := d.wgDevice.SetPeer(peer.WGPubKey, peer.Endpoint, allowedList, 25); err != nil {
 		log.Printf("[Health] Failed to reconnect peer %s...: %v", shortKey(peer.WGPubKey), err)
 		return
 	}
@@ -1339,7 +1368,9 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	log.Printf("[Health] Evicting unresponsive peer %s... from active pool", shortKey(peer.WGPubKey))
 	d.markTemporarilyOffline(peer.WGPubKey)
 	d.peerStore.Remove(peer.WGPubKey)
-	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
+	if d.wgDevice == nil {
+		log.Printf("[Health] Failed to evict peer %s...: WireGuard device not initialized", shortKey(peer.WGPubKey))
+	} else if err := d.wgDevice.RemovePeer(peer.WGPubKey); err != nil {
 		log.Printf("[Health] Failed to remove evicted peer %s... from WireGuard: %v", shortKey(peer.WGPubKey), err)
 	}
 	d.appliedMu.Lock()

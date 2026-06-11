@@ -38,6 +38,7 @@ type Config struct {
 	ForceRelay      bool
 	DisablePunching bool
 	CustomSubnet    *net.IPNet // User-specified mesh subnet (nil = use derived)
+	VPNFD           int        // File descriptor for VPN operation (Android VPN API)
 }
 
 // DaemonOpts holds options for the daemon
