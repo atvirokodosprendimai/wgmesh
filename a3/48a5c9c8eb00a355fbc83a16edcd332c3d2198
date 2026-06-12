@@ -1,0 +1,21 @@
+.github/workflows/auto-merge.yml
+  s_e572593943375e::t_f064674511b2ce 241-242
+  s_e572593943375e::t_9b442216a2f09f 312-315,317-334
+  s_e572593943375e::t_50ea2731cc972e 27-30,46-49,254,275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.6",
+  "base_commit_sha": "a348a5c9c8eb00a355fbc83a16edcd332c3d2198",
+  "prompts": {},
+  "sessions": {
+    "s_e572593943375e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "73f3e1b0-bc7b-47d7-97f0-2bec21527939",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
