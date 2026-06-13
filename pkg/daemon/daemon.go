@@ -413,24 +413,17 @@ func (d *Daemon) initLocalNode() error {
 func (d *Daemon) setupWireGuard() error {
 	var err error
 
-	// Check if we should use FD-based device (Android VPN mode) or system device
-	if d.config.VPNFD > 0 {
+	if d.isTunFdMode() {
 		log.Printf("Setting up WireGuard FD device for Android VPN (fd=%d)...", d.config.VPNFD)
 
-		// Parse private key from base64 to bytes
-		privKeyBytes, err := wireguard.ParseKey(d.localNode.WGPrivateKey)
-		if err != nil {
-			return fmt.Errorf("parsing private key: %w", err)
-		}
-
-		// Create FD-based device
-		d.wgDevice, err = wireguard.NewFDDevice(d.config.VPNFD, privKeyBytes, d.config.WGListenPort)
+		d.wgDevice, err = wireguard.NewFDDevice(d.config.VPNFD, d.config.TunPrivateKey, d.config.WGListenPort)
 		if err != nil {
 			return fmt.Errorf("creating FD device: %w", err)
 		}
 
-		// Start the device
 		if err := d.wgDevice.Start(); err != nil {
+			_ = d.wgDevice.Close()
+			d.wgDevice = nil
 			return fmt.Errorf("starting FD device: %w", err)
 		}
 
@@ -481,8 +474,17 @@ func (d *Daemon) setupWireGuard() error {
 	return nil
 }
 
+func (d *Daemon) isTunFdMode() bool {
+	return d != nil && d.config != nil && d.config.VPNFD > 0
+}
+
 func (d *Daemon) teardownWireGuard() {
 	if d == nil {
+		return
+	}
+
+	if d.isTunFdMode() {
+		log.Printf("[Shutdown] TunFd mode: skipping interface teardown (fd %d)", d.config.VPNFD)
 		return
 	}
 

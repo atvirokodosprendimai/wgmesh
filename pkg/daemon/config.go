@@ -39,6 +39,7 @@ type Config struct {
 	DisablePunching bool
 	CustomSubnet    *net.IPNet // User-specified mesh subnet (nil = use derived)
 	VPNFD           int        // File descriptor for VPN operation (Android VPN API)
+	TunPrivateKey   []byte     // Raw 32-byte WireGuard private key for VPNFD mode
 }
 
 // DaemonOpts holds options for the daemon
@@ -56,6 +57,8 @@ type DaemonOpts struct {
 	ForceRelay          bool
 	DisablePunching     bool
 	MeshSubnet          string // Custom mesh subnet CIDR (e.g. "192.168.100.0/24")
+	VPNFD               int    // Pre-created TUN file descriptor (Android VPN API)
+	TunPrivateKey       []byte // Raw 32-byte WireGuard private key for VPNFD mode
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -73,6 +76,10 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 	keys, err := crypto.DeriveKeys(secret)
 	if err != nil {
 		return nil, fmt.Errorf("failed to derive keys: %w", err)
+	}
+
+	if opts.VPNFD != 0 && len(opts.TunPrivateKey) != 32 {
+		return nil, fmt.Errorf("TunPrivateKey must be exactly 32 bytes when VPNFD is set")
 	}
 
 	// Validate interface name before applying defaults.
@@ -133,6 +140,8 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		ForceRelay:      opts.ForceRelay,
 		DisablePunching: opts.DisablePunching,
 		CustomSubnet:    customSubnet,
+		VPNFD:           opts.VPNFD,
+		TunPrivateKey:   append([]byte(nil), opts.TunPrivateKey...),
 	}, nil
 }
 

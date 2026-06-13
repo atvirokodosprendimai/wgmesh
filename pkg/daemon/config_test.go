@@ -154,6 +154,41 @@ func TestConfig_NoPunchingFlag(t *testing.T) {
 	}
 }
 
+func TestNewConfigVPNFDRequiresPrivateKey(t *testing.T) {
+	_, err := NewConfig(DaemonOpts{
+		Secret: testConfigSecret,
+		VPNFD:  5,
+	})
+	if err == nil {
+		t.Fatal("expected error when VPNFD is set without a 32-byte private key")
+	}
+}
+
+func TestNewConfigVPNFDCopiesPrivateKey(t *testing.T) {
+	key := make([]byte, 32)
+	key[0] = 7
+
+	cfg, err := NewConfig(DaemonOpts{
+		Secret:        testConfigSecret,
+		VPNFD:         5,
+		TunPrivateKey: key,
+	})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+	if cfg.VPNFD != 5 {
+		t.Fatalf("expected VPNFD 5, got %d", cfg.VPNFD)
+	}
+	if len(cfg.TunPrivateKey) != 32 {
+		t.Fatalf("expected 32-byte TunPrivateKey, got %d", len(cfg.TunPrivateKey))
+	}
+
+	key[0] = 9
+	if cfg.TunPrivateKey[0] != 7 {
+		t.Fatal("expected TunPrivateKey to be copied")
+	}
+}
+
 func TestGenerateSecret(t *testing.T) {
 	secret, err := GenerateSecret()
 	if err != nil {
