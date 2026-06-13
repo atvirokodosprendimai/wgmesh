@@ -61,6 +61,12 @@ func (d *FDDevice) Start() error {
 	return nil
 }
 
+// ConfigureNetwork is a no-op for VPN FD devices because the host OS VPN API
+// owns interface addressing and link state.
+func (d *FDDevice) ConfigureNetwork(addresses []string) error {
+	return nil
+}
+
 // Stop deactivates the WireGuard device.
 // For FD-based devices, this stops processing and may close the file descriptor.
 func (d *FDDevice) Stop() error {

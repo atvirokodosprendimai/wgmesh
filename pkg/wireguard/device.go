@@ -4,10 +4,15 @@ package wireguard
 // This abstraction supports both system-managed interfaces (Linux/macOS)
 // and application-provided file descriptors (Android VPN API).
 type WGDevice interface {
-	// Start activates the WireGuard device with the provided configuration.
+	// Start activates the WireGuard device.
 	// For FD-based devices, this begins processing traffic on the file descriptor.
 	// For system interfaces, this ensures the interface is up and configured.
 	Start() error
+
+	// ConfigureNetwork applies device-local network configuration.
+	// System-managed interfaces use this to assign addresses; mobile VPN-backed
+	// implementations can no-op because the OS VPN API owns addressing/state.
+	ConfigureNetwork(addresses []string) error
 
 	// Stop deactivates the WireGuard device.
 	// For FD-based devices, this stops processing and may close the file descriptor.

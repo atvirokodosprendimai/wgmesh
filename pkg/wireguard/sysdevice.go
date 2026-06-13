@@ -105,6 +105,22 @@ func (d *SysDevice) Start() error {
 	return nil
 }
 
+// ConfigureNetwork assigns addresses to a system-managed interface.
+func (d *SysDevice) ConfigureNetwork(addresses []string) error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	for _, address := range addresses {
+		if address == "" {
+			continue
+		}
+		if err := d.setInterfaceAddress(address); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // Stop deactivates the WireGuard device.
 // For system interfaces, this brings the interface down.
 func (d *SysDevice) Stop() error {
@@ -279,6 +295,33 @@ func configureInterface(name, privateKey string, listenPort int) error {
 	}
 
 	return nil
+}
+
+func (d *SysDevice) setInterfaceAddress(address string) error {
+	switch runtime.GOOS {
+	case "linux":
+		cmd := exec.Command("ip", "addr", "add", address, "dev", d.ifaceName)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			if !strings.Contains(string(output), "File exists") {
+				return fmt.Errorf("failed to set address: %s: %w", string(output), err)
+			}
+		}
+		return nil
+	case "darwin":
+		parts := strings.SplitN(address, "/", 2)
+		if len(parts) != 2 {
+			return fmt.Errorf("invalid address format: %s", address)
+		}
+		cmd := exec.Command("ifconfig", d.ifaceName, "inet", parts[0], parts[0], "alias")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			if !strings.Contains(string(output), "File exists") {
+				return fmt.Errorf("failed to set address: %s: %w", string(output), err)
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+	}
 }
 
 // setInterfaceUp brings an interface up

@@ -427,6 +427,17 @@ func (d *Daemon) setupWireGuard() error {
 			return fmt.Errorf("starting FD device: %w", err)
 		}
 
+		addresses := []string{fmt.Sprintf("%s/%d", d.localNode.MeshIP, d.config.PrefixLen())}
+		if d.localNode.MeshIPv6 != "" {
+			addresses = append(addresses, d.localNode.MeshIPv6+"/64")
+		}
+		if err := d.configureDeviceNetwork(addresses); err != nil {
+			_ = d.wgDevice.Stop()
+			_ = d.wgDevice.Close()
+			d.wgDevice = nil
+			return fmt.Errorf("configuring FD device network: %w", err)
+		}
+
 		log.Printf("WireGuard FD device ready on port %d", d.config.WGListenPort)
 		return nil
 	}
@@ -455,23 +466,31 @@ func (d *Daemon) setupWireGuard() error {
 
 	// Start the device (creates and configures the interface)
 	if err := d.wgDevice.Start(); err != nil {
+		_ = d.wgDevice.Close()
+		d.wgDevice = nil
 		return fmt.Errorf("starting system device: %w", err)
 	}
 
-	// Set IP address with correct prefix length
-	// Note: Only system devices need explicit address configuration
-	// FD-based devices (mobile VPN) handle addresses through the VPN API
-	if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.MeshIP, d.config.PrefixLen())); err != nil {
-		return fmt.Errorf("failed to set IP address: %w", err)
-	}
+	addresses := []string{fmt.Sprintf("%s/%d", d.localNode.MeshIP, d.config.PrefixLen())}
 	if d.localNode.MeshIPv6 != "" {
-		if err := setInterfaceAddress(d.config.InterfaceName, d.localNode.MeshIPv6+"/64"); err != nil {
-			return fmt.Errorf("failed to set IPv6 address: %w", err)
-		}
+		addresses = append(addresses, d.localNode.MeshIPv6+"/64")
+	}
+	if err := d.configureDeviceNetwork(addresses); err != nil {
+		_ = d.wgDevice.Stop()
+		_ = d.wgDevice.Close()
+		d.wgDevice = nil
+		return fmt.Errorf("configuring system device network: %w", err)
 	}
 
 	log.Printf("WireGuard interface %s ready on port %d", d.config.InterfaceName, listenPort)
 	return nil
+}
+
+func (d *Daemon) configureDeviceNetwork(addresses []string) error {
+	if d == nil || d.wgDevice == nil {
+		return nil
+	}
+	return d.wgDevice.ConfigureNetwork(addresses)
 }
 
 func (d *Daemon) isTunFdMode() bool {

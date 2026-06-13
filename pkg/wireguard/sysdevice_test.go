@@ -1,6 +1,7 @@
 package wireguard
 
 import (
+	"runtime"
 	"testing"
 )
 
@@ -115,13 +116,13 @@ func TestSysDevice_SetPeer(t *testing.T) {
 	}
 
 	tests := []struct {
-		name                 string
-		pubKey               string
-		endpoint             string
-		allowedIPs           []string
-		persistentKeepalive  int
-		wantErr              bool
-		skipIfNoWG           bool
+		name                string
+		pubKey              string
+		endpoint            string
+		allowedIPs          []string
+		persistentKeepalive int
+		wantErr             bool
+		skipIfNoWG          bool
 	}{
 		{
 			name:                "empty public key",
@@ -216,7 +217,9 @@ func TestSysDevice_CleanupOnFailure(t *testing.T) {
 
 	// Start may fail due to permissions, but we test the cleanup logic
 	// Even if it fails, the created flag should be properly managed
-	_ = device.Start()
+	if err := device.Start(); err != nil {
+		t.Logf("Start() failed (expected in some environments): %v", err)
+	}
 
 	// Close should be idempotent regardless of Start outcome
 	if err := device.Close(); err != nil {
@@ -228,29 +231,31 @@ func TestSysDevice_CleanupOnFailure(t *testing.T) {
 // TestSysDevice_PreExistingInterface tests the behavior when the
 // interface already exists (e.g., loopback "lo").
 func TestSysDevice_PreExistingInterface(t *testing.T) {
-	// Use "lo" which should exist on most systems
-	// This tests the path where we reuse an existing interface
-	device, err := NewSysDevice("lo", "test-private-key", 51820)
+	ifaceName := "lo"
+	if runtime.GOOS == "darwin" {
+		ifaceName = "lo0"
+	}
+
+	// Use a known-existing loopback interface so the test deterministically
+	// exercises the pre-existing-interface path.
+	device, err := NewSysDevice(ifaceName, "test-private-key", 51820)
 	if err != nil {
 		t.Fatalf("NewSysDevice() failed: %v", err)
 	}
 
-	// Try to start - this will likely fail because we can't configure lo
-	// as a WireGuard interface, but we're testing the cleanup logic
-	err = device.Start()
-	if err != nil {
-		t.Logf("Start() failed (expected for lo interface): %v", err)
+	if err := device.Start(); err != nil {
+		if !interfaceExists(ifaceName) {
+			t.Fatalf("Start() failed and interface %q no longer exists: %v", ifaceName, err)
+		}
+		t.Skipf("Start() requires system WireGuard tooling/privileges for %q: %v", ifaceName, err)
 	}
 
-	// Close should NOT delete the interface since it was pre-existing
-	// The closeOnce ensures this is idempotent
+	// Close should NOT delete the interface since it was pre-existing.
 	if err := device.Close(); err != nil {
 		t.Logf("Close() returned error: %v", err)
 	}
 
-	// Verify lo still exists (we shouldn't have deleted it)
-	// This is a sanity check that we didn't break the system interface
-	if !interfaceExists("lo") {
-		t.Error("Pre-existing interface 'lo' was deleted, this should not happen")
+	if !interfaceExists(ifaceName) {
+		t.Errorf("pre-existing interface %q was deleted, this should not happen", ifaceName)
 	}
 }

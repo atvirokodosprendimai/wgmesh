@@ -182,8 +182,8 @@ func configureInterface(name, privateKey string, listenPort int) error {
 	return nil
 }
 
-// setInterfaceAddress sets the IP address on an interface
-func setInterfaceAddress(name, address string) error {
+// SetInterfaceAddress sets the IP address on an interface.
+func SetInterfaceAddress(name, address string) error {
 	switch runtime.GOOS {
 	case "linux":
 		ip, _, err := net.ParseCIDR(address)
