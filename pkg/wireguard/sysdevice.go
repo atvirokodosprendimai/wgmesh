@@ -21,6 +21,7 @@ type SysDevice struct {
 	mu         sync.RWMutex
 	running    bool
 	closeOnce  sync.Once
+	created    bool // Tracks whether interface was created (for cleanup)
 }
 
 // NewSysDevice creates a new SysDevice for the specified interface.
@@ -64,23 +65,33 @@ func (d *SysDevice) Start() error {
 		if err != nil {
 			return fmt.Errorf("failed to reset interface: %w", err)
 		}
+		d.created = true // Mark as created even if we reused existing interface
 	} else {
 		// Create interface
 		err = createInterface(d.ifaceName)
 		if err != nil {
 			return fmt.Errorf("failed to create interface: %w", err)
 		}
+		d.created = true // Mark interface as created
 	}
 
 	// Configure interface with private key and listen port
 	err = configureInterface(d.ifaceName, d.privateKey, d.listenPort)
 	if err != nil {
+		// Attempt cleanup on configuration failure
+		setInterfaceDown(d.ifaceName)
+		deleteInterface(d.ifaceName)
+		d.created = false
 		return fmt.Errorf("failed to configure interface: %w", err)
 	}
 
 	// Bring interface up
 	err = setInterfaceUp(d.ifaceName)
 	if err != nil {
+		// Attempt cleanup on failure
+		setInterfaceDown(d.ifaceName)
+		deleteInterface(d.ifaceName)
+		d.created = false
 		return fmt.Errorf("failed to bring interface up: %w", err)
 	}
 
@@ -167,12 +178,13 @@ func (d *SysDevice) Close() error {
 		d.mu.Lock()
 		defer d.mu.Unlock()
 
-		if d.running {
-			d.running = false
-			// Bring interface down and delete it
+		// Clean up interface if it was created (even if not successfully started)
+		if d.created {
 			setInterfaceDown(d.ifaceName)
 			err = deleteInterface(d.ifaceName)
 		}
+		d.running = false
+		d.created = false
 	})
 	return err
 }
