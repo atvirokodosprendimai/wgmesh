@@ -466,6 +466,8 @@ func (d *Daemon) setupWireGuard() error {
 	}
 
 	// Set IP address with correct prefix length
+	// Note: Only system devices need explicit address configuration
+	// FD-based devices (mobile VPN) handle addresses through the VPN API
 	if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.MeshIP, d.config.PrefixLen())); err != nil {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}

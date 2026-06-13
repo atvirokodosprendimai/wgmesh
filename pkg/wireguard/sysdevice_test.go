@@ -88,18 +88,23 @@ func TestSysDevice_StartStop(t *testing.T) {
 	t.Run("Start and Stop", func(t *testing.T) {
 		// Start will fail without privileges, but we test the call path
 		err := device.Start()
-		// We don't assert error because it may succeed in some environments
-		_ = err
+		if err != nil {
+			t.Logf("Start() failed (expected without privileges): %v", err)
+		}
 
 		// Stop should also be callable
 		err = device.Stop()
-		_ = err
+		if err != nil {
+			t.Logf("Stop() failed: %v", err)
+		}
 	})
 
 	t.Run("Close", func(t *testing.T) {
 		// Close should be callable even if Start failed
 		err := device.Close()
-		_ = err
+		if err != nil {
+			t.Logf("Close() failed: %v", err)
+		}
 	})
 }
 
@@ -217,5 +222,35 @@ func TestSysDevice_CleanupOnFailure(t *testing.T) {
 	if err := device.Close(); err != nil {
 		// Close may fail if interface doesn't exist, that's ok
 		t.Logf("Close() returned error (expected in some environments): %v", err)
+	}
+}
+
+// TestSysDevice_PreExistingInterface tests the behavior when the
+// interface already exists (e.g., loopback "lo").
+func TestSysDevice_PreExistingInterface(t *testing.T) {
+	// Use "lo" which should exist on most systems
+	// This tests the path where we reuse an existing interface
+	device, err := NewSysDevice("lo", "test-private-key", 51820)
+	if err != nil {
+		t.Fatalf("NewSysDevice() failed: %v", err)
+	}
+
+	// Try to start - this will likely fail because we can't configure lo
+	// as a WireGuard interface, but we're testing the cleanup logic
+	err = device.Start()
+	if err != nil {
+		t.Logf("Start() failed (expected for lo interface): %v", err)
+	}
+
+	// Close should NOT delete the interface since it was pre-existing
+	// The closeOnce ensures this is idempotent
+	if err := device.Close(); err != nil {
+		t.Logf("Close() returned error: %v", err)
+	}
+
+	// Verify lo still exists (we shouldn't have deleted it)
+	// This is a sanity check that we didn't break the system interface
+	if !interfaceExists("lo") {
+		t.Error("Pre-existing interface 'lo' was deleted, this should not happen")
 	}
 }

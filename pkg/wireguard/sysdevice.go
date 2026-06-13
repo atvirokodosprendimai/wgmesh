@@ -57,22 +57,22 @@ func (d *SysDevice) Start() error {
 	}
 
 	var err error
+	interfaceWasPreExisting := interfaceExists(d.ifaceName)
 
 	// Check if interface exists
-	if interfaceExists(d.ifaceName) {
+	if interfaceWasPreExisting {
 		// Reset existing interface
 		err = resetInterface(d.ifaceName)
 		if err != nil {
 			return fmt.Errorf("failed to reset interface: %w", err)
 		}
-		d.created = true // Mark as created even if we reused existing interface
 	} else {
 		// Create interface
 		err = createInterface(d.ifaceName)
 		if err != nil {
 			return fmt.Errorf("failed to create interface: %w", err)
 		}
-		d.created = true // Mark interface as created
+		d.created = true // Mark interface as created by us
 	}
 
 	// Configure interface with private key and listen port
@@ -80,7 +80,10 @@ func (d *SysDevice) Start() error {
 	if err != nil {
 		// Attempt cleanup on configuration failure
 		setInterfaceDown(d.ifaceName)
-		deleteInterface(d.ifaceName)
+		// Only delete the interface if we created it
+		if d.created {
+			deleteInterface(d.ifaceName)
+		}
 		d.created = false
 		return fmt.Errorf("failed to configure interface: %w", err)
 	}
@@ -90,7 +93,10 @@ func (d *SysDevice) Start() error {
 	if err != nil {
 		// Attempt cleanup on failure
 		setInterfaceDown(d.ifaceName)
-		deleteInterface(d.ifaceName)
+		// Only delete the interface if we created it
+		if d.created {
+			deleteInterface(d.ifaceName)
+		}
 		d.created = false
 		return fmt.Errorf("failed to bring interface up: %w", err)
 	}

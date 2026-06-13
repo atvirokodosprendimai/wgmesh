@@ -27,6 +27,11 @@ func TestDeviceLifecycle(t *testing.T) {
 		// Start the device (may fail without privileges, but we test the interface)
 		startErr := device.Start()
 		t.Logf("Start() result (may fail without privileges): %v", startErr)
+		if startErr != nil {
+			// If Start failed, we can't test peer operations
+			// But we still test Stop and Close to ensure they handle this case
+			t.Logf("Start() failed, skipping peer operations: %v", startErr)
+		}
 
 		// Test peer operations
 		if startErr == nil {
