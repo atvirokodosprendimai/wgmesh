@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atvirokodosprendimai/wgmesh/pkg/account"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
@@ -82,6 +83,9 @@ func main() {
 			return
 		case "pilot":
 			pilotCmd()
+			return
+		case "account":
+			accountCmd()
 			return
 		}
 	}
@@ -1503,5 +1507,228 @@ func runPilotValidate() {
 	// Set exit code based on validation result
 	if !result.Passed {
 		os.Exit(1)
+	}
+}
+
+// accountCmd manages account and referral commands
+func accountCmd() {
+	if len(os.Args) < 3 {
+		printAccountUsage()
+		os.Exit(1)
+	}
+
+	switch os.Args[2] {
+	case "create":
+		runAccountCreate()
+	case "status":
+		runAccountStatus()
+	case "referrals":
+		runAccountReferrals()
+	default:
+		printAccountUsage()
+		os.Exit(1)
+	}
+}
+
+// printAccountUsage shows account command usage
+func printAccountUsage() {
+	fmt.Println(`wgmesh account - Manage your wgmesh account and referrals
+
+SUBCOMMANDS:
+  account create [--email <email>] [--referral-code <code>]
+                          Create a new account
+  account status          Show account details and referral code
+  account referrals       List all your successful referrals
+
+OPTIONS:
+  --email <email>         Email address for reward delivery (optional)
+  --referral-code <code>  Referral code if you were referred (optional)`)
+}
+
+// runAccountCreate creates a new account
+func runAccountCreate() {
+	var email, referralCode string
+
+	// Parse flags
+	args := os.Args[3:]
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--email":
+			if i+1 < len(args) {
+				email = args[i+1]
+				i++
+			}
+		case "--referral-code":
+			if i+1 < len(args) {
+				referralCode = args[i+1]
+				i++
+			}
+		default:
+			fmt.Fprintf(os.Stderr, "Unknown flag: %s\n", args[i])
+			printAccountUsage()
+			os.Exit(1)
+		}
+	}
+
+	// Get store path
+	homeDir, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", homeErr)
+		os.Exit(1)
+	}
+	storePath := filepath.Join(homeDir, ".wgmesh", "accounts.json")
+	store := account.NewStore(storePath)
+
+	// Load existing store
+	if err := store.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load account store: %v\n", err)
+		os.Exit(1)
+	}
+
+	// Check if account already exists
+	if existing := store.GetCurrentAccount(); existing != nil {
+		fmt.Printf("Account already exists: %s\n", existing.ID)
+		fmt.Printf("Referral code: %s\n", existing.ReferralCode)
+		fmt.Printf("\nUse 'wgmesh account status' for details\n")
+		return
+	}
+
+	var acc *account.Account
+	var err error
+
+	// Create account with or without referral
+	if referralCode != "" {
+		acc, err = store.CreateAccountWithReferral(email, account.ReferralCode(referralCode))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create account with referral: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Account created with referral code: %s\n", referralCode)
+	} else {
+		acc, err = store.CreateAccount(email)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to create account: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Account created: %s\n", acc.ID)
+	}
+
+	// Save store
+	if err := store.Save(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to save account: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Your referral code: %s\n", acc.ReferralCode)
+	fmt.Printf("\nShare your referral code to earn rewards!\n")
+	fmt.Printf("Use 'wgmesh account status' for details\n")
+}
+
+// runAccountStatus shows account status
+func runAccountStatus() {
+	homeDir, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", homeErr)
+		os.Exit(1)
+	}
+	storePath := filepath.Join(homeDir, ".wgmesh", "accounts.json")
+	store := account.NewStore(storePath)
+
+	if err := store.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load account store: %v\n", err)
+		os.Exit(1)
+	}
+
+	acc := store.GetCurrentAccount()
+	if acc == nil {
+		fmt.Println("No account found.")
+		fmt.Printf("\nCreate an account with: wgmesh account create\n")
+		return
+	}
+
+	// Get referral stats
+	totalReferrals, _ := store.GetTotalReferrals(acc.ID)
+	convertedReferrals, _ := store.GetConvertedReferrals(acc.ID)
+	conversionRate, _ := store.GetConversionRate(acc.ID)
+
+	// Calculate pending rewards
+	rewards, _ := store.CalculateRewardsDefault(acc.ID)
+
+	fmt.Printf("Account Details:\n")
+	fmt.Printf("  Account ID: %s\n", acc.ID)
+	if acc.Email != "" {
+		fmt.Printf("  Email: %s\n", acc.Email)
+	}
+	fmt.Printf("  Created: %s\n", acc.CreatedAt.Format("2006-01-02"))
+	if acc.ReferredBy != "" {
+		fmt.Printf("  Referred by: %s\n", acc.ReferredBy)
+	}
+
+	fmt.Printf("\nYour Referral Code:\n")
+	fmt.Printf("  %s\n\n", acc.ReferralCode)
+	fmt.Printf("  Share this code with your team to earn rewards!\n")
+
+	fmt.Printf("\nReferral Stats:\n")
+	fmt.Printf("  Total Referrals: %d\n", totalReferrals)
+	fmt.Printf("  Converted: %d", convertedReferrals)
+	if totalReferrals > 0 {
+		fmt.Printf(" (%.1f%%)", conversionRate)
+	}
+	fmt.Printf("\n")
+
+	if len(rewards) > 0 {
+		fmt.Printf("\nPending Rewards:\n")
+		for _, r := range rewards {
+			fmt.Printf("  - %s\n", r.Tier.Name)
+		}
+	}
+}
+
+// runAccountReferrals lists all referrals
+func runAccountReferrals() {
+	homeDir, homeErr := os.UserHomeDir()
+	if homeErr != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get home directory: %v\n", homeErr)
+		os.Exit(1)
+	}
+	storePath := filepath.Join(homeDir, ".wgmesh", "accounts.json")
+	store := account.NewStore(storePath)
+
+	if err := store.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load account store: %v\n", err)
+		os.Exit(1)
+	}
+
+	acc := store.GetCurrentAccount()
+	if acc == nil {
+		fmt.Println("No account found.")
+		fmt.Printf("\nCreate an account with: wgmesh account create\n")
+		return
+	}
+
+	referrals, err := store.GetReferrals(acc.ID)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to get referrals: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(referrals) == 0 {
+		fmt.Printf("No referrals yet.\n")
+		fmt.Printf("\nShare your referral code to start earning rewards:\n")
+		fmt.Printf("  %s\n", acc.ReferralCode)
+		return
+	}
+
+	fmt.Printf("Your Referrals (%d):\n\n", len(referrals))
+	fmt.Printf("| %-40s | %-12s | %-20s |\n", "Referred ID", "Code Used", "Converted At")
+	fmt.Printf("| %-40s | %-12s | %-20s |\n", "----------------------------------------", "------------", "--------------------")
+
+	for _, r := range referrals {
+		referredAcc, _ := store.GetByID(r.ReferredID)
+		convertedAt := "Not yet"
+		if referredAcc != nil && referredAcc.ConvertedAt != nil {
+			convertedAt = referredAcc.ConvertedAt.Format("2006-01-02")
+		}
+		fmt.Printf("| %-40s | %-12s | %-20s |\n", r.ReferredID, r.Code, convertedAt)
 	}
 }

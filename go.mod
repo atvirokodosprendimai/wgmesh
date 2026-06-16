@@ -5,6 +5,7 @@ go 1.25.5
 require (
 	github.com/anacrolix/dht/v2 v2.23.0
 	github.com/atvirokodosprendimai/lighthouse-go v0.1.0
+	github.com/google/uuid v1.3.0
 	github.com/prometheus/client_golang v1.12.2
 	github.com/prometheus/client_model v0.2.0
 	golang.org/x/crypto v0.47.0
