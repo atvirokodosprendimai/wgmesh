@@ -1,0 +1,16 @@
+window.WGMESH_CONFIG = {
+    chat: {
+        intercom: {
+            enabled: {{INTERCOM_ENABLED}},
+            appId: "{{INTERCOM_APP_ID}}"
+        },
+        drift: {
+            enabled: {{DRIFT_ENABLED}},
+            appId: "{{DRIFT_APP_ID}}"
+        }
+    },
+    trial: {
+        enabled: true,
+        defaultTrial: false
+    }
+};

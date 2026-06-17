@@ -287,6 +287,54 @@ wgmesh version
 - **SSH authentication**: The tool tries the SSH agent first (`SSH_AUTH_SOCK`), then `~/.ssh/id_rsa`, `~/.ssh/id_ed25519`, and `~/.ssh/id_ecdsa`.
 - The tool currently uses `InsecureIgnoreHostKey` for SSH — consider implementing proper host key verification for production.
 
+## Chat Widget Integration
+
+The wgmesh website (public/) supports configurable chat widgets for customer support:
+
+- **Supported providers**: Intercom, Drift
+- **Trial context detection**: Widgets display contextual prompts based on trial status (via `?trial=true` URL parameter)
+- **Zero-config default**: If no configuration is present, the page loads normally without errors
+- **Externalized credentials**: API keys are injected via environment variables at deploy time
+
+### Configuration
+
+Chat widgets are configured through a generated `config.js` file:
+
+```bash
+# Set environment variables
+export INTERCOM_ENABLED=true
+export INTERCOM_APP_ID="your-app-id"
+export DRIFT_ENABLED=false
+
+# Generate config.js
+./deploy/web/generate-config.sh
+```
+
+See [docs/chat-widget-deployment.md](docs/chat-widget-deployment.md) for:
+- Setting up Intercom/Drift accounts
+- nginx/Caddy configuration for serving the site
+- CI/CD integration
+- Testing procedures
+- Security best practices
+
+### Local Development
+
+To test chat widgets locally:
+
+```bash
+# Generate config with test credentials
+export INTERCOM_ENABLED=true
+export INTERCOM_APP_ID="test-id"
+./deploy/web/generate-config.sh
+
+# Serve the site
+python3 -m http.server 8000 --directory public
+```
+
+Visit `http://localhost:8000` to verify the widget loads.
+
+**Important**: Never commit `public/config.js` with API keys. Only the template (`public/config.js.template`) is tracked in git.
+
 ## Architecture
 
 ```
@@ -295,6 +343,9 @@ wgmesh/
 ├── cmd/
 │   ├── chimney/                  # Dashboard server with GitHub API proxy
 │   └── lighthouse/               # CDN control plane with xDS
+├── deploy/
+│   └── web/                      # Web deployment scripts
+├── docs/                         # Documentation (quickstart, troubleshooting, etc.)
 ├── pkg/
 │   ├── crypto/                   # Secret-derived keys, envelope encryption
 │   ├── daemon/                   # Lifecycle, reconciliation, health checks
@@ -308,6 +359,8 @@ wgmesh/
 │   ├── ratelimit/                # Rate limiting
 │   ├── proxy/                    # Proxy utilities
 │   └── lighthouse/               # Lighthouse client library
+├── public/                       # Website assets (index.html, config.js)
+└── scripts/                      # Utility scripts
 ```
 
 **State files** (system-level, not in project directory):

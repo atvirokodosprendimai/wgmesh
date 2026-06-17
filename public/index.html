@@ -285,5 +285,49 @@
         <p>&copy; 2024 wgmesh.dev. All rights reserved.</p>
         <p>Powered by WireGuard®. <a href="https://polar.sh/" target="_blank" rel="noopener noreferrer">Payment via Polar.sh</a></p>
     </footer>
+
+    <!-- Load configuration -->
+    <script src="/config.js"></script>
+
+    <!-- Trial context detection -->
+    <script>
+    (function() {
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('trial')) {
+            const trialValue = params.get('trial') === 'true' || params.get('trial') === '1';
+            localStorage.setItem('wgmesh_trial', trialValue ? 'true' : 'false');
+        }
+    })();
+    </script>
+
+    <!-- Chat widget initialization -->
+    <script>
+    (function() {
+        if (!window.WGMESH_CONFIG) return;
+        
+        // Detect trial status from URL or localStorage
+        const isTrial = new URLSearchParams(window.location.search).has('trial') ||
+                       localStorage.getItem('wgmesh_trial') === 'true';
+        
+        // Intercom
+        if (window.WGMESH_CONFIG.chat.intercom.enabled && window.WGMESH_CONFIG.chat.intercom.appId) {
+            (function(){var w=window;var ic=w.Intercom;if(typeof ic==="function"){ic('reattach_activator',ic('update',w.intercomSettings));return;}var d=document;var i=function(){i.c(arguments)};i.q=[];i.c=function(args){i.q.push(args)};w.Intercom=i;function l(){var s=d.createElement('script');s.type='text/javascript';s.async=true;s.src='https://widget.intercom.io/widget/' + window.WGMESH_CONFIG.chat.intercom.appId;var x=d.getElementsByTagName('script')[0];x.parentNode.insertBefore(s,x);}if(w.attachEvent){w.attachEvent('onload',l);}else{w.addEventListener('load',l,false);}})();
+            
+            window.intercomSettings = {
+                app_id: window.WGMESH_CONFIG.chat.intercom.appId,
+                name: isTrial ? 'Trial User' : 'Visitor',
+                trial_user: isTrial,
+                created_at: Math.floor(Date.now() / 1000)
+            };
+        }
+        
+        // Drift
+        if (window.WGMESH_CONFIG.chat.drift.enabled && window.WGMESH_CONFIG.chat.drift.appId) {
+            !function(){var t=window.driftt=window.drift=window.driftt||[];if(!t.init){if(t.invoked)return void(window.console&&console.error&&console.error("Drift snippet included twice."));t.invoked=!0;var e=function(){if("function"==typeof t.init)return t.init.apply(t,arguments)},n=[];e.q=e.c=function(t){return n.push(t)},e.l=void 0,e.c=n,e.init=function(e,n){function o(t,e){if(t){var n=t.split(/[,;]/),i=n.length;for(var o=0;o<i;o++)e(n[o])}}var a=this;o(e,function(t){a[t]=function(){return a._.push([t].concat(Array.prototype.slice.call(arguments,0)))}}),this._=[]};new e}();t.SNIPPET_VERSION="0.3.1",t.load=!0,function(t){if(!document.getElementById("drift-widget-script")){var e=document.createElement("script");e.id="drift-widget-script",e.type="text/javascript",e.async=!0,e.src="https://js.driftt.com/include/"+window.WGMESH_CONFIG.chat.drift.appId+".js";var n=document.getElementsByTagName("script")[0];n.parentNode.insertBefore(e,n)}}())();
+            
+            drift.on('ready',function(){drift.api.setUser({isTrial:isTrial})});
+        }
+    })();
+    </script>
 </body>
 </html>

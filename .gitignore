@@ -53,6 +53,9 @@ vendor/
 # NAT relay integration test artifacts
 testlab/nat-relay/.env
 
+# Chat widget runtime configuration (contains API keys)
+public/config.js
+
 # Compound Engineering local config (machine-local, not for commit)
 .compound-engineering/
 /go-cache/
