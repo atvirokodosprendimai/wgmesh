@@ -16,6 +16,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/onboarding"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/pilot"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
 
@@ -82,6 +83,9 @@ func main() {
 			return
 		case "pilot":
 			pilotCmd()
+			return
+		case "onboard":
+			onboardCmd()
 			return
 		}
 	}
@@ -211,7 +215,14 @@ SUBCOMMANDS (decentralized mode):
 	     [--introducer]           Enable rendezvous introducer role
   status --secret <SECRET>      Show mesh status
   qr --secret <SECRET>          Display secret as QR code (text)
-	install-service --secret ...  Install systemd service
+  onboard [--secret <SECRET>]   Interactive onboarding wizard for new deployments
+         [--interface NAME]     WireGuard interface name (default: wg0/utun20)
+         [--skip-registry]      Skip GitHub registry validation
+         [--no-lan-discovery]   Disable LAN multicast discovery
+         [--peer-timeout DUR]    Timeout for peer discovery (default: 2m)
+         [--reset]               Reset onboarding progress
+         [--status]              Show onboarding status only
+  install-service --secret ...  Install systemd service
 	     [--account <cr_...>]    Save Lighthouse API key for service commands
 	     [--no-lan-discovery]     Disable LAN multicast discovery in service
 	     [--no-ipv6]              Ignore IPv6 endpoints in service
@@ -1503,5 +1514,135 @@ func runPilotValidate() {
 	// Set exit code based on validation result
 	if !result.Passed {
 		os.Exit(1)
+	}
+}
+
+// onboardCmd handles the "onboard" subcommand
+func onboardCmd() {
+	fs := flag.NewFlagSet("onboard", flag.ExitOnError)
+	secret := fs.String("secret", "", "Mesh secret (auto-generated if empty)")
+	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
+	skipRegistry := fs.Bool("skip-registry", false, "Skip GitHub registry validation")
+	disableLANDiscovery := fs.Bool("no-lan-discovery", false, "Disable LAN multicast discovery")
+	peerTimeout := fs.Duration("peer-timeout", 2*time.Minute, "Timeout for first peer discovery")
+	reset := fs.Bool("reset", false, "Reset onboarding progress and start over")
+	skipTo := fs.String("skip-to", "", "Skip to specific step ID (for debugging)")
+	jsonOutput := fs.Bool("json", false, "Output in JSON format")
+	statusOnly := fs.Bool("status", false, "Show onboarding status only (don't run wizard)")
+
+	fs.Parse(os.Args[2:])
+
+	// Show status if requested
+	if *statusOnly {
+		showOnboardingStatus(*jsonOutput)
+		return
+	}
+
+	// Check if secret is provided via environment or flag
+	secretValue := *secret
+	if secretValue == "" {
+		if envSecret := os.Getenv("WGMESH_SECRET"); envSecret != "" {
+			secretValue = envSecret
+		}
+	}
+
+	// Auto-generate secret if not provided
+	if secretValue == "" && !*reset && !*statusOnly {
+		fmt.Println("No secret provided. Generating a new mesh secret...")
+		genSecret, err := daemon.GenerateSecret()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to generate secret: %v\n", err)
+			os.Exit(1)
+		}
+		secretValue = genSecret
+		fmt.Printf("Generated secret: wgmesh://v1/%s\n", secretValue)
+		fmt.Println()
+	}
+
+	// Create wizard options
+	opts := onboarding.WizardOptions{
+		Secret:              secretValue,
+		InterfaceName:       *iface,
+		SkipRegistry:        *skipRegistry,
+		DisableLANDiscovery: *disableLANDiscovery,
+		PeerTimeout:         *peerTimeout,
+		Reset:               *reset,
+		SkipTo:              *skipTo,
+	}
+
+	// Create and run wizard
+	wizard, err := onboarding.NewWizard(opts, "")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create wizard: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := wizard.Run(); err != nil {
+		fmt.Fprintf(os.Stderr, "Onboarding failed: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// showOnboardingStatus displays the current onboarding status
+func showOnboardingStatus(jsonOutput bool) {
+	store, err := onboarding.LoadStore("")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load onboarding state: %v\n", err)
+		os.Exit(1)
+	}
+
+	if jsonOutput {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(store); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to encode JSON: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	// Text output
+	fmt.Println("Onboarding Status")
+	fmt.Println("==================")
+	fmt.Printf("Progress: %s\n", store.Progress(7)) // 7 total steps
+	fmt.Printf("Started: %s\n", store.StartedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Last updated: %s\n", store.LastUpdated.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Duration: %v\n", store.Duration())
+	fmt.Println()
+
+	if len(store.CompletedItems) == 0 {
+		fmt.Println("No steps completed yet.")
+		fmt.Println()
+		fmt.Println("Start onboarding with: wgmesh onboard --secret <SECRET>")
+		return
+	}
+
+	fmt.Println("Completed steps:")
+	for _, stepID := range store.CompletedItems {
+		// Find step name
+		for _, step := range onboarding.ChecklistSteps {
+			if step.ID == stepID {
+				fmt.Printf("  ✓ %s\n", step.Name)
+				break
+			}
+		}
+	}
+
+	if store.CurrentStep != "" {
+		fmt.Println()
+		fmt.Printf("Current step: %s\n", store.CurrentStep)
+	}
+
+	fmt.Println()
+	fmt.Println("Remaining steps:")
+	completedSet := make(map[string]bool)
+	for _, id := range store.CompletedItems {
+		completedSet[id] = true
+	}
+
+	for _, step := range onboarding.ChecklistSteps {
+		if !completedSet[step.ID] {
+			fmt.Printf("  ○ %s\n", step.Name)
+		}
 	}
 }
