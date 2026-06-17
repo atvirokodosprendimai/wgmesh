@@ -36,6 +36,7 @@ require (
 	github.com/edsrzf/mmap-go v1.1.0 // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/huandu/xstrings v1.3.2 // indirect
+	github.com/mattn/go-sqlite3 v1.14.45 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.1 // indirect
 	github.com/prometheus/common v0.35.0 // indirect
 	github.com/prometheus/procfs v0.7.3 // indirect
