@@ -17,7 +17,7 @@ Polar checkout (Founding Member $5/mo): https://polar.sh/checkout?productId=3f5d
 ### 1. blinkinglight (M)
 - **Bio:** Developer at @ituoga
 - **Location:** Lithuania
-- **Email:** mz@9g.lt
+- **Contact:** email held privately (see operator's private contact list); GitHub @blinkinglight
 - **Repos:** bee (EventSourcing on NATS, Go), proxmox-api-go, zig-ai-experiment
 - **Angle:** Go developer, works with Proxmox (homelab/infra), Lithuanian (EU connection)
 - **Contact:** Email
@@ -44,7 +44,7 @@ Polar checkout (Founding Member $5/mo): https://polar.sh/checkout?productId=3f5d
 - **Location:** Toronto
 - **Blog:** ndyg.ca
 - **Twitter:** @cablelounger
-- **Email:** andy@thecablelounge.com
+- **Contact:** Twitter DM @cablelounger; email held privately (see operator's private contact list)
 - **Repos:** xs (cross.stream, Rust), http-nu (Nushell HTTP server), nu_plugin_to_gui
 - **Angle:** Builds stream/event infrastructure, Rust systems work
 - **Contact:** Twitter DM or email
@@ -68,9 +68,9 @@ Polar checkout (Founding Member $5/mo): https://polar.sh/checkout?productId=3f5d
 
 | # | User | Method | Address |
 |---|------|--------|---------|
-| 1 | blinkinglight | Email | mz@9g.lt |
+| 1 | blinkinglight | Email (private) | GitHub @blinkinglight |
 | 2 | neoromantique | GitHub Discussion @mention | — |
-| 3 | cablehead | Twitter DM or email | @cablelounger / andy@thecablelounge.com |
+| 3 | cablehead | Twitter DM | @cablelounger |
 | 4 | nickchomey | GitHub Discussion @mention | — |
 
 For GitHub Discussion: create a single "Founding Members" discussion in the repo, @mention neoromantique and nickchomey.
