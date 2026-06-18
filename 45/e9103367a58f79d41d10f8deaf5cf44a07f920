@@ -1,0 +1,21 @@
+"memory/outreach - 2602240805 - stargazer dm template.md"
+  s_0f2179e2b25e06::t_b8a5abd386139f 47
+  s_0f2179e2b25e06::t_7b041531ed3185 20
+  s_0f2179e2b25e06::t_10c8e4a8ae734e 71,73
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "45e9103367a58f79d41d10f8deaf5cf44a07f920",
+  "prompts": {},
+  "sessions": {
+    "s_0f2179e2b25e06": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "43cf9b01-b5a0-403c-83b7-786c601ba571",
+        "model": "claude-opus-4-8"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
