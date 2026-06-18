@@ -1,0 +1,25 @@
+docs/index.html
+  s_f7107a98e44506::t_99004e42f564e1 211-222
+public/index.html
+  s_f7107a98e44506::t_99004e42f564e1 194-205
+wgmesh.dev/index.html
+  s_f7107a98e44506::t_99004e42f564e1 124-135
+index.html
+  s_f7107a98e44506::t_99004e42f564e1 150-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.8",
+  "base_commit_sha": "610533c8596b2fec87a463586ce23c311a315b2d",
+  "prompts": {},
+  "sessions": {
+    "s_f7107a98e44506": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019edb75-e4a4-7ee0-a219-3f083bd5d147",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Marty <saint@ghost.lt>"
+    }
+  }
+}
