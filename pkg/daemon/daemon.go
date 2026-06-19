@@ -20,6 +20,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/trial"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -76,6 +77,12 @@ type Daemon struct {
 
 	// Epoch manager for Dandelion++ privacy
 	epochManager *EpochManager
+
+	// Trial state (nil if trial not enabled)
+	trialState  *trial.TrialState
+	trialStore  *trial.Store
+	trialMu     sync.RWMutex
+	trialPaused bool
 
 	// RPC server
 	rpcServer RPCServer
@@ -198,6 +205,7 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		temporaryOffline:       make(map[string]time.Time),
 		ctx:                    ctx,
 		cancel:                 cancel,
+		trialPaused:            false,
 	}
 
 	return d, nil
@@ -212,6 +220,9 @@ func (d *Daemon) SetDHTDiscovery(dht DiscoveryLayer) {
 func (d *Daemon) Run() error {
 	d.startTime = time.Now()
 	log.Printf("Starting wgmesh daemon...")
+
+	// Initialize trial state
+	d.initTrial()
 
 	// Load or create local node
 	if err := d.initLocalNode(); err != nil {
@@ -500,6 +511,14 @@ func (d *Daemon) reconcileLoop() {
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
 	start := time.Now()
+
+	// Check trial status - pause mesh operations if expired
+	if d.checkTrialStatus() {
+		// Trial expired - skip discovery and config updates
+		// Keep existing WireGuard connections alive
+		ObserveReconcileDuration(start)
+		return
+	}
 
 	peers := d.peerStore.GetActive()
 	desired, relayRoutes, directStable := d.buildDesiredPeerConfigs(peers)
@@ -1808,4 +1827,75 @@ type RPCStatusData struct {
 	PubKey    string
 	Uptime    time.Duration
 	Interface string
+}
+
+// initTrial initializes or loads trial state for the mesh
+func (d *Daemon) initTrial() {
+	// Get default state directory
+	stateDir := "/var/lib/wgmesh"
+	d.trialStore = trial.NewStore(stateDir)
+
+	// Get mesh ID from derived keys
+	meshID := d.config.Keys.MeshID()
+
+	// Load or create trial state
+	state, err := d.trialStore.LoadOrStart(meshID)
+	if err != nil {
+		log.Printf("[Trial] Failed to load trial state: %v (trial features disabled)", err)
+		return
+	}
+
+	d.trialMu.Lock()
+	d.trialState = state
+	d.trialMu.Unlock()
+
+	days := trial.DaysRemaining(state)
+	log.Printf("[Trial] Trial initialized: %d days remaining, status=%s", days, state.Status)
+}
+
+// checkTrialStatus checks if the trial has expired and updates pause state
+// Returns true if mesh operations should be paused
+func (d *Daemon) checkTrialStatus() bool {
+	d.trialMu.RLock()
+	state := d.trialState
+	d.trialMu.RUnlock()
+
+	if state == nil {
+		return false // No trial configured
+	}
+
+	shouldPause := trial.ShouldPauseMesh(state)
+
+	// Update metrics
+	status := state.Status
+	if trial.IsInGracePeriod(state) {
+		status = "grace"
+	}
+	UpdateTrialMetrics(status, trial.DaysRemaining(state))
+
+	// Log state changes
+	paused := d.getTrialPaused()
+	if shouldPause && !paused {
+		log.Printf("[Trial] Trial expired - pausing mesh operations")
+		d.setTrialPaused(true)
+	} else if !shouldPause && paused {
+		log.Printf("[Trial] Trial active/upgraded - resuming mesh operations")
+		d.setTrialPaused(false)
+	}
+
+	return shouldPause
+}
+
+// setTrialPaused sets the trial pause state
+func (d *Daemon) setTrialPaused(paused bool) {
+	d.trialMu.Lock()
+	defer d.trialMu.Unlock()
+	d.trialPaused = paused
+}
+
+// getTrialPaused gets the current trial pause state
+func (d *Daemon) getTrialPaused() bool {
+	d.trialMu.RLock()
+	defer d.trialMu.RUnlock()
+	return d.trialPaused
 }

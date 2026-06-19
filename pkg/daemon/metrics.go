@@ -54,6 +54,20 @@ var (
 		Help: "Successful NAT traversal exchanges by method",
 	}, []string{"method"})
 
+	// Trial metrics
+	trialStatus = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "wgmesh_trial_status",
+		Help: "Trial status (1=active, 2=expired, 3=upgraded, 4=grace)",
+	}, []string{"status"})
+	trialDaysRemaining = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "wgmesh_trial_days_remaining",
+		Help: "Days remaining until trial expiration (negative if expired)",
+	})
+	trialUpgradePromptShown = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "wgmesh_trial_upgrade_prompt_shown_total",
+		Help: "Number of times upgrade prompt was displayed",
+	})
+
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 )
@@ -77,6 +91,9 @@ func RegisterMetrics() {
 	prometheus.MustRegister(probeRTTSummary)
 	prometheus.MustRegister(natTraversalAttempts)
 	prometheus.MustRegister(natTraversalSuccesses)
+	prometheus.MustRegister(trialStatus)
+	prometheus.MustRegister(trialDaysRemaining)
+	prometheus.MustRegister(trialUpgradePromptShown)
 	prometheus.MustRegister(goCollector)
 	prometheus.MustRegister(processCollector)
 }
@@ -141,4 +158,22 @@ func RecordNATTraversalAttempt(method string) {
 // RecordNATTraversalSuccess increments the success counter for the given method.
 func RecordNATTraversalSuccess(method string) {
 	natTraversalSuccesses.WithLabelValues(method).Inc()
+}
+
+// UpdateTrialMetrics updates trial-related metrics from the given trial state.
+func UpdateTrialMetrics(status string, daysRemaining int) {
+	// Set exactly one status label to 1, the rest to 0
+	for _, label := range []string{"active", "expired", "upgraded", "grace"} {
+		var v float64
+		if label == status {
+			v = 1
+		}
+		trialStatus.WithLabelValues(label).Set(v)
+	}
+	trialDaysRemaining.Set(float64(daysRemaining))
+}
+
+// RecordTrialUpgradePromptShown increments the upgrade prompt display counter.
+func RecordTrialUpgradePromptShown() {
+	trialUpgradePromptShown.Inc()
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/pilot"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/trial"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -79,6 +80,9 @@ func main() {
 			return
 		case "service":
 			serviceCmd()
+			return
+		case "trial":
+			trialCmd()
 			return
 		case "pilot":
 			pilotCmd()
@@ -536,6 +540,8 @@ type StatusOutput struct {
 	GossipPort     int    `json:"gossip_port"`
 	RendezvousID   string `json:"rendezvous_id"`
 	ServiceStatus  string `json:"service_status,omitempty"`
+	TrialStatus    string `json:"trial_status,omitempty"`
+	TrialDays      int    `json:"trial_days_remaining,omitempty"`
 }
 
 func statusCmd() {
@@ -585,6 +591,13 @@ func statusCmd() {
 		output.ServiceStatus = status
 	}
 
+	// Get trial status if available
+	trialStore := trial.NewStore("/var/lib/wgmesh")
+	if trialState, err := trialStore.Load(); err == nil && trialState != nil {
+		output.TrialStatus = trialState.Status
+		output.TrialDays = trial.DaysRemaining(trialState)
+	}
+
 	// Output in requested format
 	if *jsonOutput {
 		enc := json.NewEncoder(os.Stdout)
@@ -611,6 +624,23 @@ func statusCmd() {
 
 		if output.ServiceStatus != "" {
 			fmt.Printf("Service Status: %s\n", output.ServiceStatus)
+		}
+
+		// Show trial status if available
+		if output.TrialStatus != "" {
+			meshID := cfg.Keys.MeshID()
+			fmt.Printf("Trial: %s", output.TrialStatus)
+			if output.TrialStatus == "active" {
+				fmt.Printf(" (%d days remaining)\n", output.TrialDays)
+			} else if output.TrialStatus == "expired" {
+				fmt.Printf(" (expired %d days ago)\n", -output.TrialDays)
+				fmt.Printf("⚠️  Your trial has expired. Upgrade to continue using wgmesh.\n")
+				fmt.Printf("🔗 https://wgmesh.dev/upgrade?mesh=%s\n", meshID)
+			} else if output.TrialStatus == "upgraded" {
+				fmt.Printf(" (upgraded)\n")
+			} else if output.TrialStatus == "dismissed" {
+				fmt.Printf(" (grace period)\n")
+			}
 		}
 
 		fmt.Println()
@@ -1504,4 +1534,128 @@ func runPilotValidate() {
 	if !result.Passed {
 		os.Exit(1)
 	}
+}
+
+// trialCmd handles the "trial" subcommand
+func trialCmd() {
+	if len(os.Args) < 3 {
+		printTrialUsage()
+		os.Exit(1)
+	}
+
+	subcommand := os.Args[2]
+
+	switch subcommand {
+	case "status":
+		trialStatusCmd()
+	case "dismiss":
+		trialDismissCmd()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown trial subcommand: %s\n", subcommand)
+		printTrialUsage()
+		os.Exit(1)
+	}
+}
+
+// printTrialUsage shows trial command usage
+func printTrialUsage() {
+	fmt.Println(`wgmesh trial - Trial management
+
+SUBCOMMANDS:
+  trial status              Show trial status and days remaining
+  trial dismiss             Dismiss upgrade prompt (24h grace period)
+
+OPTIONS:
+  --state-dir <dir>         State directory (default: /var/lib/wgmesh)`)
+}
+
+// trialStatusCmd shows trial status
+func trialStatusCmd() {
+	fs := flag.NewFlagSet("trial status", flag.ExitOnError)
+	stateDir := fs.String("state-dir", "/var/lib/wgmesh", "State directory")
+	fs.Parse(os.Args[3:])
+
+	trialStore := trial.NewStore(*stateDir)
+	state, err := trialStore.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to load trial: %v\n", err)
+		os.Exit(1)
+	}
+
+	if state == nil {
+		fmt.Println("No trial initialized yet")
+		return
+	}
+
+	days := trial.DaysRemaining(state)
+	fmt.Printf("Trial Status\n")
+	fmt.Printf("============\n")
+	fmt.Printf("Mesh ID: %s\n", state.MeshID)
+	fmt.Printf("Status: %s\n", state.Status)
+	fmt.Printf("Started: %s\n", state.StartedAt.Format("2006-01-02 15:04:05"))
+	fmt.Printf("Expires: %s\n", state.ExpiresAt.Format("2006-01-02 15:04:05"))
+	
+	if state.Status == "active" {
+		fmt.Printf("Days remaining: %d\n", days)
+	} else if state.Status == "expired" {
+		fmt.Printf("Days remaining: %d (expired)\n", days)
+		fmt.Printf("⚠️  Your trial has expired. Upgrade to continue using wgmesh.\n")
+		fmt.Printf("🔗 https://wgmesh.dev/upgrade?mesh=%s\n", state.MeshID)
+	} else if state.Status == "upgraded" {
+		fmt.Printf("Upgraded: %s\n", state.UpgradedAt.Format("2006-01-02 15:04:05"))
+	} else if state.Status == "dismissed" {
+		fmt.Printf("Dismissed: %s\n", state.DismissedAt.Format("2006-01-02 15:04:05"))
+		if state.GraceUntil != nil {
+			fmt.Printf("Grace period: %d hours remaining\n", int(time.Until(*state.GraceUntil).Hours()))
+		}
+	}
+}
+
+// trialDismissCmd dismisses the upgrade prompt
+func trialDismissCmd() {
+	fs := flag.NewFlagSet("trial dismiss", flag.ExitOnError)
+	stateDir := fs.String("state-dir", "/var/lib/wgmesh", "State directory")
+	fs.Parse(os.Args[3:])
+
+	trialStore := trial.NewStore(*stateDir)
+	state, err := trialStore.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to load trial: %v\n", err)
+		os.Exit(1)
+	}
+
+	if state == nil {
+		fmt.Fprintln(os.Stderr, "Error: no trial initialized yet")
+		os.Exit(1)
+	}
+
+	if state.Status == "upgraded" {
+		fmt.Println("Trial is already upgraded")
+		return
+	}
+
+	if state.Status == "dismissed" {
+		fmt.Println("Upgrade prompt already dismissed")
+		return
+	}
+
+	if state.Status != "expired" {
+		fmt.Printf("Trial is still active (%d days remaining). Dismiss not needed.\n", trial.DaysRemaining(state))
+		return
+	}
+
+	if err := trial.Dismiss(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to dismiss: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := trialStore.Save(state); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: failed to save trial state: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Println("Upgrade prompt dismissed")
+	fmt.Printf("Grace period: %d hours\n", int(trial.GraceDuration.Hours()))
+	fmt.Printf("Mesh operations will continue until %s\n", state.GraceUntil.Format("2006-01-02 15:04:05"))
+	fmt.Println("Upgrade at: https://wgmesh.dev/upgrade?mesh=" + state.MeshID)
 }
