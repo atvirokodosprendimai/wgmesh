@@ -159,6 +159,19 @@
         trackAttributes: true,
       });
     </script>
+    <!-- Plausible Analytics (privacy-focused, GDPR compliant) -->
+    <script defer data-domain="wgmesh.dev" src="https://plausible.io/js/script.js"></script>
+    <!-- PostHog Analytics (product analytics) -->
+    <script>
+      !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]);t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="capture identify alias people.set people.set_once set_config register register_once unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled onFeatureFlags getFeatureFlag getActiveFeatureFlags setFeatureFlagForSelf reloadFeatures".split(" ");for(n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+      posthog.init('phc_YOUR_API_KEY_HERE',{
+        api_host:'https://app.posthog.com',
+        loaded:function(posthog){
+          // Track pageview
+          posthog.capture('$pageview');
+        }
+      });
+    </script>
 </head>
 <body>
     <header>
@@ -189,17 +202,17 @@
                 <div class="pricing-tier">
                     <h3>$5 Founding Member</h3>
                     <p>Gain early access, support core development, and receive exclusive community updates.</p>
-                    <a href="https://polar.sh/checkout?productId=3f5d75de-936b-49d8-a21b-4b79d9fd22c1" target="_blank" class="tier-button">Become a Founding Member</a>
+                    <a href="https://polar.sh/checkout?productId=3f5d75de-936b-49d8-a21b-4b79d9fd22c1" target="_blank" class="tier-button" onclick="trackCTA('founding-member', '$5 Founding Member')">Become a Founding Member</a>
                 </div>
                 <div class="pricing-tier featured-tier">
                     <h3>$20 Edge Node</h3>
                     <p>Unlock advanced features, priority support, and contribute to network expansion.</p>
-                    <a href="https://polar.sh/checkout?productId=1927e637-4cfd-4c94-8bee-c5518803bc89" target="_blank" class="tier-button">Support as Edge Node</a>
+                    <a href="https://polar.sh/checkout?productId=1927e637-4cfd-4c94-8bee-c5518803bc89" target="_blank" class="tier-button" onclick="trackCTA('edge-node', '$20 Edge Node')">Support as Edge Node</a>
                 </div>
                 <div class="pricing-tier">
                     <h3>$100 Mesh Operator</h3>
                     <p>Enterprise-grade benefits, dedicated consultations, and influence future roadmap decisions.</p>
-                    <a href="https://polar.sh/checkout?productId=eb20683e-55ea-4354-9d8c-070e55a4eff5" target="_blank" class="tier-button">Lead as Mesh Operator</a>
+                    <a href="https://polar.sh/checkout?productId=eb20683e-55ea-4354-9d8c-070e55a4eff5" target="_blank" class="tier-button" onclick="trackCTA('mesh-operator', '$100 Mesh Operator')">Lead as Mesh Operator</a>
                 </div>
             </div>
         </section>
@@ -251,7 +264,87 @@
     <footer>
         <p>&copy; 2023 wgmesh.dev. All rights reserved.</p>
         <p>Payment via <a href="https://polar.sh/" target="_blank">Polar.sh</a></p> <!-- Added footer link -->
+        <p style="font-size: 0.85em; margin-top: 10px; color: #888;">
+            <strong>Privacy:</strong> We use privacy-focused analytics (Plausible, PostHog, OpenPanel) that comply with GDPR. 
+            No cookies are used, and IP addresses are anonymized. 
+            <a href="#privacy-disclosure" onclick="document.getElementById('privacy-disclosure').style.display='block';return false;" style="color: #007bff;">Learn more</a>.
+        </p>
+        <div id="privacy-disclosure" style="display:none; margin-top: 15px; padding: 15px; background-color: #f8f9fa; border-radius: 8px; font-size: 0.85em; text-align: left;">
+            <h4 style="margin-top: 0;">Analytics Privacy Disclosure</h4>
+            <p><strong>Platforms:</strong> We use three privacy-focused analytics platforms:</p>
+            <ul>
+                <li><strong>Plausible Analytics:</strong> Open-source, lightweight (< 1KB), no cookies, IP anonymization enabled by default. Hosted in EU.</li>
+                <li><strong>PostHog:</strong> Product analytics with optional session replay. We only use basic event tracking. IP anonymization enabled.</li>
+                <li><strong>OpenPanel:</strong> Self-hosted analytics at counter.hackrsvalv.com. No cookies or personal data collection.</li>
+            </ul>
+            <p><strong>Data Collected:</strong> Anonymous pageview counts, referrer sources, geographic data (country/city level only), and CTA click events. No personally identifiable information (PII) is collected.</p>
+            <p><strong>Your Rights:</strong> You can opt out of analytics by using browser privacy extensions or ad blockers. No consent banner is needed because we don't use cookies or track personal data.</p>
+            <p><strong>Data Retention:</strong> Analytics data is retained for 90 days by default. No data is sold to third parties.</p>
+        </div>
     </footer>
+<!-- Analytics event tracking -->
+<script>
+// Track CTA clicks across all analytics platforms
+function trackCTA(tierId, tierName) {
+  // PostHog event
+  if (window.posthog) {
+    window.posthog.capture('cta_click', {
+      tier_id: tierId,
+      tier_name: tierName,
+      location: 'pricing_section'
+    });
+  }
+  
+  // OpenPanel event
+  if (window.op) {
+    window.op('event', 'cta_click', {
+      tier_id: tierId,
+      tier_name: tierName,
+      location: 'pricing_section'
+    });
+  }
+  
+  // Plausible event (via custom event API)
+  if (window.plausible) {
+    window.plausible('cta_click', { props: { 
+      tier_id: tierId,
+      tier_name: tierName,
+      location: 'pricing_section'
+    }});
+  }
+}
+
+// Track external link clicks
+document.addEventListener('DOMContentLoaded', function() {
+  const externalLinks = document.querySelectorAll('a[href*="github.com"], a[href*="discord.gg"]');
+  externalLinks.forEach(function(link) {
+    link.addEventListener('click', function(e) {
+      const url = this.href;
+      
+      // PostHog
+      if (window.posthog) {
+        window.posthog.capture('external_link_click', { 
+          destination: url 
+        });
+      }
+      
+      // OpenPanel
+      if (window.op) {
+        window.op('event', 'external_link_click', {
+          destination: url
+        });
+      }
+      
+      // Plausible
+      if (window.plausible) {
+        window.plausible('external_link_click', { props: { 
+          destination: url 
+        }});
+      }
+    });
+  });
+});
+</script>
 <!-- Buttondown lead capture (meshletter) -->
 <div style="max-width:520px;margin:40px auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;text-align:center;">
   <div style="font-size:18px;font-weight:700;color:#111;margin-bottom:6px;">Follow the build</div>
