@@ -306,5 +306,393 @@
     <button type="submit" style="padding:10px 18px;border:0;border-radius:8px;background:#2563eb;color:#fff;font-size:14px;font-weight:600;cursor:pointer;">Subscribe</button>
   </form>
 </div>
+<!-- Exit-intent lead capture modal (WireGuard Mesh Quickstart PDF) -->
+<!-- All logic is inline + dependency-free. Scoped under #wgmesh-exit-modal. -->
+<style>
+  #wgmesh-exit-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    display: none; /* hidden by default */
+    align-items: center;
+    justify-content: center;
+    background: rgba(17, 24, 39, 0.55);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  }
+  #wgmesh-exit-modal[aria-hidden="false"] {
+    display: flex;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-card {
+    width: 100%;
+    max-width: 440px;
+    margin: 16px;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+    padding: 28px 26px 26px;
+    position: relative;
+    text-align: center;
+    color: #111827;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-close {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    background: transparent;
+    border: 0;
+    font-size: 26px;
+    line-height: 1;
+    color: #9ca3af;
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: 6px;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-close:hover,
+  #wgmesh-exit-modal .wgmesh-exit-close:focus {
+    color: #374151;
+    background: #f3f4f6;
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-title {
+    font-size: 20px;
+    font-weight: 700;
+    margin: 6px 0 8px;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-subtitle {
+    font-size: 14px;
+    color: #4b5563;
+    margin: 0 0 18px;
+  }
+  #wgmesh-exit-modal form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 11px 12px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    font-size: 15px;
+    color: #111827;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-input:focus {
+    outline: 2px solid #2563eb;
+    outline-offset: 1px;
+    border-color: #2563eb;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-submit {
+    width: 100%;
+    padding: 11px 16px;
+    border: 0;
+    border-radius: 8px;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-submit:hover {
+    background: #1d4ed8;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-error {
+    color: #b91c1c;
+    font-size: 13px;
+    min-height: 16px;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-footnote {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 12px;
+  }
+  /* Success state */
+  #wgmesh-exit-modal .wgmesh-exit-success {
+    display: none;
+    text-align: center;
+  }
+  #wgmesh-exit-modal[data-state="success"] .wgmesh-exit-form-wrap {
+    display: none;
+  }
+  #wgmesh-exit-modal[data-state="success"] .wgmesh-exit-success {
+    display: block;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-success h3 {
+    font-size: 20px;
+    margin: 6px 0 8px;
+    color: #047857;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-pdf-link {
+    display: inline-block;
+    margin-top: 14px;
+    padding: 11px 18px;
+    border-radius: 8px;
+    background: #2563eb;
+    color: #ffffff;
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 15px;
+  }
+  #wgmesh-exit-modal .wgmesh-exit-pdf-link:hover {
+    background: #1d4ed8;
+  }
+</style>
+<div id="wgmesh-exit-modal" role="dialog" aria-modal="true" aria-labelledby="wgmesh-exit-modal-title" aria-hidden="true" hidden>
+  <div class="wgmesh-exit-card" role="document">
+    <button type="button" class="wgmesh-exit-close" aria-label="Close lead capture dialog">&times;</button>
+
+    <div class="wgmesh-exit-form-wrap">
+      <h2 class="wgmesh-exit-title" id="wgmesh-exit-modal-title">Free WireGuard Mesh Quickstart PDF</h2>
+      <p class="wgmesh-exit-subtitle">Get our one-page guide to a zero-control-plane WireGuard mesh — sent to your inbox in seconds.</p>
+      <form action="https://buttondown.com/api/emails/embed-subscribe/meshletter" method="post" target="wgmesh_exit_target" novalidate>
+        <input type="email" name="email" class="wgmesh-exit-input" placeholder="you@example.com" autocomplete="email" aria-label="Email address" />
+        <button type="submit" class="wgmesh-exit-submit">Send me the PDF</button>
+        <div class="wgmesh-exit-error" role="alert" aria-live="assertive"></div>
+      </form>
+      <p class="wgmesh-exit-footnote">No spam. Unsubscribe anytime. We use Buttondown to deliver the meshletter.</p>
+    </div>
+
+    <div class="wgmesh-exit-success">
+      <h3>You're in! 🎉</h3>
+      <p class="wgmesh-exit-subtitle">Check your inbox to confirm. In the meantime, grab your Quickstart PDF directly:</p>
+      <a class="wgmesh-exit-pdf-link" href="/wgmesh-quickstart.pdf" download>Download the PDF</a>
+    </div>
+  </div>
+</div>
+<!-- Hidden iframe acts as the submit target, matching the in-page form's popupwindow pattern. -->
+<iframe name="wgmesh_exit_target" tabindex="-1" aria-hidden="true" style="display:none;width:0;height:0;border:0;"></iframe>
+
+<script>
+(function () {
+  "use strict";
+
+  var MODAL_ID = "wgmesh-exit-modal";
+  // Configuration values (public-facing references only; no secrets).
+  var PDF_URL = "/wgmesh-quickstart.pdf";
+  var COOLDOWN_MS = 7 * 24 * 3600 * 1000; // 7 days
+  var MOBILE_TIME_MS = 25000;              // >= 25s on page
+  var MOBILE_SCROLL_PCT = 50;              // >= 50% scroll depth
+  var SUCCESS_AUTO_DISMISS_MS = 12000;     // 12s
+  // Permissive RFC-ish email check: rejects "not-an-email".
+  var EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  var LS_KEY = "wgmesh_exit_modal_dismissed_at";
+  var SS_KEY = "wgmesh_exit_modal_shown";
+
+  function safeStorage(getter) {
+    try { return getter(); } catch (e) { return null; }
+  }
+
+  function track(eventName, props) {
+    // Guarded OpenPanel call: never throw if blocked/unavailable.
+    try {
+      if (typeof window === "object" && typeof window.op === "function") {
+        window.op("track", eventName, props || {});
+      }
+    } catch (e) { /* analytics must never break the modal */ }
+  }
+
+  var modal = document.getElementById(MODAL_ID);
+  if (!modal) { return; }
+
+  var form = modal.querySelector("form");
+  var emailInput = modal.querySelector(".wgmesh-exit-input");
+  var errorBox = modal.querySelector(".wgmesh-exit-error");
+  var pdfLink = modal.querySelector(".wgmesh-exit-pdf-link");
+  var closeBtn = modal.querySelector(".wgmesh-exit-close");
+
+  var shown = false;
+  var lastFocused = null;
+  var successTimer = null;
+  var mouseSeen = false;
+
+  // Allow swapping the PDF URL without touching modal logic (config value).
+  if (pdfLink && PDF_URL) { pdfLink.setAttribute("href", PDF_URL); }
+
+  function inCooldown() {
+    var v = safeStorage(function () { return localStorage.getItem(LS_KEY); });
+    if (!v) { return false; }
+    var ts = parseInt(v, 10);
+    if (isNaN(ts)) { return false; }
+    return (Date.now() - ts) < COOLDOWN_MS;
+  }
+
+  function shownThisSession() {
+    return safeStorage(function () { return sessionStorage.getItem(SS_KEY); }) === "1";
+  }
+
+  function markShownThisSession() {
+    safeStorage(function () { try { sessionStorage.setItem(SS_KEY, "1"); } catch (e) {} });
+  }
+
+  function armCooldown() {
+    safeStorage(function () { try { localStorage.setItem(LS_KEY, String(Date.now())); } catch (e) {} });
+  }
+
+  function getFocusable() {
+    var sel = 'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    return Array.prototype.slice.call(modal.querySelectorAll(sel))
+      .filter(function (el) { return el.offsetParent !== null || el === document.activeElement; });
+  }
+
+  function openModal(trigger) {
+    if (shown) { return; }
+    shown = true;
+    lastFocused = document.activeElement;
+    modal.removeAttribute("hidden");
+    modal.setAttribute("aria-hidden", "false");
+    markShownThisSession();
+    track("exit_modal_shown", { trigger: trigger });
+    if (emailInput) {
+      try { emailInput.focus(); } catch (e) {}
+    }
+    document.addEventListener("keydown", onKeydown);
+  }
+
+  function closeModal(trackDismiss) {
+    if (!shown) { return; }
+    shown = false;
+    if (successTimer) { clearTimeout(successTimer); successTimer = null; }
+    modal.setAttribute("aria-hidden", "true");
+    modal.setAttribute("hidden", "");
+    document.removeEventListener("keydown", onKeydown);
+    if (trackDismiss) {
+      armCooldown();
+      track("exit_modal_dismissed");
+    }
+    if (lastFocused && typeof lastFocused.focus === "function") {
+      try { lastFocused.focus(); } catch (e) {}
+    }
+  }
+
+  // Focus trap while open + Escape to close.
+  function onKeydown(e) {
+    if (e.key === "Escape" || e.keyCode === 27) {
+      e.preventDefault();
+      closeModal(true);
+      return;
+    }
+    if (e.key === "Tab" || e.keyCode === 9) {
+      var f = getFocusable();
+      if (f.length === 0) { return; }
+      var first = f[0];
+      var last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+
+  // Backdrop click closes (but clicks inside the card do not bubble-close).
+  modal.addEventListener("click", function (e) {
+    if (e.target === modal) { closeModal(true); }
+  });
+  if (closeBtn) {
+    closeBtn.addEventListener("click", function () { closeModal(true); });
+  }
+
+  function showSuccess() {
+    modal.setAttribute("data-state", "success");
+    if (closeBtn) { try { closeBtn.focus(); } catch (e) {} }
+    successTimer = setTimeout(function () { closeModal(false); }, SUCCESS_AUTO_DISMISS_MS);
+  }
+
+  // Submit handler: validate, POST via hidden iframe (Buttondown embed), swap to success.
+  form.addEventListener("submit", function (e) {
+    var email = (emailInput.value || "").trim();
+    errorBox.textContent = "";
+    if (!EMAIL_RE.test(email)) {
+      e.preventDefault();
+      errorBox.textContent = "Please enter a valid email address.";
+      try { emailInput.focus(); } catch (err) {}
+      return;
+    }
+    // Let the form POST to Buttondown via the named hidden iframe.
+    // Immediately transition to success and arm cooldown so a converted
+    // user is not re-prompted. No PII is read or stored by this code.
+    armCooldown();
+    track("exit_modal_submitted", { trigger: "exit_modal" });
+    // Defer success swap so the submit fires first.
+    setTimeout(showSuccess, 0);
+  });
+
+  // ---- Trigger registration (guarded) ----
+  if (inCooldown() || shownThisSession()) {
+    return; // abort listener registration entirely
+  }
+
+  var mouseActivityTimer = null;
+
+  // Desktop: cursor leaves the viewport through the top.
+  document.addEventListener("mouseout", function (e) {
+    if (shown) { return; }
+    // e.relatedTarget === null means the pointer left the document.
+    if (!e.relatedTarget && e.clientY <= 0) {
+      openModal("desktop");
+    }
+  });
+  document.addEventListener("mousemove", function () {
+    mouseSeen = true;
+  });
+  // After 3s with no mouse movement, treat device as touch/no-mouse.
+  mouseActivityTimer = setTimeout(function () {
+    mouseActivityTimer = null;
+    if (!mouseSeen) { startMobileTrigger(); }
+  }, 3000);
+
+  // Touch / no-hover devices: use matchMedia as primary signal.
+  try {
+    if (window.matchMedia && window.matchMedia("(hover: none)").matches) {
+      startMobileTrigger();
+    }
+  } catch (e) { /* matchMedia unsupported; rely on no-mouse fallback */ }
+
+  function startMobileTrigger() {
+    var start = Date.now();
+    function check() {
+      if (shown) { return; }
+      var elapsed = Date.now() - start;
+      var scrollTop = window.pageYOffset || document.documentElement.scrollTop || 0;
+      var scrollHeight = document.documentElement.scrollHeight || document.body.scrollHeight || 0;
+      var clientHeight = window.innerHeight || document.documentElement.clientHeight || 1;
+      var maxScroll = scrollHeight - clientHeight;
+      var pct = maxScroll > 0 ? (scrollTop / maxScroll) * 100 : 100;
+      if (elapsed >= MOBILE_TIME_MS && pct >= MOBILE_SCROLL_PCT) {
+        openModal("mobile");
+        window.removeEventListener("scroll", onScroll, { passive: true });
+        return;
+      }
+    }
+    function onScroll() { check(); }
+    window.addEventListener("scroll", onScroll, { passive: true });
+    // Also re-check on an interval so time-on-page alone can satisfy the rule.
+    var interval = setInterval(function () {
+      if (shown) { clearInterval(interval); return; }
+      check();
+      if (shown) { clearInterval(interval); }
+    }, 2500);
+  }
+
+  // Public test hooks (single namespace object, no other globals).
+  window.wgmeshExitModal = {
+    open: function (trigger) { openModal(trigger || "manual"); },
+    close: function (dismiss) { closeModal(!!dismiss); },
+    armCooldown: armCooldown,
+    constants: {
+      COOLDOWN_MS: COOLDOWN_MS,
+      MOBILE_TIME_MS: MOBILE_TIME_MS,
+      MOBILE_SCROLL_PCT: MOBILE_SCROLL_PCT,
+      LS_KEY: LS_KEY,
+      SS_KEY: SS_KEY,
+      PDF_URL: PDF_URL
+    }
+  };
+})();
+</script>
 </body>
 </html>
