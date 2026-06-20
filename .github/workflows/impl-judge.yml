@@ -21,7 +21,9 @@ permissions:
 jobs:
   impl-judge:
     # Only the box's implementation PRs: "fix: Issue #N - ...".
-    if: startsWith(github.event.pull_request.title, 'fix: Issue #')
+    # Quoted whole-value: the inner "fix: Issue #" contains a colon-space that
+    # would otherwise be parsed as a YAML mapping.
+    if: "${{ startsWith(github.event.pull_request.title, 'fix: Issue #') }}"
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR (full history for the base..head diff)
