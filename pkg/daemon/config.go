@@ -38,6 +38,8 @@ type Config struct {
 	ForceRelay      bool
 	DisablePunching bool
 	CustomSubnet    *net.IPNet // User-specified mesh subnet (nil = use derived)
+	TunFd           int        // 0 means "not set / create interface the normal way"
+	TunPrivateKey   []byte     // non-nil in TunFd mode; 32 raw WG private key bytes
 }
 
 // DaemonOpts holds options for the daemon
@@ -55,6 +57,8 @@ type DaemonOpts struct {
 	ForceRelay          bool
 	DisablePunching     bool
 	MeshSubnet          string // Custom mesh subnet CIDR (e.g. "192.168.100.0/24")
+	TunFd               int    // Pre-created TUN file descriptor (Android VPN API). 0 = unused.
+	TunPrivateKey       []byte // Raw 32-byte WireGuard private key for TunFd mode.
 }
 
 // NewConfig creates a new daemon configuration from options
@@ -77,6 +81,13 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 	// Validate interface name before applying defaults.
 	if err := ValidateInterfaceName(opts.InterfaceName); err != nil {
 		return nil, fmt.Errorf("invalid interface name: %w", err)
+	}
+
+	// Validate TunFd options before building the Config.
+	if opts.TunFd != 0 {
+		if len(opts.TunPrivateKey) != 32 {
+			return nil, fmt.Errorf("TunPrivateKey must be exactly 32 bytes when TunFd is set")
+		}
 	}
 
 	// Set defaults
@@ -132,6 +143,8 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		ForceRelay:      opts.ForceRelay,
 		DisablePunching: opts.DisablePunching,
 		CustomSubnet:    customSubnet,
+		TunFd:           opts.TunFd,
+		TunPrivateKey:   opts.TunPrivateKey,
 	}, nil
 }
 

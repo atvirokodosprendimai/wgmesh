@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -407,7 +408,46 @@ func (d *Daemon) initLocalNode() error {
 }
 
 // setupWireGuard creates and configures the WireGuard interface
+// isTunFdMode returns true when the daemon was started with a pre-created TUN fd
+// (Android VPN API). In this mode the WireGuard interface is managed externally.
+func (d *Daemon) isTunFdMode() bool {
+	return d.config.TunFd != 0
+}
+
+// setupWireGuardFromFd configures the WireGuard stack using a pre-existing TUN fd
+// (returned by Android VPN Service). It stores the supplied private key in
+// localNode so the reconcile loop can configure peers normally.
+// Must be called only from the daemon goroutine before the reconcile loop
+// starts (no concurrent localNode access at that point).
+func (d *Daemon) setupWireGuardFromFd() error {
+	if len(d.config.TunPrivateKey) != 32 {
+		return fmt.Errorf("setupWireGuardFromFd: TunPrivateKey must be 32 bytes")
+	}
+
+	// Encode the raw key as base64 (WireGuard standard encoding).
+	privKeyB64 := base64.StdEncoding.EncodeToString(d.config.TunPrivateKey)
+
+	// localNode is initialised by initLocalNode before setupWireGuard is called.
+	// If for any reason it is nil (e.g. in unit tests), create a minimal struct.
+	// No mutex is needed here because setupWireGuard is called sequentially
+	// during daemon startup, before the reconcile goroutines are launched.
+	if d.localNode == nil {
+		d.localNode = &LocalNode{}
+	}
+	d.localNode.WGPrivateKey = privKeyB64
+
+	log.Printf("WireGuard configured from pre-created TUN fd %d", d.config.TunFd)
+	return nil
+}
+
+// setupWireGuard creates and configures the WireGuard interface.
+// In TunFd mode (Android) the interface was already created by the OS; only
+// configure WireGuard keys and peers via the fd-based backend.
 func (d *Daemon) setupWireGuard() error {
+	if d.isTunFdMode() {
+		return d.setupWireGuardFromFd()
+	}
+
 	log.Printf("Setting up WireGuard interface %s...", d.config.InterfaceName)
 
 	// Check if interface exists
@@ -471,7 +511,10 @@ func (d *Daemon) teardownWireGuard() {
 	if d == nil || d.config == nil || d.config.InterfaceName == "" {
 		return
 	}
-
+	if d.isTunFdMode() {
+		log.Printf("[Shutdown] TunFd mode: skipping interface teardown (fd %d)", d.config.TunFd)
+		return
+	}
 	if err := setInterfaceDown(d.config.InterfaceName); err != nil {
 		log.Printf("[Shutdown] Failed to bring down interface %s: %v", d.config.InterfaceName, err)
 	}
