@@ -1,0 +1,83 @@
+name: Impl Judge
+
+# Fail-closed DeepSeek judge gate for autonomous impl PRs (judge-gated automerge,
+# U2 of ai-pipeline-template plan 2026-06-20-005). Scores the PR diff against the
+# issue spec for faithfulness + public-safety. The job's pass/fail IS the check:
+# exit 0 = PASS, non-zero = FAIL/error -> blocks merge (the judge is fail-closed,
+# so a provider error or missing spec blocks rather than passes).
+#
+# Activation: set the repo secret OPENROUTER_API_KEY, then make `impl-judge` a
+# required status check on main with auto-merge enabled (U3). Until then this
+# runs as a visible, non-required check (missing key -> exit 2 -> red, but not
+# gating until U3).
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  impl-judge:
+    # Only the box's implementation PRs: "fix: Issue #N - ...".
+    # Quoted whole-value: the inner "fix: Issue #" contains a colon-space that
+    # would otherwise be parsed as a YAML mapping.
+    if: "${{ startsWith(github.event.pull_request.title, 'fix: Issue #') }}"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR (full history for the base..head diff)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout judge tool (meta-repo, stdlib-only)
+        uses: actions/checkout@v4
+        with:
+          repository: atvirokodosprendimai/ai-pipeline-template
+          path: judge-tool
+          fetch-depth: 1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Resolve issue, diff, and spec
+        id: prep
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          ISSUE=$(printf '%s' "$PR_TITLE" | sed -n 's/^fix: Issue #\([0-9]\{1,\}\).*/\1/p')
+          [ -n "$ISSUE" ] || { echo "::error::could not parse issue number from title"; exit 1; }
+          echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
+
+          # PR's net change: base..HEAD (HEAD is the PR merge ref under pull_request).
+          git diff "$BASE_SHA"...HEAD > pr.diff
+
+          # Spec lives at specs/issue-N-spec.md — on the PR, on main, or still on a
+          # bot/spec-N branch. Resolve in that order; missing -> empty file ->
+          # the judge fails closed ("missing spec").
+          SPEC="specs/issue-${ISSUE}-spec.md"
+          if [ -f "$SPEC" ]; then
+            cp "$SPEC" spec.md
+          else
+            git fetch --depth 1 origin '+refs/heads/*:refs/remotes/origin/*' || true
+            found=""
+            while read -r ref; do
+              if git cat-file -e "$ref:$SPEC" 2>/dev/null; then found="$ref"; break; fi
+            done < <(git for-each-ref --format='%(refname:short)' refs/remotes/origin)
+            if [ -n "$found" ]; then git show "$found:$SPEC" > spec.md; else : > spec.md; fi
+          fi
+
+      - name: Run impl judge (fail-closed)
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          PYTHONPATH: judge-tool/pipeline
+        run: |
+          set -euo pipefail
+          python -m evals.impl_judge \
+            --diff-file pr.diff \
+            --spec-file spec.md \
+            --issue "${{ steps.prep.outputs.issue }}"
