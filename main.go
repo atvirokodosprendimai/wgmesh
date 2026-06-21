@@ -17,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/pilot"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/referral"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/rpc"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -82,6 +83,9 @@ func main() {
 			return
 		case "pilot":
 			pilotCmd()
+			return
+		case "referral":
+			referralCmd()
 			return
 		}
 	}
@@ -226,6 +230,11 @@ QUERY SUBCOMMANDS (decentralized mode):
   peers count                   Show peer statistics
   peers get <pubkey>            Get specific peer details
 
+REFERRAL SUBCOMMANDS:
+  referral show                 Show your referral code and share URL
+  referral stats                Show local referral statistics
+  referral validate <code>      Validate a referral code format
+
   Note: These commands query a running daemon via RPC socket.
   The daemon must be started with 'wgmesh join' first.
 
@@ -257,6 +266,7 @@ EXAMPLES:
 func initCmd() {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	secretMode := fs.Bool("secret", false, "Generate a new mesh secret")
+	referralCode := fs.String("referral", "", "Referral share code to attribute this init (format: XXXXX-XXXXX)")
 	fs.Parse(os.Args[2:])
 
 	if *secretMode {
@@ -264,6 +274,17 @@ func initCmd() {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to generate secret: %v\n", err)
 			os.Exit(1)
+		}
+
+		// Validate and record referral code if provided. The format is checked
+		// with the public referral package; the backend that implements
+		// referral.Store records the relationship out-of-band.
+		if *referralCode != "" {
+			if err := recordReferralCode(*referralCode); err != nil {
+				fmt.Fprintf(os.Stderr, "Failed to apply referral code: %v\n", err)
+				os.Exit(1)
+			}
+			fmt.Printf("Referral applied: %s\n", *referralCode)
 		}
 
 		uri := daemon.FormatSecretURI(secret)
@@ -301,6 +322,7 @@ func joinCmd() {
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	pprofAddr := fs.String("pprof", "", "Enable pprof HTTP server (e.g. localhost:6060)")
 	metricsAddr := fs.String("metrics", "", "Enable Prometheus metrics server (e.g. :9090)")
+	referralCode := fs.String("referral", "", "Referral share code to attribute this join (format: XXXXX-XXXXX)")
 	fs.Parse(os.Args[2:])
 
 	// If secret not provided via flag, try environment variables
@@ -327,6 +349,17 @@ func joinCmd() {
 
 	// Save account API key if provided
 	handleAccountFlag(*stateDir, *account)
+
+	// Validate and record referral code if provided. The code format is checked
+	// with the public referral package; recording against the backend happens
+	// out-of-band by the private backend that implements referral.Store.
+	if *referralCode != "" {
+		if err := recordReferralCode(*referralCode); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: referral code not applied: %v\n", err)
+		} else {
+			fmt.Printf("Referral applied: %s\n", *referralCode)
+		}
+	}
 
 	// Parse advertise routes
 	var routes []string
@@ -1504,4 +1537,190 @@ func runPilotValidate() {
 	if !result.Passed {
 		os.Exit(1)
 	}
+}
+
+// referralFileName is the local file used to remember this node's own share code.
+const referralFileName = "referral.json"
+
+// referralState is the on-disk shape of the local referral state file.
+// It deliberately stores only the node's own share code and the code (if any)
+// that was used to attribute this node at init/join time — no PII, reward
+// amounts, or backend credentials.
+type referralState struct {
+	// Code is this node's own generated referral code.
+	Code string `json:"code"`
+	// ReferredBy is the share code used to attribute this node, if any.
+	ReferredBy string `json:"referred_by,omitempty"`
+}
+
+// referralCodePath returns the path to the local referral state file.
+//
+// The directory may be overridden with the WGMESH_STATE_DIR environment
+// variable (useful for tests and non-root operation); it defaults to
+// defaultStateDir.
+func referralCodePath() string {
+	dir := os.Getenv("WGMESH_STATE_DIR")
+	if dir == "" {
+		dir = defaultStateDir
+	}
+	return filepath.Join(dir, referralFileName)
+}
+
+// loadReferralState reads the local referral state file. A missing file is not
+// an error: it returns a zero-value state so callers can create one.
+func loadReferralState() (referralState, error) {
+	var rs referralState
+	data, err := os.ReadFile(referralCodePath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return rs, nil
+		}
+		return rs, fmt.Errorf("read referral state %s: %w", referralCodePath(), err)
+	}
+	if err := json.Unmarshal(data, &rs); err != nil {
+		return rs, fmt.Errorf("parse referral state %s: %w", referralCodePath(), err)
+	}
+	return rs, nil
+}
+
+// saveReferralState writes the local referral state file atomically.
+func saveReferralState(rs referralState) error {
+	data, err := json.MarshalIndent(rs, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal referral state: %w", err)
+	}
+	dir := filepath.Dir(referralCodePath())
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("create referral state dir %s: %w", dir, err)
+	}
+	tmp := referralCodePath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return fmt.Errorf("write referral state %s: %w", tmp, err)
+	}
+	if err := os.Rename(tmp, referralCodePath()); err != nil {
+		os.Remove(tmp)
+		return fmt.Errorf("commit referral state %s: %w", referralCodePath(), err)
+	}
+	return nil
+}
+
+// getOrCreateReferralCode returns this node's own referral code, generating and
+// persisting one on first use.
+func getOrCreateReferralCode() (string, error) {
+	rs, err := loadReferralState()
+	if err != nil {
+		return "", err
+	}
+	if rs.Code != "" && referral.Validate(rs.Code) {
+		return rs.Code, nil
+	}
+	code, err := referral.Generate()
+	if err != nil {
+		return "", fmt.Errorf("generate referral code: %w", err)
+	}
+	rs.Code = code
+	if err := saveReferralState(rs); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
+// recordReferralCode validates a provided share code and stores it locally so
+// that later reward-tier upgrades can be attributed to the referrer. The
+// referrer-referee relationship is recorded by the private backend that
+// implements referral.Store; the public CLI only persists the attribution
+// locally.
+func recordReferralCode(code string) error {
+	if !referral.Validate(code) {
+		return fmt.Errorf("invalid referral code format %q (expected XXXXX-XXXXX)", code)
+	}
+	rs, err := loadReferralState()
+	if err != nil {
+		return err
+	}
+	rs.ReferredBy = code
+	if err := saveReferralState(rs); err != nil {
+		return err
+	}
+	return nil
+}
+
+// referralCmd handles the "referral" subcommand.
+func referralCmd() {
+	if len(os.Args) < 3 {
+		printReferralUsage()
+		os.Exit(1)
+	}
+
+	switch os.Args[2] {
+	case "show":
+		runReferralShow()
+	case "stats":
+		runReferralStats()
+	case "validate":
+		runReferralValidate()
+	default:
+		fmt.Fprintf(os.Stderr, "Unknown referral subcommand: %s\n", os.Args[2])
+		printReferralUsage()
+		os.Exit(1)
+	}
+}
+
+// printReferralUsage shows referral command usage.
+func printReferralUsage() {
+	fmt.Println(`wgmesh referral - Referral program management
+
+SUBCOMMANDS:
+  referral show                 Show your referral code and share URL
+  referral stats                Show local referral statistics
+  referral validate <code>      Validate a referral code format
+
+The referral store implementation lives in the private backend; this command
+reads/writes only the local referral state file.`)
+}
+
+// runReferralShow displays the user's referral code and a shareable URL.
+func runReferralShow() {
+	code, err := getOrCreateReferralCode()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	fmt.Printf("Your referral code: %s\n", code)
+	fmt.Printf("Share URL: https://wgmesh.io/?ref=%s\n", code)
+}
+
+// runReferralStats displays local referral statistics derived from the local
+// state file. Counts of converted referrals and earned rewards are served by
+// the private backend and intentionally not surfaced here.
+func runReferralStats() {
+	rs, err := loadReferralState()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	if rs.Code == "" {
+		fmt.Println("No referral code configured. Run 'wgmesh referral show' to generate one.")
+		return
+	}
+	fmt.Printf("Referral code: %s\n", rs.Code)
+	if rs.ReferredBy != "" {
+		fmt.Printf("Referred by: %s\n", rs.ReferredBy)
+	}
+}
+
+// runReferralValidate checks whether a code matches the XXXXX-XXXXX format.
+// Existence of the code in the backend is verified separately by the private
+// backend and is not exposed in the public CLI.
+func runReferralValidate() {
+	if len(os.Args) < 4 {
+		fmt.Fprintln(os.Stderr, "Usage: wgmesh referral validate XXXXX-XXXXX")
+		os.Exit(1)
+	}
+	code := os.Args[3]
+	if !referral.Validate(code) {
+		fmt.Println("Invalid referral code format")
+		os.Exit(1)
+	}
+	fmt.Printf("Valid referral code: %s\n", code)
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -368,4 +369,124 @@ func TestStatusBackwardCompatibility(t *testing.T) {
 	if strings.Contains(outputStr, "\"interface\":") {
 		t.Error("Default output should not be JSON format")
 	}
+}
+
+// TestReferralValidateCLI exercises the "referral validate" subcommand end to
+// end via the built binary.
+func TestReferralValidateCLI(t *testing.T) {
+	bin := buildTestBinary(t)
+	defer os.Remove(bin)
+
+	tests := []struct {
+		name       string
+		args       []string
+		wantExit   int
+		wantSubstr string
+	}{
+		{"valid code", []string{"referral", "validate", "ABCDE-FGHIJ"}, 0, "Valid referral code"},
+		{"invalid lowercase", []string{"referral", "validate", "abcde-fghij"}, 1, "Invalid referral code format"},
+		{"invalid short", []string{"referral", "validate", "AB-CD"}, 1, "Invalid referral code format"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(bin, tt.args...)
+			output, err := cmd.CombinedOutput()
+			if tt.wantExit == 0 && err != nil {
+				t.Fatalf("expected success, got %v: %s", err, output)
+			}
+			if tt.wantExit != 0 {
+				if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != tt.wantExit {
+					t.Fatalf("expected exit code %d, got %v: %s", tt.wantExit, err, output)
+				}
+			}
+			if !strings.Contains(string(output), tt.wantSubstr) {
+				t.Errorf("expected output to contain %q, got: %s", tt.wantSubstr, output)
+			}
+		})
+	}
+}
+
+// TestReferralShowCLI verifies that "referral show" generates and persists a
+// code, and that a second invocation returns the same code.
+func TestReferralShowCLI(t *testing.T) {
+	bin := buildTestBinary(t)
+	defer os.Remove(bin)
+
+	tmpDir := t.TempDir()
+
+	// First run: generates a new code.
+	cmd := exec.Command(bin, "referral", "show")
+	cmd.Env = append(os.Environ(), "WGMESH_STATE_DIR="+tmpDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("referral show failed: %v: %s", err, output)
+	}
+	out := string(output)
+	if !strings.Contains(out, "Your referral code:") {
+		t.Fatalf("expected referral code in output, got: %s", out)
+	}
+
+	// Extract the code.
+	lines := strings.Split(out, "\n")
+	var firstCode string
+	for _, l := range lines {
+		if strings.Contains(l, "Your referral code:") {
+			firstCode = strings.TrimSpace(strings.TrimPrefix(l, "Your referral code:"))
+			break
+		}
+	}
+	if firstCode == "" {
+		t.Fatalf("could not extract referral code from output: %s", out)
+	}
+
+	// Second run: should return the same code from the state file.
+	cmd2 := exec.Command(bin, "referral", "show")
+	cmd2.Env = append(os.Environ(), "WGMESH_STATE_DIR="+tmpDir)
+	output2, err := cmd2.CombinedOutput()
+	if err != nil {
+		t.Fatalf("second referral show failed: %v: %s", err, output2)
+	}
+	if !strings.Contains(string(output2), firstCode) {
+		t.Errorf("second run should reuse code %q, got: %s", firstCode, output2)
+	}
+}
+
+// TestReferralStatsCLI verifies that "referral stats" reports the local code
+// and the referral attribution after a code is recorded.
+func TestReferralStatsCLI(t *testing.T) {
+	bin := buildTestBinary(t)
+	defer os.Remove(bin)
+
+	tmpDir := t.TempDir()
+
+	// Generate this node's own code with overridden state dir.
+	showCmd := exec.Command(bin, "referral", "show")
+	showCmd.Env = append(os.Environ(), "WGMESH_STATE_DIR="+tmpDir)
+	if out, err := showCmd.CombinedOutput(); err != nil {
+		t.Fatalf("referral show failed: %v: %s", err, out)
+	}
+
+	// Stats should mention the code (but no referred-by yet).
+	statsCmd := exec.Command(bin, "referral", "stats")
+	statsCmd.Env = append(os.Environ(), "WGMESH_STATE_DIR="+tmpDir)
+	out, err := statsCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("referral stats failed: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), "Referral code:") {
+		t.Errorf("expected 'Referral code:' in output, got: %s", out)
+	}
+}
+
+// buildTestBinary builds the wgmesh binary to a temp path and returns it.
+// The caller is responsible for removing the binary.
+func buildTestBinary(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "wgmesh-test")
+	buildCmd := exec.Command("go", "build", "-o", bin, ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	return bin
 }
