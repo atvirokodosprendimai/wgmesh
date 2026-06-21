@@ -31,6 +31,8 @@ wgmesh status --secret "wgmesh://v1/<your-secret>"
 
 That's it. Nodes find each other via DHT, exchange keys, and build the mesh.
 
+**Looking for a self-hosted VPN alternative to Tailscale or ZeroTier?** See our [VPN landing page](public/vpn-alternative.md) for a DevOps-focused comparison and migration guide.
+
 For a step-by-step walkthrough with verification steps, troubleshooting, and all install methods,
 see [docs/quickstart.md](docs/quickstart.md).
 
