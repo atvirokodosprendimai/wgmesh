@@ -46,15 +46,23 @@ jobs:
         id: prep
         env:
           PR_TITLE: ${{ github.event.pull_request.title }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
           ISSUE=$(printf '%s' "$PR_TITLE" | sed -n 's/^fix: Issue #\([0-9]\{1,\}\).*/\1/p')
           [ -n "$ISSUE" ] || { echo "::error::could not parse issue number from title"; exit 1; }
           echo "issue=$ISSUE" >> "$GITHUB_OUTPUT"
 
-          # PR's net change: base..HEAD (HEAD is the PR merge ref under pull_request).
-          git diff "$BASE_SHA"...HEAD > pr.diff
+          # The PR's OWN changes only, three-dot against LIVE main using the head
+          # SHA. The old `git diff <event.base.sha>...HEAD` used a STALE base (the
+          # webhook payload's base.sha, frozen at event/rerun time) while HEAD was
+          # the merge ref recomputed against current main — so the diff dragged in
+          # everything main merged since the PR's base (CI workflows, the exit-intent
+          # modal, etc.), making faithful PRs look unfaithful as main drifted under
+          # them. origin/main...head three-dot = merge-base(main, head)..head = just
+          # this PR's changes, matching GitHub's own PR diff.
+          git fetch -q origin main
+          git diff "origin/main...${HEAD_SHA}" > pr.diff
 
           # Spec lives at specs/issue-N-spec.md — on the PR, on main, or still on a
           # bot/spec-N branch. Resolve in that order; missing -> empty file ->
