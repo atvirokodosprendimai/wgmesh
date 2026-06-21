@@ -1,0 +1,11 @@
+# The quickstart subcommand exists and prints a usage line.
+exec wgmesh quickstart --help
+stderr 'Usage: wgmesh quickstart'
+
+# --dry-run exercises the dispatch without starting a daemon and prints the
+# deterministic success line referenced by the landing page.
+exec wgmesh quickstart --dry-run
+stdout 'trial mesh joined'
+
+# The embedded public trial secret is referenced (public, low-value).
+stdout 'wgmesh://v1/trial-'

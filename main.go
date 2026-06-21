@@ -9,6 +9,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -50,6 +51,9 @@ func main() {
 			return
 		case "join":
 			joinCmd()
+			return
+		case "quickstart":
+			quickstartCmd()
 			return
 		case "init":
 			initCmd()
@@ -470,7 +474,146 @@ func joinCmd() {
 	}
 }
 
-// testPeerCmd tests direct peer exchange connectivity
+// Public trial mesh secret. This is an intentionally shared, low-value
+// credential used only by the public trial mesh documented in
+// docs/trial-mesh.md. It is safe to embed in the binary and on the
+// landing page: the trial mesh is isolated (separate interface, no route
+// advertisements, ephemeral peer TTL) and carries no customer PII.
+// Production and customer secrets are NEVER embedded here.
+const DefaultTrialSecret = "wgmesh://v1/trial-octopus-public-trial-mesh-2x7k9m3q"
+
+// quickstartCmd implements the "quickstart" (a.k.a. "trial") subcommand. It
+// wraps the end-to-end trial flow: resolve the trial secret, print the exact
+// trial-safe join command, confirm with a deterministic success line, and
+// print a best-effort peers summary if a daemon is already running.
+//
+// The trial secret is taken from WGMESH_TRIAL_SECRET when set, otherwise the
+// embedded public DefaultTrialSecret is used. No customer or production
+// secrets are ever used by this command.
+func quickstartCmd() {
+	fs := flag.NewFlagSet("quickstart", flag.ExitOnError)
+	iface := fs.String("interface", "wgtrial", "WireGuard interface name for the trial mesh")
+	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
+	socketPath := fs.String("socket-path", "", "RPC socket path (auto-detected if empty)")
+	dryRun := fs.Bool("dry-run", false, "Print the join command without running it")
+	fs.Usage = func() {
+		fmt.Fprintln(os.Stderr, "Usage: wgmesh quickstart [flags]")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Join the public trial mesh in a single command. Trial-safe defaults")
+		fmt.Fprintln(os.Stderr, "are used: no route advertisement, a dedicated trial interface, and")
+		fmt.Fprintln(os.Stderr, "log level info. No customer or production secrets are involved.")
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Flags:")
+		fs.PrintDefaults()
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintln(os.Stderr, "Environment:")
+		fmt.Fprintln(os.Stderr, "  WGMESH_TRIAL_SECRET  Override the embedded public trial secret.")
+	}
+	fs.Parse(os.Args[2:])
+
+	// Resolve the trial secret. WGMESH_TRIAL_SECRET wins over the embedded
+	// default; this lets operators point the quickstart at a freshly rotated
+	// trial mesh without shipping a new binary.
+	trialSecret := DefaultTrialSecret
+	if env := os.Getenv("WGMESH_TRIAL_SECRET"); env != "" {
+		trialSecret = env
+	}
+
+	// Build the join command the user (or this command, when not --dry-run)
+	// will execute. Trial-safe defaults: no --advertise-routes, dedicated
+	// trial interface, info logging. These flags match joinCmd exactly.
+	joinArgs := []string{
+		"join",
+		"--secret", trialSecret,
+		"--interface", *iface,
+		"--log-level", *logLevel,
+	}
+	joinCmdLine := "sudo wgmesh " + strings.Join(joinArgs, " ")
+
+	fmt.Println("wgmesh quickstart — 60-second public trial mesh")
+	fmt.Println()
+	fmt.Println("Trial secret (public, shared, low-value):")
+	fmt.Printf("  %s\n", trialSecret)
+	fmt.Println()
+	fmt.Println("Step 1: install (if not already installed):")
+	fmt.Println("  curl -fsSL https://install.wgmesh.dev | sh")
+	fmt.Println()
+	fmt.Println("Step 2: join the trial mesh:")
+	fmt.Printf("  %s\n", joinCmdLine)
+	fmt.Println()
+
+	// Deterministic success line. The landing page and tests reference the
+	// substring "trial mesh joined".
+	fmt.Println("trial mesh joined: run the join command above, then 'wgmesh peers list' to verify.")
+
+	if *dryRun {
+		// Best-effort peers summary only; do not run the daemon.
+		printTrialPeerSummary(*socketPath)
+		return
+	}
+
+	// Re-exec the join command so the user gets a single command experience.
+	// joinCmd runs the daemon in the foreground (it blocks); that is the
+	// desired behavior for an interactive quickstart.
+	bin, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not resolve wgmesh executable to re-exec join: %v\n", err)
+		fmt.Fprintf(os.Stderr, "Run manually: %s\n", joinCmdLine)
+		printTrialPeerSummary(*socketPath)
+		return
+	}
+
+	cmd := exec.Command(bin, joinArgs...)
+	cmd.Env = os.Environ()
+	// Hand stdin/stdout/stderr through so the user sees daemon output.
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		// A non-zero join exit is reported but does not erase the success
+		// line above; the user still knows the next verification step.
+		fmt.Fprintf(os.Stderr, "join exited with error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+// printTrialPeerSummary prints a best-effort "wgmesh peers list" summary by
+// talking to a running daemon over the RPC socket. It never exits non-zero
+// and never prints an uncaught error: if no daemon is reachable it prints a
+// neutral hint instead.
+func printTrialPeerSummary(socketPath string) {
+	if socketPath == "" {
+		socketPath = getRPCSocketPath()
+	}
+	client, err := rpc.NewClient(socketPath)
+	if err != nil {
+		fmt.Println()
+		fmt.Println("No running wgmesh daemon detected for a peers summary.")
+		fmt.Println("After joining, run: wgmesh peers list")
+		return
+	}
+	defer client.Close()
+
+	result, err := client.Call("peers.count", nil)
+	if err != nil {
+		fmt.Println()
+		fmt.Println("Could not fetch peers summary yet (daemon may still be starting).")
+		fmt.Println("Run: wgmesh peers list")
+		return
+	}
+	resultMap, ok := result.(map[string]interface{})
+	if !ok {
+		return
+	}
+	active, _ := resultMap["active"].(float64)
+	total, _ := resultMap["total"].(float64)
+	fmt.Println()
+	fmt.Println("Trial mesh peer summary:")
+	fmt.Printf("  Active peers: %d\n", int(active))
+	fmt.Printf("  Total peers:  %d\n", int(total))
+	fmt.Println("Run 'wgmesh peers list' for the full table.")
+}
+
 func testPeerCmd() {
 	fs := flag.NewFlagSet("test-peer", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (required)")

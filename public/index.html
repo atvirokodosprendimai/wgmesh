@@ -190,6 +190,125 @@
                 max-width: 350px; /* But not too wide */
             }
         }
+
+        /* 60-second quickstart block */
+        .quickstart-section {
+            background-color: #f0f7ff;
+            border: 1px dashed #a0d1ff;
+            border-radius: 10px;
+            padding: 35px 25px;
+            margin: 40px 0;
+            text-align: center;
+        }
+        .quickstart-section h2 {
+            margin-top: 0;
+            border-bottom: none;
+        }
+        .quickstart-oneliner {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin: 20px auto;
+            max-width: 720px;
+        }
+        .quickstart-oneliner code {
+            flex: 1 1 auto;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+            padding: 14px 18px;
+            border-radius: 8px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 0.95em;
+            text-align: left;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        .copy-btn {
+            flex: 0 0 auto;
+            background-color: #0056b3;
+            color: #fff;
+            border: none;
+            padding: 14px 18px;
+            border-radius: 8px;
+            font-size: 0.95em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background-color 0.2s ease;
+        }
+        .copy-btn:hover { background-color: #004085; }
+        .copy-btn.copied { background-color: #28a745; }
+        .quickstart-steps {
+            display: flex;
+            justify-content: center;
+            gap: 25px;
+            flex-wrap: wrap;
+            margin: 30px 0;
+        }
+        .quickstart-step {
+            background-color: #ffffff;
+            border: 1px solid #d1e0ff;
+            border-radius: 10px;
+            padding: 20px;
+            width: 230px;
+            text-align: left;
+        }
+        .quickstart-step .step-number {
+            display: inline-block;
+            width: 28px;
+            height: 28px;
+            line-height: 28px;
+            text-align: center;
+            border-radius: 50%;
+            background-color: #0056b3;
+            color: #fff;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .quickstart-step code {
+            display: inline-block;
+            background-color: #eef4ff;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.85em;
+            word-break: break-all;
+        }
+        .prereq-chips {
+            margin: 20px 0;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        .prereq-chip {
+            background-color: #e6f2ff;
+            color: #0056b3;
+            border: 1px solid #a0d1ff;
+            border-radius: 999px;
+            padding: 6px 14px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        .trial-status {
+            margin-top: 25px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: #ffffff;
+            border: 1px solid #d1e0ff;
+            border-radius: 999px;
+            padding: 8px 18px;
+            font-weight: 600;
+        }
+        .trial-status .dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #6c757d;
+        }
+        .trial-status.online .dot { background-color: #28a745; }
+        .trial-status.offline .dot { background-color: #dc3545; }
     </style>
     <!-- OpenPanel analytics (self-hosted at counter.hackrsvalv.com) -->
     <script src="https://openpanel.dev/op1.js" defer async></script>
@@ -259,13 +378,47 @@
             <!-- Placeholder for diagrams or further explanation -->
         </section>
 
-        <section id="install">
-            <h2>#install</h2>
-            <p>Getting wgmesh up and running is straightforward. Here's a brief overview:</p>
-            <p>1. <strong>Download:</strong> Obtain the latest wgmesh package for your system.</p>
-            <p>2. <strong>Configure:</strong> Define your network peers and their policies in a simple configuration file.</p>
-            <p>3. <strong>Run:</strong> Start the wgmesh daemon, and watch your network form automatically.</p>
-            <p>For detailed instructions, please refer to our <a href="README.md" target="_blank" rel="noopener noreferrer">official README</a>.</p>
+        <section id="install" class="quickstart-section">
+            <h2>#install — 60-second quickstart</h2>
+            <p>One command installs wgmesh and gets you onto the public trial mesh. No account, no setup.</p>
+
+            <div class="quickstart-oneliner">
+                <code id="install-cmd">curl -fsSL https://install.wgmesh.dev | sh</code>
+                <button class="copy-btn" type="button"
+                    aria-label="Copy install command"
+                    onclick="wgmeshCopyCmd('install-cmd', this)">Copy</button>
+            </div>
+
+            <div class="quickstart-steps">
+                <div class="quickstart-step">
+                    <span class="step-number">1</span>
+                    <h3>Install</h3>
+                    <p>Run the one-liner above. It detects your platform, verifies the checksum, and installs the <code>wgmesh</code> binary.</p>
+                </div>
+                <div class="quickstart-step">
+                    <span class="step-number">2</span>
+                    <h3>Join the trial</h3>
+                    <p>Run <code>wgmesh quickstart</code> to join the public, isolated trial mesh with safe defaults.</p>
+                </div>
+                <div class="quickstart-step">
+                    <span class="step-number">3</span>
+                    <h3>Verify</h3>
+                    <p>Run <code>wgmesh peers list</code> and watch the trial peers light up. That's a working mesh.</p>
+                </div>
+            </div>
+
+            <p style="font-weight:600;">Prerequisites</p>
+            <div class="prereq-chips">
+                <span class="prereq-chip">Linux or macOS</span>
+                <span class="prereq-chip">64-bit</span>
+                <span class="prereq-chip">Root or sudo</span>
+                <span class="prereq-chip">UDP 51820 open</span>
+            </div>
+
+            <div id="trial-status" class="trial-status" role="status" aria-live="polite">
+                <span class="dot" aria-hidden="true"></span>
+                <span id="trial-status-text">checking trial mesh…</span>
+            </div>
         </section>
 
         <section id="modes">
@@ -297,6 +450,104 @@
         <p>&copy; 2024 wgmesh.dev. All rights reserved.</p>
         <p>Powered by WireGuard®. <a href="https://polar.sh/" target="_blank" rel="noopener noreferrer">Payment via Polar.sh</a></p>
     </footer>
+
+    <script>
+      // Copy-to-clipboard for the install one-liner. Never throws.
+      (function () {
+        window.wgmeshCopyCmd = function (id, btn) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          var text = el.textContent || '';
+          var done = function () {
+            if (!btn) return;
+            var prev = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(function () { btn.textContent = prev; btn.classList.remove('copied'); }, 1500);
+          };
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(function () {
+              wgmeshFallbackCopy(text); done();
+            });
+          } else {
+            wgmeshFallbackCopy(text); done();
+          }
+        };
+        window.wgmeshFallbackCopy = function (text) {
+          try {
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.setAttribute('readonly', '');
+            ta.style.position = 'absolute';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          } catch (e) { /* no-op; clipboard is best-effort */ }
+        };
+      })();
+
+      // Trial status badge: fetches a public, read-only status JSON and lights
+      // up green/red. Degrades gracefully — never throws an uncaught error.
+      (function () {
+        var STATUS_URL = 'https://install.wgmesh.dev/trial-status.json';
+        var el = document.getElementById('trial-status');
+        var txt = document.getElementById('trial-status-text');
+        if (!el || !txt) return;
+
+        function setState(cls, msg) {
+          el.classList.remove('online', 'offline');
+          if (cls) el.classList.add(cls);
+          txt.textContent = msg;
+        }
+
+        function check() {
+          var settled = false;
+          // Fail-open timeout so we never sit on "checking…" forever.
+          var t = setTimeout(function () {
+            if (!settled) { settled = true; setState('offline', 'trial offline'); }
+          }, 5000);
+          fetch(STATUS_URL, { cache: 'no-store' })
+            .then(function (resp) {
+              if (!resp.ok) throw new Error('HTTP ' + resp.status);
+              return resp.json();
+            })
+            .then(function (data) {
+              clearTimeout(t);
+              if (settled) return;
+              settled = true;
+              var online = false;
+              var nodes = 0;
+              if (data) {
+                // Tolerate either {online: true/false} or {onlineNodes: n}.
+                if (typeof data.online === 'boolean') online = data.online;
+                if (typeof data.onlineNodes === 'number') { nodes = data.onlineNodes; online = online || nodes > 0; }
+                if (typeof data.updatedAt === 'string') {
+                  // If the status is older than 120s, treat as offline.
+                  var age = Date.now() - new Date(data.updatedAt).getTime();
+                  if (!isNaN(age) && age > 120000) online = false;
+                }
+              }
+              if (online) {
+                setState('online', nodes > 0 ? ('trial online · ' + nodes + ' node' + (nodes === 1 ? '' : 's')) : 'trial online');
+              } else {
+                setState('offline', 'trial offline');
+              }
+            })
+            .catch(function () {
+              clearTimeout(t);
+              if (settled) return;
+              settled = true;
+              setState('offline', 'trial offline');
+            });
+        }
+
+        check();
+        // Re-check periodically so the badge stays fresh.
+        setInterval(check, 60000);
+      })();
+    </script>
 <!-- Buttondown lead capture (meshletter) -->
 <div style="max-width:520px;margin:40px auto;padding:24px;border:1px solid #e5e7eb;border-radius:12px;background:#fafafa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;text-align:center;">
   <div style="font-size:18px;font-weight:700;color:#111;margin-bottom:6px;">Follow the build</div>
