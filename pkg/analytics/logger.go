@@ -15,7 +15,7 @@ import (
 type Logger struct {
 	mu      sync.Mutex
 	path    string // Path to event log file
-	buffer  []Event
+	buffer  []ConversionEvent
 	bufSize int // Buffer size before flush
 	flushed int // Number of events flushed
 }
@@ -45,7 +45,7 @@ func NewLogger(cfg LoggerConfig) (*Logger, error) {
 	l := &Logger{
 		path:    path,
 		bufSize: bufSize,
-		buffer:  make([]Event, 0, bufSize),
+		buffer:  make([]ConversionEvent, 0, bufSize),
 	}
 
 	return l, nil
@@ -53,7 +53,7 @@ func NewLogger(cfg LoggerConfig) (*Logger, error) {
 
 // Log records an analytics event.
 // Events are buffered and flushed to disk when the buffer is full.
-func (l *Logger) Log(event Event) error {
+func (l *Logger) Log(event ConversionEvent) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -122,7 +122,7 @@ func (l *Logger) flush() error {
 
 // LogTrialSignup records a trial signup event.
 func (l *Logger) LogTrialSignup(code, campaignID, source, accountID string) error {
-	return l.Log(Event{
+	return l.Log(ConversionEvent{
 		Type: EventTrialSignup,
 		Properties: map[string]string{
 			PropCode:       code,
@@ -135,7 +135,7 @@ func (l *Logger) LogTrialSignup(code, campaignID, source, accountID string) erro
 
 // LogTrialActivation records a trial activation event.
 func (l *Logger) LogTrialActivation(accountID string) error {
-	return l.Log(Event{
+	return l.Log(ConversionEvent{
 		Type: EventTrialActivation,
 		Properties: map[string]string{
 			PropAccountID: accountID,
@@ -145,7 +145,7 @@ func (l *Logger) LogTrialActivation(accountID string) error {
 
 // LogTrialConversion records a trial conversion event.
 func (l *Logger) LogTrialConversion(accountID string) error {
-	return l.Log(Event{
+	return l.Log(ConversionEvent{
 		Type: EventTrialConversion,
 		Properties: map[string]string{
 			PropAccountID: accountID,
@@ -155,7 +155,7 @@ func (l *Logger) LogTrialConversion(accountID string) error {
 
 // LogPromoRedeemed records a promo redemption event.
 func (l *Logger) LogPromoRedeemed(code, campaignID, accountID string) error {
-	return l.Log(Event{
+	return l.Log(ConversionEvent{
 		Type: EventPromoRedeemed,
 		Properties: map[string]string{
 			PropCode:       code,
@@ -167,7 +167,7 @@ func (l *Logger) LogPromoRedeemed(code, campaignID, accountID string) error {
 
 // LogCommunityClick records a click-through from community outreach.
 func (l *Logger) LogCommunityClick(communityID, source, url string) error {
-	return l.Log(Event{
+	return l.Log(ConversionEvent{
 		Type: EventCommunityClick,
 		Properties: map[string]string{
 			PropCommunityID: communityID,
@@ -178,6 +178,6 @@ func (l *Logger) LogCommunityClick(communityID, source, url string) error {
 }
 
 // generateEventID creates a unique event ID.
-func generateEventID(event Event) string {
+func generateEventID(event ConversionEvent) string {
 	return fmt.Sprintf("%s-%d", event.Type, time.Now().UnixNano())
 }

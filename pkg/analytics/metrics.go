@@ -46,7 +46,7 @@ func (c *Calculator) ComputeCampaignMetrics(campaignID string) (*CampaignMetrics
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		var event Event
+		var event ConversionEvent
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
 			continue // Skip malformed lines
 		}
@@ -99,7 +99,7 @@ func (c *Calculator) ComputeFunnelMetrics() (*ConversionFunnel, error) {
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		var event Event
+		var event ConversionEvent
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
 			continue
 		}

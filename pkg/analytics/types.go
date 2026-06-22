@@ -2,23 +2,23 @@ package analytics
 
 import "time"
 
-// EventType represents the type of analytics event.
-type EventType string
+// ConversionEventType represents the type of analytics event.
+type ConversionEventType string
 
 const (
-	EventTrialSignup     EventType = "trial_signup"
-	EventTrialActivation EventType = "trial_activation"
-	EventTrialConversion EventType = "trial_conversion"
-	EventPromoRedeemed   EventType = "promo_redeemed"
-	EventCommunityClick  EventType = "community_click"
+	EventTrialSignup     ConversionEventType = "trial_signup"
+	EventTrialActivation ConversionEventType = "trial_activation"
+	EventTrialConversion ConversionEventType = "trial_conversion"
+	EventPromoRedeemed   ConversionEventType = "promo_redeemed"
+	EventCommunityClick  ConversionEventType = "community_click"
 )
 
-// Event represents an analytics event for tracking trials and conversions.
-type Event struct {
+// ConversionEvent represents an analytics event for tracking trials and conversions.
+type ConversionEvent struct {
 	ID         string            // Unique event ID
-	Type       EventType         // Event type
+	Type       ConversionEventType         // ConversionEvent type
 	Timestamp  time.Time         // When the event occurred
-	Properties map[string]string // Event properties
+	Properties map[string]string // ConversionEvent properties
 }
 
 // Common property keys

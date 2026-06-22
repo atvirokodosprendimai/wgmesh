@@ -55,7 +55,7 @@ func TestLog(t *testing.T) {
 	t.Run("logs event", func(t *testing.T) {
 		logger := tempLogger(t)
 
-		event := Event{
+		event := ConversionEvent{
 			Type:      EventTrialSignup,
 			Timestamp: time.Now(),
 			Properties: map[string]string{
@@ -76,7 +76,7 @@ func TestLog(t *testing.T) {
 	t.Run("assigns ID if missing", func(t *testing.T) {
 		logger := tempLogger(t)
 
-		event := Event{
+		event := ConversionEvent{
 			Type: EventTrialSignup,
 		}
 
@@ -93,7 +93,7 @@ func TestLog(t *testing.T) {
 	t.Run("assigns timestamp if missing", func(t *testing.T) {
 		logger := tempLogger(t)
 
-		event := Event{
+		event := ConversionEvent{
 			Type: EventTrialSignup,
 			ID:   "test-id",
 		}
@@ -115,7 +115,7 @@ func TestFlush(t *testing.T) {
 
 		// Log 5 events (buffer size is 5)
 		for i := 0; i < 5; i++ {
-			err := logger.Log(Event{Type: EventTrialSignup})
+			err := logger.Log(ConversionEvent{Type: EventTrialSignup})
 			if err != nil {
 				t.Fatalf("Log() failed: %v", err)
 			}
@@ -142,7 +142,7 @@ func TestFlush(t *testing.T) {
 
 		// Log 2 events to trigger flush
 		for i := 0; i < 2; i++ {
-			err := logger.Log(Event{
+			err := logger.Log(ConversionEvent{
 				Type: EventTrialSignup,
 				Properties: map[string]string{
 					PropAccountID: fmt.Sprintf("account-%d", i),
@@ -170,7 +170,7 @@ func TestFlush(t *testing.T) {
 		}
 
 		// Parse and verify first event
-		var event Event
+		var event ConversionEvent
 		if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
 			t.Fatalf("Unmarshal() failed: %v", err)
 		}
@@ -183,7 +183,7 @@ func TestFlush(t *testing.T) {
 	t.Run("manual flush", func(t *testing.T) {
 		logger := tempLogger(t)
 
-		err := logger.Log(Event{Type: EventTrialSignup})
+		err := logger.Log(ConversionEvent{Type: EventTrialSignup})
 		if err != nil {
 			t.Fatalf("Log() failed: %v", err)
 		}
