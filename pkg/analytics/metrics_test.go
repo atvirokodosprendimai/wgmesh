@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func tempLogWithEvents(t *testing.T, events []Event) string {
+func tempLogWithEvents(t *testing.T, events []ConversionEvent) string {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -31,7 +31,7 @@ func tempLogWithEvents(t *testing.T, events []Event) string {
 }
 
 func TestComputeCampaignMetrics(t *testing.T) {
-	events := []Event{
+	events := []ConversionEvent{
 		{
 			Type: EventPromoRedeemed,
 			Properties: map[string]string{
@@ -137,7 +137,7 @@ func TestComputeCampaignMetricsNoEvents(t *testing.T) {
 }
 
 func TestComputeFunnelMetrics(t *testing.T) {
-	events := []Event{
+	events := []ConversionEvent{
 		{Type: EventTrialSignup},
 		{Type: EventTrialSignup},
 		{Type: EventTrialSignup},
