@@ -57,9 +57,10 @@ jobs:
       - name: Fetch PR changes
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           gh pr checkout ${{ github.event.pull_request.number }} --detach
-          git checkout ${{ github.event.pull_request.head.ref }}
+          git checkout "$PR_HEAD_REF"
 
       - name: Extract issue number
         id: issue
