@@ -27,6 +27,9 @@ Verify:
 wgmesh version
 ```
 
+> **macOS:** to run wgmesh as a boot-start service (launchd) with
+> `brew services start wgmesh`, see [Running wgmesh as a macOS service](macos-brew-services.md).
+
 ### Pre-built binary (Linux)
 
 ```bash
