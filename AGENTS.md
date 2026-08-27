@@ -7,6 +7,38 @@ wgmesh is a Go 1.23 WireGuard mesh network builder with two operational modes:
 
 Discovery layers (decentralized): GitHub Issues registry (L0), LAN multicast (L1), BitTorrent DHT (L2), in-mesh gossip (L3).
 
+## Behavioral Rules
+
+Guidance for Claude Code when working in this repository. Bias toward correctness, small diffs, and verified changes.
+
+### Think Before Coding
+
+- State assumptions. If requirements are ambiguous, ask before editing.
+- If multiple interpretations exist, present them instead of choosing silently.
+- Push back on overcomplicated or speculative work.
+- For non-trivial changes, define success criteria and a short plan before implementation.
+
+### Simplicity First
+
+- Implement only what was requested.
+- Do not add abstractions for single-use code.
+- Do not add configurability, fallback paths, or defensive handling for impossible states.
+- If a change grows large, stop and simplify before continuing.
+
+### Surgical Changes
+
+- Touch only files needed for the request.
+- Do not refactor, reformat, or clean adjacent code unless required.
+- Match existing style, even when a different style would be preferable.
+- Remove only unused imports, variables, or functions created by your own change.
+- Mention unrelated dead code or issues; do not fix them unless asked.
+
+### Verified Execution
+
+- Convert tasks into verifiable goals: reproduce bugs, add focused tests when useful, then make checks pass.
+- For multi-step work, use: `step -> verify: check`.
+- Do not claim completion without evidence from tests, lint, type-check, build, runtime output, or source tracing.
+
 ## Project Structure
 
 ```
