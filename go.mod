@@ -7,8 +7,9 @@ require (
 	github.com/atvirokodosprendimai/lighthouse-go v0.1.0
 	github.com/prometheus/client_golang v1.12.2
 	github.com/prometheus/client_model v0.2.0
-	golang.org/x/crypto v0.47.0
-	golang.org/x/term v0.39.0
+	golang.org/x/crypto v0.52.0
+	golang.org/x/term v0.43.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
@@ -41,7 +42,7 @@ require (
 	github.com/rs/dnscache v0.0.0-20211102005908-e0241e321417 // indirect
 	golang.org/x/exp v0.0.0-20221217163422-3c43f8badb15 // indirect
 	golang.org/x/sync v0.19.0 // indirect
-	golang.org/x/sys v0.40.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	golang.org/x/time v0.0.0-20220609170525-579cf78fd858 // indirect
 	golang.org/x/tools v0.26.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect

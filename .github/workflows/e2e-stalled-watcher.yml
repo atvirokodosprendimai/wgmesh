@@ -1,3 +1,5 @@
+---
+# yamllint disable rule:line-length
 name: E2E Stalled Watcher
 
 # Runs every 30 minutes. Flags any open issue that has been carrying the
@@ -9,27 +11,35 @@ name: E2E Stalled Watcher
 # Decision lives in scripts/workflows/e2e-stalled-watcher.js (testable;
 # see e2e-stalled-watcher.test.js). Idempotent — re-runs are safe.
 #
-# Token: PUSH_TOKEN, mirroring the rest of the verifier pipeline.
+# Token: GITHUB_TOKEN for issue-write operations.
 
-on:
+'on':
   schedule:
     - cron: '*/30 * * * *'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
   issues: write
 
 jobs:
   watch:
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout (handler module)
         uses: actions/checkout@v4
 
       - name: Ensure e2e-stalled label exists
         env:
-          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh label create e2e-stalled \
             --repo "${{ github.repository }}" \
@@ -40,7 +50,7 @@ jobs:
       - name: Flag stalled awaiting-verification issues
         uses: actions/github-script@v8
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const handler = require('./scripts/workflows/e2e-stalled-watcher.js');
             await handler({github, context, core});

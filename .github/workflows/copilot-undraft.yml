@@ -1,3 +1,5 @@
+---
+# yamllint disable rule:line-length
 name: Auto-undraft Copilot PRs
 
 # When Copilot coding agent opens a draft PR, automatically mark it
@@ -8,7 +10,7 @@ name: Auto-undraft Copilot PRs
 #   - schedule (every 5 min): catches PRs where pull_request_target was
 #     blocked by GitHub's actor-approval gate (e.g. Copilot bot)
 
-on:
+'on':
   pull_request_target:
     types: [opened]
   schedule:
@@ -16,7 +18,9 @@ on:
   workflow_dispatch:
 
 permissions:
+  contents: write
   pull-requests: write
+  issues: write
 
 jobs:
   # ── Event-driven path ──
@@ -27,10 +31,17 @@ jobs:
       (github.event.pull_request.user.login == 'copilot-swe-agent[bot]' || github.event.pull_request.user.login == 'Copilot')
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Mark PR ready for review
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const prNumber = context.payload.pull_request.number;
             const prNodeId = context.payload.pull_request.node_id;
@@ -52,10 +63,17 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Undraft Copilot PRs
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const owner = context.repo.owner;
             const repo = context.repo.repo;

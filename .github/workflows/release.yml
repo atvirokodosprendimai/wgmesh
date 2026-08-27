@@ -49,8 +49,9 @@ jobs:
           go-version: '1.25'
 
       - name: Verify tag ref
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch || github.event.inputs.tag }}
         run: |
-          TAG="${{ github.event.workflow_run.head_branch || github.event.inputs.tag }}"
           echo "Releasing tag: $TAG"
           if ! git describe --tags --exact-match HEAD 2>/dev/null; then
             echo "::error::HEAD is not a tag — aborting release"
@@ -72,9 +73,10 @@ jobs:
           MENTISDB_USER: ${{ secrets.MENTISDB_USER }}
           MENTISDB_PASSWORD: ${{ secrets.MENTISDB_PASSWORD }}
           OUTCOME: ${{ job.status }}
+          TAG: ${{ github.event.workflow_run.head_branch || github.event.inputs.tag }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
-          TAG="${{ github.event.workflow_run.head_branch || github.event.inputs.tag }}"
           if [ "$OUTCOME" = "success" ]; then
             TYPE="TaskComplete"
             IMP="0.7"
@@ -85,7 +87,7 @@ jobs:
           PAYLOAD=$(jq -nc \
             --arg tag "$TAG" \
             --arg outcome "$OUTCOME" \
-            --arg run_url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg run_url "$RUN_URL" \
             --arg type "$TYPE" \
             --arg imp "$IMP" \
             '{

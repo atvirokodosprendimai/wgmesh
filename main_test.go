@@ -1,8 +1,10 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -165,4 +167,326 @@ func TestVersionFormatConsistency(t *testing.T) {
 				[]string{"version", "--version", "-v"}[i], outputs[i])
 		}
 	}
+}
+
+func TestStatusJSONOutput(t *testing.T) {
+	// Build the binary for testing
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test")
+
+	// Test secret (long enough for key derivation)
+	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+
+	cmd := exec.Command("/tmp/wgmesh-test", "status", "--secret", testSecret, "--json")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Command failed: %v, output: %s", err, output)
+	}
+
+	// Parse JSON output
+	var status StatusOutput
+	if err := json.Unmarshal(output, &status); err != nil {
+		t.Fatalf("Failed to parse JSON output: %v\nOutput: %s", err, output)
+	}
+
+	// Verify required fields are present
+	if status.Interface == "" {
+		t.Error("Interface field is empty")
+	}
+	if status.NetworkID == "" {
+		t.Error("NetworkID field is empty")
+	}
+	if status.MeshSubnet == "" {
+		t.Error("MeshSubnet field is empty")
+	}
+	if status.MeshIPv6Prefix == "" {
+		t.Error("MeshIPv6Prefix field is empty")
+	}
+	if status.GossipPort == 0 {
+		t.Error("GossipPort field is zero")
+	}
+	if status.RendezvousID == "" {
+		t.Error("RendezvousID field is empty")
+	}
+
+	// Verify format expectations
+	if !strings.Contains(status.MeshSubnet, "/") {
+		t.Errorf("MeshSubnet should be CIDR format, got: %s", status.MeshSubnet)
+	}
+	if !strings.Contains(status.MeshIPv6Prefix, "/") {
+		t.Errorf("MeshIPv6Prefix should contain CIDR, got: %s", status.MeshIPv6Prefix)
+	}
+}
+
+func TestStatusTextOutput(t *testing.T) {
+	// Build the binary for testing
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test")
+
+	// Test secret
+	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+
+	cmd := exec.Command("/tmp/wgmesh-test", "status", "--secret", testSecret)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Command failed: %v, output: %s", err, output)
+	}
+
+	outputStr := string(output)
+
+	// Verify text format output contains expected headers and fields
+	expectedStrings := []string{
+		"Mesh Status",
+		"===========",
+		"Interface:",
+		"Network ID:",
+		"Mesh Subnet:",
+		"Mesh IPv6 Prefix:",
+		"Gossip Port:",
+		"Rendezvous ID:",
+	}
+
+	for _, expected := range expectedStrings {
+		if !strings.Contains(outputStr, expected) {
+			t.Errorf("Expected output to contain %q, but it was missing", expected)
+		}
+	}
+
+	// Verify it does NOT contain JSON markers
+	if strings.Contains(outputStr, "{") || strings.Contains(outputStr, "}") {
+		t.Error("Text output should not contain JSON braces")
+	}
+}
+
+func TestStatusJSONWithoutSecret(t *testing.T) {
+	// Build the binary for testing
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test")
+
+	// Test that --json without secret fails
+	cmd := exec.Command("/tmp/wgmesh-test", "status", "--json")
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatal("Expected error when --secret is missing, but command succeeded")
+	}
+
+	outputStr := string(output)
+	if !strings.Contains(outputStr, "--secret is required") {
+		t.Errorf("Expected error message about missing secret, got: %s", outputStr)
+	}
+	// Should go to stderr, not stdout
+	if strings.Contains(outputStr, "{") {
+		t.Error("Should not output JSON when secret is missing")
+	}
+}
+
+func TestStatusCustomSubnet(t *testing.T) {
+	// Build the binary for testing
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test")
+
+	// Test secret
+	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+	customSubnet := "192.168.100.0/24"
+
+	tests := []struct {
+		name     string
+		args     []string
+		wantJSON bool
+	}{
+		{"custom subnet JSON", []string{"status", "--secret", testSecret, "--mesh-subnet", customSubnet, "--json"}, true},
+		{"custom subnet text", []string{"status", "--secret", testSecret, "--mesh-subnet", customSubnet}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command("/tmp/wgmesh-test", tt.args...)
+			output, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("Command failed: %v, output: %s", err, output)
+			}
+
+			outputStr := string(output)
+
+			if tt.wantJSON {
+				var status StatusOutput
+				if err := json.Unmarshal(output, &status); err != nil {
+					t.Fatalf("Failed to parse JSON output: %v\nOutput: %s", err, output)
+				}
+				if status.MeshSubnet != customSubnet {
+					t.Errorf("Expected custom subnet %s, got %s", customSubnet, status.MeshSubnet)
+				}
+			} else {
+				if !strings.Contains(outputStr, customSubnet) {
+					t.Errorf("Expected text output to contain custom subnet %s", customSubnet)
+				}
+			}
+		})
+	}
+}
+
+func TestStatusBackwardCompatibility(t *testing.T) {
+	// Build the binary for testing
+	buildCmd := exec.Command("go", "build", "-o", "/tmp/wgmesh-test", ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	defer os.Remove("/tmp/wgmesh-test")
+
+	// Test secret
+	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+
+	// Test that default behavior (no --json) produces text output
+	cmd := exec.Command("/tmp/wgmesh-test", "status", "--secret", testSecret)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("Command failed: %v, output: %s", err, output)
+	}
+
+	outputStr := string(output)
+
+	// Should contain text format markers
+	if !strings.Contains(outputStr, "Mesh Status") {
+		t.Error("Default output should be text format with 'Mesh Status' header")
+	}
+	if !strings.Contains(outputStr, "===========") {
+		t.Error("Default output should be text format with separator")
+	}
+
+	// Should NOT be JSON
+	if strings.Contains(outputStr, "\"interface\":") {
+		t.Error("Default output should not be JSON format")
+	}
+}
+
+// TestReferralValidateCLI exercises the "referral validate" subcommand end to
+// end via the built binary.
+func TestReferralValidateCLI(t *testing.T) {
+	bin := buildTestBinary(t)
+	defer os.Remove(bin)
+
+	tests := []struct {
+		name       string
+		args       []string
+		wantExit   int
+		wantSubstr string
+	}{
+		{"valid code", []string{"referral", "validate", "ABCDE-FGHIJ"}, 0, "Valid referral code"},
+		{"invalid lowercase", []string{"referral", "validate", "abcde-fghij"}, 1, "Invalid referral code format"},
+		{"invalid short", []string{"referral", "validate", "AB-CD"}, 1, "Invalid referral code format"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command(bin, tt.args...)
+			output, err := cmd.CombinedOutput()
+			if tt.wantExit == 0 && err != nil {
+				t.Fatalf("expected success, got %v: %s", err, output)
+			}
+			if tt.wantExit != 0 {
+				if exitErr, ok := err.(*exec.ExitError); !ok || exitErr.ExitCode() != tt.wantExit {
+					t.Fatalf("expected exit code %d, got %v: %s", tt.wantExit, err, output)
+				}
+			}
+			if !strings.Contains(string(output), tt.wantSubstr) {
+				t.Errorf("expected output to contain %q, got: %s", tt.wantSubstr, output)
+			}
+		})
+	}
+}
+
+// TestReferralShowCLI verifies that "referral show" generates and persists a
+// code, and that a second invocation returns the same code.
+func TestReferralShowCLI(t *testing.T) {
+	bin := buildTestBinary(t)
+	defer os.Remove(bin)
+
+	tmpDir := t.TempDir()
+
+	// First run: generates a new code.
+	cmd := exec.Command(bin, "referral", "show")
+	cmd.Env = append(os.Environ(), "WGMESH_STATE_DIR="+tmpDir)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("referral show failed: %v: %s", err, output)
+	}
+	out := string(output)
+	if !strings.Contains(out, "Your referral code:") {
+		t.Fatalf("expected referral code in output, got: %s", out)
+	}
+
+	// Extract the code.
+	lines := strings.Split(out, "\n")
+	var firstCode string
+	for _, l := range lines {
+		if strings.Contains(l, "Your referral code:") {
+			firstCode = strings.TrimSpace(strings.TrimPrefix(l, "Your referral code:"))
+			break
+		}
+	}
+	if firstCode == "" {
+		t.Fatalf("could not extract referral code from output: %s", out)
+	}
+
+	// Second run: should return the same code from the state file.
+	cmd2 := exec.Command(bin, "referral", "show")
+	cmd2.Env = append(os.Environ(), "WGMESH_STATE_DIR="+tmpDir)
+	output2, err := cmd2.CombinedOutput()
+	if err != nil {
+		t.Fatalf("second referral show failed: %v: %s", err, output2)
+	}
+	if !strings.Contains(string(output2), firstCode) {
+		t.Errorf("second run should reuse code %q, got: %s", firstCode, output2)
+	}
+}
+
+// TestReferralStatsCLI verifies that "referral stats" reports the local code
+// and the referral attribution after a code is recorded.
+func TestReferralStatsCLI(t *testing.T) {
+	bin := buildTestBinary(t)
+	defer os.Remove(bin)
+
+	tmpDir := t.TempDir()
+
+	// Generate this node's own code with overridden state dir.
+	showCmd := exec.Command(bin, "referral", "show")
+	showCmd.Env = append(os.Environ(), "WGMESH_STATE_DIR="+tmpDir)
+	if out, err := showCmd.CombinedOutput(); err != nil {
+		t.Fatalf("referral show failed: %v: %s", err, out)
+	}
+
+	// Stats should mention the code (but no referred-by yet).
+	statsCmd := exec.Command(bin, "referral", "stats")
+	statsCmd.Env = append(os.Environ(), "WGMESH_STATE_DIR="+tmpDir)
+	out, err := statsCmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("referral stats failed: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), "Referral code:") {
+		t.Errorf("expected 'Referral code:' in output, got: %s", out)
+	}
+}
+
+// buildTestBinary builds the wgmesh binary to a temp path and returns it.
+// The caller is responsible for removing the binary.
+func buildTestBinary(t *testing.T) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "wgmesh-test")
+	buildCmd := exec.Command("go", "build", "-o", bin, ".")
+	if err := buildCmd.Run(); err != nil {
+		t.Fatalf("Failed to build test binary: %v", err)
+	}
+	return bin
 }

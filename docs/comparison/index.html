@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>wgmesh vs Tailscale Comparison | WireGuard Mesh Networking</title>
+  <meta name="description" content="Objective comparison of wgmesh and Tailscale for WireGuard networking — architecture, security, privacy, deployment, and cost.">
+  <meta name="keywords" content="Tailscale alternative, WireGuard mesh, decentralized VPN, wgmesh vs Tailscale, self-hosted VPN">
+  <link rel="canonical" href="https://wgmesh.dev/comparison/tailscale/">
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --red: #f85149;
+      --yellow: #d29922;
+    }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 0;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 2rem 1rem;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    h1, h2, h3 { color: var(--text); margin-bottom: 1rem; }
+    h1 { font-size: 2.5rem; font-weight: 700; margin-bottom: 0.5rem; }
+    h2 { font-size: 1.75rem; font-weight: 600; margin-top: 2.5rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+    h3 { font-size: 1.25rem; font-weight: 600; margin-top: 1.5rem; }
+    p { margin-bottom: 1rem; }
+    .summary-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .highlight { color: var(--accent); font-weight: 600; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.5rem 0;
+      background: var(--surface);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td {
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+    th {
+      background: #1c2128;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    tr:last-child td { border-bottom: none; }
+    .check { color: var(--green); }
+    .cross { color: var(--red); }
+    .partial { color: var(--yellow); }
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin: 1.5rem 0;
+    }
+    .feature-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+    }
+    .feature-card h3 { margin-top: 0; }
+    .feature-card ul {
+      list-style: none;
+      padding-left: 0;
+    }
+    .feature-card li {
+      padding-left: 1.5rem;
+      position: relative;
+      margin-bottom: 0.5rem;
+    }
+    .feature-card li::before {
+      content: "→";
+      position: absolute;
+      left: 0;
+      color: var(--accent);
+    }
+    .last-updated {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-top: 3rem;
+      text-align: center;
+    }
+    @media (max-width: 768px) {
+      h1 { font-size: 2rem; }
+      h2 { font-size: 1.5rem; }
+      table { font-size: 0.875rem; }
+      th, td { padding: 0.5rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>wgmesh vs Tailscale</h1>
+    <p class="summary-box">
+      <strong>wgmesh</strong> is a decentralized WireGuard mesh builder for edge/IoT deployments.<br>
+      <strong>Tailscale</strong> is a centralized NAT traversal service for remote access.
+    </p>
+
+    <h2>Quick Comparison</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Aspect</th>
+          <th>wgmesh</th>
+          <th>Tailscale</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Architecture</strong></td>
+          <td>Decentralized mesh, DHT-based discovery</td>
+          <td>Centralized coordination server, DERP relays</td>
+        </tr>
+        <tr>
+          <td><strong>Trust Model</strong></td>
+          <td>Shared secret, no central broker</td>
+          <td>Account-based, OAuth/OIDC to coordination server</td>
+        </tr>
+        <tr>
+          <td><strong>Self-Hosted</strong></td>
+          <td>Yes (Go binary, single executable)</td>
+          <td>Partial (head-scale available, but limited)</td>
+        </tr>
+        <tr>
+          <td><strong>Privacy</strong></td>
+          <td>No data collection, Dandelion++ relay</td>
+          <td>Coordination server logs connections, relay usage</td>
+        </tr>
+        <tr>
+          <td><strong>Use Case</strong></td>
+          <td>Edge/IoT fleets, air-gapped networks</td>
+          <td>Remote access, small teams, mobile-first</td>
+        </tr>
+        <tr>
+          <td><strong>Cost</strong></td>
+          <td>Infrastructure only (self-hosted)</td>
+          <td>Subscription tiers, per-user/per-device pricing</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Architecture</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3>wgmesh: Decentralized Mesh</h3>
+        <ul>
+          <li><strong>Discovery:</strong> Multi-layer DHT, LAN multicast, GitHub Issues bootstrap</li>
+          <li><strong>Routing:</strong> Full mesh topology, peer-to-peer connections</li>
+          <li><strong>Relays:</strong> Dandelion++ for announcement privacy</li>
+          <li><strong>State:</strong> Local peer store, automatic reconciliation</li>
+          <li><strong>No single point of failure</strong> — mesh continues operating without central servers</li>
+        </ul>
+      </div>
+      <div class="feature-card">
+        <h3>Tailscale: Centralized Coordination</h3>
+        <ul>
+          <li><strong>Coordination Server:</strong> All nodes register to control.tailscale.com</li>
+          <li><strong>Discovery:</strong> NAT traversal via DERP relays, UDP hole-punching</li>
+          <li><strong>Authentication:</strong> OAuth/OIDC (Google, GitHub, Microsoft)</li>
+          <li><strong>Relays:</strong> DERP servers operated by Tailscale</li>
+          <li><strong>Coordination server required</strong> — unavailable server = no mesh updates</li>
+        </ul>
+      </div>
+    </div>
+
+    <h2>Security & Privacy</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Aspect</th>
+          <th>wgmesh</th>
+          <th>Tailscale</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Trust Anchor</strong></td>
+          <td>Shared secret (HKDF-derived keys)</td>
+          <td>OAuth/OIDC identity provider</td>
+        </tr>
+        <tr>
+          <td><strong>Key Distribution</strong></td>
+          <td>Automatic via DHT, encrypted envelopes</td>
+          <td>Centralized server, client fetches peer list</td>
+        </tr>
+        <tr>
+          <td><strong>Compromise Impact</strong></td>
+          <td>Secret compromise affects mesh only</td>
+          <td>Coordination server compromise affects all meshes</td>
+        </tr>
+        <tr>
+          <td><strong>Auditability</strong></td>
+          <td>Open-source codebase, fully auditable</td>
+          <td>Closed-source control plane (DERP, coordination logic)</td>
+        </tr>
+        <tr>
+          <td><strong>Data Collection</strong></td>
+          <td>None — discovery over public DHT (anonymized)</td>
+          <td>Coordination server logs connections, relay usage</td>
+        </tr>
+        <tr>
+          <td><strong>Relay Privacy</strong></td>
+          <td>Dandelion++ (randomized paths, source hiding)</td>
+          <td>DERP paths visible to coordination server</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Deployment & Operations</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3>Choose wgmesh If:</h3>
+        <ul>
+          <li>Deploying large edge/IoT fleets with intermittent connectivity</li>
+          <li>Operating in air-gapped networks without internet access</li>
+          <li>Compliance requirements demand full control over data</li>
+          <li>You prefer self-hosting and owning the entire stack</li>
+          <li>Cost sensitivity — large fleets (>100 nodes)</li>
+          <li>Need open-source code for security review</li>
+        </ul>
+        <p><strong>Example:</strong> 500-node IoT sensor network across regions, air-gapped SCADA system</p>
+      </div>
+      <div class="feature-card">
+        <h3>Choose Tailscale If:</h3>
+        <ul>
+          <li>Need quick remote access for non-technical users</li>
+          <li>Small teams (&lt;20 users) with simple access control</li>
+          <li>Mobile-first deployment (iOS, Android native apps)</li>
+          <li>Existing OAuth/OIDC provider integration</li>
+          <li>Prefer managed service over self-hosted</li>
+        </ul>
+        <p><strong>Example:</strong> 5-person remote team, individual developer accessing home lab</p>
+      </div>
+    </div>
+
+    <h2>Cost Comparison</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Aspect</th>
+          <th>wgmesh</th>
+          <th>Tailscale</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>Software</strong></td>
+          <td>Free (MIT-licensed open-source)</td>
+          <td>Free tier (up to 3 users, 100 devices)</td>
+        </tr>
+        <tr>
+          <td><strong>Infrastructure</strong></td>
+          <td>Your servers only — no coordination server required</td>
+          <td>DERP relays operated by Tailscale</td>
+        </tr>
+        <tr>
+          <td><strong>Paid Tiers</strong></td>
+          <td>None</td>
+          <td>Premium: $6/user/month, Enterprise: custom pricing</td>
+        </tr>
+        <tr>
+          <td><strong>100-Node Fleet</strong></td>
+          <td>~$30/month (3x VPS relays)</td>
+          <td>~$600+/month (100 devices × $6/user/month)</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Feature Matrix</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Feature</th>
+          <th>wgmesh</th>
+          <th>Tailscale</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td>WireGuard-Based</td><td class="check">✓</td><td class="check">✓</td></tr>
+        <tr><td>NAT Traversal</td><td class="check">✓ (UDP hole-punching, DHT)</td><td class="check">✓ (DERP relays)</td></tr>
+        <tr><td>Decentralized</td><td class="check">✓</td><td class="cross">✗</td></tr>
+        <tr><td>Self-Hosted (Full)</td><td class="check">✓</td><td class="partial">Partial (head-scale)</td></tr>
+        <tr><td>OAuth Authentication</td><td class="cross">✗</td><td class="check">✓</td></tr>
+        <tr><td>Shared Secret Auth</td><td class="check">✓</td><td class="cross">✗</td></tr>
+        <tr><td>Route Advertisement</td><td class="check">✓</td><td class="check">✓</td></tr>
+        <tr><td>Access Control Lists</td><td class="partial">Planned</td><td class="check">✓</td></tr>
+        <tr><td>Mobile Clients</td><td class="partial">Via wireguard-go</td><td class="check">✓ (native)</td></tr>
+        <tr><td>DHT Discovery</td><td class="check">✓</td><td class="cross">✗</td></tr>
+        <tr><td>LAN Multicast</td><td class="check">✓</td><td class="cross">✗</td></tr>
+        <tr><td>In-Mesh Gossip</td><td class="check">✓</td><td class="cross">✗</td></tr>
+        <tr><td>Dandelion++ Relay</td><td class="check">✓</td><td class="cross">✗ (DERP only)</td></tr>
+        <tr><td>Open-Source (Full Stack)</td><td class="check">✓</td><td class="partial">Client only</td></tr>
+        <tr><td>Audit Logging</td><td class="partial">Planned</td><td class="check">✓ (Enterprise)</td></tr>
+        <tr><td>SSH Integration</td><td class="check">✓ (centralized mode)</td><td class="cross">✗</td></tr>
+        <tr><td>Subnet Advertising</td><td class="check">✓</td><td class="check">✓</td></tr>
+      </tbody>
+    </table>
+
+    <h2>Relevant Documentation</h2>
+    <div class="feature-grid">
+      <div class="feature-card">
+        <h3>wgmesh Docs</h3>
+        <ul>
+          <li><a href="/quickstart.md">Quickstart Guide</a> — Get started in 10 minutes</li>
+          <li><a href="/centralized-mode.md">Architecture</a> — Centralized vs decentralized modes</li>
+          <li><a href="/use-cases/">Use Cases</a> — Deployment patterns</li>
+          <li><a href="/evaluation-checklist.md">Evaluation Checklist</a> — 15-minute evaluation</li>
+        </ul>
+      </div>
+      <div class="feature-card">
+        <h3>Tailscale Docs</h3>
+        <ul>
+          <li><a href="https://tailscale.com/kb/" target="_blank">Official Documentation</a></li>
+          <li><a href="https://tailscale.com/blog/how-tailscale-works/" target="_blank">How DERP Works</a></li>
+          <li><a href="https://github.com/tailscale/headscale" target="_blank">head-scale (Self-Hosted)</a></li>
+          <li><a href="https://tailscale.com/kb/1018/acls/" target="_blank">ACL Configuration</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="last-updated">
+      Last updated: June 17, 2025 — Reviewed quarterly. For corrections, <a href="https://github.com/atvirokodosprendimai/wgmesh/issues">open an issue</a> or PR.
+    </p>
+  </div>
+</body>
+</html>

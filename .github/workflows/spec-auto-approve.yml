@@ -1,3 +1,5 @@
+---
+# yamllint disable rule:line-length
 name: Spec Auto-Approve
 
 # Validates and auto-approves Copilot spec PRs that pass all checks.
@@ -15,7 +17,7 @@ name: Spec Auto-Approve
 #     blocked by GitHub's actor-approval gate (e.g. Copilot bot)
 #   - workflow_dispatch: manual fallback
 
-on:
+'on':
   pull_request_target:
     types: [opened, ready_for_review, edited]
     branches: [main]
@@ -25,8 +27,11 @@ on:
 
 permissions:
   pull-requests: write
-  contents: read
+  contents: write
   issues: write
+  # createWorkflowDispatch(goose-build.yml) needs actions:write — without it
+  # the dispatch 403s "Resource not accessible by integration" after approval.
+  actions: write
 
 jobs:
   # ── Event-driven path: runs immediately when a spec PR is opened/edited ──
@@ -36,6 +41,13 @@ jobs:
       contains(github.event.pull_request.title, 'spec:')
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Checkout base branch
         uses: actions/checkout@v4
         with:
@@ -44,10 +56,11 @@ jobs:
 
       - name: Fetch PR changes
         env:
-          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           gh pr checkout ${{ github.event.pull_request.number }} --detach
-          git checkout ${{ github.event.pull_request.head.ref }}
+          git checkout "$PR_HEAD_REF"
 
       - name: Extract issue number
         id: issue
@@ -101,19 +114,19 @@ jobs:
           # Check 3: Required sections present
           if [ -f "$SPEC_FILE" ]; then
             CONTENT=$(cat "$SPEC_FILE")
-            
+
             if echo "$CONTENT" | grep -q "## Classification"; then
               CHECK_CLASSIFICATION=true
             else
               REASONS="${REASONS}- Missing required section: ## Classification\n"
             fi
-            
+
             if echo "$CONTENT" | grep -q "## Problem Analysis"; then
               CHECK_PROBLEM=true
             else
               REASONS="${REASONS}- Missing required section: ## Problem Analysis\n"
             fi
-            
+
             if echo "$CONTENT" | grep -q "## Proposed Approach"; then
               CHECK_APPROACH=true
             else
@@ -156,35 +169,37 @@ jobs:
       - name: Auto-approve and trigger Goose
         if: steps.validate.outputs.valid == 'true'
         env:
-          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_WRITE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ISSUE_NUM: ${{ steps.issue.outputs.number }}
         run: |
           PR_NUM="${{ github.event.pull_request.number }}"
-          
+
           echo "Auto-approving spec PR #$PR_NUM"
-          
+
           # Approve the PR
-          gh pr review $PR_NUM --approve --body "## Auto-Approved ✅
+          GH_TOKEN="$ISSUE_WRITE_TOKEN" gh pr review $PR_NUM --approve --body "## Auto-Approved ✅
 
           This spec PR passed all validation checks:
-          
+
           - ✅ Spec file exists at \`specs/issue-${ISSUE_NUM}-spec.md\`
           - ✅ Required sections present (Classification, Problem Analysis, Proposed Approach)
           - ✅ No code changes detected
           - ✅ Classification is actionable
-          
+
           Goose will now implement the code based on this specification."
-          
+
           # Add the label for tracking
-          gh pr edit $PR_NUM --add-label approved-for-build
-          
+          GH_TOKEN="$ISSUE_WRITE_TOKEN" gh pr edit $PR_NUM --add-label approved-for-build
+
           # Directly trigger Goose implementation via workflow_dispatch.
+          # GITHUB_TOKEN, not the app token: the app installation has no `actions`
+          # permission, so dispatching with it fails "Resource not accessible by
+          # integration". actions:write comes from this workflow's permissions block.
           echo "Triggering Goose implementation for issue #${ISSUE_NUM} (spec PR #${PR_NUM})"
-          gh workflow run goose-build.yml \
-            -f issue_number="${ISSUE_NUM}" \
-            -f spec_pr_number="${PR_NUM}"
-          
-          echo "Goose implementation triggered"
+          # goose-build dispatch removed 2026-06-10: the pipeline box (live
+          # mode) implements from approved specs; the Actions lane raced it.
+          echo "Approved — pipeline box will implement"
 
       # ── Agent metrics: spec validation ────────────────
       - name: Collect agent metrics
@@ -251,11 +266,11 @@ jobs:
       - name: Comment on validation failure
         if: steps.validate.outputs.valid == 'false'
         env:
-          GH_TOKEN: ${{ secrets.PUSH_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PR_NUM="${{ github.event.pull_request.number }}"
           REASON="${{ steps.validate.outputs.reason }}"
-          
+
           gh pr comment $PR_NUM --body "## Spec Validation Failed ❌
 
           This spec PR could not be auto-approved:
@@ -263,9 +278,9 @@ jobs:
           $REASON
 
           ---
-          
+
           Please address these issues or wait for human review."
-          
+
           echo "Posted validation failure comment"
 
   # ── Scheduled scan: catches spec PRs blocked by actor-approval gate ──
@@ -276,11 +291,23 @@ jobs:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: Scan and validate spec PRs
         uses: actions/github-script@v7
+        env:
+          ISSUE_WRITE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          github-token: ${{ secrets.PUSH_TOKEN }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
+            const issueGithub = new github.constructor({
+              auth: process.env.ISSUE_WRITE_TOKEN,
+            });
             const owner = context.repo.owner;
             const repo = context.repo.repo;
 
@@ -387,7 +414,7 @@ jobs:
                 // All checks passed — approve and trigger Goose
                 core.info(`PR #${pr.number}: all checks passed, approving`);
 
-                await github.rest.pulls.createReview({
+                await issueGithub.rest.pulls.createReview({
                   owner, repo,
                   pull_number: pr.number,
                   event: 'APPROVE',
@@ -405,21 +432,21 @@ jobs:
                   ].join('\n'),
                 });
 
-                await github.rest.issues.addLabels({
+                await issueGithub.rest.issues.addLabels({
                   owner, repo,
                   issue_number: pr.number,
                   labels: ['approved-for-build'],
                 });
 
-                await github.rest.actions.createWorkflowDispatch({
-                  owner, repo,
-                  workflow_id: 'goose-build.yml',
-                  ref: 'main',
-                  inputs: {
-                    issue_number: issueNum,
-                    spec_pr_number: String(pr.number),
-                  },
-                });
+                // Dispatch through the GITHUB_TOKEN client (issueGithub): the default
+                // `github` client here is the app token, and the app installation has
+                // no `actions` permission - dispatching with it 403s
+                // "Resource not accessible by integration". GITHUB_TOKEN carries
+                // actions:write from this workflow's permissions block.
+                // goose-build dispatch removed 2026-06-10: the pipeline box
+                // (live mode) implements from approved specs; the Actions lane
+                // raced it (duplicate implementations, pulse 2026-06-10).
+                core.info(`PR #${pr.number}: approved — pipeline box will implement`);
 
                 core.info(`PR #${pr.number}: approved + Goose triggered for issue #${issueNum}`);
 

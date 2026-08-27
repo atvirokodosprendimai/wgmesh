@@ -28,9 +28,12 @@ jobs:
         with:
           fetch-depth: 0
       - name: Resolve base OpenAPI document
+        env:
+          BASE_REF: ${{ inputs.base-ref }}
+          OPENAPI_PATH: ${{ inputs.openapi-path }}
         run: |
-          git fetch origin "${{ inputs.base-ref }}" --depth=1
-          git show "origin/${{ inputs.base-ref }}:${{ inputs.openapi-path }}" > /tmp/base-openapi.yaml
+          git fetch origin "$BASE_REF" --depth=1
+          git show "origin/$BASE_REF:$OPENAPI_PATH" > /tmp/base-openapi.yaml
       - uses: oasdiff/oasdiff-action/breaking@v0.0.46
         with:
           base: /tmp/base-openapi.yaml

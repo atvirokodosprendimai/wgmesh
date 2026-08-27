@@ -1,0 +1,10 @@
+# Test that default (no --json) produces text format output
+exec wgmesh status --secret 'wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u'
+! stderr 'Error'
+stdout 'Mesh Status'
+stdout 'Interface:'
+stdout 'Network ID:'
+stdout 'Mesh Subnet:'
+stdout 'Mesh IPv6 Prefix:'
+stdout 'Gossip Port:'
+stdout 'Rendezvous ID:'

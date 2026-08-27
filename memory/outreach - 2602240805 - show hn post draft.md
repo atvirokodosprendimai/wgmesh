@@ -1,9 +1,10 @@
 ---
-tldr: Draft Show HN post for wgmesh — autonomous pipeline + WireGuard CDN
-status: draft
+tldr: Show HN post for wgmesh — autonomous pipeline + WireGuard CDN
+status: ready
+updated: 2026-06-18
 ---
 
-# Show HN: Draft
+# Show HN: Ready to post
 
 **Title:**
 Show HN: I built a zero-infra anycast CDN on WireGuard mesh — with an AI pipeline that specs, codes, and ships itself
@@ -41,7 +42,10 @@ What isn't done yet:
 - Multi-region failover with real SLA guarantees
 - A polished onboarding path for adding your own edge node
 
-I'm opening two early sponsor tiers: $5/mo founding member (listed on the dashboard, Discord/Matrix access, votes on roadmap) and $20/mo edge node beta (early access to run a node in the mesh when that's ready).
+I'm opening early backer tiers via Polar.sh (one-click checkout, no account dance):
+- $5/mo founding member — listed on the dashboard, Discord/Matrix access, votes on roadmap: https://polar.sh/checkout?productId=3f5d75de-936b-49d8-a21b-4b79d9fd22c1
+- $20/mo edge node beta — early access to run a node in the mesh when that's ready: https://polar.sh/checkout?productId=1927e637-4cfd-4c94-8bee-c5518803bc89
+
 These are honest early backer tiers, not a product you're buying.
 
 Code: github.com/atvirokodosprendimai/wgmesh
@@ -55,3 +59,11 @@ Happy to answer questions on the mesh architecture, the pipeline design, or the 
 
 - https://news.ycombinator.com/submit (Show HN — title + URL = chimney.beerpub.dev or github.com/atvirokodosprendimai/wgmesh)
 - Post on a weekday between 8–11am US Eastern for best visibility
+
+## Pre-post checklist (2026-06-18)
+
+- [ ] Polar checkout links live + tested (productIds verified in #376)
+- [ ] Landing pages have OpenPanel analytics (shipped #762) — watch the funnel during the HN spike
+- [ ] Buttondown subscribe form live (for non-buyers from the HN traffic) — needs the wgmesh newsletter created
+- [ ] chimney.beerpub.dev up + presentable
+- [ ] Be available to answer comments for the first 2–3h after posting

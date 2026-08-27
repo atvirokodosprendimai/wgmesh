@@ -1,0 +1,41 @@
+name: CI
+
+# The one CI gate for wgmesh: go build / test / vet on every PR and push, for
+# all authors — the autobox is just another developer, its PRs run the same CI
+# a human's does. Secretless (no `secrets.*`, no `pull_request_target`) and
+# forge-portable, mirroring the ai-pipeline-template CI invariant
+# (#1599 retarget; see docs/actions-cicd-only-end-state.md there).
+#
+# Fills the gap where no go build/test ran on PRs (status-check ran make status
+# + lint only; e2e ran on merged bug PRs). impl-judge stays its own workflow: it
+# carries an LLM-judge API secret, so it must stay gated to same-repo bot fix
+# PRs rather than fold into this secretless lane.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build
+        run: make build
+
+      - name: Test
+        run: make test
+
+      - name: Vet
+        run: go vet ./...
