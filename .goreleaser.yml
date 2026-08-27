@@ -77,10 +77,41 @@ brews:
     homepage: https://github.com/atvirokodosprendimai/wgmesh
     description: "WireGuard mesh network — decentralized peer discovery and encrypted networking"
     license: MIT
+    dependencies:
+      - name: wireguard-go
+      - name: wireguard-tools
     install: |
       bin.install "wgmesh"
+      # Writable, user-owned dirs under the Homebrew prefix: the secret file
+      # and account/services state. The launchd service (root) reads/writes both.
+      (etc/"wgmesh").mkpath
+      (var/"wgmesh").mkpath
     test: |
       system "#{bin}/wgmesh", "version"
+    service: |
+      run [opt_bin/"wgmesh", "join", "--state-dir", var/"wgmesh"]
+      keep_alive true
+      run_type :immediate
+      require_root true
+      log_path var/"log"/"wgmesh.log"
+      error_log_path var/"log"/"wgmesh.log"
+      environment_variables({"WGMESH_SECRET_FILE" => etc/"wgmesh"/"secret"})
+    caveats: |
+      wgmesh runs as a root launchd service via `brew services` - root is
+      required to create the utun interface and WireGuard routes.
+
+      Bootstrap on macOS:
+        1. wgmesh init --secret --save-to #{etc}/wgmesh/secret
+        2. brew services start wgmesh    # prompts for your password (LaunchDaemon)
+
+      The daemon starts at boot and restarts if it crashes.
+
+      Logs:   #{var}/log/wgmesh.log
+      State:  #{var}/wgmesh (account/services) and /var/lib/wgmesh (node identity)
+
+      Stop:       brew services stop wgmesh
+      Restart:    brew services restart wgmesh
+      Uninstall:  brew uninstall wgmesh
     commit_msg_template: "Update wgmesh formula to {{ .Tag }}"
     skip_upload: auto
 

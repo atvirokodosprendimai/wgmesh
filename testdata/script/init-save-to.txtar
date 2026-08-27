@@ -1,0 +1,4 @@
+exec wgmesh init --secret --save-to secret
+stdout 'Generated mesh secret'
+exists secret
+exec grep -q '^wgmesh://v1/' secret

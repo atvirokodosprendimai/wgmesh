@@ -252,27 +252,50 @@ EXAMPLES:
 func initCmd() {
 	fs := flag.NewFlagSet("init", flag.ExitOnError)
 	secretMode := fs.Bool("secret", false, "Generate a new mesh secret")
+	saveTo := fs.String("save-to", "", "Write the generated secret to this file (0600, parent dirs created) - e.g. the WGMESH_SECRET_FILE path used by the macOS Homebrew service")
 	fs.Parse(os.Args[2:])
 
-	if *secretMode {
-		secret, err := daemon.GenerateSecret()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to generate secret: %v\n", err)
-			os.Exit(1)
-		}
-
-		uri := daemon.FormatSecretURI(secret)
-		fmt.Println("Generated mesh secret:")
-		fmt.Println()
-		fmt.Println(uri)
-		fmt.Println()
-		fmt.Println("Share this secret with all nodes that should join the mesh.")
-		fmt.Println("Run: wgmesh join --secret \"" + uri + "\"")
-		return
+	if !*secretMode {
+		fs.Usage()
+		os.Exit(1)
 	}
 
-	fs.Usage()
-	os.Exit(1)
+	secret, err := daemon.GenerateSecret()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to generate secret: %v\n", err)
+		os.Exit(1)
+	}
+
+	uri := daemon.FormatSecretURI(secret)
+	if *saveTo != "" {
+		if err := saveSecretFile(*saveTo, uri); err != nil {
+			fmt.Fprintf(os.Stderr, "Failed to save secret: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Mesh secret saved to %s\n", *saveTo)
+	}
+
+	fmt.Println("Generated mesh secret:")
+	fmt.Println()
+	fmt.Println(uri)
+	fmt.Println()
+	fmt.Println("Share this secret with all nodes that should join the mesh.")
+	fmt.Println("Run: wgmesh join --secret \"" + uri + "\"")
+}
+
+// saveSecretFile writes a mesh secret URI to path with 0600 permissions,
+// creating parent directories (0700). It backs the --save-to flag of
+// "wgmesh init" and feeds the WGMESH_SECRET_FILE path used by the macOS
+// Homebrew launchd service (and any other secret-file deployment).
+func saveSecretFile(path, secretURI string) error {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return fmt.Errorf("creating secret directory: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(secretURI+"\n"), 0600); err != nil {
+		return fmt.Errorf("writing secret file: %w", err)
+	}
+	return nil
 }
 
 // joinCmd handles the "join --secret" subcommand
