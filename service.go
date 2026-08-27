@@ -132,18 +132,16 @@ func serviceAddCmd() {
 	// Build domain name
 	domain := fmt.Sprintf("%s.%s.%s", name, meshID, managedDomain)
 
-	// We need the node's mesh IP — derive it from WireGuard pubkey + secret.
-	// For service registration, we use a placeholder derivation since we don't
-	// have the WG pubkey without a running daemon. We'll use the subnet info
-	// to indicate which mesh this belongs to. The Lighthouse can resolve the
-	// actual mesh IP from the origin field.
-	// For now, use "auto" to let Lighthouse figure it out, or derive from local WG interface.
+	// We need the node's mesh IP. The persisted local node state is
+	// authoritative when present and valid (issue #827); without it the IP is
+	// derived from the local WG pubkey, or from the secret alone as a
+	// placeholder until the node joins.
 	customSubnet, err := crypto.ParseSubnetOrDefault(*meshSubnet)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet)
+	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet, filepath.Join(*stateDir, "wg0.json"))
 
 	// Create site via Lighthouse
 	client := lighthouse.NewClient(lighthouseURL, acct.APIKey)
@@ -443,30 +441,39 @@ func validatePort(port int) (int, error) {
 	return port, nil
 }
 
-// deriveMeshIPForService derives the mesh IP for service registration.
-// Uses the local WireGuard public key if available, otherwise generates
-// a deterministic key from the secret for registration purposes.
+// deriveMeshIPForService resolves the mesh IP for service registration.
+// The persisted mesh IP from the daemon's local node state is authoritative
+// while it falls within the configured subnet (issue #827): it may carry a
+// collision-nonce adjustment that plain re-derivation would lose. Without a
+// valid persisted IP it falls back to deriving from the local WireGuard public
+// key, and finally to a placeholder derived from the secret alone.
 // If customSubnet is non-nil, uses subnet-aware derivation.
-func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubnet *net.IPNet) string {
-	// Try to read the local node's WG pubkey from the persisted state
-	// This matches how the daemon derives its mesh IP
-	iface := "wg0"
-	statePath := filepath.Join(defaultStateDir, iface+".json")
+func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubnet *net.IPNet, statePath string) string {
+	// Try to read the local node state. Field tags must match
+	// pkg/daemon.localNodeState (wg_pubkey / mesh_ip).
 	data, err := os.ReadFile(statePath)
 	if err == nil {
 		var nodeState struct {
-			PublicKey string `json:"public_key"`
+			PublicKey string `json:"wg_pubkey"`
+			MeshIP    string `json:"mesh_ip"`
 		}
-		if json.Unmarshal(data, &nodeState) == nil && nodeState.PublicKey != "" {
-			if customSubnet != nil {
-				ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, nodeState.PublicKey, secret)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "Error: failed to derive mesh IP in custom subnet: %v\n", err)
-					return crypto.DeriveMeshIP(keys.MeshSubnet, nodeState.PublicKey, secret)
-				}
-				return ip
+		if json.Unmarshal(data, &nodeState) == nil {
+			// Persisted IP wins when valid — re-deriving here would ignore a
+			// collision-adjusted address and break the stability invariant.
+			if nodeState.MeshIP != "" && crypto.MeshIPInSubnet(nodeState.MeshIP, keys.MeshSubnet, customSubnet) {
+				return nodeState.MeshIP
 			}
-			return crypto.DeriveMeshIP(keys.MeshSubnet, nodeState.PublicKey, secret)
+			if nodeState.PublicKey != "" {
+				if customSubnet != nil {
+					ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, nodeState.PublicKey, secret)
+					if err != nil {
+						fmt.Fprintf(os.Stderr, "Error: failed to derive mesh IP in custom subnet: %v\n", err)
+						return crypto.DeriveMeshIP(keys.MeshSubnet, nodeState.PublicKey, secret)
+					}
+					return ip
+				}
+				return crypto.DeriveMeshIP(keys.MeshSubnet, nodeState.PublicKey, secret)
+			}
 		}
 	}
 
