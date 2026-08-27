@@ -56,3 +56,6 @@ testlab/nat-relay/.env
 # Compound Engineering local config (machine-local, not for commit)
 .compound-engineering/
 /go-cache/
+
+# Local Pi runtime state
+.atl/
