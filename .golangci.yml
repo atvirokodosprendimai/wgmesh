@@ -1,0 +1,27 @@
+# golangci-lint v2 configuration.
+# Local: `make lint`. CI: .github/workflows/ci.yml runs the same binary via
+# golangci-lint-action (fresh runner). Local runs may flake on a warm cache;
+# `golangci-lint cache clean` before trusting a result.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+
+  exclusions:
+    rules:
+      # Best-effort resource/socket classes: closing, stopping, flushing and
+      # deadline/buffer tuning never warrant error handling in this codebase.
+      - text: 'Error return value of `[^`]*(Close|Stop|Flush|SetReadDeadline|SetWriteDeadline|SetReadBuffer|WriteToUDP)[^`]*`'
+        linters: [errcheck]
+      # stdio writes from the CLI and tests are best-effort by nature.
+      - text: 'Error return value of `fmt\.(Fprintln|Fprintf|Fprint)`'
+        linters: [errcheck]
