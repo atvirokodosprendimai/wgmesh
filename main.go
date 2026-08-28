@@ -268,7 +268,7 @@ func initCmd() {
 	secretMode := fs.Bool("secret", false, "Generate a new mesh secret")
 	saveTo := fs.String("save-to", "", "Write the generated secret to this file (0600, parent dirs created) - e.g. the WGMESH_SECRET_FILE path used by the macOS Homebrew service")
 	referralCode := fs.String("referral", "", "Referral share code to attribute this init (format: XXXXX-XXXXX)")
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if !*secretMode {
 		fs.Usage()
@@ -346,7 +346,7 @@ func joinCmd() {
 	pprofAddr := fs.String("pprof", "", "Enable pprof HTTP server (e.g. localhost:6060)")
 	metricsAddr := fs.String("metrics", "", "Enable Prometheus metrics server (e.g. :9090)")
 	referralCode := fs.String("referral", "", "Referral share code to attribute this join (format: XXXXX-XXXXX)")
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	// If secret not provided via flag, try environment variables
 	if *secret == "" {
@@ -499,7 +499,7 @@ func testPeerCmd() {
 	secret := fs.String("secret", "", "Mesh secret (required)")
 	peerAddr := fs.String("peer", "", "Peer address to test (IP:PORT)")
 	listenPort := fs.Int("port", 0, "Local port to listen on (0 = random)")
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *secret == "" || *peerAddr == "" {
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh test-peer --secret <SECRET> --peer <IP:PORT>")
@@ -600,7 +600,7 @@ func statusCmd() {
 	jsonOutput := fs.Bool("json", false, "Output in JSON format")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
@@ -678,7 +678,7 @@ func statusCmd() {
 func qrCmd() {
 	fs := flag.NewFlagSet("qr", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret to encode as QR code")
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
@@ -794,7 +794,7 @@ func installServiceCmd() {
 	noPunching := fs.Bool("no-punching", false, "Disable NAT port punching/rendezvous")
 	introducerMode := fs.Bool("introducer", false, "Allow this node to act as rendezvous introducer")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
@@ -854,7 +854,7 @@ func rotateSecretCmd() {
 	currentSecret := fs.String("current", "", "Current mesh secret (required)")
 	newSecret := fs.String("new", "", "New mesh secret (auto-generated if empty)")
 	gracePeriod := fs.Duration("grace", 24*time.Hour, "Grace period for dual-secret mode")
-	fs.Parse(os.Args[2:])
+	_ = fs.Parse(os.Args[2:])
 
 	if *currentSecret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --current is required")
@@ -917,7 +917,7 @@ func meshCmd() {
 	fs := flag.NewFlagSet("mesh "+action, flag.ExitOnError)
 	stateFile := fs.String("state", "mesh-state.json", "Path to mesh state file")
 	encrypt := fs.Bool("encrypt", false, "Encrypt state file with password")
-	fs.Parse(os.Args[3:])
+	_ = fs.Parse(os.Args[3:])
 
 	// Handle encryption flag if set
 	if *encrypt {
@@ -1311,7 +1311,9 @@ func runPilotInit() {
 			}
 		case "--nodes":
 			if i+1 < len(args) {
-				fmt.Sscanf(args[i+1], "%d", &nodes)
+				if _, err := fmt.Sscanf(args[i+1], "%d", &nodes); err != nil {
+					fmt.Fprintf(os.Stderr, "invalid --nodes value %q\n", args[i+1])
+				}
 				i++
 			}
 		case "--mode":
@@ -1321,7 +1323,9 @@ func runPilotInit() {
 			}
 		case "--duration":
 			if i+1 < len(args) {
-				fmt.Sscanf(args[i+1], "%d", &duration)
+				if _, err := fmt.Sscanf(args[i+1], "%d", &duration); err != nil {
+					fmt.Fprintf(os.Stderr, "invalid --duration value %q\n", args[i+1])
+				}
 				i++
 			}
 		}
@@ -1621,7 +1625,7 @@ func saveReferralState(rs referralState) error {
 		return fmt.Errorf("write referral state %s: %w", tmp, err)
 	}
 	if err := os.Rename(tmp, referralCodePath()); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("commit referral state %s: %w", referralCodePath(), err)
 	}
 	return nil

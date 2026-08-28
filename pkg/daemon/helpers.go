@@ -191,9 +191,9 @@ func setInterfaceAddress(name, address string) error {
 			return fmt.Errorf("invalid address format: %s: %w", address, err)
 		}
 		if ip.To4() != nil {
-			cmdExecutor.Command("ip", "-4", "addr", "flush", "dev", name).Run()
+			_ = cmdExecutor.Command("ip", "-4", "addr", "flush", "dev", name).Run()
 		} else {
-			cmdExecutor.Command("ip", "-6", "addr", "flush", "dev", name).Run()
+			_ = cmdExecutor.Command("ip", "-6", "addr", "flush", "dev", name).Run()
 		}
 
 		cmd := cmdExecutor.Command("ip", "addr", "add", address, "dev", name)
@@ -268,11 +268,6 @@ func setInterfaceAddress(name, address string) error {
 	}
 }
 
-func maskSize(mask net.IPMask) int {
-	ones, _ := mask.Size()
-	return ones
-}
-
 // setInterfaceUp brings an interface up
 func setInterfaceUp(name string) error {
 	switch runtime.GOOS {
@@ -298,11 +293,11 @@ func setInterfaceDown(name string) error {
 	switch runtime.GOOS {
 	case "linux":
 		cmd := cmdExecutor.Command("ip", "link", "set", "dev", name, "down")
-		cmd.Run() // Ignore errors - interface might not be up
+		_ = cmd.Run() // Ignore errors - interface might not be up
 		return nil
 	case "darwin":
 		cmd := cmdExecutor.Command("ifconfig", name, "down")
-		cmd.Run() // Ignore errors
+		_ = cmd.Run() // Ignore errors
 		return nil
 	default:
 		return nil
@@ -340,14 +335,14 @@ func deleteInterface(name string) error {
 // resetInterface resets an existing interface for reconfiguration
 func resetInterface(name string) error {
 	// Bring interface down first
-	setInterfaceDown(name)
+	_ = setInterfaceDown(name)
 
 	switch runtime.GOOS {
 	case "linux":
 		// Flush all addresses
-		cmdExecutor.Command("ip", "addr", "flush", "dev", name).Run()
+		_ = cmdExecutor.Command("ip", "addr", "flush", "dev", name).Run()
 		// Remove all peers
-		cmdExecutor.Command(wgBinPath, "set", name, "peer", "remove").Run()
+		_ = cmdExecutor.Command(wgBinPath, "set", name, "peer", "remove").Run()
 		return nil
 	case "darwin":
 		return nil
@@ -385,6 +380,8 @@ func getWGInterfacePort(name string) int {
 		return 0
 	}
 	var port int
-	fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &port)
+	if _, err := fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &port); err != nil {
+		return 0
+	}
 	return port
 }

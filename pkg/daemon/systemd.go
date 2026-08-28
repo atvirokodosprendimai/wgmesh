@@ -182,10 +182,10 @@ func InstallSystemdService(cfg SystemdServiceConfig) error {
 // UninstallSystemdService stops and removes the wgmesh systemd service
 func UninstallSystemdService() error {
 	// Stop service
-	cmdExecutor.Command("systemctl", "stop", "wgmesh.service").Run()
+	_ = cmdExecutor.Command("systemctl", "stop", "wgmesh.service").Run()
 
 	// Disable service
-	cmdExecutor.Command("systemctl", "disable", "wgmesh.service").Run()
+	_ = cmdExecutor.Command("systemctl", "disable", "wgmesh.service").Run()
 
 	// Remove unit file
 	unitPath := "/etc/systemd/system/wgmesh.service"
@@ -204,7 +204,7 @@ func UninstallSystemdService() error {
 	_ = os.Remove(secretDir)
 
 	// Reload systemd
-	cmdExecutor.Command("systemctl", "daemon-reload").Run()
+	_ = cmdExecutor.Command("systemctl", "daemon-reload").Run()
 
 	return nil
 }

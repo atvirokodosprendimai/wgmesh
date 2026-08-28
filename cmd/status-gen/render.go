@@ -116,12 +116,12 @@ func RenderStatus(features []FeatureStatus) string {
 	}
 
 	b.WriteString("\n## Summary\n\n")
-	b.WriteString(fmt.Sprintf("- Features: %d\n", stats.features))
-	b.WriteString(fmt.Sprintf("- Implemented features: %d\n", stats.implemented))
-	b.WriteString(fmt.Sprintf("- Provisional features: %d\n", stats.provisional))
-	b.WriteString(fmt.Sprintf("- Claimed dimensions: %d\n", stats.claimed))
-	b.WriteString(fmt.Sprintf("- Satisfied dimensions: %d\n", stats.satisfied))
-	b.WriteString(fmt.Sprintf("- Missing dimensions: %d\n", stats.missing))
+	fmt.Fprintf(&b, "- Features: %d\n", stats.features)
+	fmt.Fprintf(&b, "- Implemented features: %d\n", stats.implemented)
+	fmt.Fprintf(&b, "- Provisional features: %d\n", stats.provisional)
+	fmt.Fprintf(&b, "- Claimed dimensions: %d\n", stats.claimed)
+	fmt.Fprintf(&b, "- Satisfied dimensions: %d\n", stats.satisfied)
+	fmt.Fprintf(&b, "- Missing dimensions: %d\n", stats.missing)
 
 	return b.String()
 }

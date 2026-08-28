@@ -127,7 +127,9 @@ func TestGenerateReport_ConsoleRelayFallback(t *testing.T) {
 func TestGenerateReport_ConsoleCompletedMilestone(t *testing.T) {
 	p := setupStartedPilot(t)
 
-	p.MarkMilestoneComplete("baseline")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	output := readReportOutput(t, p, FormatConsole)
 
@@ -186,7 +188,9 @@ func TestGenerateReport_JSON(t *testing.T) {
 
 func TestGenerateReport_JSONCompletedMilestone(t *testing.T) {
 	p := setupStartedPilot(t)
-	p.MarkMilestoneComplete("baseline")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	output := readReportOutput(t, p, FormatJSON)
 
@@ -270,7 +274,9 @@ func TestGenerateReport_HTMLNoWarnings(t *testing.T) {
 
 func TestGenerateReport_NotStarted(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	err := p.GenerateReport(FormatConsole, "")
 	if err == nil {

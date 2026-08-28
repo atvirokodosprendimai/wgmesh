@@ -78,9 +78,10 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 
 	suffix := binary.BigEndian.Uint16(hash[:2])
 
-	if suffix == 0 {
+	switch suffix {
+	case 0:
 		suffix = 1
-	} else if suffix == 65535 {
+	case 65535:
 		suffix = 65534
 	}
 

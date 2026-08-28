@@ -47,7 +47,7 @@ func TestDeterministicWinner(t *testing.T) {
 	}
 
 	// Test reverse order
-	winner, loser = DeterministicWinner(peer2, peer1)
+	winner, _ = DeterministicWinner(peer2, peer1)
 	if winner.WGPubKey != "aaa" {
 		t.Error("Lower pubkey should win regardless of order")
 	}

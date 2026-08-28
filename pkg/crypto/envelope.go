@@ -85,7 +85,7 @@ func (kp *KnownPeer) Validate() error {
 	}
 	if kp.Hostname != "" {
 		if err := validateHostname(kp.Hostname); err != nil {
-			return fmt.Errorf("Hostname: %w", err)
+			return fmt.Errorf("hostname: %w", err)
 		}
 	}
 	return nil
@@ -107,7 +107,7 @@ func (pa *PeerAnnouncement) Validate() error {
 	}
 	if pa.Hostname != "" {
 		if err := validateHostname(pa.Hostname); err != nil {
-			return fmt.Errorf("Hostname: %w", err)
+			return fmt.Errorf("hostname: %w", err)
 		}
 	}
 	if len(pa.RoutableNetworks) > MaxRoutableNetworks {

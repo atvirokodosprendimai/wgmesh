@@ -55,7 +55,7 @@ func SaveAccount(path string, cfg AccountConfig) error {
 	}
 
 	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
+		_ = os.Remove(tmp)
 		return fmt.Errorf("rename temp file: %w", err)
 	}
 

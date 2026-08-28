@@ -164,7 +164,7 @@ func TestServiceEndToEnd(t *testing.T) {
 		// Check auth
 		if r.Header.Get("Authorization") != "Bearer cr_e2etest" {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"detail": "unauthorized"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"detail": "unauthorized"})
 			return
 		}
 
@@ -188,14 +188,14 @@ func TestServiceEndToEnd(t *testing.T) {
 			sites[site.ID] = site
 
 			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(site)
+			_ = json.NewEncoder(w).Encode(site)
 
 		case r.Method == "GET" && r.URL.Path == "/v1/sites":
 			var siteList []lighthouse.Site
 			for _, s := range sites {
 				siteList = append(siteList, s)
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{"sites": siteList})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"sites": siteList})
 
 		case r.Method == "DELETE":
 			siteID := r.URL.Path[len("/v1/sites/"):]

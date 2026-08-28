@@ -236,7 +236,7 @@ func (p *Pilot) generateValidationSummary(checks []*CheckResult) string {
 func (v *ValidationResult) FormatConsole() string {
 	var output string
 
-	output += fmt.Sprintf("Pilot Validation Results\n")
+	output += "Pilot Validation Results\n"
 	output += fmt.Sprintf("%s\n\n", strings.Repeat("=", 70))
 
 	for _, check := range v.Checks {

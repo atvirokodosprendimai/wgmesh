@@ -12,7 +12,7 @@ func TestClientServerIntegration(t *testing.T) {
 	// Unix socket paths are limited to ~104 chars on macOS. Use /tmp directly
 	// with a short unique name rather than t.TempDir() which produces long paths.
 	socketPath := filepath.Join(os.TempDir(), fmt.Sprintf("wg-rpc-%d.sock", os.Getpid()))
-	t.Cleanup(func() { os.Remove(socketPath) })
+	t.Cleanup(func() { _ = os.Remove(socketPath) })
 
 	// Mock peer data
 	mockPeer := &PeerData{

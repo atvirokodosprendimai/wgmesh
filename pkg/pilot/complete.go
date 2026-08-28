@@ -167,16 +167,16 @@ func (r *FinalReport) FormatConsole() string {
 	output += fmt.Sprintf("Organization: %s\n", r.Organization)
 	output += fmt.Sprintf("Contact: %s\n\n", r.ContactEmail)
 
-	output += fmt.Sprintf("PILOT DURATION\n")
+	output += "PILOT DURATION\n"
 	output += fmt.Sprintf("Start: %s\n", r.StartDate.Format("2006-01-02"))
 	output += fmt.Sprintf("End: %s\n", r.EndDate.Format("2006-01-02"))
 	output += fmt.Sprintf("Duration: %d days\n\n", r.DurationDays)
 
-	output += fmt.Sprintf("CONFIGURATION\n")
+	output += "CONFIGURATION\n"
 	output += fmt.Sprintf("Mode: %s\n", r.Mode)
 	output += fmt.Sprintf("Node Count: %d\n\n", r.NodeCount)
 
-	output += fmt.Sprintf("MILESTONE COMPLETION\n")
+	output += "MILESTONE COMPLETION\n"
 	for _, milestone := range r.Milestones {
 		status := "✗ Not completed"
 		if milestone.Completed {
@@ -187,13 +187,13 @@ func (r *FinalReport) FormatConsole() string {
 	}
 	output += "\n"
 
-	output += fmt.Sprintf("SUMMARY METRICS\n")
+	output += "SUMMARY METRICS\n"
 	output += fmt.Sprintf("  Mesh Connectivity Avg: %.2f%%\n", r.Summary.MeshConnectivityAvg)
 	output += fmt.Sprintf("  Peer Discovery Success: %.1f%%\n", r.Summary.PeerDiscoverySuccess*100)
 	output += fmt.Sprintf("  Total Daemon Restarts: %d\n", r.Summary.TotalDaemonRestarts)
 	output += fmt.Sprintf("  Total WireGuard Restarts: %d\n\n", r.Summary.TotalWGRestarts)
 
-	output += fmt.Sprintf("EVALUATION\n")
+	output += "EVALUATION\n"
 	output += fmt.Sprintf("  Overall Rating: %s\n", strings.ToUpper(r.Summary.OverallRating))
 	output += fmt.Sprintf("  Recommendation: %s\n\n", r.Summary.Recommendation)
 

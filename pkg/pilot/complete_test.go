@@ -19,7 +19,9 @@ func setupCompletablePilot(t *testing.T) *Pilot {
 
 func TestComplete_NotStarted(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	_, err := p.Complete()
 	if err == nil {
@@ -91,10 +93,18 @@ func TestComplete_SummaryAllMilestonesCompleted(t *testing.T) {
 	p := setupCompletablePilot(t)
 
 	p.metrics.RecordMeshConnectivity(99.95)
-	p.MarkMilestoneComplete("baseline")
-	p.MarkMilestoneComplete("mesh_stability")
-	p.MarkMilestoneComplete("production_traffic")
-	p.MarkMilestoneComplete("advanced_scenarios")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("mesh_stability"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("production_traffic"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("advanced_scenarios"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	report, err := p.Complete()
 	if err != nil {
@@ -110,8 +120,12 @@ func TestComplete_SummaryPartialMilestones(t *testing.T) {
 	p := setupCompletablePilot(t)
 
 	p.metrics.RecordMeshConnectivity(99.95)
-	p.MarkMilestoneComplete("baseline")
-	p.MarkMilestoneComplete("mesh_stability")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("mesh_stability"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	report, err := p.Complete()
 	if err != nil {
@@ -128,10 +142,18 @@ func TestComplete_RatingExcellent(t *testing.T) {
 
 	p.metrics.RecordMeshConnectivity(99.95)
 	p.metrics.PeerDiscoverySuccess = 1.0
-	p.MarkMilestoneComplete("baseline")
-	p.MarkMilestoneComplete("mesh_stability")
-	p.MarkMilestoneComplete("production_traffic")
-	p.MarkMilestoneComplete("advanced_scenarios")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("mesh_stability"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("production_traffic"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("advanced_scenarios"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	report, err := p.Complete()
 	if err != nil {
@@ -150,9 +172,15 @@ func TestComplete_RatingGood(t *testing.T) {
 	p := setupCompletablePilot(t)
 
 	p.metrics.RecordMeshConnectivity(99.5)
-	p.MarkMilestoneComplete("baseline")
-	p.MarkMilestoneComplete("mesh_stability")
-	p.MarkMilestoneComplete("production_traffic")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("mesh_stability"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("production_traffic"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	report, err := p.Complete()
 	if err != nil {
@@ -171,7 +199,9 @@ func TestComplete_RatingFair(t *testing.T) {
 	p := setupCompletablePilot(t)
 
 	p.metrics.RecordMeshConnectivity(95.0)
-	p.MarkMilestoneComplete("baseline")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	report, err := p.Complete()
 	if err != nil {
@@ -230,7 +260,9 @@ func TestComplete_MilestonesInReport(t *testing.T) {
 	p := setupCompletablePilot(t)
 
 	p.metrics.RecordMeshConnectivity(99.95)
-	p.MarkMilestoneComplete("baseline")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	report, err := p.Complete()
 	if err != nil {
@@ -254,7 +286,9 @@ func TestComplete_FormatConsole(t *testing.T) {
 	p := setupCompletablePilot(t)
 
 	p.metrics.RecordMeshConnectivity(99.95)
-	p.MarkMilestoneComplete("baseline")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	report, err := p.Complete()
 	if err != nil {
@@ -299,7 +333,9 @@ func TestComplete_FormatJSON(t *testing.T) {
 	p := setupCompletablePilot(t)
 
 	p.metrics.RecordMeshConnectivity(99.95)
-	p.MarkMilestoneComplete("baseline")
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	report, err := p.Complete()
 	if err != nil {

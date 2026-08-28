@@ -34,7 +34,9 @@ func TestObservedEndpoint_WireFormat(t *testing.T) {
 
 			// Check JSON contains/omits the field
 			var raw map[string]interface{}
-			json.Unmarshal(data, &raw)
+			if err := json.Unmarshal(data, &raw); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
 			_, found := raw["observed_endpoint"]
 			if found != tt.wantInJSON {
 				t.Errorf("observed_endpoint in JSON = %v, want %v (json: %s)", found, tt.wantInJSON, data)

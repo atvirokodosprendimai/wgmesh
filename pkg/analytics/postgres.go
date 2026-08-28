@@ -23,7 +23,7 @@ func (h *PostgresHandler) Handle(ctx context.Context, event Event) error {
 	// Serialize metadata and error to JSON
 	var metadataJSON []byte
 	var errJSON []byte
-	var err = error(nil)
+	var err error
 
 	if event.Metadata != (EventMetadata{}) {
 		metadataJSON, err = json.Marshal(event.Metadata)

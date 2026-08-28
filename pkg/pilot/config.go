@@ -3,7 +3,6 @@ package pilot
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -40,20 +39,4 @@ func loadConfig(path string) (*Config, error) {
 	}
 
 	return &config, nil
-}
-
-// parseTime parses a time string from config
-func parseTime(s string) (time.Time, error) {
-	if s == "" {
-		return time.Time{}, nil
-	}
-	return time.Parse(time.RFC3339, s)
-}
-
-// formatTime formats a time for config output
-func formatTime(t time.Time) string {
-	if t.IsZero() {
-		return ""
-	}
-	return t.Format(time.RFC3339)
 }

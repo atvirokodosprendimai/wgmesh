@@ -62,7 +62,6 @@ type State struct {
 	DaysElapsed  int
 	Started      bool
 	Completed    bool
-	mu           sync.RWMutex
 }
 
 // Pilot manages the pilot evaluation lifecycle

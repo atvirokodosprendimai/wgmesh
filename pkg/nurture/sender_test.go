@@ -1,7 +1,6 @@
 package nurture
 
 import (
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -35,8 +34,7 @@ func TestNewSender(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set environment variables
 			for k, v := range tt.envVars {
-				os.Setenv(k, v)
-				defer os.Unsetenv(k)
+				t.Setenv(k, v)
 			}
 
 			s, err := NewSender()

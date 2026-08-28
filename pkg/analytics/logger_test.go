@@ -35,9 +35,7 @@ func TestNewLogger(t *testing.T) {
 	t.Run("uses default path", func(t *testing.T) {
 		// Set HOME to temp dir
 		tmpDir := t.TempDir()
-		oldHome := os.Getenv("HOME")
-		defer os.Setenv("HOME", oldHome)
-		os.Setenv("HOME", tmpDir)
+		t.Setenv("HOME", tmpDir)
 
 		logger, err := NewLogger(LoggerConfig{})
 		if err != nil {

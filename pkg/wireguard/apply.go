@@ -75,8 +75,8 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 	// Shell-quote iface in all client.Run calls (defense-in-depth).
 	qi := shellQuote(iface)
 
-	if _, err := client.Run(fmt.Sprintf("ip link del %s 2>/dev/null || true", qi)); err != nil {
-	}
+	// Interface may not exist yet — the command itself swallows that with `|| true`.
+	_, _ = client.Run(fmt.Sprintf("ip link del %s 2>/dev/null || true", qi))
 
 	if _, err := client.Run(fmt.Sprintf("ip link add %s type wireguard", qi)); err != nil {
 		return fmt.Errorf("failed to create interface: %w", err)
@@ -87,7 +87,7 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 	if err := client.WriteFile(tmpKeyFile, []byte(config.Interface.PrivateKey), 0600); err != nil {
 		return fmt.Errorf("failed to write private key: %w", err)
 	}
-	defer client.Run(fmt.Sprintf("rm -f %s", qk))
+	defer func() { _, _ = client.Run(fmt.Sprintf("rm -f %s", qk)) }()
 
 	cmd := fmt.Sprintf("wg set %s private-key %s listen-port %d",
 		qi, qk, config.Interface.ListenPort)
@@ -216,7 +216,9 @@ func GetLatestHandshakes(iface string) (map[string]int64, error) {
 			continue
 		}
 		var ts int64
-		fmt.Sscanf(parts[1], "%d", &ts)
+		if _, err := fmt.Sscanf(parts[1], "%d", &ts); err != nil {
+			continue
+		}
 		result[parts[0]] = ts
 	}
 
@@ -243,8 +245,12 @@ func GetPeerTransfers(iface string) (map[string]PeerTransfer, error) {
 			continue
 		}
 		var rx, tx uint64
-		fmt.Sscanf(parts[1], "%d", &rx)
-		fmt.Sscanf(parts[2], "%d", &tx)
+		if _, err := fmt.Sscanf(parts[1], "%d", &rx); err != nil {
+			continue
+		}
+		if _, err := fmt.Sscanf(parts[2], "%d", &tx); err != nil {
+			continue
+		}
 		result[parts[0]] = PeerTransfer{RxBytes: rx, TxBytes: tx}
 	}
 

@@ -61,7 +61,7 @@ func serviceAddCmd() {
 	healthInterval := fs.Duration("health-interval", 30*time.Second, "Health check interval")
 	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for future use")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory")
-	fs.Parse(os.Args[3:])
+	_ = fs.Parse(os.Args[3:])
 
 	args := fs.Args()
 	if len(args) < 2 {
@@ -193,7 +193,7 @@ func serviceListCmd() {
 	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET)")
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory")
-	fs.Parse(os.Args[3:])
+	_ = fs.Parse(os.Args[3:])
 
 	resolvedSecret := resolveSecret(*secret)
 	if resolvedSecret == "" {
@@ -273,7 +273,7 @@ func serviceRemoveCmd() {
 	fs := flag.NewFlagSet("service remove", flag.ExitOnError)
 	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET)")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory")
-	fs.Parse(os.Args[3:])
+	_ = fs.Parse(os.Args[3:])
 
 	resolvedSecret := resolveSecret(*secret)
 	if resolvedSecret == "" {

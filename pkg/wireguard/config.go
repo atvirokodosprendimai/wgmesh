@@ -68,7 +68,9 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 	parts := strings.Fields(lines[0])
 	if len(parts) >= 3 {
 		config.Interface.PrivateKey = parts[0]
-		fmt.Sscanf(parts[2], "%d", &config.Interface.ListenPort)
+		if _, err := fmt.Sscanf(parts[2], "%d", &config.Interface.ListenPort); err != nil {
+			config.Interface.ListenPort = 0
+		}
 	}
 
 	for i := 1; i < len(lines); i++ {
@@ -83,7 +85,9 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 		allowedIPs := strings.Split(parts[3], ",")
 		var keepalive int
 		if len(parts) >= 5 {
-			fmt.Sscanf(parts[4], "%d", &keepalive)
+			if _, err := fmt.Sscanf(parts[4], "%d", &keepalive); err != nil {
+				keepalive = 0
+			}
 		}
 
 		peer := Peer{
