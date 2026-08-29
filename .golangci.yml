@@ -22,6 +22,11 @@ linters:
       # deadline/buffer tuning never warrant error handling in this codebase.
       - text: 'Error return value of `[^`]*(Close|Stop|Flush|SetReadDeadline|SetWriteDeadline|SetReadBuffer|WriteToUDP)[^`]*`'
         linters: [errcheck]
-      # stdio writes from the CLI and tests are best-effort by nature.
+          # fmt.Fprint* covers two cases, both deliberately unchecked: (1) stdio
+          # writes from the CLI and tests, which are best-effort by nature, and
+          # (2) fmt.Fprintf(&sb, ...) on strings.Builder, whose Write methods
+          # never fail per docs. Writer-side Close errors (e.g. the analytics
+          # logger's deferred file close) are NOT covered by this rule — they
+          # are real persistence errors and must be handled, not suppressed.
       - text: 'Error return value of `fmt\.(Fprintln|Fprintf|Fprint)`'
         linters: [errcheck]

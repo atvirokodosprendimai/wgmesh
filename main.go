@@ -10,6 +10,7 @@ import (
 	_ "net/http/pprof"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1311,9 +1312,13 @@ func runPilotInit() {
 			}
 		case "--nodes":
 			if i+1 < len(args) {
-				if _, err := fmt.Sscanf(args[i+1], "%d", &nodes); err != nil {
-					fmt.Fprintf(os.Stderr, "invalid --nodes value %q\n", args[i+1])
+				n, err := strconv.Atoi(args[i+1])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid --nodes value %q\n", args[i+1])
+					printPilotUsage()
+					os.Exit(1)
 				}
+				nodes = n
 				i++
 			}
 		case "--mode":
@@ -1323,9 +1328,13 @@ func runPilotInit() {
 			}
 		case "--duration":
 			if i+1 < len(args) {
-				if _, err := fmt.Sscanf(args[i+1], "%d", &duration); err != nil {
-					fmt.Fprintf(os.Stderr, "invalid --duration value %q\n", args[i+1])
+				d, err := strconv.Atoi(args[i+1])
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "Error: invalid --duration value %q\n", args[i+1])
+					printPilotUsage()
+					os.Exit(1)
 				}
+				duration = d
 				i++
 			}
 		}
