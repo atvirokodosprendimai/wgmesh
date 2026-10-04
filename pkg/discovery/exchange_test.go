@@ -1,6 +1,7 @@
 package discovery
 
 import (
+	"fmt"
 	"encoding/json"
 	"net"
 	"strings"
@@ -308,6 +309,9 @@ func TestHandleReply_DoesNotDowngradePublicIPv6ToIPv4Observed(t *testing.T) {
 
 // TestResolvePeerEndpoint tests existing resolution logic (regression guard).
 func TestResolvePeerEndpoint(t *testing.T) {
+	// controlPort is the mesh's secret-derived exchange/gossip port: every
+	// peer binds the same value (crypto/derive.go), so a receiver can name it.
+	const gossip = 52654
 	tests := []struct {
 		name       string
 		advertised string
@@ -319,10 +323,16 @@ func TestResolvePeerEndpoint(t *testing.T) {
 		{"empty_host_with_sender", ":51820", &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: 41234}, "203.0.113.1:51820"},
 		{"ipv6_wildcard", ":::51820", &net.UDPAddr{IP: net.ParseIP("2001:db8::1"), Port: 41234}, "[2001:db8::1]:51820"},
 		{"no_sender_no_host", "0.0.0.0:51820", nil, "0.0.0.0:51820"},
+		// issue #839: the exchange/control port must never become a wg data
+		// endpoint. Hard-NAT peers can only observe the NAT mapping of their
+		// control socket, so announcements echoing that port are poison.
+		{"gossip_port_advertised", fmt.Sprintf("203.0.113.5:%d", gossip), &net.UDPAddr{IP: net.ParseIP("203.0.113.5"), Port: gossip}, ""},
+		{"gossip_port_no_sender", fmt.Sprintf("198.51.100.9:%d", gossip), nil, ""},
+		{"wg_port_survives_gossip_sender", "0.0.0.0:51820", &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: gossip}, "203.0.113.1:51820"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolvePeerEndpoint(tt.advertised, tt.sender)
+			got := resolvePeerEndpoint(tt.advertised, tt.sender, gossip)
 			if got != tt.want {
 				t.Errorf("resolvePeerEndpoint(%q, %v) = %q, want %q", tt.advertised, tt.sender, got, tt.want)
 			}
