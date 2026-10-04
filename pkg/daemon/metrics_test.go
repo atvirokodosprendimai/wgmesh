@@ -23,7 +23,9 @@ func TestMetricsRegistered(t *testing.T) {
 	// Use a local registry to avoid conflicts with the global registry.
 	reg := prometheus.NewRegistry()
 	g := prometheus.NewGauge(prometheus.GaugeOpts{Name: "test_registered"})
-	reg.Register(g)
+	if err := reg.Register(g); err != nil {
+		t.Fatalf("register gauge: %v", err)
+	}
 
 	// Verify we can collect from the registry without panic.
 	mfs, err := reg.Gather()

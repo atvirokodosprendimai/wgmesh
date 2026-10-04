@@ -51,7 +51,7 @@ func Validate(code string) bool {
 	// Must use only the base32 character set.
 	for _, part := range parts {
 		for _, r := range part {
-			if !((r >= 'A' && r <= 'Z') || (r >= '2' && r <= '7')) {
+			if (r < 'A' || r > 'Z') && (r < '2' || r > '7') {
 				return false
 			}
 		}

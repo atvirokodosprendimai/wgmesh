@@ -151,28 +151,6 @@ func (m *Mesh) detectEndpoints() error {
 	return nil
 }
 
-func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	routes := make([]ssh.RouteEntry, 0)
-
-	for peerHostname, peer := range m.Nodes {
-		if peerHostname == node.Hostname {
-			continue
-		}
-
-		for _, network := range peer.RoutableNetworks {
-			routes = append(routes, ssh.RouteEntry{
-				Network: network,
-				Gateway: peer.MeshIP.String(),
-			})
-		}
-	}
-
-	return routes
-}
-
 func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -235,7 +213,9 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 				cmd = fmt.Sprintf("ip route add %s dev %s || ip route replace %s dev %s",
 					route.Network, m.InterfaceName, route.Network, m.InterfaceName)
 			}
-			client.RunQuiet(cmd)
+			if err := client.RunQuiet(cmd); err != nil {
+				fmt.Printf("  Warning: failed to add route %s: %v\n", route.Network, err)
+			}
 		}
 		return nil
 	}

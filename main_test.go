@@ -30,7 +30,7 @@ func TestVersionFlag(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	tests := []struct {
 		name string
@@ -69,7 +69,7 @@ func TestVersionFlagPriority(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	tests := []struct {
 		name string
@@ -112,7 +112,7 @@ func TestVersionFlagExitCode(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	tests := []struct {
 		name string
@@ -145,7 +145,7 @@ func TestVersionFormatConsistency(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	// Get output from all three forms
 	var outputs []string
@@ -175,7 +175,7 @@ func TestStatusJSONOutput(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	// Test secret (long enough for key derivation)
 	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
@@ -227,7 +227,7 @@ func TestStatusTextOutput(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	// Test secret
 	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
@@ -270,7 +270,7 @@ func TestStatusJSONWithoutSecret(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	// Test that --json without secret fails
 	cmd := exec.Command("/tmp/wgmesh-test", "status", "--json")
@@ -295,7 +295,7 @@ func TestStatusCustomSubnet(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	// Test secret
 	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
@@ -343,7 +343,7 @@ func TestStatusBackwardCompatibility(t *testing.T) {
 	if err := buildCmd.Run(); err != nil {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
-	defer os.Remove("/tmp/wgmesh-test")
+	defer func() { _ = os.Remove("/tmp/wgmesh-test") }()
 
 	// Test secret
 	testSecret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
@@ -375,7 +375,7 @@ func TestStatusBackwardCompatibility(t *testing.T) {
 // end via the built binary.
 func TestReferralValidateCLI(t *testing.T) {
 	bin := buildTestBinary(t)
-	defer os.Remove(bin)
+	defer func() { _ = os.Remove(bin) }()
 
 	tests := []struct {
 		name       string
@@ -411,7 +411,7 @@ func TestReferralValidateCLI(t *testing.T) {
 // code, and that a second invocation returns the same code.
 func TestReferralShowCLI(t *testing.T) {
 	bin := buildTestBinary(t)
-	defer os.Remove(bin)
+	defer func() { _ = os.Remove(bin) }()
 
 	tmpDir := t.TempDir()
 
@@ -456,7 +456,7 @@ func TestReferralShowCLI(t *testing.T) {
 // and the referral attribution after a code is recorded.
 func TestReferralStatsCLI(t *testing.T) {
 	bin := buildTestBinary(t)
-	defer os.Remove(bin)
+	defer func() { _ = os.Remove(bin) }()
 
 	tmpDir := t.TempDir()
 

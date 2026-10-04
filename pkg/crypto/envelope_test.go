@@ -303,13 +303,13 @@ func TestKnownPeerValidate(t *testing.T) {
 			name:        "hostname too long",
 			peer:        KnownPeer{WGPubKey: validKey, MeshIP: "10.0.0.2", Hostname: strings.Repeat("x", 254)},
 			wantErr:     true,
-			errContains: "Hostname",
+			errContains: "hostname",
 		},
 		{
 			name:        "hostname with control characters",
 			peer:        KnownPeer{WGPubKey: validKey, MeshIP: "10.0.0.2", Hostname: "bad\x00host"},
 			wantErr:     true,
-			errContains: "Hostname",
+			errContains: "hostname",
 		},
 	}
 

@@ -280,7 +280,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		return
 	}
 
-	endpoint := resolvePeerEndpoint(announcement.WGEndpoint, sender)
+	endpoint := resolvePeerEndpoint(announcement.WGEndpoint, sender, int(g.config.Keys.GossipPort))
 	if sender == nil {
 		endpoint = normalizeKnownPeerEndpoint(announcement.WGEndpoint)
 	}

@@ -541,6 +541,7 @@ func (d *DHTDiscovery) attemptBootstrapLookup() bool {
 	var randomID [20]byte
 	copy(randomID[:], d.config.Keys.NetworkID[:])
 
+	//nolint:staticcheck // SA1019: migrating to AnnounceTraversal is separate DHT behavior work.
 	a, err := d.server.Announce(randomID, 0, false)
 	if err != nil {
 		log.Printf("[DHT] Bootstrap lookup failed: %v", err)
@@ -707,6 +708,7 @@ func (d *DHTDiscovery) announceToInfohash(infohash [20]byte, port int) {
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
+	//nolint:staticcheck // SA1019: migrating to AnnounceTraversal is separate DHT behavior work.
 	announce, err := d.server.Announce(infohash, port, false)
 	if err != nil {
 		log.Printf("[DHT] Failed to start announce: %v", err)
@@ -784,6 +786,7 @@ func (d *DHTDiscovery) queryInfohash(infohash [20]byte) {
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
+	//nolint:staticcheck // SA1019: migrating to AnnounceTraversal is separate DHT behavior work.
 	peers, err := d.server.Announce(infohash, 0, false) // port=0, false = get_peers only, no announce
 	if err != nil {
 		log.Printf("[DHT] Failed to query peers: %v", err)

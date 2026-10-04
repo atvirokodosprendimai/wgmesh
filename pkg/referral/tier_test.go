@@ -29,8 +29,8 @@ func TestShouldUpgradeTier(t *testing.T) {
 func TestTierOrdering(t *testing.T) {
 	// Tiers must be strictly increasing constants so that
 	// ShouldUpgradeTier's monotonic assumption holds.
-	if !(TierRegistered < TierDeployed && TierDeployed < TierWeekActive &&
-		TierWeekActive < TierMonthActive && TierMonthActive < TierSubscribed) {
+	if TierRegistered >= TierDeployed || TierDeployed >= TierWeekActive ||
+		TierWeekActive >= TierMonthActive || TierMonthActive >= TierSubscribed {
 		t.Error("tier constants are not strictly increasing")
 	}
 }

@@ -161,9 +161,10 @@ func DeriveMeshIP(meshSubnet [2]byte, wgPubKey, secret string) string {
 	lowByte := hash[1]
 
 	// Clamp last octet to [1, 254] — avoid .0 (network) and .255 (broadcast)
-	if lowByte == 0 {
+	switch lowByte {
+	case 0:
 		lowByte = 1
-	} else if lowByte == 255 {
+	case 255:
 		lowByte = 254
 	}
 

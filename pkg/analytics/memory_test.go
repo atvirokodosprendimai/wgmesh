@@ -113,7 +113,9 @@ func TestMemoryHandler_Clear(t *testing.T) {
 		SessionID: sessionID,
 	}
 
-	handler.Handle(ctx, event)
+	if err := handler.Handle(ctx, event); err != nil {
+		t.Fatalf("Handle() failed: %v", err)
+	}
 
 	if handler.Count() != 1 {
 		t.Fatalf("Count() = %d, want 1 before clear", handler.Count())
@@ -139,10 +141,12 @@ func TestMemoryHandler_Count(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		handler.Handle(ctx, Event{
+		if err := handler.Handle(ctx, Event{
 			Type:      EventTrialLandingViewed,
 			SessionID: sessionID,
-		})
+		}); err != nil {
+			t.Fatalf("Handle() failed: %v", err)
+		}
 	}
 
 	if handler.Count() != 5 {
@@ -158,10 +162,18 @@ func TestMemoryHandler_CountByType(t *testing.T) {
 
 	sessionID, _ := GenerateSessionID()
 
-	handler.Handle(ctx, Event{Type: EventTrialLandingViewed, SessionID: sessionID})
-	handler.Handle(ctx, Event{Type: EventTrialFormStarted, SessionID: sessionID})
-	handler.Handle(ctx, Event{Type: EventTrialFormStarted, SessionID: sessionID})
-	handler.Handle(ctx, Event{Type: EventTrialEmailSubmitted, SessionID: sessionID})
+	if err := handler.Handle(ctx, Event{Type: EventTrialLandingViewed, SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle() failed: %v", err)
+	}
+	if err := handler.Handle(ctx, Event{Type: EventTrialFormStarted, SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle() failed: %v", err)
+	}
+	if err := handler.Handle(ctx, Event{Type: EventTrialFormStarted, SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle() failed: %v", err)
+	}
+	if err := handler.Handle(ctx, Event{Type: EventTrialEmailSubmitted, SessionID: sessionID}); err != nil {
+		t.Fatalf("Handle() failed: %v", err)
+	}
 
 	if handler.CountByType(EventTrialLandingViewed) != 1 {
 		t.Errorf("CountByType(LandingViewed) = %d, want 1", handler.CountByType(EventTrialLandingViewed))
@@ -191,10 +203,12 @@ func TestMemoryHandler_Concurrency(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		go func(n int) {
 			sessionID, _ := GenerateSessionID()
-			handler.Handle(ctx, Event{
+			if err := handler.Handle(ctx, Event{
 				Type:      EventTrialLandingViewed,
 				SessionID: sessionID,
-			})
+			}); err != nil {
+				t.Errorf("Handle() failed: %v", err)
+			}
 			done <- true
 		}(i)
 	}

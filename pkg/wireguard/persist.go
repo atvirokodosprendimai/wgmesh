@@ -13,23 +13,23 @@ func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) string {
 	var sb strings.Builder
 
 	sb.WriteString("[Interface]\n")
-	sb.WriteString(fmt.Sprintf("Address = %s\n", config.Interface.Address))
-	sb.WriteString(fmt.Sprintf("ListenPort = %d\n", config.Interface.ListenPort))
-	sb.WriteString(fmt.Sprintf("PrivateKey = %s\n", config.Interface.PrivateKey))
+	fmt.Fprintf(&sb, "Address = %s\n", config.Interface.Address)
+	fmt.Fprintf(&sb, "ListenPort = %d\n", config.Interface.ListenPort)
+	fmt.Fprintf(&sb, "PrivateKey = %s\n", config.Interface.PrivateKey)
 
 	// Add PostUp commands for additional routes
 	if len(routes) > 0 {
 		for _, route := range routes {
-			sb.WriteString(fmt.Sprintf("PostUp = ip route add %s via %s dev %%i || true\n",
-				route.Network, route.Gateway))
+			fmt.Fprintf(&sb, "PostUp = ip route add %s via %s dev %%i || true\n",
+				route.Network, route.Gateway)
 		}
 	}
 
 	// Add PreDown commands to clean up routes
 	if len(routes) > 0 {
 		for _, route := range routes {
-			sb.WriteString(fmt.Sprintf("PreDown = ip route del %s via %s dev %%i || true\n",
-				route.Network, route.Gateway))
+			fmt.Fprintf(&sb, "PreDown = ip route del %s via %s dev %%i || true\n",
+				route.Network, route.Gateway)
 		}
 	}
 
@@ -40,18 +40,18 @@ func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) string {
 
 	for _, peer := range config.Peers {
 		sb.WriteString("[Peer]\n")
-		sb.WriteString(fmt.Sprintf("PublicKey = %s\n", peer.PublicKey))
+		fmt.Fprintf(&sb, "PublicKey = %s\n", peer.PublicKey)
 
 		if peer.Endpoint != "" {
-			sb.WriteString(fmt.Sprintf("Endpoint = %s\n", peer.Endpoint))
+			fmt.Fprintf(&sb, "Endpoint = %s\n", peer.Endpoint)
 		}
 
 		if len(peer.AllowedIPs) > 0 {
-			sb.WriteString(fmt.Sprintf("AllowedIPs = %s\n", strings.Join(peer.AllowedIPs, ", ")))
+			fmt.Fprintf(&sb, "AllowedIPs = %s\n", strings.Join(peer.AllowedIPs, ", "))
 		}
 
 		if peer.PersistentKeepalive > 0 {
-			sb.WriteString(fmt.Sprintf("PersistentKeepalive = %d\n", peer.PersistentKeepalive))
+			fmt.Fprintf(&sb, "PersistentKeepalive = %d\n", peer.PersistentKeepalive)
 		}
 
 		sb.WriteString("\n")
@@ -122,8 +122,8 @@ func canUseOnlineUpdate(diff *ConfigDiff) bool {
 func RemovePersistentConfig(client *ssh.Client, iface string) error {
 	fmt.Printf("  Stopping and disabling wg-quick@%s service\n", iface)
 
-	client.RunQuiet(fmt.Sprintf("systemctl stop wg-quick@%s", iface))
-	client.RunQuiet(fmt.Sprintf("systemctl disable wg-quick@%s", iface))
+	_ = client.RunQuiet(fmt.Sprintf("systemctl stop wg-quick@%s", iface))
+	_ = client.RunQuiet(fmt.Sprintf("systemctl disable wg-quick@%s", iface))
 
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", iface)
 	if _, err := client.Run(fmt.Sprintf("rm -f %s", configPath)); err != nil {

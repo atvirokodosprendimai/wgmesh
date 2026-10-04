@@ -65,17 +65,17 @@ func (p *Pilot) GenerateReport(format ReportFormat, outputPath string) error {
 func (p *Pilot) generateConsoleReport(metrics *Metrics) string {
 	var sb strings.Builder
 
-	sb.WriteString(fmt.Sprintf("wgmesh Pilot Report: %s\n", p.state.Config.PilotID))
+	fmt.Fprintf(&sb, "wgmesh Pilot Report: %s\n", p.state.Config.PilotID)
 	sb.WriteString(strings.Repeat("=", 70))
 	sb.WriteString("\n\n")
 
-	sb.WriteString(fmt.Sprintf("Phase: %s (Day %d of %d)\n",
+	fmt.Fprintf(&sb, "Phase: %s (Day %d of %d)\n",
 		p.state.CurrentPhase,
 		p.state.DaysElapsed,
-		int(p.state.Config.EndDate.Sub(p.state.Config.StartDate).Hours()/24)))
-	sb.WriteString(fmt.Sprintf("Organization: %s | Contact: %s\n\n",
+		int(p.state.Config.EndDate.Sub(p.state.Config.StartDate).Hours()/24))
+	fmt.Fprintf(&sb, "Organization: %s | Contact: %s\n\n",
 		p.state.Config.Organization,
-		p.state.Config.ContactEmail))
+		p.state.Config.ContactEmail)
 
 	// Milestone status
 	sb.WriteString("MILESTONE STATUS\n")
@@ -96,13 +96,13 @@ func (p *Pilot) generateConsoleReport(metrics *Metrics) string {
 			status = "⚠" // Overdue
 		}
 
-		sb.WriteString(fmt.Sprintf("%s %s", status, milestone.Name))
+		fmt.Fprintf(&sb, "%s %s", status, milestone.Name)
 		if milestone.Completed {
-			sb.WriteString(fmt.Sprintf(" (completed Day %d)",
-				int(milestone.CompletedAt.Sub(p.state.Config.StartDate).Hours()/24)))
+			fmt.Fprintf(&sb, " (completed Day %d)",
+				int(milestone.CompletedAt.Sub(p.state.Config.StartDate).Hours()/24))
 		} else {
 			targetDay := int(milestone.TargetDate.Sub(p.state.Config.StartDate).Hours() / 24)
-			sb.WriteString(fmt.Sprintf(" (target: Day %d)", targetDay))
+			fmt.Fprintf(&sb, " (target: Day %d)", targetDay)
 		}
 		sb.WriteString("\n")
 	}
@@ -114,29 +114,29 @@ func (p *Pilot) generateConsoleReport(metrics *Metrics) string {
 	sb.WriteString(strings.Repeat("-", 70))
 	sb.WriteString("\n")
 
-	sb.WriteString(fmt.Sprintf("Mesh Connectivity: %.2f%% (target: ≥%.1f%%)\n",
+	fmt.Fprintf(&sb, "Mesh Connectivity: %.2f%% (target: ≥%.1f%%)\n",
 		metrics.MeshUptimePercent,
-		p.state.Config.MetricsTargets.MeshConnectivity))
+		p.state.Config.MetricsTargets.MeshConnectivity)
 
 	totalDiscoveries := 0
 	for _, count := range metrics.DiscoveryLayerCounts {
 		totalDiscoveries += count
 	}
 	if totalDiscoveries > 0 {
-		sb.WriteString(fmt.Sprintf("Peer Discovery: %.1f%% (%d/%d discovered)\n",
+		fmt.Fprintf(&sb, "Peer Discovery: %.1f%% (%d/%d discovered)\n",
 			metrics.PeerDiscoverySuccess,
 			int(metrics.PeerDiscoverySuccess*float64(p.state.Config.NodeCount)),
-			p.state.Config.NodeCount))
+			p.state.Config.NodeCount)
 	} else {
-		sb.WriteString(fmt.Sprintf("Peer Discovery: No discovery events recorded\n"))
+		sb.WriteString("Peer Discovery: No discovery events recorded\n")
 	}
 
-	sb.WriteString(fmt.Sprintf("Route Propagation: %s avg (target: ≤%ds)\n",
+	fmt.Fprintf(&sb, "Route Propagation: %s avg (target: ≤%ds)\n",
 		formatDuration(metrics.RoutePropagationTime),
-		p.state.Config.MetricsTargets.RoutePropagation))
+		p.state.Config.MetricsTargets.RoutePropagation)
 
-	sb.WriteString(fmt.Sprintf("Daemon Restarts: %d\n", metrics.DaemonRestarts))
-	sb.WriteString(fmt.Sprintf("WireGuard Restarts: %d\n", metrics.WireGuardRestarts))
+	fmt.Fprintf(&sb, "Daemon Restarts: %d\n", metrics.DaemonRestarts)
+	fmt.Fprintf(&sb, "WireGuard Restarts: %d\n", metrics.WireGuardRestarts)
 	sb.WriteString("\n")
 
 	// Discovery layer distribution
@@ -145,7 +145,7 @@ func (p *Pilot) generateConsoleReport(metrics *Metrics) string {
 		sb.WriteString(strings.Repeat("-", 70))
 		sb.WriteString("\n")
 		for layer, count := range metrics.DiscoveryLayerCounts {
-			sb.WriteString(fmt.Sprintf("  %s: %d\n", layer, count))
+			fmt.Fprintf(&sb, "  %s: %d\n", layer, count)
 		}
 		sb.WriteString("\n")
 	}
@@ -156,7 +156,7 @@ func (p *Pilot) generateConsoleReport(metrics *Metrics) string {
 		sb.WriteString(strings.Repeat("-", 70))
 		sb.WriteString("\n")
 		for natType, count := range metrics.NATTypes {
-			sb.WriteString(fmt.Sprintf("  %s: %d nodes\n", natType, count))
+			fmt.Fprintf(&sb, "  %s: %d nodes\n", natType, count)
 		}
 		sb.WriteString("\n")
 	}
@@ -169,24 +169,24 @@ func (p *Pilot) generateConsoleReport(metrics *Metrics) string {
 	hasWarnings := false
 
 	if metrics.MeshUptimePercent < p.state.Config.MetricsTargets.MeshConnectivity {
-		sb.WriteString(fmt.Sprintf("[WARN] Mesh connectivity (%.2f%%) below target (%.1f%%)\n",
+		fmt.Fprintf(&sb, "[WARN] Mesh connectivity (%.2f%%) below target (%.1f%%)\n",
 			metrics.MeshUptimePercent,
-			p.state.Config.MetricsTargets.MeshConnectivity))
+			p.state.Config.MetricsTargets.MeshConnectivity)
 		hasWarnings = true
 	}
 
 	if metrics.DaemonRestarts > 0 {
-		sb.WriteString(fmt.Sprintf("[WARN] %d daemon restart(s) detected\n", metrics.DaemonRestarts))
+		fmt.Fprintf(&sb, "[WARN] %d daemon restart(s) detected\n", metrics.DaemonRestarts)
 		hasWarnings = true
 	}
 
 	if metrics.WireGuardRestarts > 0 {
-		sb.WriteString(fmt.Sprintf("[WARN] %d WireGuard restart(s) detected\n", metrics.WireGuardRestarts))
+		fmt.Fprintf(&sb, "[WARN] %d WireGuard restart(s) detected\n", metrics.WireGuardRestarts)
 		hasWarnings = true
 	}
 
 	if metrics.RelayFallbackCount > 0 {
-		sb.WriteString(fmt.Sprintf("[INFO] %d relay fallback(s) recorded\n", metrics.RelayFallbackCount))
+		fmt.Fprintf(&sb, "[INFO] %d relay fallback(s) recorded\n", metrics.RelayFallbackCount)
 		hasWarnings = true
 	}
 
@@ -205,12 +205,12 @@ func (p *Pilot) generateConsoleReport(metrics *Metrics) string {
 	nextMilestone := getNextMilestone(p.state.Config.Milestones, p.state.DaysElapsed)
 	if nextMilestone != nil {
 		if nextMilestone.Completed {
-			sb.WriteString(fmt.Sprintf("→ Complete and proceed to next phase\n"))
+			sb.WriteString("→ Complete and proceed to next phase\n")
 		} else {
 			targetDay := int(nextMilestone.TargetDate.Sub(p.state.Config.StartDate).Hours() / 24)
-			sb.WriteString(fmt.Sprintf("→ Work towards %s milestone (target: Day %d)\n",
+			fmt.Fprintf(&sb, "→ Work towards %s milestone (target: Day %d)\n",
 				nextMilestone.Name,
-				targetDay))
+				targetDay)
 		}
 	} else {
 		sb.WriteString("→ All milestones completed\n")
@@ -313,7 +313,7 @@ func (p *Pilot) generateHTMLReport(metrics *Metrics) string {
 			cssClass = "overdue"
 		}
 
-		statusText := "In Progress"
+		var statusText string
 		if milestone.Completed {
 			statusText = fmt.Sprintf("Completed Day %d", int(milestone.CompletedAt.Sub(p.state.Config.StartDate).Hours()/24))
 		} else {

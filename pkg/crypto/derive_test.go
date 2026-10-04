@@ -156,7 +156,9 @@ func TestDeriveMeshIP(t *testing.T) {
 
 	// Parse and verify last octet is in [1, 254]
 	var a, b, c, d int
-	fmt.Sscanf(ip1, "%d.%d.%d.%d", &a, &b, &c, &d)
+	if _, err := fmt.Sscanf(ip1, "%d.%d.%d.%d", &a, &b, &c, &d); err != nil {
+		t.Fatalf("parse ip: %v", err)
+	}
 	if d < 1 || d > 254 {
 		t.Errorf("Last octet should be in [1,254], got %d (ip=%s)", d, ip1)
 	}
@@ -176,8 +178,12 @@ func TestDeriveMeshIPUsesSubnetByte1(t *testing.T) {
 
 	// Both should share the same first two octets
 	var a1, b1, a2, b2 int
-	fmt.Sscanf(ip1, "%d.%d.", &a1, &b1)
-	fmt.Sscanf(ip2, "%d.%d.", &a2, &b2)
+	if _, err := fmt.Sscanf(ip1, "%d.%d.", &a1, &b1); err != nil {
+		t.Fatalf("parse ip: %v", err)
+	}
+	if _, err := fmt.Sscanf(ip2, "%d.%d.", &a2, &b2); err != nil {
+		t.Fatalf("parse ip: %v", err)
+	}
 	if a1 != a2 || b1 != b2 {
 		t.Errorf("First two octets should match: %s vs %s", ip1, ip2)
 	}
@@ -190,7 +196,9 @@ func TestDeriveMeshIPNoNetworkOrBroadcast(t *testing.T) {
 		pubkey := fmt.Sprintf("pubkey-%d", i)
 		ip := DeriveMeshIP(meshSubnet, pubkey, "test-secret-that-is-long-enough")
 		var a, b, c, d int
-		fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d)
+		if _, err := fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d); err != nil {
+			t.Fatalf("parse ip: %v", err)
+		}
 		if d == 0 || d == 255 {
 			t.Errorf("Generated network/broadcast address: %s (pubkey=%s)", ip, pubkey)
 		}
@@ -261,7 +269,9 @@ func TestDeriveMeshIPInSubnet24(t *testing.T) {
 	}
 
 	var a, b, c, d int
-	fmt.Sscanf(ip1, "%d.%d.%d.%d", &a, &b, &c, &d)
+	if _, err := fmt.Sscanf(ip1, "%d.%d.%d.%d", &a, &b, &c, &d); err != nil {
+		t.Fatalf("parse ip: %v", err)
+	}
 	if a != 192 || b != 168 || c != 100 {
 		t.Errorf("Expected 192.168.100.x, got %s", ip1)
 	}
@@ -297,7 +307,9 @@ func TestDeriveMeshIPInSubnet16(t *testing.T) {
 	}
 
 	var a, b int
-	fmt.Sscanf(ip, "%d.%d.", &a, &b)
+	if _, err := fmt.Sscanf(ip, "%d.%d.", &a, &b); err != nil {
+		t.Fatalf("parse ip: %v", err)
+	}
 	if a != 10 || b != 42 {
 		t.Errorf("Expected 10.42.x.y, got %s", ip)
 	}
@@ -320,7 +332,9 @@ func TestDeriveMeshIPInSubnet28(t *testing.T) {
 		}
 
 		var a, b, c, d int
-		fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d)
+		if _, err := fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d); err != nil {
+			t.Fatalf("parse ip: %v", err)
+		}
 		// In /28 from .0, network=.0 broadcast=.15, hosts .1-.14
 		if d < 1 || d > 14 {
 			t.Errorf("IP %s out of /28 host range [1,14] (pubkey=%s)", ip, pubkey)
@@ -366,7 +380,9 @@ func TestDeriveMeshIPInSubnetNoNetworkOrBroadcast(t *testing.T) {
 			t.Fatalf("failed: %v", err)
 		}
 		var a, b, c, d int
-		fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d)
+		if _, err := fmt.Sscanf(ip, "%d.%d.%d.%d", &a, &b, &c, &d); err != nil {
+			t.Fatalf("parse ip: %v", err)
+		}
 		if d == 0 || d == 255 {
 			t.Errorf("Generated network/broadcast address: %s (pubkey=%s)", ip, pubkey)
 		}

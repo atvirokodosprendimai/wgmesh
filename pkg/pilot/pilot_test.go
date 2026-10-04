@@ -159,7 +159,9 @@ func TestInitialize(t *testing.T) {
 
 func TestStart(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	err := p.Start()
 	if err != nil {
@@ -188,8 +190,12 @@ func TestStartNotInitialized(t *testing.T) {
 
 func TestStatus(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
-	p.Start()
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 
 	state, err := p.Status()
 	if err != nil {
@@ -212,7 +218,9 @@ func TestStatus(t *testing.T) {
 
 func TestStatusNotStarted(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	_, err := p.Status()
 	if err == nil {
@@ -222,8 +230,12 @@ func TestStatusNotStarted(t *testing.T) {
 
 func TestMarkMilestoneComplete(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
-	p.Start()
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 
 	err := p.MarkMilestoneComplete("baseline")
 	if err != nil {
@@ -237,8 +249,12 @@ func TestMarkMilestoneComplete(t *testing.T) {
 
 func TestMarkMilestoneCompleteInvalid(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
-	p.Start()
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
 
 	err := p.MarkMilestoneComplete("invalid_milestone")
 	if err == nil {
@@ -248,7 +264,9 @@ func TestMarkMilestoneCompleteInvalid(t *testing.T) {
 
 func TestMilestoneTargetDates(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	config := p.Config()
 
@@ -303,9 +321,15 @@ func TestSaveAndLoad(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "pilot-test.yaml")
 
 	p := New(configPath)
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
-	p.Start()
-	p.MarkMilestoneComplete("baseline")
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
+	if err := p.Start(); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	if err := p.MarkMilestoneComplete("baseline"); err != nil {
+		t.Fatalf("mark milestone: %v", err)
+	}
 
 	// Save
 	err := p.Save()
@@ -413,7 +437,9 @@ func TestGetCurrentPhase(t *testing.T) {
 
 func TestMetricsTargetsDefaults(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	targets := p.Config().MetricsTargets
 

@@ -300,7 +300,7 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 		Hostname:         announcement.Hostname,
 		MeshIP:           announcement.MeshIP,
 		MeshIPv6:         announcement.MeshIPv6,
-		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
+		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr, int(pe.config.Keys.GossipPort)), pe.config.DisableIPv6),
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
 		NATType:          announcement.NATType,
@@ -329,7 +329,7 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 		Hostname:         reply.Hostname,
 		MeshIP:           reply.MeshIP,
 		MeshIPv6:         reply.MeshIPv6,
-		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(reply.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
+		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(reply.WGEndpoint, remoteAddr, int(pe.config.Keys.GossipPort)), pe.config.DisableIPv6),
 		Introducer:       reply.Introducer,
 		RoutableNetworks: reply.RoutableNetworks,
 		NATType:          reply.NATType,
@@ -961,12 +961,25 @@ func (pe *PeerExchange) getPendingReplyChannel(remote string) (chan *daemon.Peer
 	return ch, ok
 }
 
-func resolvePeerEndpoint(advertised string, sender *net.UDPAddr) string {
+func resolvePeerEndpoint(advertised string, sender *net.UDPAddr, controlPort int) string {
 	if host, port, err := net.SplitHostPort(advertised); err == nil {
 		resolvedHost := host
 		if resolvedHost == "" || resolvedHost == "0.0.0.0" || resolvedHost == "::" {
 			if sender != nil && sender.IP != nil {
 				resolvedHost = sender.IP.String()
+			}
+		}
+		// Issue #839: the exchange/control port must never become a wg data
+		// endpoint. On hard-NAT peers the only reflexive mapping a node can
+		// observe belongs to its control socket, so announcements echoing
+		// the shared, secret-derived control port are poison. The peer
+		// stays rendezvous-only until a real data-plane endpoint arrives.
+		// (The wg port itself can sit inside the IANA ephemeral range, so a
+		// range check would reject every legitimate endpoint — compare ports,
+		// not ranges.)
+		if controlPort > 0 {
+			if portNum, perr := strconv.Atoi(port); perr != nil || portNum == controlPort {
+				return ""
 			}
 		}
 		if resolvedHost != "" {

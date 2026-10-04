@@ -304,19 +304,45 @@ func (d *Daemon) Shutdown() {
 // subnet implied by cfg. This is used to detect when a persisted mesh IP is no
 // longer valid because the operator changed --mesh-subnet.
 func meshIPInSubnet(meshIP string, cfg *Config) bool {
-	ip := net.ParseIP(meshIP)
-	if ip == nil {
-		return false
-	}
 	if cfg.CustomSubnet != nil {
-		return cfg.CustomSubnet.Contains(ip)
+		// meshSubnet is ignored by crypto.MeshIPInSubnet when a custom subnet
+		// is set; pass a zero value so this never dereferences cfg.Keys.
+		return crypto.MeshIPInSubnet(meshIP, [2]byte{}, cfg.CustomSubnet)
 	}
-	// Legacy derivation: 10.<meshSubnet[0]>.x.y — check the /16 prefix only.
-	subnet := &net.IPNet{
-		IP:   net.IP{10, cfg.Keys.MeshSubnet[0], 0, 0},
-		Mask: net.CIDRMask(16, 32),
+	return crypto.MeshIPInSubnet(meshIP, cfg.Keys.MeshSubnet, nil)
+}
+
+// resolveLoadedNodeIPs resolves the mesh IPs of a node loaded from persisted
+// state against the current config (issue #827 invariant: once assigned, a
+// node's mesh IP stays constant for as long as it belongs to the same mesh).
+// A persisted MeshIP is authoritative while it falls within the configured
+// subnet; it is re-derived only when the field is absent (state file predating
+// mesh_ip persistence) or the operator changed --mesh-subnet. Option changes
+// (--no-ipv6, relay/punching flags, interface-level options) never affect it.
+// MeshIPv6 is derived once when absent, then persisted like MeshIP.
+// Returns true when any IP was re-derived and the state should be re-persisted.
+func resolveLoadedNodeIPs(node *LocalNode, cfg *Config) (bool, error) {
+	changed := false
+
+	if node.MeshIP == "" || !meshIPInSubnet(node.MeshIP, cfg) {
+		if cfg.CustomSubnet != nil {
+			ip, err := crypto.DeriveMeshIPInSubnet(cfg.CustomSubnet, node.WGPubKey, cfg.Secret)
+			if err != nil {
+				return false, fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
+			}
+			node.MeshIP = ip
+		} else {
+			node.MeshIP = crypto.DeriveMeshIP(cfg.Keys.MeshSubnet, node.WGPubKey, cfg.Secret)
+		}
+		changed = true
 	}
-	return subnet.Contains(ip)
+
+	if node.MeshIPv6 == "" {
+		node.MeshIPv6 = crypto.DeriveMeshIPv6(cfg.Keys.MeshPrefixV6, node.WGPubKey, cfg.Secret)
+		changed = true
+	}
+
+	return changed, nil
 }
 
 // initLocalNode loads or creates the local WireGuard node
@@ -332,32 +358,12 @@ func (d *Daemon) initLocalNode() error {
 	if err == nil && node != nil {
 		d.localNode = node
 
-		// Use the persisted mesh IP when it is present and falls within the
-		// expected subnet. Re-derive only when the field is absent (old state
-		// file) or the configured subnet has changed.
-		if node.MeshIP != "" && meshIPInSubnet(node.MeshIP, d.config) {
-			// Persisted IP is valid — keep it so that secret rotation does not
-			// change the node's address.
-		} else {
-			if d.config.CustomSubnet != nil {
-				ip, err := crypto.DeriveMeshIPInSubnet(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret)
-				if err != nil {
-					return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
-				}
-				d.localNode.MeshIP = ip
-			} else {
-				d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
-			}
-			// Persist the newly derived IP so subsequent starts reuse it.
-			if err := saveLocalNode(stateFile, d.localNode); err != nil {
-				log.Printf("Warning: failed to save local node state: %v", err)
-			}
+		changed, err := resolveLoadedNodeIPs(d.localNode, d.config)
+		if err != nil {
+			return err
 		}
-
-		// Always re-derive IPv6; IPv6 addresses are not globally routable and
-		// subnet pinning is not applicable for the /64 ULA prefix.
-		if node.MeshIPv6 == "" {
-			d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret)
+		if changed {
+			// Persist the newly derived IP(s) so subsequent starts reuse them.
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
 				log.Printf("Warning: failed to save local node state: %v", err)
 			}

@@ -48,6 +48,6 @@ func ValidateMembershipToken(membershipKey []byte, theirPubkey, token []byte) bo
 func generateTokenForEpoch(membershipKey, pubkey []byte, hourEpoch int64) []byte {
 	mac := hmac.New(sha256.New, membershipKey)
 	mac.Write(pubkey)
-	mac.Write([]byte(fmt.Sprintf("|%d", hourEpoch)))
+	fmt.Fprintf(mac, "|%d", hourEpoch)
 	return mac.Sum(nil)
 }

@@ -89,7 +89,9 @@ func TestMockStoreUpdateReferralTier(t *testing.T) {
 	ctx := context.Background()
 
 	ref, _ := store.CreateReferrer(ctx, "referrer")
-	store.RecordReferral(ctx, ref.Code, "referee1")
+	if _, err := store.RecordReferral(ctx, ref.Code, "referee1"); err != nil {
+		t.Fatalf("RecordReferral failed: %v", err)
+	}
 
 	err := store.UpdateReferralTier(ctx, "referee1", TierWeekActive)
 	if err != nil {

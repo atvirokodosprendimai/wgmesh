@@ -3,12 +3,16 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
 	lighthouse "github.com/atvirokodosprendimai/lighthouse-go"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 )
 
@@ -160,7 +164,7 @@ func TestServiceEndToEnd(t *testing.T) {
 		// Check auth
 		if r.Header.Get("Authorization") != "Bearer cr_e2etest" {
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]string{"detail": "unauthorized"})
+			_ = json.NewEncoder(w).Encode(map[string]string{"detail": "unauthorized"})
 			return
 		}
 
@@ -184,14 +188,14 @@ func TestServiceEndToEnd(t *testing.T) {
 			sites[site.ID] = site
 
 			w.WriteHeader(http.StatusCreated)
-			json.NewEncoder(w).Encode(site)
+			_ = json.NewEncoder(w).Encode(site)
 
 		case r.Method == "GET" && r.URL.Path == "/v1/sites":
 			var siteList []lighthouse.Site
 			for _, s := range sites {
 				siteList = append(siteList, s)
 			}
-			json.NewEncoder(w).Encode(map[string]interface{}{"sites": siteList})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"sites": siteList})
 
 		case r.Method == "DELETE":
 			siteID := r.URL.Path[len("/v1/sites/"):]
@@ -303,5 +307,125 @@ func TestServiceEndToEnd(t *testing.T) {
 	}
 	if len(loadedState.Services) != 0 {
 		t.Errorf("expected empty local state, got %d entries", len(loadedState.Services))
+	}
+}
+
+// Issue #827: the persisted mesh IP is authoritative for service registration.
+// deriveMeshIPForService must return the IP saved by the daemon — including
+// one adjusted by collision-nonce re-derivation — instead of always re-deriving.
+
+const serviceIPTestSecretURI = "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+
+const serviceIPTestPubKey = "service-ip-test-pubkey"
+
+// writeServiceIPTestState writes a daemon-format local node state file.
+func writeServiceIPTestState(t *testing.T, path, pubKey, meshIP string) {
+	t.Helper()
+
+	state := struct {
+		WGPubKey     string `json:"wg_pubkey"`
+		WGPrivateKey string `json:"wg_private_key"`
+		MeshIP       string `json:"mesh_ip,omitempty"`
+	}{
+		WGPubKey:     pubKey,
+		WGPrivateKey: "service-ip-test-private-key",
+		MeshIP:       meshIP,
+	}
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal state: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0600); err != nil {
+		t.Fatalf("write state: %v", err)
+	}
+}
+
+func TestDeriveMeshIPForService_PersistedIPAuthoritative(t *testing.T) {
+	secret := resolveSecret(serviceIPTestSecretURI)
+	keys, err := crypto.DeriveKeys(secret)
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+
+	plainIP := crypto.DeriveMeshIP(keys.MeshSubnet, serviceIPTestPubKey, secret)
+	nonceIP := daemon.DeriveMeshIPWithNonce(keys.MeshSubnet, serviceIPTestPubKey, secret, 1)
+	if nonceIP == plainIP {
+		t.Fatalf("test setup: nonce-derived IP equals plain derivation (%s)", plainIP)
+	}
+
+	_, customNet, err := net.ParseCIDR("192.168.100.0/24")
+	if err != nil {
+		t.Fatalf("parse custom subnet: %v", err)
+	}
+	customPlainIP, err := crypto.DeriveMeshIPInSubnet(customNet, serviceIPTestPubKey, secret)
+	if err != nil {
+		t.Fatalf("DeriveMeshIPInSubnet: %v", err)
+	}
+
+	tests := []struct {
+		name         string
+		persistedIP  string
+		customSubnet *net.IPNet
+		want         string
+	}{
+		{
+			name:        "persisted plain IP returned",
+			persistedIP: plainIP,
+			want:        plainIP,
+		},
+		{
+			name:        "persisted collision-nonce IP returned (differs from plain derivation)",
+			persistedIP: nonceIP,
+			want:        nonceIP,
+		},
+		{
+			name:         "persisted IP inside custom subnet returned",
+			persistedIP:  "192.168.100.55",
+			customSubnet: customNet,
+			want:         "192.168.100.55",
+		},
+		{
+			name:         "persisted legacy IP outside custom subnet re-derived",
+			persistedIP:  plainIP,
+			customSubnet: customNet,
+			want:         customPlainIP,
+		},
+		{
+			name: "persisted IP outside changed legacy subnet re-derived",
+			// 172.16/12 can never fall inside the legacy 10.x/16 derivation space.
+			persistedIP: "172.16.5.5",
+			want:        plainIP,
+		},
+		{
+			name:        "state without mesh_ip falls back to pubkey derivation",
+			persistedIP: "",
+			want:        plainIP,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			statePath := filepath.Join(t.TempDir(), "wg0.json")
+			writeServiceIPTestState(t, statePath, serviceIPTestPubKey, tt.persistedIP)
+
+			got := deriveMeshIPForService(keys, secret, tt.customSubnet, statePath)
+			if got != tt.want {
+				t.Errorf("deriveMeshIPForService = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestDeriveMeshIPForService_MissingStateFallsBackToPlaceholder(t *testing.T) {
+	secret := resolveSecret(serviceIPTestSecretURI)
+	keys, err := crypto.DeriveKeys(secret)
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+
+	statePath := filepath.Join(t.TempDir(), "does-not-exist.json")
+	got := deriveMeshIPForService(keys, secret, nil, statePath)
+	if want := crypto.DeriveMeshIP(keys.MeshSubnet, "unjoined", secret); got != want {
+		t.Errorf("deriveMeshIPForService = %q, want placeholder %q", got, want)
 	}
 }

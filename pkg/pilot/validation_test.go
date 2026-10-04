@@ -20,7 +20,9 @@ func setupValidatedPilot(t *testing.T) *Pilot {
 
 func TestValidate_NotStarted(t *testing.T) {
 	p := New("")
-	p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30)
+	if err := p.Initialize("Test Corp", "admin@test.com", 5, "decentralized", 30); err != nil {
+		t.Fatalf("Initialize failed: %v", err)
+	}
 
 	_, err := p.Validate()
 	if err == nil {

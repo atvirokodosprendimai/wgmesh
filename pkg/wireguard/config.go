@@ -2,6 +2,7 @@ package wireguard
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
@@ -52,6 +53,14 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 		return nil, err
 	}
 
+	return parseWGConfig(output)
+}
+
+// parseWGConfig parses the output of `wg show <iface> dump` into a Config.
+// The interface line is "private_key listen_port [fwmark]"; each peer row is
+// "public_key preshared_key endpoint allowed_ips latest_handshake transfer_rx
+// transfer_tx persistent_keepalive" (persistent_keepalive is field 8, index 7).
+func parseWGConfig(output string) (*Config, error) {
 	if strings.TrimSpace(output) == "" {
 		return nil, fmt.Errorf("interface does not exist or no config")
 	}
@@ -66,9 +75,11 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 	}
 
 	parts := strings.Fields(lines[0])
-	if len(parts) >= 3 {
+	if len(parts) >= 2 {
 		config.Interface.PrivateKey = parts[0]
-		fmt.Sscanf(parts[2], "%d", &config.Interface.ListenPort)
+		if port, err := strconv.Atoi(parts[1]); err == nil {
+			config.Interface.ListenPort = port
+		}
 	}
 
 	for i := 1; i < len(lines); i++ {
@@ -82,8 +93,10 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 		endpoint := parts[2]
 		allowedIPs := strings.Split(parts[3], ",")
 		var keepalive int
-		if len(parts) >= 5 {
-			fmt.Sscanf(parts[4], "%d", &keepalive)
+		if len(parts) >= 8 {
+			if ka, err := strconv.Atoi(parts[7]); err == nil {
+				keepalive = ka
+			}
 		}
 
 		peer := Peer{

@@ -155,7 +155,7 @@ func TestCodeIsURLSafe(t *testing.T) {
 
 		// Check for URL-safe characters (A-Z, 2-7 for base32)
 		for _, c := range code {
-			if !((c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7')) {
+			if (c < 'A' || c > 'Z') && (c < '2' || c > '7') {
 				t.Errorf("code contains non-URL-safe character: %c in %s", c, code)
 			}
 		}

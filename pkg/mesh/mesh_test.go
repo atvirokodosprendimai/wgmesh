@@ -219,7 +219,7 @@ func TestMesh_SaveLoad_WithActualHostname(t *testing.T) {
 	}
 	tmpPath := tmpFile.Name()
 	tmpFile.Close()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	original := &Mesh{
 		InterfaceName: "wg0",
