@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -38,6 +39,35 @@ func TestCollisionLoserPersistsResolvedIP(t *testing.T) {
 	}
 	if saved.MeshIP != want {
 		t.Errorf("state file holds %s, want the resolved address %s", saved.MeshIP, want)
+	}
+}
+
+// A failed save keeps the resolved address in memory and on the interface (#830).
+func TestCollisionKeepsAddressWhenSaveFails(t *testing.T) {
+	enforceIPBinding(t, false)
+	set := recordAddresses(t)
+
+	d := collisionDaemon(t, "zzz-local", "10.42.1.1")
+	blocker := filepath.Join(t.TempDir(), "regular-file")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	d.stateFile = filepath.Join(blocker, "wg0.json")
+	if err := saveLocalNode(d.stateFile, d.localNode); err == nil {
+		t.Fatal("test needs a state file that cannot be saved")
+	}
+	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "10.42.1.1"}, "test")
+	d.CheckAndResolveCollisions()
+
+	want := nonceOne(d)
+	if want == "10.42.1.1" {
+		t.Fatalf("test needs a resolved address that differs from the natural one, both %s", want)
+	}
+	if d.localNode.MeshIP != want {
+		t.Errorf("local IP = %s, want the resolved address %s", d.localNode.MeshIP, want)
+	}
+	if wantSet := fmt.Sprintf("%s/%d", want, d.config.PrefixLen()); len(*set) != 1 || (*set)[0] != wantSet {
+		t.Errorf("addresses set = %v, want [%s]", *set, wantSet)
 	}
 }
 
