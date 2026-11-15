@@ -224,15 +224,8 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 		fmt.Printf("  Warning: could not get current routes, will try to add all: %v\n", err)
 		// If we can't get current routes, just try to add desired ones
 		for _, route := range desiredRoutes {
-			var cmd string
-			if route.Gateway != "" {
-				cmd = fmt.Sprintf("ip route add %s via %s dev %s || ip route replace %s via %s dev %s",
-					route.Network, route.Gateway, m.InterfaceName, route.Network, route.Gateway, m.InterfaceName)
-			} else {
-				cmd = fmt.Sprintf("ip route add %s dev %s || ip route replace %s dev %s",
-					route.Network, m.InterfaceName, route.Network, m.InterfaceName)
-			}
-			client.RunQuiet(cmd)
+			client.RunQuiet(ssh.Cmd("ip", ssh.RouteArgs("add", route.Network, route.Gateway, m.InterfaceName)...) +
+				" || " + ssh.Cmd("ip", ssh.RouteArgs("replace", route.Network, route.Gateway, m.InterfaceName)...))
 		}
 		return nil
 	}

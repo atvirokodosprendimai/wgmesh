@@ -104,7 +104,7 @@ func (c *Client) WriteFile(path string, content []byte, mode os.FileMode) error 
 		return fmt.Errorf("failed to get stdin: %w", err)
 	}
 
-	if err := session.Start(fmt.Sprintf("cat > %s && chmod %o %s", path, mode, path)); err != nil {
+	if err := session.Start("cat > " + Quote(path) + " && " + Cmd("chmod", fmt.Sprintf("%o", mode), path)); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 
