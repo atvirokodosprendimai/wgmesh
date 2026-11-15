@@ -100,7 +100,7 @@ func bindClaim(s Snapshot, c Candidate) Decision {
 	}
 	for _, r := range info.RoutableNetworks {
 		rule := routeRule(s, info.WGPubKey, r)
-		if rule == "" && c.Hand != SecondHand && !Approved(r, accept) {
+		if rule == "" && c.Hand != SecondHand && !unparsable(r) && !Approved(r, accept) {
 			rule = "route-not-approved"
 		}
 		switch {
@@ -115,6 +115,13 @@ func bindClaim(s Snapshot, c Candidate) Decision {
 		d.Verdict = AdmitPartial
 	}
 	return d
+}
+
+// unparsable reports whether a route entry is not a CIDR: validation owns
+// malformed entries, so R9 leaves them alone like the other route rules.
+func unparsable(route string) bool {
+	_, _, err := net.ParseCIDR(route)
+	return err != nil
 }
 
 // withoutDropped is the candidate's info with the dropped route entries removed;
