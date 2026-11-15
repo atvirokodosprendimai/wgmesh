@@ -104,9 +104,14 @@ func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 }
 
 // canonicalNetwork returns the canonical CIDR form of network (a bare host
-// becomes /32 or /128), or the trimmed input when it does not parse.
+// becomes /32 or /128, the kernel's "default" becomes 0.0.0.0/0), or the
+// normalized input when it does not parse. The kernel prints "default" for
+// both families, so only the IPv4 default is mapped.
 func canonicalNetwork(network string) string {
 	network = NormalizeNetwork(strings.TrimSpace(network))
+	if network == "default" {
+		return "0.0.0.0/0"
+	}
 	if _, ipnet, err := net.ParseCIDR(network); err == nil {
 		return ipnet.String()
 	}
