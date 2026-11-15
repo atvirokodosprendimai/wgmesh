@@ -49,64 +49,82 @@ func (m *Mesh) Deploy() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	results := make([]NodeResult, 0, len(m.Nodes))
 	for hostname, node := range m.Nodes {
 		fmt.Printf("Deploying to %s...\n", hostname)
 
-		client, err := ssh.NewClient(node.SSHHost, node.SSHPort)
-		if err != nil {
-			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
+		result := m.deployNode(hostname, node)
+		results = append(results, result)
+		if result.Err != nil {
+			fmt.Printf("  ✗ Failed in %s: %v\n\n", result.Phase, result.Err)
+			continue
 		}
-
-		if err := ssh.EnsureWireGuardInstalled(client); err != nil {
-			client.Close()
-			return fmt.Errorf("failed to ensure WireGuard on %s: %w", hostname, err)
-		}
-
-		config := m.generateConfigForNode(node)
-		desiredRoutes := m.collectAllRoutesForNode(node)
-
-		currentConfig, err := wireguard.GetCurrentConfig(client, m.InterfaceName)
-		if err != nil {
-			fmt.Printf("  No existing config, applying fresh persistent configuration\n")
-			if err := wireguard.ApplyPersistentConfig(client, m.InterfaceName, config, desiredRoutes); err != nil {
-				client.Close()
-				return fmt.Errorf("failed to apply config to %s: %w", hostname, err)
-			}
-		} else {
-			diff := wireguard.CalculateDiff(currentConfig, wireguard.FullConfigToConfig(config))
-			if diff.HasChanges() {
-				fmt.Printf("  Applying changes with persistent configuration\n")
-				if err := wireguard.UpdatePersistentConfig(client, m.InterfaceName, config, desiredRoutes, diff); err != nil {
-					client.Close()
-					return fmt.Errorf("failed to update config on %s: %w", hostname, err)
-				}
-			} else {
-				fmt.Printf("  No WireGuard peer changes needed\n")
-			}
-
-			// Always check and sync routes
-			if err := m.syncRoutesForNode(client, node, desiredRoutes); err != nil {
-				client.Close()
-				return fmt.Errorf("failed to sync routes on %s: %w", hostname, err)
-			}
-
-			// Always ensure config file is up to date
-			configContent, err := wireguard.GenerateWgQuickConfig(config, desiredRoutes)
-			if err != nil {
-				client.Close()
-				return fmt.Errorf("failed to render config for %s: %w", hostname, err)
-			}
-			configPath := fmt.Sprintf("/etc/wireguard/%s.conf", m.InterfaceName)
-			if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {
-				fmt.Printf("  Warning: failed to update config file: %v\n", err)
-			}
-		}
-
-		client.Close()
 		fmt.Printf("  ✓ Deployed successfully\n\n")
 	}
 
-	return nil
+	return deployResult(results)
+}
+
+// deployNode configures one node and reports how it went. It requires the
+// caller to hold m.mu and calls only helpers that require it held. The wg-quick
+// text is rendered before the first connection, so a node whose config cannot
+// be rendered is left untouched.
+func (m *Mesh) deployNode(hostname string, node *Node) NodeResult {
+	result := NodeResult{Hostname: hostname}
+	fail := func(phase Phase, err error) NodeResult {
+		result.Phase, result.Err = phase, err
+		return result
+	}
+
+	config := m.generateConfigForNode(node)
+	desiredRoutes := m.collectAllRoutesForNode(node)
+	configContent, err := wireguard.GenerateWgQuickConfig(config, desiredRoutes)
+	if err != nil {
+		return fail(PhasePersist, fmt.Errorf("failed to render config: %w", err))
+	}
+
+	client, err := ssh.NewClient(node.SSHHost, node.SSHPort)
+	if err != nil {
+		return fail(PhaseConnect, err)
+	}
+	defer client.Close()
+
+	if err := ssh.EnsureWireGuardInstalled(client); err != nil {
+		return fail(PhaseInstall, err)
+	}
+
+	currentConfig, err := wireguard.GetCurrentConfig(client, m.InterfaceName)
+	if err != nil {
+		fmt.Printf("  No existing config, applying fresh persistent configuration\n")
+		if err := wireguard.ApplyPersistentConfig(client, m.InterfaceName, config, desiredRoutes); err != nil {
+			return fail(PhaseApply, err)
+		}
+		return result
+	}
+
+	diff := wireguard.CalculateDiff(currentConfig, wireguard.FullConfigToConfig(config))
+	if diff.HasChanges() {
+		fmt.Printf("  Applying changes with persistent configuration\n")
+		if err := wireguard.UpdatePersistentConfig(client, m.InterfaceName, config, desiredRoutes, diff); err != nil {
+			return fail(PhaseApply, err)
+		}
+	} else {
+		fmt.Printf("  No WireGuard peer changes needed\n")
+	}
+
+	// Always check and sync routes
+	if err := m.syncRoutesForNode(client, node, desiredRoutes); err != nil {
+		return fail(PhaseRoutes, err)
+	}
+
+	// Always ensure config file is up to date
+	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", m.InterfaceName)
+	if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		fmt.Printf("  Warning: failed to update config file: %v\n", err)
+		result.Warnings = append(result.Warnings, fmt.Sprintf("failed to update config file: %v", err))
+	}
+
+	return result
 }
 
 func (m *Mesh) detectEndpoints() error {
