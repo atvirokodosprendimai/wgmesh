@@ -154,6 +154,9 @@ func FilterAnnouncement(a *PeerAnnouncement) error {
 		}
 		a.KnownPeers = append(a.KnownPeers, kp)
 	}
+	if dropped := len(known) - len(a.KnownPeers); dropped > 0 {
+		slog.Warn("[crypto] dropped invalid known peers", "dropped", dropped, "kept", len(a.KnownPeers))
+	}
 	return nil
 }
 
