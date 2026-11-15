@@ -60,6 +60,10 @@ n=$(go test ./pkg/crypto -run '^(TestEnvelopeTypeIsAuthenticated|TestLegacyEnvel
 | 4 — it is used | `SendGoodbye` uses it from T2; the other writers only at release N+1 |
 
 ## Mutation Log
+- 2026-11-15 · 23cec9a* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · type binding removed on seal and open: a retyped AAD envelope must still be refused · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
+- 2026-11-15 · 23cec9a* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · unknown v opened with nil additional data instead of refused · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
+- 2026-11-15 · 23cec9a* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · legacy envelope no longer marked LegacyAAD, so the GOODBYE gate in T2 would have nothing to read · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
+- 2026-11-15 · 23cec9a* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · acceptLegacyAAD false no longer refuses legacy envelopes · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
 
 ## Invariants
 
@@ -98,3 +102,7 @@ Stop and ask if `v1` stops opening or if any caller of `OpenEnvelope` or `OpenEn
   FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/crypto	0.003s
   FAIL
   ```
+- 2026-11-15 · 23cec9a* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:8356
+- 2026-11-15 · 23cec9a* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:9816
+- 2026-11-15 · 23cec9a* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:8743
+- 2026-11-15 · 23cec9a* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:9065
