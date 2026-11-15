@@ -59,7 +59,7 @@ docker-compose up -d wgmesh-node
 docker-compose logs -f wgmesh-node
 
 # Check status
-docker-compose exec wgmesh-node sh -c 'wgmesh status --secret "$MESH_SECRET"'
+docker-compose exec wgmesh-node sh -c 'wgmesh status --secret "$WGMESH_SECRET"'
 ```
 
 ## Configuration Options
@@ -73,7 +73,7 @@ The default configuration in `docker-compose.yml` includes:
 - **Capabilities**: `NET_ADMIN` and `SYS_MODULE` (for WireGuard interface management)
 - **Persistent Storage**: `./data/node1:/data` volume mount
 - **Interface**: `wg0` on port `51820`
-- **Secret**: passed to `wgmesh join` as the `WGMESH_SECRET` environment variable, not as `--secret`, so it does not show up in the container command line. Precedence for `join`: `--secret` flag, then `WGMESH_SECRET`, then the file named by `WGMESH_SECRET_FILE`. (`wgmesh status` still takes `--secret` only.)
+- **Secret**: passed to `wgmesh join` as the `WGMESH_SECRET` environment variable, not as `--secret`, so it is not shown in the `ps` argv of the container process. It is still visible in `docker inspect` and `/proc/<pid>/environ`, so protect access to the Docker socket and the host. Precedence for `join`: `--secret` flag, then `WGMESH_SECRET`, then the file named by `WGMESH_SECRET_FILE`. (`wgmesh status` still takes `--secret` only.)
 
 ### Advanced Options
 
@@ -163,7 +163,7 @@ If running behind NAT, forward UDP port 51820 (or your custom port) to the host.
 
 ```bash
 # Show mesh status
-docker-compose exec wgmesh-node sh -c 'wgmesh status --secret "$MESH_SECRET"'
+docker-compose exec wgmesh-node sh -c 'wgmesh status --secret "$WGMESH_SECRET"'
 
 # View WireGuard interface
 docker-compose exec wgmesh-node wg show wg0
@@ -235,7 +235,7 @@ docker run --rm --cap-add=NET_ADMIN alpine:latest echo "OK"
 **Verify mesh secret:**
 ```bash
 # Ensure all nodes use the same secret
-docker-compose exec wgmesh-node sh -c 'echo $MESH_SECRET'
+docker-compose exec wgmesh-node sh -c 'echo $WGMESH_SECRET'
 ```
 
 **Check firewall:**

@@ -39,7 +39,7 @@ func DetectPublicIP(client *Client) (string, error) {
 
 	ip := strings.TrimSpace(output)
 	if ip == "" {
-		return "", fmt.Errorf("could not detect public IP")
+		return "", fmt.Errorf("could not detect public IP (each curl call is bounded to 5 s; a slow or offline node fails)")
 	}
 
 	return ip, nil

@@ -116,7 +116,8 @@ docker run --rm \
   --privileged \
   --network host \
   -v $(pwd)/wgmesh-state:/var/lib/wgmesh \
-  wgmesh:local join --secret "wgmesh://v1/<secret>"
+  -e WGMESH_SECRET \
+  wgmesh:local join
 ```
 
 ## Maintenance
