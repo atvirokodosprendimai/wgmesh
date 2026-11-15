@@ -58,6 +58,9 @@ n=$(go test ./pkg/atomicfile -run '^(TestNoInPlaceStateWrite|TestNoPrivateRename
 | 4 — it is used | every future change that adds a writer |
 
 ## Mutation Log
+- 2026-11-15 · ac3c8fd* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · a new os.WriteFile in a file not in the table: TestNoInPlaceStateWrite must go red · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd
+- 2026-11-15 · ac3c8fd* · mutant killed · exit 1 · `pkg/mesh/services.go` · a private rename copy reappears: TestNoPrivateRenameCopy must go red · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd
+- 2026-11-15 · ac3c8fd* · mutant killed · exit 1 · `pkg/atomicfile/guard_test.go` · the table row of systemd.go is deleted: TestNoInPlaceStateWrite must go red · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd
 
 ## Invariants
 
@@ -79,3 +82,21 @@ Stop and ask if a file outside the table already has an `os.WriteFile` that is s
 - The report and generated-file writers in the table (permanent: boundary: not state read again by the program).
 
 ## Verification Log
+- 2026-11-15 · ac3c8fd* · exit 1 · `set -o pipefail …` · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd · ms:785 · test-lock-sha256:59a4fd6579cdde56cd63522f67b05b925d014a3ac3ff453f173274de16642c77 · test-lock-file:docs/adr/locks/59a4fd6579cdde56cd63522f67b05b925d014a3ac3ff453f173274de16642c77.lock
+  ```
+  --- last 10 line(s) of stderr (of 15 after folding 15 raw)
+  --- FAIL: TestNoInPlaceStateWrite (0.06s)
+  === RUN   TestNoPrivateRenameCopy
+      guard_test.go:160: main.go: found 1 os.Rename calls, allowed 0; a state file must be replaced with atomicfile.WriteFile, not a private temp-and-rename copy
+      guard_test.go:160: pkg/mesh/account.go: found 1 os.Rename calls, allowed 0; a state file must be replaced with atomicfile.WriteFile, not a private temp-and-rename copy
+      guard_test.go:160: pkg/mesh/services.go: found 1 os.Rename calls, allowed 0; a state file must be replaced with atomicfile.WriteFile, not a private temp-and-rename copy
+      guard_test.go:160: pkg/promo/store.go: found 1 os.Rename calls, allowed 0; a state file must be replaced with atomicfile.WriteFile, not a private temp-and-rename copy
+  --- FAIL: TestNoPrivateRenameCopy (0.07s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile	0.141s
+  FAIL
+  ```
+- 2026-11-15 · ac3c8fd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd · ms:37764
+- 2026-11-15 · ac3c8fd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd · ms:34213
+- 2026-11-15 · ac3c8fd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd · ms:30317
+- 2026-11-15 · ac3c8fd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd · ms:27543
