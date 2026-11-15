@@ -985,16 +985,21 @@ func (d *Daemon) acceptProbeConnections(ln net.Listener) {
 	}
 }
 
+// probeMaxLineBytes bounds a single probe request line. The protocol only
+// sends "ping\n"; anything longer without a newline is rejected so a peer
+// cannot make the server buffer unbounded data.
+const probeMaxLineBytes = 64
+
 func handleProbeConnection(conn net.Conn) {
 	defer conn.Close()
-	reader := bufio.NewReader(conn)
+	reader := bufio.NewReaderSize(conn, probeMaxLineBytes)
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadSlice('\n')
 		if err != nil {
-			return
+			return // includes bufio.ErrBufferFull for oversize lines
 		}
-		if strings.TrimSpace(line) != "ping" {
+		if strings.TrimSpace(string(line)) != "ping" {
 			continue
 		}
 		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
