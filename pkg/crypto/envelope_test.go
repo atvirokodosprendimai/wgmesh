@@ -426,3 +426,22 @@ func TestOpenEnvelopeRejectsInvalidSender(t *testing.T) {
 		})
 	}
 }
+ 
+// A failed call must leave the caller's announcement as it was received.
+func TestFilterAnnouncementErrorKeepsKnownPeers(t *testing.T) {
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	ann := &PeerAnnouncement{
+		WGPubKey: goodKey,
+		MeshIP:   "not-an-ip",
+		KnownPeers: []KnownPeer{
+			{WGPubKey: goodKey, MeshIP: "10.0.0.3"},
+			{WGPubKey: goodKey, MeshIP: "10.0.0.4"},
+		},
+	}
+	if err := FilterAnnouncement(ann); err == nil {
+		t.Fatal("expected an error for the invalid mesh IP")
+	}
+	if len(ann.KnownPeers) != 2 {
+		t.Errorf("len(KnownPeers) = %d after a failed call, want 2", len(ann.KnownPeers))
+	}
+}
