@@ -34,9 +34,10 @@ type PeerCache struct {
 	UpdatedAt int64            `json:"updated_at"`
 }
 
-// CacheFilePath returns the path for the peer cache file
+// CacheFilePath returns the path for the peer cache file. It lives in
+// localNodeStateDir (default /var/lib/wgmesh), so tests can redirect it.
 func CacheFilePath(interfaceName string) string {
-	return filepath.Join("/var/lib/wgmesh", fmt.Sprintf("%s-peers.json", interfaceName))
+	return filepath.Join(localNodeStateDir, fmt.Sprintf("%s-peers.json", interfaceName))
 }
 
 // LoadPeerCache loads the peer cache from disk
