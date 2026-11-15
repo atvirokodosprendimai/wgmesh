@@ -515,3 +515,53 @@ func TestFilterAnnouncementWarnsOncePerMessage(t *testing.T) {
 		}
 	}
 }
+
+// The bound is "more than MaxKnownPeers": exactly MaxKnownPeers opens.
+func TestOpenEnvelopeAcceptsExactlyMaxKnownPeers(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-for-bound")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	known := make([]KnownPeer, MaxKnownPeers)
+	for i := range known {
+		known[i] = KnownPeer{WGPubKey: goodKey, MeshIP: "10.0.0.4"}
+	}
+	ann := &PeerAnnouncement{Protocol: ProtocolVersion, WGPubKey: goodKey, MeshIP: "10.0.0.2", Timestamp: time.Now().Unix(), KnownPeers: known}
+	sealed, err := SealEnvelope(MessageTypeAnnounce, ann, keys.GossipKey)
+	if err != nil {
+		t.Fatalf("SealEnvelope: %v", err)
+	}
+	_, got, err := OpenEnvelope(sealed, keys.GossipKey)
+	if err != nil {
+		t.Fatalf("OpenEnvelope rejected exactly MaxKnownPeers entries: %v", err)
+	}
+	if len(got.KnownPeers) != MaxKnownPeers {
+		t.Errorf("len(KnownPeers) = %d, want %d", len(got.KnownPeers), MaxKnownPeers)
+	}
+}
+
+// An announcement with no known peers is the common case and must open.
+func TestOpenEnvelopeAcceptsNoKnownPeers(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-for-empty")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	for name, known := range map[string][]KnownPeer{"nil": nil, "empty": {}} {
+		t.Run(name, func(t *testing.T) {
+			ann := &PeerAnnouncement{Protocol: ProtocolVersion, WGPubKey: goodKey, MeshIP: "10.0.0.2", Timestamp: time.Now().Unix(), KnownPeers: known}
+			sealed, err := SealEnvelope(MessageTypeAnnounce, ann, keys.GossipKey)
+			if err != nil {
+				t.Fatalf("SealEnvelope: %v", err)
+			}
+			_, got, err := OpenEnvelope(sealed, keys.GossipKey)
+			if err != nil {
+				t.Fatalf("OpenEnvelope: %v", err)
+			}
+			if len(got.KnownPeers) != 0 {
+				t.Errorf("len(KnownPeers) = %d, want 0", len(got.KnownPeers))
+			}
+		})
+	}
+}
