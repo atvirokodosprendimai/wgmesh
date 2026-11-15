@@ -234,9 +234,11 @@ sudo systemctl stop wgmesh           # Stop the daemon
 ```
 
 **Secret rotation:**
+Live rotation (`wgmesh rotate-secret`) is not implemented yet; the command exits with an error.
+Rotate manually, all nodes at once (nodes on different secrets cannot see each other):
 ```bash
-wgmesh rotate-secret --current "wgmesh://v1/old-secret"
-# Follow printed instructions to deploy new secret
+wgmesh init --secret   # generate the new secret
+# then stop every node and restart every node with the new secret
 ```
 
 ---
