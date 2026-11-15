@@ -103,3 +103,51 @@ func TestReconnectAllowedCSVExcludesOwnNetworks(t *testing.T) {
 		t.Errorf("reconnectAllowedCSV() = %q, want %q", got, want)
 	}
 }
+
+// An older daemon overwrote the connected LAN route with `replace <shared> via
+// <peer> dev wg0`. When that via route is removed the connected route must come back.
+func TestRemovedOwnViaRouteRestoresConnectedRoute(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("syncPeerRoutes is Linux-only")
+	}
+	const shared = "192.168.10.0/24"
+	const other = "192.168.30.0/24"
+
+	d := makeRelayTestDaemon()
+	d.config.InterfaceName = "wg0"
+	d.localNode.RoutableNetworks = []string{shared}
+	peer := &PeerInfo{WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(), RoutableNetworks: []string{shared}}
+
+	var cmds []string
+	mock := &MockCommandExecutor{
+		commandFunc: func(name string, args ...string) Command {
+			line := name + " " + strings.Join(args, " ")
+			cmds = append(cmds, line)
+			out := ""
+			switch line {
+			case "ip route show dev wg0":
+				out = shared + " via 10.0.0.20 dev wg0\n" + other + " via 10.0.0.20 dev wg0\n"
+			case "ip -4 -o addr show to " + shared:
+				out = "4: eth0    inet 192.168.10.1/24 scope global eth0\\       valid_lft forever preferred_lft forever\n"
+			}
+			return &MockCommand{outputFunc: func() ([]byte, error) { return []byte(out), nil }}
+		},
+	}
+	withMockExecutor(t, mock, func() {
+		if err := d.syncPeerRoutes([]*PeerInfo{peer}); err != nil {
+			t.Fatalf("syncPeerRoutes: %v", err)
+		}
+	})
+	all := strings.Join(cmds, "\n")
+	del := "ip route del " + shared + " via 10.0.0.20 dev wg0"
+	add := "ip route add " + shared + " dev eth0 proto kernel scope link src 192.168.10.1"
+	if !strings.Contains(all, del) {
+		t.Errorf("via route not removed:\n%s", all)
+	}
+	if !strings.Contains(all, add) {
+		t.Errorf("connected route not restored:\n%s", all)
+	}
+	if strings.Contains(all, "ip -4 -o addr show to "+other) {
+		t.Errorf("connected route restore attempted for a non-own network:\n%s", all)
+	}
+}

@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"log"
+	"net"
 	"runtime"
 	"strings"
 
@@ -50,7 +51,43 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 	}
 
 	toAdd, toRemove := routes.CalculateDiff(current, desired)
-	return applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
+	err = applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
+	// Removals run before adds, so restore even if an add failed.
+	for _, r := range toRemove {
+		if len(routes.ExcludeOwn([]string{r.Network}, d.localNode.RoutableNetworks)) == 0 {
+			restoreConnectedRoute(r.Network)
+		}
+	}
+	return err
+}
+
+// restoreConnectedRoute re-adds the kernel connected route for an own network
+// whose `<network> via <peer> dev <mesh iface>` route was just removed: older
+// daemons installed that route with `ip route replace`, overwriting it.
+// Best effort; without a local address in network there is nothing to restore.
+func restoreConnectedRoute(network string) {
+	_, ipnet, err := net.ParseCIDR(network)
+	if err != nil {
+		return
+	}
+	family := "-4"
+	if ipnet.IP.To4() == nil {
+		family = "-6"
+	}
+	out, err := cmdExecutor.Command("ip", family, "-o", "addr", "show", "to", ipnet.String()).Output()
+	if err != nil {
+		return
+	}
+	iface, src, ok := routes.ParseLocalAddr(string(out), ipnet)
+	if !ok {
+		return
+	}
+	args := strings.Fields(routes.ConnectedRouteCmd(ipnet, iface, src))
+	if out, err := cmdExecutor.Command(args[0], args[1:]...).CombinedOutput(); err != nil && !strings.Contains(string(out), "File exists") {
+		log.Printf("Failed to restore connected route %s dev %s: %s: %v", ipnet, iface, strings.TrimSpace(string(out)), err)
+		return
+	}
+	log.Printf("Restored connected route: %s dev %s", ipnet, iface)
 }
 
 func (d *Daemon) currentRelayRoutesSnapshot() map[string]string {
