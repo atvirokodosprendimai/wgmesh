@@ -19,7 +19,7 @@ The route target reads `ip -4 route show dev <if>` and `ip -6 route show dev <if
 |------|--------|-----|
 | `pkg/daemon/routes.go` | edit | `getCurrentRoutes` runs both families and canonicalises (`default` per family); `applyRouteDiff` loses the `sysctl` and `ensureWGForwardingRule` calls (`:172-175`, `:180-192` deleted) and returns one result per route instead of stopping at the first failed add (`:167-169`); `syncPeerRoutes` becomes the route target of `converge` |
 | `pkg/daemon/desired.go` | edit | an IPv6 route uses the peer's `MeshIPv6` as gateway; a peer without one is skipped with one log line; routes equal to or inside an attached network (`getLocalSubnets`, `daemon.go:860`) get the rule `attached-network`: counted at N on Linux and dropped from routes and AllowedIPs when `EnforceRouteGuard` is true |
-| `pkg/daemon/converge.go` | edit | `EnforceRouteGuard` (package variable, `false`); the rule `host-default`: before adding `0.0.0.0/0` or `::/0` one `ip -4 route show default` (or `-6`), and a default on another device is logged once and counted, the route is installed as today (Open Question 3, recommendation A) |
+| `pkg/daemon/converge.go` | edit | `EnforceRouteGuard` (package variable, `false`); the rule `host-default`: before adding `0.0.0.0/0` or `::/0` one `ip -4 route show default` (or `-6`), and a default on another device is logged once and counted, the route is installed as today (decision 6, recommendation A) |
 | `pkg/daemon/converge_guard_test.go` | edit | the pattern list gains `ip route` and `applyRouteDiff`; the route commands now live in `converge.go` (writes) and `observe.go` (reads), `routes.go` keeps `restoreConnectedRoute` called only from `converge.go`; the exception for `routes.go` is removed |
 | `pkg/daemon/routes_test.go` | edit | `TestApplyRouteDiff_AddAndRemove` (`:197-237`) no longer expects `sysctl` (`:234-236`); this is the intended change, replaced by `TestApplyRouteDiffIssuesNoForwardingCommands` |
 | `pkg/daemon/kernel_routes_test.go` | add | the ten tests below |
@@ -78,7 +78,7 @@ n=$(go test ./pkg/daemon -run '^(TestObserveRoutesBothFamilies|TestSharedSubnetN
 ## Risks
 
 - `ip -6 route show dev` on a host with IPv6 disabled fails: that family is skipped with one log line, as `--no-ipv6` already skips IPv6 endpoints.
-- The attached-network rule drops a route an operator wanted; equal or inside only, a supernet is kept, warn first (Open Question 6).
+- The attached-network rule drops a route an operator wanted; equal or inside only, a supernet is kept, warn first (decision 9).
 - The `host-default` rule adds one `ip route show default` when a default route is about to be added; bounded, not per tick.
 - Test doubles: `MockCommandExecutor` with a stateful fake route table.
 
@@ -90,6 +90,6 @@ Stop and ask if the observe cannot tell a route we installed from a foreign rout
 
 - macOS (T6).
 - Any transport exemption for a default route (deferred: docs/adr/BACKLOG.md).
-- Policy routing and route metrics (permanent: boundary: Open Question 3 keeps today's `replace`).
+- Policy routing and route metrics (permanent: boundary: decision 6 keeps today's `replace`).
 
 ## Verification Log

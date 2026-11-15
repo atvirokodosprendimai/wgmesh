@@ -29,7 +29,7 @@ Selection: nothing selects `Resolve` until T2; `Canonical` is called by `Exclude
 1. [S1] Add the eight tests with compiling stubs (`Canonical` returns its input, `Resolve` returns an empty map, `CalculateDiff` unchanged) so the first run fails on assertions, not on the build. `TestCalculateDiffDuplicateDesiredStable` feeds the result of cycle 1 back as `current` and asserts cycle 2 is empty (the 2026-11-15 scratch run showed `del .3 / replace .2` then `del .2 / replace .3`). Run red.
 2. [S2] Implement `Canonical` and make `ExcludeOwn` call it; `default` is `0.0.0.0/0` for `ipv6=false` and `::/0` for `ipv6=true`.
 3. [S3] Make `CalculateDiff` canonical and deterministic for duplicates.
-4. [S4] Implement `Resolve`: candidates per canonical network after `ExcludeOwn`; fresh before not fresh; a candidate that already owns the network in `current` and is fresh keeps it; otherwise the lowest mesh IP compared as an address, then the lowest key (Open Question 1, recommendation A).
+4. [S4] Implement `Resolve`: candidates per canonical network after `ExcludeOwn`; fresh before not fresh; a candidate that already owns the network in `current` and is fresh keeps it; otherwise the lowest mesh IP compared as an address, then the lowest key (decision 4, recommendation A).
 5. [S5] Run `go test ./pkg/ssh ./pkg/mesh` without editing them. [proof: acceptance]
 6. [S6] Run the mutants with `adr-verify --mutant`: `Resolve` compares mesh IPs as strings (`10.99.0.10` before `10.99.0.9`); `Resolve` ignores `Fresh`; `Resolve` ignores `current`; `CalculateDiff` keeps the last duplicate. [proof: mutation]
 

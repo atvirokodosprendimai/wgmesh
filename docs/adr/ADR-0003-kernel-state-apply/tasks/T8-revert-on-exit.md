@@ -1,7 +1,6 @@
 # Task ADR-0003-T8: Undo the FORWARD rule and ip_forward at graceful exit (#872)
 
 **Depends-on:** T4, T9
-**Awaiting-decision:** Open Question 4 of ADR-0003: revert at exit (A, recommended), behind a new flag (B), or never (C). Withdraw this task if the answer is C.
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
@@ -67,13 +66,13 @@ n=$(go test ./pkg/daemon -run '^(TestShutdownRemovesRuleWeAdded|TestShutdownKeep
 
 ## Risks
 
-- A restart (upgrade, `Restart=always`) opens a short gap in forwarding for other services on the host; the note says so, and the answer to Open Question 4 may choose B.
+- A restart (upgrade, `Restart=always`) opens a short gap in forwarding for other services on the host; the note says so, and the answer to decision 7 may choose B.
 - Another program that enabled the sysctl after us is not detected; we restore only the value we read.
 - Test doubles: `MockCommandExecutor` and the file-read variable of T4.
 
 ## Stop Condition
 
-Stop and ask if Open Question 4 is not answered, or if `Run` has more than one exit path that skips the deferred calls.
+Stop and ask if `Run` has more than one exit path that skips the deferred calls.
 
 ## Out of Scope
 

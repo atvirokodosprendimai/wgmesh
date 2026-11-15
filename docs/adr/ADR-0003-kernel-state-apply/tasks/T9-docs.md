@@ -12,7 +12,7 @@
 
 ## Goal
 
-The reconciliation and daemon support specs and an operator note describe observe, diff, apply, the single owner of a shared network, forwarding and the two N+1 switches as built, and a test fails if they stop naming them.
+The reconciliation and daemon support specs and an operator note describe observe, diff, apply, the single owner of a shared network, forwarding and the N+1 switches (T8 adds the revert one) as built, and a test fails if they stop naming them.
 
 ## Affected Files
 
@@ -20,9 +20,9 @@ The reconciliation and daemon support specs and an operator note describe observ
 |------|--------|-----|
 | `eidos/spec - daemon reconciliation - peer config sync with relay routing fallback.md` | edit | the signature check is replaced by a read of `wg show dump` (the lines at 24 and 51 of the file at `b8b83f3` say a string cache and an optimistic lock); the cycle reads kernel state, computes one desired state, applies the difference |
 | `eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md` | edit | Route sync: both families, one owner per network, no "no-op on other platforms" (line 45), forwarding converged once instead of "after each route apply" (line 47) |
-| `docs/kernel-state.md` | add | operator note for N and N+1: the owner rule and its failover time (stated as a bound, not measured), what `forward-scope` and `attached-network` do, how to read `wgmesh_kernel_warnings_total{rule}` as the go/no-go, the default route and the transport-loop caveat of Open Question 3, macOS routes, the log lines |
+| `docs/kernel-state.md` | add | operator note for N and N+1: the owner rule and its failover time (stated as a bound, not measured), what `forward-scope` and `attached-network` do, how to read `wgmesh_kernel_warnings_total{rule}` as the go/no-go, the default route and the transport-loop caveat of decision 6, macOS routes, the log lines |
 | `README.md` | edit | one link to the note |
-| `docs/adr/BACKLOG.md` | edit | rows for N+1 (`EnforceForwardScope`, `EnforceRouteGuard`), the transport exemption of an accepted default route, and removing the `setInterfaceAddress` call in `collision.go` |
+| `docs/adr/BACKLOG.md` | edit | rows for N+1 (`EnforceForwardScope`, `EnforceRouteGuard`, `EnforceRevertOnExit`), the transport exemption of an accepted default route, and removing the `setInterfaceAddress` call in `collision.go` |
 | `pkg/daemon/spec_converge_test.go` | add | the specs, the note and the backlog must name the rules |
 
 ## Ordered Steps

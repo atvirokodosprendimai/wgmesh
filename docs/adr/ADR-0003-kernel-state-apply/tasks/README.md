@@ -30,7 +30,7 @@ README must be regenerated.
 | T5 | Converge routes for both families, and stop re-adding what is already there (#859) | pending | — | ten named tests, no forwarding code left in `routes.go`, then `-race` |
 | T6 | Install peers' advertised networks on macOS (#862) | pending | — | six named tests and a human sign-off on a Mac |
 | T7 | Converge the interface address instead of writing it once | pending | — | five named tests, then `-race` |
-| T8 | Undo the FORWARD rule and ip_forward at graceful exit (#872) | pending | — | four named tests, then `-race`; waits for Open Question 4 |
+| T8 | Undo the FORWARD rule and ip_forward at graceful exit (#872) | pending | — | four named tests, then `-race`; waits for decision 7 |
 | T9 | Amend the specs, write the operator note and the backlog rows | pending | — | `go test ./pkg/daemon -run TestSpecNamesConverge`, note exists, `adr-debt` clean |
 
 ## Contract Coupling
@@ -50,6 +50,6 @@ README must be regenerated.
 
 - Based on `origin/main` `b8b83f3`. ADR-0002 is Accepted; its tasks are being executed on branch `task/adr-0002-exec` and are not on main. Three tasks carry a `Blocked-on` line with a command that exits 0 once the ADR-0002 task they follow has landed (the lint cannot resolve a qualified `Depends-on` here because the records of this corpus live in their own directories); nothing here depends on code that is not on main once those have landed.
 - The waves show dependencies, not safe parallelism: `converge.go` and `observe.go` are edited by T3, T4, T5, T6 and T7, `desired.go` by T2, T4, T5 and T7, `daemon.go` by T2, T3 and T8. Run the tasks one after another in the order T1, T2, T3, T4, T5, T6, T7, T9, T8 on one branch.
-- T6 needs a Mac for S1 and S6; T8 needs M's answer to Open Question 4 and is withdrawn on answer C; if T8 is withdrawn, T9's note drops the revert paragraph.
+- T6 needs a Mac for S1 and S6. M decided on 2026-11-15 (decision 7) that revert on exit is built, so T8 stays and runs last.
 - Each code task is reviewed per commit under the repository's code-review flow before the next starts.
-- N+1 (`EnforceForwardScope`, `EnforceRouteGuard`) is not a task; it is a row in `docs/adr/BACKLOG.md` written by T9, and the ADR's catalog row stays Proposed until M accepts.
+- N+1 (`EnforceForwardScope`, `EnforceRouteGuard`, `EnforceRevertOnExit`) is not a task; it is a row in `docs/adr/BACKLOG.md` written by T9, and the ADR's catalog row stays Proposed until M accepts.
