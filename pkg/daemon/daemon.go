@@ -218,9 +218,20 @@ func (d *Daemon) admitPolicy() *Policy {
 			}
 			return d.localNode.WGPubKey, d.localNode.MeshIP
 		},
-		Derive: d.deriveMeshIP,
-		OnWarn: RecordAdmitWarning,
+		MeshNet: d.meshNet(),
+		Derive:  d.deriveMeshIP,
+		OnWarn:  RecordAdmitWarning,
 	}
+}
+
+// meshNet is the mesh network: the custom subnet, or 10.<b0>.0.0/16 from the
+// first byte Keys.MeshSubnet holds (the default derivation fills the other
+// two octets of every address).
+func (d *Daemon) meshNet() *net.IPNet {
+	if d.config.CustomSubnet != nil {
+		return d.config.CustomSubnet
+	}
+	return &net.IPNet{IP: net.IPv4(10, d.config.Keys.MeshSubnet[0], 0, 0).To4(), Mask: net.CIDRMask(16, 32)}
 }
 
 // deriveMeshIP is the address a key derives for a nonce: 0 is the natural
