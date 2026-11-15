@@ -236,3 +236,25 @@ func TestLegacyReadersForwardToReadState(t *testing.T) {
 		}
 	}
 }
+
+func TestReadStateMalformedColumnsCountAsZero(t *testing.T) {
+	dir := fakeWG(t)
+	setDump(t, dir, "wg0", "PRIV\tPUB\t51820\toff\n"+
+		"keyA\t(none)\t(none)\t10.0.0.2/32\tx\t7\t8\toff\n"+
+		"keyB\t(none)\t(none)\t10.0.0.3/32\t1700000000\t5\t6\toff\n")
+
+	hs, err := GetLatestHandshakes("wg0")
+	if err != nil {
+		t.Fatalf("malformed column failed the whole read: %v", err)
+	}
+	if len(hs) != 2 || hs["keyA"] != 0 || hs["keyB"] != 1700000000 {
+		t.Errorf("handshakes = %v, want keyA 0 and keyB intact", hs)
+	}
+	tr, err := GetPeerTransfers("wg0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr["keyA"] != (PeerTransfer{RxBytes: 7, TxBytes: 8}) || tr["keyB"] != (PeerTransfer{RxBytes: 5, TxBytes: 6}) {
+		t.Errorf("transfers = %v", tr)
+	}
+}

@@ -94,7 +94,8 @@ func (st *State) clone() *State {
 }
 
 // parseState reads dump output: the first line is the interface, each other
-// line with at least 7 columns is a peer.
+// line with at least 7 columns is a peer. A non-numeric handshake, rx or tx
+// column counts as 0 (the old Sscanf readers ignored the error the same way).
 func parseState(output string) (*State, error) {
 	st := &State{}
 	lines := strings.Split(strings.TrimSpace(output), "\n")
@@ -103,18 +104,9 @@ func parseState(output string) (*State, error) {
 		if len(f) < 7 {
 			continue
 		}
-		hs, err := strconv.ParseInt(f[4], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("peer %s: bad handshake %q", shortKey(f[0]), f[4])
-		}
-		rx, err := strconv.ParseUint(f[5], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("peer %s: bad rx %q", shortKey(f[0]), f[5])
-		}
-		tx, err := strconv.ParseUint(f[6], 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("peer %s: bad tx %q", shortKey(f[0]), f[6])
-		}
+		hs, _ := strconv.ParseInt(f[4], 10, 64)
+		rx, _ := strconv.ParseUint(f[5], 10, 64)
+		tx, _ := strconv.ParseUint(f[6], 10, 64)
 		st.Peers = append(st.Peers, StatePeer{
 			PublicKey:       f[0],
 			Endpoint:        noneToEmpty(f[2]),
