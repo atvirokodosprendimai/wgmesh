@@ -349,15 +349,6 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: true,
 		},
 		{
-			name:   "legacy outside 10.0.0.0/8 is rejected",
-			meshIP: "192.168.1.1",
-			cfg: &Config{
-				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
-				CustomSubnet: nil,
-			},
-			want: false,
-		},
-		{
 			name:   "custom subnet match",
 			meshIP: "192.168.100.55",
 			cfg: &Config{
@@ -372,6 +363,54 @@ func TestMeshIPInSubnet(t *testing.T) {
 			cfg: &Config{
 				Keys:         &crypto.DerivedKeys{},
 				CustomSubnet: customNet,
+			},
+			want: false,
+		},
+		{
+			name:   "no custom subnet keeps an IP outside 10.0.0.0/8",
+			meshIP: "192.168.100.7",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: true,
+		},
+		{
+			name:   "IPv6 address is not a mesh IPv4",
+			meshIP: "fd00::1",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
+			name:   "no custom subnet rejects unspecified 0.0.0.0",
+			meshIP: "0.0.0.0",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
+			name:   "no custom subnet rejects loopback 127.0.0.1",
+			meshIP: "127.0.0.1",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
+			name:   "no custom subnet rejects multicast 224.0.0.1",
+			meshIP: "224.0.0.1",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
+			name:   "no custom subnet rejects limited broadcast 255.255.255.255",
+			meshIP: "255.255.255.255",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
 			},
 			want: false,
 		},

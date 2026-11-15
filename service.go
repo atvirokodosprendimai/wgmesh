@@ -15,6 +15,7 @@ import (
 
 	lighthouse "github.com/atvirokodosprendimai/lighthouse-go"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 )
 
@@ -444,10 +445,6 @@ func validatePort(port int) (int, error) {
 	return port, nil
 }
 
-// persistedMeshSpace mirrors daemon.legacyMeshSpace: the address space of the
-// secret-derived default mesh subnet.
-var persistedMeshSpace = &net.IPNet{IP: net.IP{10, 0, 0, 0}, Mask: net.CIDRMask(8, 32)}
-
 // deriveMeshIPForService derives the mesh IP for service registration.
 // Uses the local WireGuard public key if available, otherwise generates
 // a deterministic key from the secret for registration purposes.
@@ -465,14 +462,10 @@ func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubne
 			MeshIP    string `json:"mesh_ip"`
 		}
 		if json.Unmarshal(data, &nodeState) == nil && nodeState.PublicKey != "" {
-			// Same rule as daemon.meshIPInSubnet: the daemon keeps a persisted
-			// address (any 10.0.0.0/8 without a custom subnet), so registration
-			// must report that address, not a re-derived one (issue #827).
-			if persisted := net.ParseIP(nodeState.MeshIP); persisted != nil {
-				if (customSubnet != nil && customSubnet.Contains(persisted)) ||
-					(customSubnet == nil && persistedMeshSpace.Contains(persisted)) {
-					return persisted.String()
-				}
+			// Same rule as the daemon (daemon.MeshIPKept): registration must
+			// report the persisted address, not a re-derived one (issue #827).
+			if daemon.MeshIPKept(nodeState.MeshIP, customSubnet) {
+				return net.ParseIP(nodeState.MeshIP).String()
 			}
 			if customSubnet != nil {
 				ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, nodeState.PublicKey, secret)
