@@ -30,6 +30,7 @@ const (
 	HandshakeWaitTimeout    = 10 * time.Second // Increased from 3s - WG handshake needs more time for cross-DC
 	HandshakePollInterval   = 250 * time.Millisecond
 	ExchangeLogCooldown     = 30 * time.Second
+	maxLogThrottleEntries   = 4096 // bound on lastPacketLog: a flood of spoofed sources cannot grow it further
 )
 
 type rendezvousOffer struct {
@@ -89,12 +90,13 @@ type PeerExchange struct {
 	activePunches      map[string]time.Time
 	rendezvousStarts   map[string]time.Time
 
-	logMu         sync.Mutex
-	lastPacketLog map[string]time.Time
+	logMu          sync.Mutex
+	lastPacketLog  map[string]time.Time
+	lastLogCleanup time.Time
 
 	// legacyOpens counts received envelopes sealed without type authentication
-	// (ADR-0001). Meaningful as "senders still to upgrade" once writers seal with
-	// additional data; until then it counts most traffic.
+	// (ADR-0001), per packet and not per sender. It measures old traffic once
+	// writers seal with additional data; until then it counts most traffic.
 	legacyOpens atomic.Uint64
 }
 
@@ -225,7 +227,10 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		return
 	}
 
-	pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+	// A legacy GOODBYE is ignored below, so it is not announced as valid.
+	if !(envelope.LegacyAAD && envelope.MessageType == crypto.MessageTypeGoodbye) {
+		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+	}
 
 	if envelope.LegacyAAD {
 		pe.legacyOpens.Add(1)
@@ -1223,14 +1228,20 @@ func (pe *PeerExchange) allowLog(kind string, remoteAddr *net.UDPAddr) bool {
 	if exists && now.Sub(last) < ExchangeLogCooldown {
 		return false
 	}
-	pe.lastPacketLog[key] = now
-	// Periodic cleanup of stale log entries
-	if len(pe.lastPacketLog) > 100 {
+	// Drop stale entries at most once per cooldown, so a flood of distinct
+	// sources cannot make every call scan the whole map under the lock.
+	if len(pe.lastPacketLog) > 100 && now.Sub(pe.lastLogCleanup) >= ExchangeLogCooldown {
+		pe.lastLogCleanup = now
 		for k, t := range pe.lastPacketLog {
 			if now.Sub(t) > ExchangeLogCooldown*2 {
 				delete(pe.lastPacketLog, k)
 			}
 		}
 	}
+	// Hard bound: past it a new kind or source is not logged rather than remembered.
+	if len(pe.lastPacketLog) >= maxLogThrottleEntries {
+		return false
+	}
+	pe.lastPacketLog[key] = now
 	return true
 }

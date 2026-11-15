@@ -110,7 +110,9 @@ func TestSendGoodbyeIsAADBound(t *testing.T) {
 		t.Fatal(err)
 	}
 	buf := make([]byte, 4096)
-	_ = rx.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := rx.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	n, _, err := rx.ReadFromUDP(buf)
 	if err != nil {
 		t.Fatal(err)
@@ -139,7 +141,13 @@ func TestLegacyGoodbyeRetypedAsHelloIsRejected(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, as := range []string{crypto.MessageTypeHello, crypto.MessageTypeReply, crypto.MessageTypeAnnounce} {
-		pe.handleMessage(retype(t, legacyGoodbye, as), aadRemote)
+		retyped := retype(t, legacyGoodbye, as)
+		// The retype must really work at the envelope level, or the rejection
+		// below would pass for the wrong reason.
+		if env, _, err := crypto.OpenEnvelopeRaw(retyped, cfg.Keys.GossipKey); err != nil || env.MessageType != as {
+			t.Fatalf("test setup: retyped envelope does not open as %s: %v", as, err)
+		}
+		pe.handleMessage(retyped, aadRemote)
 		if _, ok := store.Get(victim); ok {
 			t.Errorf("a legacy GOODBYE re-sent as %s reached the PeerStore", as)
 		}
