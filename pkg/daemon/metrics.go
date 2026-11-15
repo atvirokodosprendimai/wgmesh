@@ -55,7 +55,7 @@ var (
 	}, []string{"method"})
 	admitWarnings = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "wgmesh_admit_warnings_total",
-		Help: "Cases where an admit rule would act once enforced, by rule; counted per reconcile pass (every 5 s while a collision stands), per observer",
+		Help: "Cases where an admit rule would act once enforced, by rule; counted each time an offer or a collision comparison meets the case, so a standing case counts again on every announcement and every collision pass, per observer",
 	}, []string{"rule"})
 
 	goCollector      = collectors.NewGoCollector()
