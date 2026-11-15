@@ -124,3 +124,53 @@ func TestAADEnvelopeCannotBeDowngraded(t *testing.T) {
 		}
 	}
 }
+
+// An unknown version on an envelope that was sealed WITHOUT additional data
+// would open if the decoder fell back to nil additional data for it, so the
+// refusal has to be explicit and not only a side effect of a failed tag.
+func TestUnknownEnvelopeVersionIsRefusedNotOpenedAsLegacy(t *testing.T) {
+	keys, err := DeriveKeys(envelopeFixtureSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer setTestNow(time.Unix(1800000000, 0))()
+
+	legacy, err := SealEnvelope(MessageTypeAnnounce, aadTestPayload(), keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []int{1, 3, -2} {
+		forged := editEnvelope(t, legacy, func(m map[string]any) { m["v"] = v })
+		if _, _, err := OpenEnvelopeRaw(forged, keys.GossipKey); err == nil {
+			t.Errorf("legacy-sealed envelope with v=%d opened", v)
+		}
+	}
+}
+
+// When legacy envelopes are no longer accepted the AAD-bound form still opens
+// and the legacy form is refused (the switch release N+2 flips).
+func TestLegacyEnvelopeRefusedWhenNotAccepted(t *testing.T) {
+	keys, err := DeriveKeys(envelopeFixtureSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer setTestNow(time.Unix(1800000000, 0))()
+	old := acceptLegacyAAD
+	acceptLegacyAAD = false
+	defer func() { acceptLegacyAAD = old }()
+
+	legacy, err := SealEnvelope(MessageTypeAnnounce, aadTestPayload(), keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := OpenEnvelopeRaw(legacy, keys.GossipKey); err == nil {
+		t.Error("legacy envelope opened although acceptLegacyAAD is false")
+	}
+	bound, err := SealEnvelopeAAD(MessageTypeAnnounce, aadTestPayload(), keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := OpenEnvelopeRaw(bound, keys.GossipKey); err != nil {
+		t.Errorf("AAD envelope refused: %v", err)
+	}
+}

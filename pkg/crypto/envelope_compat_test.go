@@ -62,7 +62,7 @@ func TestEnvelopeRegenTargetDirUsesCapabilityVersion(t *testing.T) {
 }
 
 func TestPrepareEnvelopeRegenTargetRefusesExistingWithoutForce(t *testing.T) {
-	targetDir := filepath.Join(t.TempDir(), "v1")
+	targetDir := filepath.Join(t.TempDir(), fmt.Sprintf("v%d", EnvelopeCapabilityVersion))
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatalf("create existing fixture dir: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestPrepareEnvelopeRegenTargetRefusesExistingWithoutForce(t *testing.T) {
 }
 
 func TestPrepareEnvelopeRegenTargetAllowsExistingWithForce(t *testing.T) {
-	targetDir := filepath.Join(t.TempDir(), "v1")
+	targetDir := filepath.Join(t.TempDir(), fmt.Sprintf("v%d", EnvelopeCapabilityVersion))
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatalf("create existing fixture dir: %v", err)
 	}
