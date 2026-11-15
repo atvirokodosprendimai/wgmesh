@@ -28,7 +28,7 @@ func TestWriteFileReplacesWhole(t *testing.T) {
 	if err := os.WriteFile(path, []byte("old content that is longer"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteFile(path, []byte("new"), 0o600); err != nil {
+	if err := WriteFile(path, []byte("new"), 0o640); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 	got, err := os.ReadFile(path)
@@ -42,8 +42,8 @@ func TestWriteFileReplacesWhole(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("mode = %v, want 0600", info.Mode().Perm())
+	if info.Mode().Perm() != 0o640 {
+		t.Fatalf("mode = %v, want exactly 0640", info.Mode().Perm())
 	}
 }
 
