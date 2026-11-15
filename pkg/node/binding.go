@@ -92,8 +92,10 @@ func bindClaim(s Snapshot, c Candidate) Decision {
 		warn(string(ReasonIPHeld))
 	}
 
+	// R9 judges only first-hand and restored routes; read the list (a lock on
+	// the daemon's config) only when there is something to judge.
 	var accept []*net.IPNet
-	if p.AcceptRoutes != nil {
+	if c.Hand != SecondHand && len(info.RoutableNetworks) > 0 && p.AcceptRoutes != nil {
 		accept = p.AcceptRoutes()
 	}
 	for _, r := range info.RoutableNetworks {
