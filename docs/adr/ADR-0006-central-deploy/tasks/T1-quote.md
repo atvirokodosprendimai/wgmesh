@@ -67,6 +67,13 @@ a=$(go test ./pkg/ssh -run '^(TestQuoteLeavesSafeValuesUnchanged|TestQuoteNeutra
 - 2026-11-15 · 02692f3* · mutant killed · exit 1 · `pkg/ssh/quote.go` · Cmd skips Quote: TestCmdQuotesEachArgument must go red · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af
 - 2026-11-15 · 02692f3* · mutant killed · exit 1 · `pkg/ifname/validate.go` · ValidateLinux accepts 16 characters: TestValidateLinuxIgnoresGOOS must go red · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af
 - 2026-11-15 · 02692f3* · mutant killed · exit 1 · `pkg/ifname/validate.go` · ValidateLinux skips the grammar: TestValidateLinuxIgnoresGOOS must go red · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af
+- 2026-11-15 · 15230e9* · mutant killed · exit 1 · `pkg/ssh/quote.go` · Quote never wraps: hostile-value tests and the round trip must go red · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2
+- 2026-11-15 · 15230e9* · mutant killed · exit 1 · `pkg/ssh/quote.go` · an embedded single quote is not escaped: TestQuoteNeutralisesHostileValues and TestQuoteRoundTripsThroughSh must go red · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2
+- 2026-11-15 · 15230e9* · mutant killed · exit 1 · `pkg/ssh/quote.go` · Cmd skips Quote: TestCmdQuotesEachArgument must go red · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2
+- 2026-11-15 · 15230e9* · mutant killed · exit 1 · `pkg/ifname/validate.go` · ValidateLinux accepts 16 characters: TestValidateLinuxIgnoresGOOS must go red · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2
+- 2026-11-15 · 15230e9* · mutant killed · exit 1 · `pkg/ifname/validate.go` · ValidateLinux skips the grammar: TestValidateLinuxIgnoresGOOS must go red · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2
+- 2026-11-15 · 15230e9* · mutant killed · exit 1 · `pkg/ssh/quote.go` · brackets are glob characters again: TestQuoteNeutralisesHostileValues ([x], [fd00::1]:51820) must go red · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2
+- 2026-11-15 · 15230e9* · mutant killed · exit 1 · `pkg/ifname/validate.go` · ValidateLinux rejects 15 characters: TestValidateLinuxIgnoresGOOS accepted-15 case must go red · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2
 
 ## Invariants
 
@@ -109,3 +116,12 @@ Stop and ask if an existing `ifname` test needs a changed expectation, or if a c
 - 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:7315
 - 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:7110
 - 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:5962
+- 2026-11-15 · 15230e9* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:2 · test-lock-sha256:6e91aff52c51189ccb6211132a4630b58663626409f0726330b121a1635509f6 · test-lock-file:docs/adr/locks/6e91aff52c51189ccb6211132a4630b58663626409f0726330b121a1635509f6.lock · test-lock-kind:replace
+- 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:7640
+- 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:5899
+- 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:5166
+- 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:4869
+- 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:5744
+- 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:6397
+- 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:6176
+- 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:5309
