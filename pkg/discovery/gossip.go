@@ -14,6 +14,9 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
+// gossipInterval is the tick used by gossipLoop; a variable so tests can shorten it.
+var gossipInterval = GossipInterval
+
 const (
 	GossipInterval       = 10 * time.Second
 	GossipMethod         = "gossip"
@@ -143,7 +146,7 @@ func (g *MeshGossip) Stop() error {
 // gossipLoop periodically exchanges peer information with random peers
 func (g *MeshGossip) gossipLoop(stopCh chan struct{}, conn *net.UDPConn, wg *sync.WaitGroup) {
 	defer wg.Done()
-	ticker := time.NewTicker(GossipInterval)
+	ticker := time.NewTicker(gossipInterval)
 	defer ticker.Stop()
 
 	for {
@@ -184,9 +187,13 @@ func (g *MeshGossip) exchangeWithRandomPeer(conn *net.UDPConn) {
 		log.Printf("[Gossip] Invalid mesh IP for peer %s: %s", target.WGPubKey, target.MeshIP)
 		return
 	}
+	// A restart may be writing g.port while an old loop is still draining.
+	g.mu.RLock()
+	port := int(g.port)
+	g.mu.RUnlock()
 	targetAddr := &net.UDPAddr{
 		IP:   ip,
-		Port: int(g.port),
+		Port: port,
 	}
 
 	// When using the exchange socket, delegate sending (exchange builds its own peer list)

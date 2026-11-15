@@ -272,3 +272,36 @@ func TestMeshGossipRestartAfterStop(t *testing.T) {
 	}
 	t.Fatal("restarted gossip did not process a message")
 }
+
+func TestMeshGossipStopStartRaceOnPort(t *testing.T) {
+	old := gossipInterval
+	gossipInterval = 50 * time.Microsecond
+	defer func() { gossipInterval = old }()
+
+	cfg := newTestConfig(t)
+	cfg.Keys.GossipPort = 0
+	store := daemon.NewPeerStore()
+	peerKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	store.Update(&daemon.PeerInfo{WGPubKey: peerKey, MeshIP: "127.0.0.1"}, "test")
+	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}
+	g, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1500; i++ {
+		done := make(chan struct{})
+		go func() {
+			g.Stop()
+			close(done)
+		}()
+		// Start is allowed as soon as Stop has flipped running; retry until then.
+		for g.Start() != nil {
+			time.Sleep(time.Millisecond)
+		}
+		<-done
+	}
+	g.Stop()
+}
