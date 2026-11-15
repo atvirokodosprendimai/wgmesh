@@ -15,6 +15,12 @@ type WGInterface = wireguard.WGInterface
 type WGPeer = wireguard.WGPeer
 
 func (m *Mesh) Deploy() error {
+	// First, before any connection: refuse a state a shell or a wg-quick file
+	// would give a meaning to (ADR-0006, decision 2). Not under m.mu.
+	if err := m.validateForDeploy(os.Stdout); err != nil {
+		return err
+	}
+
 	// Validate groups and policies if access control is enabled
 	if m.IsAccessControlEnabled() {
 		fmt.Println("Validating access control configuration...")

@@ -2,6 +2,7 @@ package mesh
 
 import (
 	"encoding/base64"
+	"fmt"
 	"io"
 	"net"
 	"sort"
@@ -203,8 +204,30 @@ func (m *Mesh) Validate() []Finding {
 	return fs
 }
 
+// String is the finding as one line, for a warning or the refusal list.
+func (f Finding) String() string {
+	where := f.Field
+	if f.Node != "" {
+		where = "node " + f.Node + ", " + f.Field
+	}
+	return fmt.Sprintf("%s: rule %s (class %s), value %q", where, f.Rule, f.Class, f.Value)
+}
+
 // validateForDeploy prints the class B warnings to out and returns an error
-// listing the findings Deploy refuses.
+// listing every finding it refuses: class A always, class B when StrictState
+// is set. Deploy calls it before the first connection.
 func (m *Mesh) validateForDeploy(out io.Writer) error {
+	var refused []string
+	for _, f := range m.Validate() {
+		if f.Class == ClassA || StrictState {
+			refused = append(refused, "  "+f.String())
+			continue
+		}
+		fmt.Fprintf(out, "Warning: state: %s (refused once StrictState is set)\n", f)
+	}
+	if len(refused) > 0 {
+		return fmt.Errorf("state validation failed, %d finding(s), nothing was deployed:\n%s",
+			len(refused), strings.Join(refused, "\n"))
+	}
 	return nil
 }
