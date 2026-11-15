@@ -71,13 +71,13 @@ func RestoreConnectedRoute(client *Client, network string) {
 		family = "-6"
 	}
 
-	output, err := client.Run(fmt.Sprintf("ip %s -o addr show to %s", family, ipnet))
+	output, runErr := client.Run(fmt.Sprintf("ip %s -o addr show to %s", family, ipnet))
 	iface, src, ok := "", "", false
-	if err == nil {
+	if runErr == nil {
 		iface, src, ok = parseLocalAddr(output, ipnet)
 	}
 	if !ok {
-		fmt.Printf("    Warning: no local address in %s; if it was reachable other than via the mesh interface, restore that route manually\n", ipnet)
+		fmt.Println(localAddrWarning(ipnet, runErr))
 		return
 	}
 
@@ -87,6 +87,17 @@ func RestoreConnectedRoute(client *Client, network string) {
 		return
 	}
 	fmt.Printf("    Restored connected route: %s dev %s\n", ipnet, iface)
+}
+
+// localAddrWarning is the operator warning for a connected route that cannot be
+// restored: runErr is the failed address query, nil when it ran but found no
+// local address in network.
+func localAddrWarning(network *net.IPNet, runErr error) string {
+	const hint = "if it was reachable other than via the mesh interface, restore that route manually"
+	if runErr != nil {
+		return fmt.Sprintf("    Warning: could not query local addresses in %s: %v; %s", network, runErr, hint)
+	}
+	return fmt.Sprintf("    Warning: no local address in %s; %s", network, hint)
 }
 
 // parseLocalAddr returns the interface and address of the first line of
