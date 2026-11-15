@@ -141,3 +141,27 @@ func TestCacheRestoreOffersRestored(t *testing.T) {
 		t.Errorf("EndpointMethod = %q, want cache", got.EndpointMethod)
 	}
 }
+
+// A guessed endpoint is not saved as an endpoint: restored it would come back
+// as a cache advertisement and be announced to others (#839).
+func TestSavePeerCacheDropsGuessedEndpoint(t *testing.T) {
+	ps := NewPeerStore()
+	now := time.Now()
+	ps.SetPeerDirectly("guessed", &PeerInfo{WGPubKey: "guessed", MeshIP: "10.0.0.2", Endpoint: "203.0.113.1:51820", EndpointGuessed: true, LastSeen: now})
+	ps.SetPeerDirectly("advertised", &PeerInfo{WGPubKey: "advertised", MeshIP: "10.0.0.3", Endpoint: "198.51.100.7:51821", LastSeen: now})
+
+	restored := NewPeerStore()
+	if n := restorePeers(buildPeerCache(ps), restored); n != 2 {
+		t.Fatalf("restorePeers = %d, want 2", n)
+	}
+	guessed, ok := restored.Get("guessed")
+	if !ok {
+		t.Fatal("expected the guessed peer kept in the cache, key and mesh IP")
+	}
+	if guessed.Endpoint != "" || guessed.MeshIP != "10.0.0.2" {
+		t.Errorf("restored guessed peer endpoint %q mesh IP %q, want empty endpoint and 10.0.0.2", guessed.Endpoint, guessed.MeshIP)
+	}
+	if adv, _ := restored.Get("advertised"); adv == nil || adv.Endpoint != "198.51.100.7:51821" {
+		t.Errorf("restored advertised peer = %+v, want endpoint 198.51.100.7:51821", adv)
+	}
+}

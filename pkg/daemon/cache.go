@@ -55,26 +55,38 @@ func LoadPeerCache(interfaceName string) (*PeerCache, error) {
 	return &cache, nil
 }
 
-// SavePeerCache saves the peer cache to disk
-func SavePeerCache(interfaceName string, peerStore *PeerStore) error {
+// buildPeerCache is the content SavePeerCache writes.
+func buildPeerCache(peerStore *PeerStore) *PeerCache {
 	peers := peerStore.GetAll()
 	cache := &PeerCache{
 		UpdatedAt: time.Now().Unix(),
 	}
 
 	for _, p := range peers {
+		// A guessed endpoint is not persisted: restored, it would rank as a
+		// cache advertisement (#839). The peer itself is kept.
+		endpoint := p.Endpoint
+		if p.EndpointGuessed {
+			endpoint = ""
+		}
 		cache.Peers = append(cache.Peers, PeerCacheEntry{
 			WGPubKey:         p.WGPubKey,
 			Hostname:         p.Hostname,
 			MeshIP:           p.MeshIP,
 			MeshIPv6:         p.MeshIPv6,
-			Endpoint:         p.Endpoint,
+			Endpoint:         endpoint,
 			Introducer:       p.Introducer,
 			RoutableNetworks: p.RoutableNetworks,
 			NATType:          p.NATType,
 			LastSeen:         p.LastSeen.Unix(),
 		})
 	}
+	return cache
+}
+
+// SavePeerCache saves the peer cache to disk
+func SavePeerCache(interfaceName string, peerStore *PeerStore) error {
+	cache := buildPeerCache(peerStore)
 
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
