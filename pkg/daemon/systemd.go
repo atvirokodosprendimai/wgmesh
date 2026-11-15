@@ -69,8 +69,10 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 		cfg.BinaryPath = path
 	}
 
-	// Build ExecStart command - use env var for secret to avoid exposing in process list
-	args := []string{cfg.BinaryPath, "join", "--secret", "${WGMESH_SECRET}"}
+	// Build ExecStart command. The secret is not passed as an argument (argv is
+	// world-readable via ps//proc); join reads WGMESH_SECRET from the
+	// environment, which systemd loads from the root-only EnvironmentFile.
+	args := []string{cfg.BinaryPath, "join"}
 
 	if cfg.InterfaceName != "" && cfg.InterfaceName != DefaultInterface {
 		// Shell-quote the interface name because ExecStart runs inside sh -c.

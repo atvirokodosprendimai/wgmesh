@@ -39,16 +39,67 @@ func TestGenerateSystemdUnit(t *testing.T) {
 	if !strings.Contains(unit, "EnvironmentFile") {
 		t.Error("Unit should use EnvironmentFile for secret")
 	}
-	if !strings.Contains(unit, "${WGMESH_SECRET}") {
-		t.Error("Unit should reference WGMESH_SECRET env var")
-	}
-	// Secret should NOT appear directly in the unit file
-	if strings.Contains(unit, "test-secret-that-is-long-enough") {
-		t.Error("Secret should not appear directly in unit file")
-	}
 	// NoNewPrivileges should be enabled
 	if !strings.Contains(unit, "NoNewPrivileges=yes") {
 		t.Error("Unit should have NoNewPrivileges=yes")
+	}
+}
+
+// TestGenerateSystemdUnitSecretNotInArgv verifies the secret never reaches the
+// process argv: ExecStart must not carry --secret (or the value, or an env var
+// expansion of it), and the secret must come from the EnvironmentFile instead.
+func TestGenerateSystemdUnitSecretNotInArgv(t *testing.T) {
+	t.Parallel()
+
+	const secret = "wgmesh://v1/test-secret-that-is-long-enough"
+	tests := []struct {
+		name string
+		cfg  SystemdServiceConfig
+	}{
+		{"defaults", SystemdServiceConfig{Secret: secret, BinaryPath: "/usr/local/bin/wgmesh"}},
+		{"all options", SystemdServiceConfig{
+			Secret:          secret,
+			BinaryPath:      "/usr/local/bin/wgmesh",
+			InterfaceName:   "wg1",
+			ListenPort:      51821,
+			AdvertiseRoutes: []string{"10.0.0.0/8"},
+			Privacy:         true,
+			Gossip:          true,
+			Introducer:      true,
+			MeshSubnet:      "192.168.100.0/24",
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			unit, err := GenerateSystemdUnit(tt.cfg)
+			if err != nil {
+				t.Fatalf("GenerateSystemdUnit failed: %v", err)
+			}
+
+			var execStart string
+			for _, line := range strings.Split(unit, "\n") {
+				if strings.HasPrefix(line, "ExecStart=") {
+					execStart = line
+				}
+			}
+			if execStart == "" {
+				t.Fatal("unit has no ExecStart line")
+			}
+			for _, bad := range []string{"--secret", "WGMESH_SECRET", secret} {
+				if strings.Contains(execStart, bad) {
+					t.Errorf("ExecStart must not contain %q", bad)
+				}
+			}
+			if strings.Contains(unit, secret) {
+				t.Error("secret value must not appear in the unit file")
+			}
+			if !strings.Contains(unit, "\nEnvironmentFile=/etc/wgmesh/secret.env\n") {
+				t.Error("unit must load the secret from EnvironmentFile=/etc/wgmesh/secret.env")
+			}
+		})
 	}
 }
 
