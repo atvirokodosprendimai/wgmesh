@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
@@ -29,6 +30,7 @@ const (
 	HandshakeWaitTimeout    = 10 * time.Second // Increased from 3s - WG handshake needs more time for cross-DC
 	HandshakePollInterval   = 250 * time.Millisecond
 	ExchangeLogCooldown     = 30 * time.Second
+	maxLogThrottleEntries   = 4096 // bound on lastPacketLog: a flood of spoofed sources cannot grow it further
 )
 
 type rendezvousOffer struct {
@@ -88,8 +90,21 @@ type PeerExchange struct {
 	activePunches      map[string]time.Time
 	rendezvousStarts   map[string]time.Time
 
-	logMu         sync.Mutex
-	lastPacketLog map[string]time.Time
+	logMu          sync.Mutex
+	lastPacketLog  map[string]time.Time
+	lastLogCleanup time.Time
+
+	// nonces remembers recently opened datagrams so a replay inside the
+	// acceptance window is dropped (ADR-0001); HELLO is exempt.
+	nonces *nonceCache
+
+	// legacyOpens counts received envelopes sealed without type authentication
+	// (ADR-0001), per packet and not per sender. It measures old traffic once
+	// writers seal with additional data; until then it counts most traffic.
+	legacyOpens atomic.Uint64
+
+	// replayDrops counts datagrams dropped by the nonce cache.
+	replayDrops atomic.Uint64
 }
 
 // NewPeerExchange creates a new peer exchange handler
@@ -105,6 +120,7 @@ func NewPeerExchange(config *daemon.Config, localNode *daemon.LocalNode, peerSto
 		activePunches:      make(map[string]time.Time),
 		rendezvousStarts:   make(map[string]time.Time),
 		lastPacketLog:      make(map[string]time.Time),
+		nonces:             newNonceCache(nonceCacheTTL, nonceCacheCapacity, wallClock),
 	}
 }
 
@@ -205,6 +221,10 @@ func (pe *PeerExchange) listenLoop() {
 	}
 }
 
+// LegacyEnvelopeOpens returns how many received envelopes were sealed without
+// type authentication.
+func (pe *PeerExchange) LegacyEnvelopeOpens() uint64 { return pe.legacyOpens.Load() }
+
 // handleMessage processes an incoming peer exchange message
 func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	// Try to decrypt the message
@@ -215,7 +235,34 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		return
 	}
 
-	pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+	// A legacy GOODBYE is ignored below, so it is not announced as valid.
+	if !(envelope.LegacyAAD && envelope.MessageType == crypto.MessageTypeGoodbye) {
+		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+	}
+
+	if envelope.LegacyAAD {
+		pe.legacyOpens.Add(1)
+		if pe.allowLog("legacy "+envelope.MessageType, remoteAddr) {
+			log.Printf("[Exchange] %s from %s was sealed without type authentication (sender runs an older release)", envelope.MessageType, remoteAddr.String())
+		}
+	}
+
+	// A datagram whose nonce was already seen inside the acceptance window is a
+	// replay. The window is twice MaxMessageAge because OpenEnvelopeRaw accepts a
+	// timestamp that far in the future. HELLO is exempt: the retry loop in
+	// ExchangeWithPeer resends one sealed buffer on purpose, so a lost reply can
+	// be recovered, and senders from before this check do the same.
+	if envelope.MessageType != crypto.MessageTypeHello {
+		var nonce [12]byte
+		copy(nonce[:], envelope.Nonce)
+		if pe.nonces.Seen(nonce, envelope.MessageType) {
+			pe.replayDrops.Add(1)
+			if pe.allowLog("replayed "+envelope.MessageType, remoteAddr) {
+				log.Printf("[Exchange] Dropped replayed %s from %s", envelope.MessageType, remoteAddr.String())
+			}
+			return
+		}
+	}
 
 	switch envelope.MessageType {
 	case crypto.MessageTypeHello:
@@ -271,6 +318,15 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		}
 		pe.handleRendezvousStart(&start, remoteAddr)
 	case crypto.MessageTypeGoodbye:
+		// An envelope sealed without additional data does not authenticate its
+		// type, so anyone who captured a HELLO could have re-sent it as GOODBYE.
+		// Only a GOODBYE whose type is bound to the tag may remove a peer.
+		if envelope.LegacyAAD {
+			if pe.allowLog("ignored legacy GOODBYE", remoteAddr) {
+				log.Printf("[Exchange] Ignored GOODBYE from %s: sent without type authentication, the sender must be upgraded", remoteAddr.String())
+			}
+			return
+		}
 		var bye goodbyeMessage
 		if err := json.Unmarshal(plaintext, &bye); err != nil {
 			log.Printf("[Exchange] Invalid GOODBYE payload from %s: %v", remoteAddr.String(), err)
@@ -1146,7 +1202,7 @@ func (pe *PeerExchange) SendGoodbye(addr string) error {
 		WGPubKey:  pe.localNode.WGPubKey,
 	}
 
-	data, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, msg, pe.config.Keys.GossipKey)
+	data, err := crypto.SealEnvelopeAAD(crypto.MessageTypeGoodbye, msg, pe.config.Keys.GossipKey)
 	if err != nil {
 		return fmt.Errorf("failed to seal goodbye: %w", err)
 	}
@@ -1177,28 +1233,40 @@ func (pe *PeerExchange) MarshalJSON() ([]byte, error) {
 }
 
 func (pe *PeerExchange) logIncomingPacket(messageType string, remoteAddr *net.UDPAddr) {
-	if remoteAddr == nil {
-		return
+	if pe.allowLog(messageType, remoteAddr) {
+		log.Printf("[Exchange] Received valid %s from %s", messageType, remoteAddr.String())
 	}
-	key := messageType + "|" + remoteAddr.String()
+}
+
+// allowLog reports whether a log line of this kind for this address is due: at
+// most one per ExchangeLogCooldown, so a flood of packets cannot fill the log.
+func (pe *PeerExchange) allowLog(kind string, remoteAddr *net.UDPAddr) bool {
+	if remoteAddr == nil {
+		return false
+	}
+	key := kind + "|" + remoteAddr.String()
 	now := time.Now()
 
 	pe.logMu.Lock()
+	defer pe.logMu.Unlock()
 	last, exists := pe.lastPacketLog[key]
 	if exists && now.Sub(last) < ExchangeLogCooldown {
-		pe.logMu.Unlock()
-		return
+		return false
 	}
-	pe.lastPacketLog[key] = now
-	// Periodic cleanup of stale log entries
-	if len(pe.lastPacketLog) > 100 {
+	// Drop stale entries at most once per cooldown, so a flood of distinct
+	// sources cannot make every call scan the whole map under the lock.
+	if len(pe.lastPacketLog) > 100 && now.Sub(pe.lastLogCleanup) >= ExchangeLogCooldown {
+		pe.lastLogCleanup = now
 		for k, t := range pe.lastPacketLog {
 			if now.Sub(t) > ExchangeLogCooldown*2 {
 				delete(pe.lastPacketLog, k)
 			}
 		}
 	}
-	pe.logMu.Unlock()
-
-	log.Printf("[Exchange] Received valid %s from %s", messageType, remoteAddr.String())
+	// Hard bound: past it a new kind or source is not logged rather than remembered.
+	if len(pe.lastPacketLog) >= maxLogThrottleEntries {
+		return false
+	}
+	pe.lastPacketLog[key] = now
+	return true
 }

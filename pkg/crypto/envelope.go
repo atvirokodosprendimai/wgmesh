@@ -11,6 +11,7 @@ import (
 	"net"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -188,12 +189,56 @@ func validateHostname(hostname string) error {
 // Envelope wraps encrypted messages with nonce for transmission
 type Envelope struct {
 	MessageType string `json:"type"`
-	Nonce       []byte `json:"nonce"`
-	Ciphertext  []byte `json:"ciphertext"`
+	// V selects how the ciphertext was sealed: 0 (absent) is the legacy form
+	// with no additional data, 2 binds the message type to the GCM tag.
+	V          int    `json:"v,omitempty"`
+	Nonce      []byte `json:"nonce"`
+	Ciphertext []byte `json:"ciphertext"`
+
+	// LegacyAAD is set by OpenEnvelopeRaw when the envelope was sealed without
+	// additional data, so its type was not authenticated. Not serialised.
+	LegacyAAD bool `json:"-"`
 }
 
-// SealEnvelope encrypts a message using AES-256-GCM with the gossip key
+// envelopeAADVersion is the Envelope.V value of an envelope whose message type
+// is bound to the GCM tag (ADR-0001).
+const envelopeAADVersion = 2
+
+// sealWithAAD makes SealEnvelope seal in the AAD-bound form, and acceptLegacyAAD
+// lets OpenEnvelopeRaw open envelopes sealed without additional data. They are
+// the two switches of the staged rollout in docs/adr/ADR-0001-envelope-aad, and
+// the seams the tests use; nothing in production code sets them.
+var (
+	sealWithAAD     = false
+	acceptLegacyAAD = true
+)
+
+// envelopeAAD is the GCM additional data of an AAD-bound envelope: the
+// protocol version, a NUL byte and the message type.
+func envelopeAAD(messageType string) []byte {
+	return []byte(ProtocolVersion + "\x00" + messageType)
+}
+
+// SealEnvelope encrypts a message using AES-256-GCM with the gossip key. The
+// message type is bound to the tag only when sealWithAAD is set; see
+// SealEnvelopeAAD.
 func SealEnvelope(messageType string, payload interface{}, gossipKey [32]byte) ([]byte, error) {
+	return sealEnvelope(messageType, payload, gossipKey, sealWithAAD)
+}
+
+// SealEnvelopeAAD is SealEnvelope with the message type bound to the GCM tag,
+// so an envelope whose type field is changed in transit no longer opens.
+func SealEnvelopeAAD(messageType string, payload interface{}, gossipKey [32]byte) ([]byte, error) {
+	return sealEnvelope(messageType, payload, gossipKey, true)
+}
+
+func sealEnvelope(messageType string, payload interface{}, gossipKey [32]byte, withAAD bool) ([]byte, error) {
+	// The message type travels as JSON, which replaces invalid UTF-8, so the
+	// receiver would rebuild different additional data and the tag would fail.
+	if withAAD && !utf8.ValidString(messageType) {
+		return nil, fmt.Errorf("message type is not valid UTF-8")
+	}
+
 	// Serialize payload to JSON
 	plaintext, err := json.Marshal(payload)
 	if err != nil {
@@ -219,11 +264,18 @@ func SealEnvelope(messageType string, payload interface{}, gossipKey [32]byte) (
 	}
 
 	// Encrypt
-	ciphertext := gcm.Seal(nil, nonce, plaintext, nil)
+	var aad []byte
+	version := 0
+	if withAAD {
+		aad = envelopeAAD(messageType)
+		version = envelopeAADVersion
+	}
+	ciphertext := gcm.Seal(nil, nonce, plaintext, aad)
 
 	// Create envelope
 	envelope := Envelope{
 		MessageType: messageType,
+		V:           version,
 		Nonce:       nonce,
 		Ciphertext:  ciphertext,
 	}
@@ -277,9 +329,27 @@ func OpenEnvelopeRaw(data []byte, gossipKey [32]byte) (*Envelope, []byte, error)
 		return nil, nil, fmt.Errorf("failed to create GCM: %w", err)
 	}
 
+	// Choose the additional data from the envelope version. An unknown version
+	// is refused, never opened with nil additional data.
+	var aad []byte
+	switch envelope.V {
+	case 0:
+		if !acceptLegacyAAD {
+			return nil, nil, fmt.Errorf("envelope without type authentication refused: its sender must be upgraded to a release that seals the message type")
+		}
+		envelope.LegacyAAD = true
+	case envelopeAADVersion:
+		aad = envelopeAAD(envelope.MessageType)
+	default:
+		return nil, nil, fmt.Errorf("unsupported envelope version %d: this node reads 0 and %d; upgrade it if the sender is newer", envelope.V, envelopeAADVersion)
+	}
+
 	// Decrypt
-	plaintext, err := gcm.Open(nil, envelope.Nonce, envelope.Ciphertext, nil)
+	plaintext, err := gcm.Open(nil, envelope.Nonce, envelope.Ciphertext, aad)
 	if err != nil {
+		if envelope.V == envelopeAADVersion {
+			return nil, nil, fmt.Errorf("decryption failed (wrong key, or the message type was changed after sealing): %w", err)
+		}
 		return nil, nil, fmt.Errorf("decryption failed (wrong key?): %w", err)
 	}
 

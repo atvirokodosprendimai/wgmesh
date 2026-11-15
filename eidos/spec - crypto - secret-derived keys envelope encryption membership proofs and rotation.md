@@ -82,6 +82,13 @@ AES-256-GCM symmetric encryption for all peer-to-peer messages.
 **Open (announcement):** `OpenEnvelope(data, gossipKey)`:
 - Calls `OpenEnvelopeRaw`, then deserializes and validates the `PeerAnnouncement` payload.
 
+**Message type authentication (ADR-0001, `EnvelopeCapabilityVersion` 2):**
+- `Envelope` carries an optional `v` field. `v` = 2 means the message type is bound to the GCM tag as additional data: `"wgmesh-v1" + 0x00 + type`. `SealEnvelopeAAD(messageType, payload, gossipKey)` seals that form.
+- An envelope without `v` is legacy: nil additional data, so its `type` field is not authenticated. `OpenEnvelopeRaw` still opens it and sets `Envelope.LegacyAAD`. Any other `v` is refused, never opened with nil additional data.
+- Removing or editing `v` on a bound envelope makes the tag fail; changing `type` on a bound envelope makes the tag fail.
+- `SealEnvelope` seals the legacy form until the writers' release (`sealWithAAD`); legacy envelopes are refused from the release after that (`acceptLegacyAAD`). The rollout, with its three releases, is in `docs/envelope-rollout.md`.
+- Frozen fixtures: `testdata/compat/envelope/v1` is legacy, `v2` is bound; both must open with current code.
+
 **Validation limits (flood protection):**
 - `MaxRoutableNetworks = 100` CIDRs per announcement.
 - `MaxKnownPeers = 1000` transitive peers per announcement.

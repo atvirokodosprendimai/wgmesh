@@ -23,7 +23,16 @@ func TestEnvelopeCompatibilityFixtures(t *testing.T) {
 		regenEnvelopeFixtures(t)
 	}
 
-	replayEnvelopeCompatibilityFixtures(t, filepath.Join("..", "..", "testdata", "compat", "envelope"))
+	replayed := replayEnvelopeCompatibilityFixtures(t, filepath.Join("..", "..", "testdata", "compat", "envelope"))
+	have := map[int]bool{}
+	for _, v := range replayed {
+		have[v] = true
+	}
+	for v := 1; v <= EnvelopeCapabilityVersion; v++ {
+		if !have[v] {
+			t.Errorf("no frozen fixture for envelope capability v%d under testdata/compat/envelope", v)
+		}
+	}
 }
 
 func TestEnvelopeCompatibilityFixturesReplayIndependentVersions(t *testing.T) {
@@ -53,7 +62,7 @@ func TestEnvelopeRegenTargetDirUsesCapabilityVersion(t *testing.T) {
 }
 
 func TestPrepareEnvelopeRegenTargetRefusesExistingWithoutForce(t *testing.T) {
-	targetDir := filepath.Join(t.TempDir(), "v1")
+	targetDir := filepath.Join(t.TempDir(), fmt.Sprintf("v%d", EnvelopeCapabilityVersion))
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatalf("create existing fixture dir: %v", err)
 	}
@@ -73,7 +82,7 @@ func TestPrepareEnvelopeRegenTargetRefusesExistingWithoutForce(t *testing.T) {
 }
 
 func TestPrepareEnvelopeRegenTargetAllowsExistingWithForce(t *testing.T) {
-	targetDir := filepath.Join(t.TempDir(), "v1")
+	targetDir := filepath.Join(t.TempDir(), fmt.Sprintf("v%d", EnvelopeCapabilityVersion))
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatalf("create existing fixture dir: %v", err)
 	}
@@ -144,7 +153,7 @@ func replayEnvelopeCompatibilityFixtures(t *testing.T, fixtureRoot string) []int
 			restoreNow := setTestNow(time.Unix(meta.Timestamp, 0).Add(time.Second))
 			defer restoreNow()
 
-			_, gotAnnouncement, err := OpenEnvelope(envelopeData, keys.GossipKey)
+			gotEnvelope, gotAnnouncement, err := OpenEnvelope(envelopeData, keys.GossipKey)
 			if err != nil {
 				t.Fatalf("open envelope: %v", err)
 			}
@@ -154,6 +163,28 @@ func replayEnvelopeCompatibilityFixtures(t *testing.T, fixtureRoot string) []int
 			}
 			if string(gotPlaintext) != string(wantPlaintext) {
 				t.Fatalf("plaintext = %s, want %s", gotPlaintext, wantPlaintext)
+			}
+
+			// Each frozen version asserts its own mode: v1 is the legacy form, v2 and
+			// later are bound to the message type and carry "v":2 on the wire.
+			var wire map[string]any
+			if err := json.Unmarshal(envelopeData, &wire); err != nil {
+				t.Fatalf("decode envelope.bin: %v", err)
+			}
+			if dirVersion >= 2 {
+				if gotEnvelope.LegacyAAD {
+					t.Fatalf("v%d fixture opened as a legacy envelope, want AAD-bound", dirVersion)
+				}
+				if v, _ := wire["v"].(float64); v != 2 {
+					t.Fatalf("v%d fixture envelope has v=%v, want 2", dirVersion, wire["v"])
+				}
+			} else {
+				if !gotEnvelope.LegacyAAD {
+					t.Fatalf("v%d fixture did not open as a legacy envelope", dirVersion)
+				}
+				if _, has := wire["v"]; has {
+					t.Fatalf("v%d fixture envelope carries a v field", dirVersion)
+				}
 			}
 
 			t.Log("SealEnvelope uses a random nonce; fixture replay intentionally skips deterministic reseal comparison")
@@ -241,12 +272,12 @@ func regenEnvelopeFixtures(t *testing.T) {
 	payload := PeerAnnouncement{
 		Protocol:   ProtocolVersion,
 		WGPubKey:   base64.StdEncoding.EncodeToString(make([]byte, 32)),
-		Hostname:   "compat-v1",
+		Hostname:   fmt.Sprintf("compat-v%d", EnvelopeCapabilityVersion),
 		MeshIP:     "10.42.0.7",
 		WGEndpoint: "127.0.0.1:51820",
 		Timestamp:  1800000000,
 	}
-	envelope, err := SealEnvelope(MessageTypeAnnounce, payload, keys.GossipKey)
+	envelope, err := SealEnvelopeAAD(MessageTypeAnnounce, payload, keys.GossipKey)
 	if err != nil {
 		t.Fatalf("seal fixture envelope: %v", err)
 	}

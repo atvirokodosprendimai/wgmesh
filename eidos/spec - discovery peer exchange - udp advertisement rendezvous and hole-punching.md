@@ -51,9 +51,17 @@ On receiving a REPLY:
 
 ### Goodbye
 
-- `SendGoodbye(addr)` sends a signed shutdown notification with a current timestamp.
-- Receivers validate the timestamp (within ±60 seconds of now) to prevent replay attacks.
+- `SendGoodbye(addr)` sends an encrypted shutdown notification with a current timestamp, sealed with `SealEnvelopeAAD` so its message type is bound to the GCM tag.
+- A GOODBYE that opened only as a legacy envelope (`Envelope.LegacyAAD`, the type was not authenticated) is ignored and logged; nodes older than this release cannot open the bound form and evict the peer through the health check instead.
+- Receivers validate the timestamp (within ±60 seconds of now) to limit replay.
 - On valid GOODBYE: immediately remove the peer from the store.
+
+### Replay handling (ADR-0001)
+
+- `handleMessage` keeps a bounded nonce cache (65536 entries, oldest evicted first, each kept for twice `MaxMessageAge`). A datagram whose nonce and message type were already seen is dropped, counted (`ReplayedDatagrams`) and logged through the packet-log throttle.
+- The nonce is recorded only after the envelope opened successfully. The message type is part of the key because a legacy envelope does not authenticate it.
+- HELLO is exempt: the retry loop in `ExchangeWithPeer` resends one sealed buffer on purpose. A replayed HELLO is therefore still answered; that is bounded by the per-source rate limiter.
+- Legacy envelopes are counted (`LegacyEnvelopeOpens`), a measure of old traffic that is meaningful once writers seal with additional data.
 
 ### Introducer rendezvous (for symmetric NAT traversal)
 
