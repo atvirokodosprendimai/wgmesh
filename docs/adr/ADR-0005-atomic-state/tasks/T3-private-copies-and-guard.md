@@ -64,6 +64,11 @@ n=$(go test ./pkg/atomicfile -run '^(TestNoInPlaceStateWrite|TestNoPrivateRename
 - 2026-11-15 · ac3c8fd* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · a new os.WriteFile in a file not in the table: TestNoInPlaceStateWrite must go red · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd
 - 2026-11-15 · ac3c8fd* · mutant killed · exit 1 · `pkg/mesh/services.go` · a private rename copy reappears: TestNoPrivateRenameCopy must go red · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd
 - 2026-11-15 · ac3c8fd* · mutant killed · exit 1 · `pkg/atomicfile/guard_test.go` · the table row of systemd.go is deleted: TestNoInPlaceStateWrite must go red · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd
+- 2026-11-15 · fc71fd9* · mutant killed · exit 1 · `pkg/mesh/services.go` · a private rename copy reappears: TestNoPrivateRenameCopy must go red · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb
+- 2026-11-15 · fc71fd9* · mutant killed · exit 1 · `pkg/atomicfile/guard_test.go` · the table row of systemd.go is deleted: TestNoInPlaceStateWrite must go red · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb
+- 2026-11-15 · fc71fd9* · mutant killed · exit 1 · `pkg/atomicfile/guard_test.go` · hidden directories are walked: TestGuardSkipsHiddenAndNestedModuleDirs must go red · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb
+- 2026-11-15 · fc71fd9* · mutant killed · exit 1 · `pkg/atomicfile/guard_test.go` · nested modules are walked: TestGuardSkipsHiddenAndNestedModuleDirs must go red · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb
+- 2026-11-15 · fc71fd9* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · a new os.WriteFile in a file not in the table: TestNoInPlaceStateWrite must go red · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb
 
 ## Invariants
 
@@ -104,3 +109,30 @@ Stop and ask if a file outside the table already has an `os.WriteFile` that is s
 - 2026-11-15 · ac3c8fd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd · ms:34213
 - 2026-11-15 · ac3c8fd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd · ms:30317
 - 2026-11-15 · ac3c8fd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c876a4d281ba2f73305b043d58f60d43259fe0aa9cf9b71fd6492300a609c7bd · ms:27543
+- 2026-11-15 · fc71fd9* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:0 · test-lock-sha256:0167356a5dd0c48ec97c2e1afa7cfd1fda1ec22500b3d586a91ff8d16cd39b7f · test-lock-file:docs/adr/locks/0167356a5dd0c48ec97c2e1afa7cfd1fda1ec22500b3d586a91ff8d16cd39b7f.lock · test-lock-kind:replace
+- 2026-11-15 · fc71fd9* · exit 1 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:32635
+  ```
+  --- last 7 line(s) of stdout
+  ok  	github.com/atvirokodosprendimai/wgmesh/pkg/mesh	24.998s
+  --- FAIL: TestValidateCodeChecksum (0.00s)
+      generate_test.go:104: only 3/8 payload mutations detected (expected >=4)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/promo	0.072s
+  ok  	github.com/atvirokodosprendimai/wgmesh	26.932s
+  FAIL
+  --- last 8 line(s) of stderr
+  === RUN   TestNoInPlaceStateWrite
+  --- PASS: TestNoInPlaceStateWrite (0.06s)
+  === RUN   TestNoPrivateRenameCopy
+  --- PASS: TestNoPrivateRenameCopy (0.05s)
+  === RUN   TestGuardSkipsHiddenAndNestedModuleDirs
+  --- PASS: TestGuardSkipsHiddenAndNestedModuleDirs (0.00s)
+  PASS
+  ok  	github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile	0.107s
+  ```
+- 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:29570
+- 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:32872
+- 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:28855
+- 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:31834
+- 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:28321
+- 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:29442
