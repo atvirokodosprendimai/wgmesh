@@ -1,8 +1,12 @@
 package node
 
 import (
+	"bytes"
+	"log"
 	"net"
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -91,6 +95,33 @@ func TestIPClaimRefusedWhenEnforced(t *testing.T) {
 	}
 }
 
+func TestIPClaimRefusalIsLoggedOnce(t *testing.T) {
+	setSwitches(t, true, false)
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	ps, _ := bindingStore(t)
+	victimIP := fakeDerive("victim", 0)
+	ps.SetPeerDirectly("victim", &PeerInfo{WGPubKey: "victim", MeshIP: victimIP})
+	for i := 0; i < 3; i++ {
+		ps.Offer(firstHand("thief", victimIP))
+	}
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 1 {
+		t.Fatalf("%d log lines for three refusals of one key, want 1:\n%s", len(lines), buf.String())
+	}
+	for _, want := range []string{"[Admit]", "thief", victimIP, "ip-held-by-bound", "bound claim of another member holds this address"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("log line %q lacks %q", lines[0], want)
+		}
+	}
+	ps.Offer(firstHand("thief2", victimIP))
+	if n := strings.Count(buf.String(), "ip-held-by-bound"); n != 2 {
+		t.Errorf("a second key's refusal logged %d lines in all, want 2", n)
+	}
+}
+
 func TestRouteInsideMeshWarnsThenDrops(t *testing.T) {
 	routes := []string{"10.42.7.0/24", "172.16.5.5/32", "192.168.9.0/24"}
 
@@ -149,7 +180,7 @@ func TestRouteSupernetIsKept(t *testing.T) {
 		}
 	}
 }
- 
+
 func TestRouteMappedIPv6IsNotInsideMesh(t *testing.T) {
 	routes := []string{"::ffff:10.42.0.0/112", "::ffff:10.42.7.0/120"}
 	for _, sw := range [][2]bool{{false, false}, {true, true}} {

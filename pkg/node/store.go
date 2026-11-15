@@ -52,7 +52,10 @@ type PeerStore struct {
 	policy      *Policy
 	offers      uint64
 	tombstones  map[string]tombstone
-	now         func() time.Time
+	// ipHeldLogged holds the keys whose refusal for a held address was logged;
+	// it is emptied when it reaches DefaultMaxPeers, so it stays bounded.
+	ipHeldLogged map[string]struct{}
+	now          func() time.Time
 }
 
 // NewPeerStore creates a new peer store.

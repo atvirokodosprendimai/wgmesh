@@ -147,6 +147,17 @@ func (ps *PeerStore) Offer(c Candidate) Decision {
 				ps.tombstones[key] = t
 				log.Printf("[Admit] refused tombstoned peer %s... via %s (withdrawn: %s); until TombstoneTTL passes or the peer speaks first", shortKey(key), c.Method(), t.cause)
 			}
+			// Log once per key: a flood of claims on a held address must not become a log flood.
+			if d.Reason == ReasonIPHeld {
+				if _, done := ps.ipHeldLogged[key]; !done {
+					if ps.ipHeldLogged == nil || len(ps.ipHeldLogged) >= DefaultMaxPeers {
+						ps.ipHeldLogged = make(map[string]struct{})
+					}
+					ps.ipHeldLogged[key] = struct{}{}
+					log.Printf("[Admit] refused peer %s... via %s: mesh IP %s (%s): a bound claim of another member holds this address; the peer must derive its own address or rotate its key",
+						shortKey(key), c.Method(), c.Info.MeshIP, ReasonIPHeld)
+				}
+			}
 			return
 		}
 		if c.Hand == FirstHand {
