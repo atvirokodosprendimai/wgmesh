@@ -397,6 +397,9 @@ func joinCmd() {
 	var accept []string
 	if *acceptRoutes != "" {
 		accept = strings.Split(*acceptRoutes, ",")
+		for i, r := range accept {
+			accept[i] = strings.TrimSpace(r)
+		}
 	}
 
 	// Create daemon config
@@ -824,6 +827,9 @@ func installServiceCmd() {
 	var accept []string
 	if *acceptRoutes != "" {
 		accept = strings.Split(*acceptRoutes, ",")
+		for i, r := range accept {
+			accept[i] = strings.TrimSpace(r)
+		}
 	}
 
 	cfg := daemon.SystemdServiceConfig{

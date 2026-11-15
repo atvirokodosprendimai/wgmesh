@@ -1853,6 +1853,8 @@ func (d *Daemon) reloadConfig(opts DaemonOpts) {
 		}
 	}
 
+	// nil = the key is absent from the reload file (no change); non-nil and
+	// empty = "accept-routes=" (clear the list, open the node).
 	if opts.AcceptRoutes != nil && !routeSlicesEqual(d.config.AcceptRoutes, opts.AcceptRoutes) {
 		log.Printf("[Reload] AcceptRoutes: %v → %v", d.config.AcceptRoutes, opts.AcceptRoutes)
 		d.config.AcceptRoutes = opts.AcceptRoutes
