@@ -138,6 +138,72 @@ func TestWriteFileSyncsFileThenDirectory(t *testing.T) {
 	}
 }
 
+func replaceSeams(t *testing.T) {
+	t.Helper()
+	origFile, origDir := syncFile, syncDir
+	t.Cleanup(func() { syncFile, syncDir = origFile, origDir })
+}
+
+func TestWriteFileKeepsOldFileWhenSyncFails(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	replaceSeams(t)
+	syncFile = func(*os.File) error { return syscall.EIO }
+
+	err := WriteFile(path, []byte("new"), 0o600)
+	if !errors.Is(err, syscall.EIO) {
+		t.Fatalf("WriteFile error = %v, want the sync error (EIO)", err)
+	}
+	if got, rerr := os.ReadFile(path); rerr != nil || string(got) != "old" {
+		t.Fatalf("content = %q, %v; want old untouched", got, rerr)
+	}
+	if names := dirNames(t, dir); !reflect.DeepEqual(names, []string{"target"}) {
+		t.Fatalf("directory holds %v, want only [target]", names)
+	}
+}
+
+func TestWriteFileIgnoresUnsupportedDirSync(t *testing.T) {
+	for _, errno := range []syscall.Errno{syscall.EINVAL, syscall.ENOTSUP} {
+		t.Run(errno.Error(), func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, "target")
+			replaceSeams(t)
+			syncDir = func(string) error { return errno }
+
+			if err := WriteFile(path, []byte("new"), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v, want nil when the directory sync is unsupported", err)
+			}
+			if got, err := os.ReadFile(path); err != nil || string(got) != "new" {
+				t.Fatalf("content = %q, %v; want new", got, err)
+			}
+		})
+	}
+}
+
+func TestWriteFileReportsDirSyncFailureAfterRename(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "target")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	replaceSeams(t)
+	syncDir = func(string) error { return syscall.EIO }
+
+	err := WriteFile(path, []byte("new"), 0o600)
+	if !errors.Is(err, syscall.EIO) {
+		t.Fatalf("WriteFile error = %v, want the directory sync error (EIO)", err)
+	}
+	if got, rerr := os.ReadFile(path); rerr != nil || string(got) != "new" {
+		t.Fatalf("content = %q, %v; want new (the rename already happened)", got, rerr)
+	}
+	if names := dirNames(t, dir); !reflect.DeepEqual(names, []string{"target"}) {
+		t.Fatalf("directory holds %v, want only [target]", names)
+	}
+}
+
 func TestConcurrentReaderNeverSeesPartialFile(t *testing.T) {
 	const (
 		writes  = 300
