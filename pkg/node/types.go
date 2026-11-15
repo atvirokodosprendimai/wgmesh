@@ -27,7 +27,7 @@ type PeerInfo struct {
 	Latency          *time.Duration // measured via WG handshake
 	NATType          string         // "cone", "symmetric", or "unknown"
 	EndpointMethod   string
-	EndpointGuessed  bool // endpoint built from the sender's address and the default port, not advertised (ADR-0002 T7)
+	EndpointGuessed  bool // endpoint built from the sender address and the default port, not advertised: ranks below every advertisement, never announced or cached (#839)
 	heardFirstHand   bool // a first-hand claim was accepted at least once
 }
 
