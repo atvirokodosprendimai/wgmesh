@@ -53,6 +53,9 @@ func (ps *PeerStore) Subscribe() <-chan PeerEvent {
 	return ch
 }
 
+// Unsubscribe removes ch. The channel is not closed: notify sends after
+// releasing the lock, so a close could race with a send and panic. Receivers
+// stop on their own context instead.
 func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -60,7 +63,6 @@ func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
 	for i, sub := range ps.subscribers {
 		if sub == ch {
 			ps.subscribers = append(ps.subscribers[:i], ps.subscribers[i+1:]...)
-			close(sub)
 			return
 		}
 	}
