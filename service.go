@@ -143,7 +143,8 @@ func serviceAddCmd() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet)
+	// The daemon always persists its identity in defaultStateDir, not --state-dir.
+	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet, defaultStateDir)
 
 	// Create site via Lighthouse
 	client := lighthouse.NewClient(lighthouseURL, acct.APIKey)
@@ -443,21 +444,36 @@ func validatePort(port int) (int, error) {
 	return port, nil
 }
 
+// persistedMeshSpace mirrors daemon.legacyMeshSpace: the address space of the
+// secret-derived default mesh subnet.
+var persistedMeshSpace = &net.IPNet{IP: net.IP{10, 0, 0, 0}, Mask: net.CIDRMask(8, 32)}
+
 // deriveMeshIPForService derives the mesh IP for service registration.
 // Uses the local WireGuard public key if available, otherwise generates
 // a deterministic key from the secret for registration purposes.
 // If customSubnet is non-nil, uses subnet-aware derivation.
-func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubnet *net.IPNet) string {
+func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubnet *net.IPNet, stateDir string) string {
 	// Try to read the local node's WG pubkey from the persisted state
 	// This matches how the daemon derives its mesh IP
 	iface := "wg0"
-	statePath := filepath.Join(defaultStateDir, iface+".json")
+	statePath := filepath.Join(stateDir, iface+".json")
 	data, err := os.ReadFile(statePath)
 	if err == nil {
+		// Field names match pkg/daemon localNodeState (wg_pubkey, mesh_ip).
 		var nodeState struct {
-			PublicKey string `json:"public_key"`
+			PublicKey string `json:"wg_pubkey"`
+			MeshIP    string `json:"mesh_ip"`
 		}
 		if json.Unmarshal(data, &nodeState) == nil && nodeState.PublicKey != "" {
+			// Same rule as daemon.meshIPInSubnet: the daemon keeps a persisted
+			// address (any 10.0.0.0/8 without a custom subnet), so registration
+			// must report that address, not a re-derived one (issue #827).
+			if persisted := net.ParseIP(nodeState.MeshIP); persisted != nil {
+				if (customSubnet != nil && customSubnet.Contains(persisted)) ||
+					(customSubnet == nil && persistedMeshSpace.Contains(persisted)) {
+					return persisted.String()
+				}
+			}
 			if customSubnet != nil {
 				ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, nodeState.PublicKey, secret)
 				if err != nil {
@@ -474,7 +490,8 @@ func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubne
 	// This won't match the daemon's mesh IP (which needs the WG pubkey),
 	// but it gives the Lighthouse enough info to associate the origin.
 	// The user should run `join` first to establish the WG identity.
-	fmt.Fprintln(os.Stderr, "Warning: no local WireGuard identity found. Run 'wgmesh join' first for accurate mesh IP.")
+	fmt.Fprintf(os.Stderr, "Warning: no local WireGuard identity found (looked in %s).\n", statePath)
+	fmt.Fprintln(os.Stderr, "Run 'wgmesh join' first for accurate mesh IP.")
 	fmt.Fprintln(os.Stderr, "Using derived placeholder — service may need re-registration after join.")
 	if customSubnet != nil {
 		ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, "unjoined", secret)

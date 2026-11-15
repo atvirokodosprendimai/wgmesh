@@ -3,12 +3,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
 	lighthouse "github.com/atvirokodosprendimai/lighthouse-go"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 )
 
@@ -303,5 +306,63 @@ func TestServiceEndToEnd(t *testing.T) {
 	}
 	if len(loadedState.Services) != 0 {
 		t.Errorf("expected empty local state, got %d entries", len(loadedState.Services))
+	}
+}
+
+func TestDeriveMeshIPForServiceUsesPersistedState(t *testing.T) {
+	secret := "wgmesh://v1/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	keys, err := crypto.DeriveKeys(secret)
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	_, custom, _ := net.ParseCIDR("192.168.50.0/24")
+
+	// Rows "no mesh_ip", "invalid mesh_ip" and the non-10/8 row cover the
+	// fallback derivation from wg_pubkey.
+	tests := []struct {
+		name   string
+		state  string
+		subnet *net.IPNet
+		want   string // "" means: derived from wg_pubkey in the custom subnet
+	}{
+		{"persisted mesh_ip kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, nil, "10.200.3.4"},
+		{"non-10/8 mesh_ip without custom subnet is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.100.7"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},
+		{"IPv4-mapped mesh_ip is normalized", `{"wg_pubkey":"PUBKEY","mesh_ip":"::ffff:10.0.0.5"}`, nil, "10.0.0.5"},
+		{"mesh_ip outside custom subnet is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, custom, ""},
+		{"mesh_ip inside custom subnet kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.50.9"}`, custom, "192.168.50.9"},
+		{"no mesh_ip derives from wg_pubkey", `{"wg_pubkey":"PUBKEY"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},
+		{"invalid mesh_ip derives from wg_pubkey", `{"wg_pubkey":"PUBKEY","mesh_ip":"nonsense"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "wg0.json"), []byte(tt.state), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			got := deriveMeshIPForService(keys, secret, tt.subnet, dir)
+			want := tt.want
+			if want == "" {
+				w, err := crypto.DeriveMeshIPInSubnet(tt.subnet, "PUBKEY", secret)
+				if err != nil {
+					t.Fatal(err)
+				}
+				want = w
+			}
+			if got != want {
+				t.Errorf("got %s, want %s", got, want)
+			}
+		})
+	}
+}
+
+func TestDeriveMeshIPForServiceNoStateIsPlaceholder(t *testing.T) {
+	secret := "wgmesh://v1/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	keys, err := crypto.DeriveKeys(secret)
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	got := deriveMeshIPForService(keys, secret, nil, t.TempDir())
+	if want := crypto.DeriveMeshIP(keys.MeshSubnet, "unjoined", secret); got != want {
+		t.Errorf("got %s, want placeholder %s", got, want)
 	}
 }
