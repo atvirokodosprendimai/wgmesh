@@ -143,7 +143,7 @@ func serviceAddCmd() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet)
+	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet, *stateDir)
 
 	// Create site via Lighthouse
 	client := lighthouse.NewClient(lighthouseURL, acct.APIKey)
@@ -443,21 +443,36 @@ func validatePort(port int) (int, error) {
 	return port, nil
 }
 
+// persistedMeshSpace mirrors daemon.legacyMeshSpace: the address space of the
+// secret-derived default mesh subnet.
+var persistedMeshSpace = &net.IPNet{IP: net.IP{10, 0, 0, 0}, Mask: net.CIDRMask(8, 32)}
+
 // deriveMeshIPForService derives the mesh IP for service registration.
 // Uses the local WireGuard public key if available, otherwise generates
 // a deterministic key from the secret for registration purposes.
 // If customSubnet is non-nil, uses subnet-aware derivation.
-func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubnet *net.IPNet) string {
+func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubnet *net.IPNet, stateDir string) string {
 	// Try to read the local node's WG pubkey from the persisted state
 	// This matches how the daemon derives its mesh IP
 	iface := "wg0"
-	statePath := filepath.Join(defaultStateDir, iface+".json")
+	statePath := filepath.Join(stateDir, iface+".json")
 	data, err := os.ReadFile(statePath)
 	if err == nil {
+		// Field names match pkg/daemon localNodeState (wg_pubkey, mesh_ip).
 		var nodeState struct {
-			PublicKey string `json:"public_key"`
+			PublicKey string `json:"wg_pubkey"`
+			MeshIP    string `json:"mesh_ip"`
 		}
 		if json.Unmarshal(data, &nodeState) == nil && nodeState.PublicKey != "" {
+			// Same rule as daemon.meshIPInSubnet: the daemon keeps a persisted
+			// address (any 10.0.0.0/8 without a custom subnet), so registration
+			// must report that address, not a re-derived one (issue #827).
+			if persisted := net.ParseIP(nodeState.MeshIP); persisted != nil {
+				if customSubnet != nil && customSubnet.Contains(persisted) ||
+					customSubnet == nil && persistedMeshSpace.Contains(persisted) {
+					return nodeState.MeshIP
+				}
+			}
 			if customSubnet != nil {
 				ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, nodeState.PublicKey, secret)
 				if err != nil {
