@@ -188,8 +188,21 @@ func validateHostname(hostname string) error {
 // Envelope wraps encrypted messages with nonce for transmission
 type Envelope struct {
 	MessageType string `json:"type"`
-	Nonce       []byte `json:"nonce"`
-	Ciphertext  []byte `json:"ciphertext"`
+	// V selects how the ciphertext was sealed: 0 (absent) is the legacy form
+	// with no additional data, 2 binds the message type to the GCM tag.
+	V          int    `json:"v,omitempty"`
+	Nonce      []byte `json:"nonce"`
+	Ciphertext []byte `json:"ciphertext"`
+
+	// LegacyAAD is set by OpenEnvelopeRaw when the envelope was sealed without
+	// additional data, so its type was not authenticated. Not serialised.
+	LegacyAAD bool `json:"-"`
+}
+
+// SealEnvelopeAAD is SealEnvelope with the message type bound to the GCM tag.
+// STUB for ADR-0001 T1 step S1 (red run); implemented in step S3.
+func SealEnvelopeAAD(messageType string, payload interface{}, gossipKey [32]byte) ([]byte, error) {
+	return nil, fmt.Errorf("SealEnvelopeAAD not implemented")
 }
 
 // SealEnvelope encrypts a message using AES-256-GCM with the gossip key

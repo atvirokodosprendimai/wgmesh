@@ -84,3 +84,17 @@ Stop and ask if `v1` stops opening or if any caller of `OpenEnvelope` or `OpenEn
 - Flipping writers to AAD or refusing legacy (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-15 · d91955e* · exit 1 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:716 · test-lock-sha256:9901acf87c835b5ca0bd02b937675a4b5174cf2b6ac28d0959eeedc05ad9c2b7 · test-lock-file:docs/adr/locks/9901acf87c835b5ca0bd02b937675a4b5174cf2b6ac28d0959eeedc05ad9c2b7.lock
+  ```
+  --- last 10 line(s) of stderr (of 18 after folding 18 raw)
+      envelope_aad_test.go:112: SealEnvelopeAAD not implemented
+  --- FAIL: TestAADEnvelopeCannotBeDowngraded (0.00s)
+  === RUN   TestEnvelopeCompatibilityFixtures
+  === RUN   TestEnvelopeCompatibilityFixtures/v1
+      envelope_compat_test.go:183: v1 fixture did not open as a legacy envelope
+  --- FAIL: TestEnvelopeCompatibilityFixtures (0.00s)
+      --- FAIL: TestEnvelopeCompatibilityFixtures/v1 (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/crypto	0.003s
+  FAIL
+  ```
