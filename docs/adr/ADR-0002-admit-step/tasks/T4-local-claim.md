@@ -69,6 +69,9 @@ a=$(go test ./pkg/node -run '^(TestClaimOrderBoundBeatsUnbound|TestClaimOrderFal
 | 4 — it is used | the `[Collision]` log lines and the `winner-differs` counter registered by T6 |
 
 ## Mutation Log
+- 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · the local claim is dropped from ResolveClaims: TestResolveClaimsIncludesLocal and TestLocalNodeLosesCollisionAgainstRemote must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · Winner ignores EnforceIPBinding: TestClaimOrderBoundBeatsUnbound must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · Bound tries only nonce 0: TestBoundAcceptsNonceOneToTen must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
 
 ## Invariants
 
@@ -91,3 +94,21 @@ Stop and ask if the daemon cannot build a local claim without a lock the daemon 
 - Refusing a claim (T6): this task orders claims, it does not refuse them.
 
 ## Verification Log
+- 2026-11-15 · 45f695e* · exit 1 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:946 · test-lock-sha256:993eb20d5df4fefcad4448536e2a595c404bebcc15c78b94cff8fe8dc799eb16 · test-lock-file:docs/adr/locks/993eb20d5df4fefcad4448536e2a595c404bebcc15c78b94cff8fe8dc799eb16.lock
+  ```
+  --- last 10 line(s) of stderr (of 35 after folding 35 raw)
+      claims_test.go:141: an address derived with nonce 5 is not bound
+      claims_test.go:141: an address derived with nonce 6 is not bound
+      claims_test.go:141: an address derived with nonce 7 is not bound
+      claims_test.go:141: an address derived with nonce 8 is not bound
+      claims_test.go:141: an address derived with nonce 9 is not bound
+      claims_test.go:141: an address derived with nonce 10 is not bound
+  --- FAIL: TestBoundAcceptsNonceOneToTen (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.004s
+  FAIL
+  ```
+- 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:8695
+- 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:9592
+- 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:8206
+- 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:5663
