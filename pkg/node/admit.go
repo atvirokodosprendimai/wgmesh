@@ -65,6 +65,11 @@ type Decision struct {
 	Warnings []string
 }
 
+// EnforceIPBinding switches the claim order of R4 (a bound claim beats an
+// unbound one, then the lower key). It is false at release N: the lower key
+// decides and each case the bound order would decide differently is a warning.
+var EnforceIPBinding = false
+
 // Policy is what the daemon lends the store. All fields are optional.
 type Policy struct {
 	Local   func() (key, ip string)
@@ -98,6 +103,13 @@ func (ps *PeerStore) SetPolicy(p *Policy) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	ps.policy = p
+}
+
+// Policy returns the policy set by SetPolicy, or nil.
+func (ps *PeerStore) Policy() *Policy {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	return ps.policy
 }
 
 // Offer decides what a claim may do and applies it, under the store's one lock.

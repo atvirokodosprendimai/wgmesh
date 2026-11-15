@@ -264,3 +264,25 @@ func TestProbeRTTSummary(t *testing.T) {
 		t.Error("expected summary observation for peer_key=testkey1")
 	}
 }
+
+func TestAdmitWarningCounterCounts(t *testing.T) {
+	d, err := NewDaemon(testConfig(t))
+	if err != nil {
+		t.Fatalf("NewDaemon: %v", err)
+	}
+	p := d.peerStore.Policy()
+	if p == nil || p.OnWarn == nil {
+		t.Fatal("no OnWarn in the policy")
+	}
+
+	counter := admitWarnings.WithLabelValues("winner-differs")
+	other := admitWarnings.WithLabelValues("another-rule")
+	before, beforeOther := testutil.ToFloat64(counter), testutil.ToFloat64(other)
+	p.OnWarn("winner-differs")
+	if got := testutil.ToFloat64(counter) - before; got != 1 {
+		t.Errorf("wgmesh_admit_warnings_total{rule=winner-differs} rose by %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(other) - beforeOther; got != 0 {
+		t.Errorf("another rule's counter rose by %v, want 0", got)
+	}
+}

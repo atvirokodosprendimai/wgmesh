@@ -53,6 +53,10 @@ var (
 		Name: "wgmesh_nat_traversal_successes_total",
 		Help: "Successful NAT traversal exchanges by method",
 	}, []string{"method"})
+	admitWarnings = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_admit_warnings_total",
+		Help: "Cases where an admit rule would act once enforced, by rule",
+	}, []string{"rule"})
 
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
@@ -77,6 +81,7 @@ func RegisterMetrics() {
 	prometheus.MustRegister(probeRTTSummary)
 	prometheus.MustRegister(natTraversalAttempts)
 	prometheus.MustRegister(natTraversalSuccesses)
+	prometheus.MustRegister(admitWarnings)
 	prometheus.MustRegister(goCollector)
 	prometheus.MustRegister(processCollector)
 }
@@ -141,4 +146,8 @@ func RecordNATTraversalAttempt(method string) {
 // RecordNATTraversalSuccess increments the success counter for the given method.
 func RecordNATTraversalSuccess(method string) {
 	natTraversalSuccesses.WithLabelValues(method).Inc()
+}
+
+// RecordAdmitWarning counts one case where an admit rule would act once enforced.
+func RecordAdmitWarning(rule string) {
 }

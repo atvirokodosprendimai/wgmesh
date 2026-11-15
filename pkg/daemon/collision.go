@@ -19,7 +19,11 @@ type CollisionInfo struct {
 	Peer2  *node.PeerInfo
 }
 
-func DetectCollisions(ps *node.PeerStore) []CollisionInfo {
+// applyInterfaceAddress is setInterfaceAddress behind a variable so the
+// collision tests can record what the daemon would set.
+var applyInterfaceAddress = setInterfaceAddress
+
+func DetectCollisions(ps *node.PeerStore, local node.Claim) []CollisionInfo {
 	peers := ps.GetAll()
 
 	ipMap := make(map[string]*node.PeerInfo)
@@ -93,7 +97,7 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 
 // CheckAndResolveCollisions checks for collisions and resolves them
 func (d *Daemon) CheckAndResolveCollisions() {
-	collisions := DetectCollisions(d.peerStore)
+	collisions := DetectCollisions(d.peerStore, node.Claim{Key: d.localNode.WGPubKey, IP: d.localNode.MeshIP})
 	if len(collisions) == 0 {
 		return
 	}
@@ -120,7 +124,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			d.localNode.MeshIP = newIP
 
 			// Reconfigure WireGuard with new IP using correct prefix length
-			if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, d.config.PrefixLen())); err != nil {
+			if err := applyInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, d.config.PrefixLen())); err != nil {
 				log.Printf("[Collision] Failed to update interface address: %v", err)
 			}
 		} else {
