@@ -33,3 +33,18 @@ func TestUnsubscribeWhileNotifyingDoesNotPanic(t *testing.T) {
 	close(stop)
 	wg.Wait()
 }
+
+// Unsubscribe must leave the channel open: closing it can race with a send.
+func TestUnsubscribeDoesNotCloseChannel(t *testing.T) {
+	ps := NewPeerStore()
+	ch := ps.Subscribe()
+	ps.Unsubscribe(ch)
+
+	select {
+	case _, ok := <-ch:
+		if !ok {
+			t.Error("unsubscribed channel was closed")
+		}
+	default:
+	}
+}

@@ -344,11 +344,10 @@ func TestPeerStoreUnsubscribe(t *testing.T) {
 
 	select {
 	case _, ok := <-ch:
-		if ok {
-			t.Error("Expected channel to be closed after unsubscribe")
+		if !ok {
+			t.Error("unsubscribed channel was closed")
 		}
-	case <-time.After(50 * time.Millisecond):
-		// Channel closed, no more events — also acceptable
+	default:
 	}
 }
 
