@@ -25,6 +25,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -37,6 +38,9 @@ const (
 	// EnvInsecureHostKey is pkg/ssh.EnvInsecureHostKey, see above.
 	EnvInsecureHostKey = "WGMESH_SSH_INSECURE_HOST_KEY"
 )
+
+// stdinTimeout bounds the wait for the end of a command's standard input.
+const stdinTimeout = 10 * time.Second
 
 // Reply is the answer to one command: its output and its exit status.
 type Reply struct {
@@ -102,9 +106,10 @@ func Start(t testing.TB, replies map[string]Reply) *Server {
 	trustHostKey(t, net.JoinHostPort(s.Host, strconv.Itoa(s.Port)), hostPub)
 
 	var (
-		wg    sync.WaitGroup
-		connM sync.Mutex
-		conns []net.Conn
+		wg     sync.WaitGroup
+		connM  sync.Mutex
+		conns  []net.Conn
+		closed bool
 	)
 	wg.Add(1)
 	go func() {
@@ -115,6 +120,12 @@ func Start(t testing.TB, replies map[string]Reply) *Server {
 				return
 			}
 			connM.Lock()
+			if closed {
+				// Cleanup already closed the connections: do not keep this one.
+				connM.Unlock()
+				nc.Close()
+				return
+			}
 			conns = append(conns, nc)
 			connM.Unlock()
 			wg.Add(1)
@@ -127,6 +138,7 @@ func Start(t testing.TB, replies map[string]Reply) *Server {
 	t.Cleanup(func() {
 		ln.Close()
 		connM.Lock()
+		closed = true
 		for _, c := range conns {
 			c.Close()
 		}
@@ -204,7 +216,13 @@ func (s *Server) session(ch ssh.Channel, reqs <-chan *ssh.Request) {
 		}
 		req.Reply(true, nil)
 
+		// A client that never closes its side of the channel must fail the
+		// test, not hang it.
+		timer := time.AfterFunc(stdinTimeout, func() { ch.Close() })
 		stdin, _ := io.ReadAll(ch)
+		if !timer.Stop() {
+			return
+		}
 		s.mu.Lock()
 		s.execs = append(s.execs, Exec{Command: payload.Command, Stdin: string(stdin)})
 		s.mu.Unlock()
