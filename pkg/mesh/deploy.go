@@ -205,11 +205,11 @@ func (m *Mesh) detectEndpoints() map[string]error {
 		probes[hostname] = probeResult{publicIP: publicIP, probed: true}
 	}
 
-	// A node that failed to connect is left out of the all-private rule and
-	// keeps the endpoint the state holds.
+	// Classification needs no connection: every node counts, a node that could
+	// not be dialled and the local node included.
 	allPrivate := true
 	for _, hostname := range hostnames {
-		if _, failed := failures[hostname]; !failed && !hostIsPrivate(m.Nodes[hostname].SSHHost) {
+		if !hostIsPrivate(m.Nodes[hostname].SSHHost) {
 			allPrivate = false
 		}
 	}
