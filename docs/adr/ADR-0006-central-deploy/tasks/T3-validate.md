@@ -64,6 +64,19 @@ a=$(go test ./pkg/mesh -run '^(TestValidateRefusesShellMetacharacters|TestValida
 | 4 — it is used | every `wgmesh -deploy` |
 
 ## Mutation Log
+- 2026-11-15 · ae4ddb3* · mutant inconclusive · exit 1 · `pkg/mesh/validate.go` · no class A findings from text values: the metacharacter test must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-15 · ae4ddb3* · mutant survived · exit 0 · `pkg/mesh/validate.go` · the safe set admits a semicolon: TestValidateRefusesShellMetacharacters must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-15 · ae4ddb3* · mutant killed · exit 1 · `pkg/mesh/validate.go` · class B is refused at N: the warn-at-N test must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-15 · ae4ddb3* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · Deploy stops refusing: TestDeployValidatesBeforeDial must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-15 · ae4ddb3* · mutant killed · exit 1 · `pkg/mesh/mesh.go` · pkg/mesh imports pkg/node: TestCentralizedPackagesDoNotImportPeerStore must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-15 · ae4ddb3* · mutant killed · exit 1 · `pkg/mesh/validate.go` · a leading dash is accepted: the leading-dash case must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-15 · ae4ddb3* · mutant killed · exit 1 · `pkg/mesh/validate.go` · an empty interface name only warns: TestValidateRefusesMissingFields must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
 
 ## Invariants
 
@@ -88,3 +101,25 @@ Stop and ask if either saved state produces a class A finding (the safe set refu
 - Setting `StrictState` (deferred: docs/adr/BACKLOG.md, the N+1 row written by T6).
 
 ## Verification Log
+- 2026-11-15 · ae4ddb3* · exit 1 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:1013 · test-lock-sha256:11c42f183fcce8447793ee030bb9d63420ec16d1fe5d32229a4f6673808979a6 · test-lock-file:docs/adr/locks/11c42f183fcce8447793ee030bb9d63420ec16d1fe5d32229a4f6673808979a6.lock
+  ```
+  --- last 10 line(s) of stderr (of 343 after folding 343 raw)
+      --- PASS: TestValidateAcceptsSavedStates/state-docs-example.json (0.00s)
+      --- FAIL: TestValidateAcceptsSavedStates/docs_placeholders (0.00s)
+      --- PASS: TestValidateAcceptsSavedStates/ipv6_endpoint (0.00s)
+  === RUN   TestDeployValidatesBeforeDial
+      validate_test.go:279: error must list the finding: failed to detect endpoints: failed to connect to alpha: failed to dial SSH: ssh: handshake failed: read tcp 127.0.0.1:47684->127.0.0.1:33153: read: connection reset by peer
+      validate_test.go:282: Deploy opened 1 connection(s) before validating
+  --- FAIL: TestDeployValidatesBeforeDial (0.02s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/mesh	0.030s
+  FAIL
+  ```
+- 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:9136
+- 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8315
+- 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:9279
+- 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:10652
+- 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:11990
+- 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8603
+- 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:10002
+- 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:5614
