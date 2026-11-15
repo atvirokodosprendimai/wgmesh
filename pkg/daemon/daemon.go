@@ -310,13 +310,18 @@ func (d *Daemon) Shutdown() {
 // node's own earlier derivation (default /16 from a secret, possibly an older
 // secret, or a --mesh-subnet used on an earlier run) and stays authoritative:
 // the operator changed an option, not the address, and peers, DNS and firewall
-// rules refer to it (issue #827). Any valid IPv4 address is kept.
+// rules refer to it (issue #827). Any usable unicast IPv4 address is kept.
 func MeshIPKept(meshIP string, customSubnet *net.IPNet) bool {
 	ip := net.ParseIP(meshIP)
 	if ip == nil || ip.To4() == nil {
 		return false
 	}
-	return customSubnet == nil || customSubnet.Contains(ip)
+	if customSubnet != nil {
+		return customSubnet.Contains(ip)
+	}
+	// Without a subnet any usable unicast address is kept; addresses that
+	// cannot be a node address are re-derived.
+	return !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsMulticast() && !ip.Equal(net.IPv4bcast)
 }
 
 func meshIPInSubnet(meshIP string, cfg *Config) bool {

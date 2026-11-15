@@ -383,6 +383,38 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: false,
 		},
 		{
+			name:   "no custom subnet rejects unspecified 0.0.0.0",
+			meshIP: "0.0.0.0",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
+			name:   "no custom subnet rejects loopback 127.0.0.1",
+			meshIP: "127.0.0.1",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
+			name:   "no custom subnet rejects multicast 224.0.0.1",
+			meshIP: "224.0.0.1",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
+			name:   "no custom subnet rejects limited broadcast 255.255.255.255",
+			meshIP: "255.255.255.255",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
 			name:   "invalid IP",
 			meshIP: "not-an-ip",
 			cfg: &Config{
