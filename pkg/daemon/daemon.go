@@ -1120,13 +1120,13 @@ func (d *Daemon) probePeer(peer *PeerInfo) bool {
 	}
 
 	_ = session.conn.SetReadDeadline(time.Now().Add(MeshProbeDialTimeout))
-	line, err := session.reader.ReadString('\n')
+	reply, err := readProbeReply(session.reader)
 	if err != nil {
 		d.closeProbeSession(peer.WGPubKey)
 		return false
 	}
 
-	if strings.TrimSpace(line) != "pong" {
+	if reply != "pong" {
 		d.closeProbeSession(peer.WGPubKey)
 		return false
 	}
@@ -1136,6 +1136,17 @@ func (d *Daemon) probePeer(peer *PeerInfo) bool {
 	ObserveProbeRTTSummary(peer.WGPubKey[:8], rtt)
 	d.peerStore.SetLatency(peer.WGPubKey, rtt)
 	return true
+}
+
+// readProbeReply reads one probe reply line through a reader sized to
+// probeMaxLineBytes. A responder that never sends a newline fails with
+// bufio.ErrBufferFull instead of making the prober buffer unbounded data.
+func readProbeReply(r *bufio.Reader) (string, error) {
+	line, err := r.ReadSlice('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(line)), nil
 }
 
 func (d *Daemon) getOrDialProbeSession(peer *PeerInfo) *peerProbeSession {
@@ -1156,7 +1167,7 @@ func (d *Daemon) getOrDialProbeSession(peer *PeerInfo) *peerProbeSession {
 		if err != nil {
 			continue
 		}
-		session := &peerProbeSession{conn: conn, reader: bufio.NewReader(conn)}
+		session := &peerProbeSession{conn: conn, reader: bufio.NewReaderSize(conn, probeMaxLineBytes)}
 		d.probeMu.Lock()
 		d.probeSessions[peer.WGPubKey] = session
 		d.probeMu.Unlock()
