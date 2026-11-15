@@ -21,7 +21,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | Add `ssh.Quote`, `ssh.Cmd` and a Linux interface grammar that ignores GOOS | done | — | six named tests in two packages, then `-race` |
-| T2 | Send every remote command through `ssh.Cmd`, render wg-quick safely, and fail the build on a raw one | pending | — | six named tests in two packages, build, vet, then `-race` |
+| T2 | Send every remote command through `ssh.Cmd`, render wg-quick safely, and fail the build on a raw one | done | — | six named tests in two packages, build, vet, then `-race` |
 | T3 | Validate the loaded state before the first connection (#868) | pending | — | seven named tests, build, vet, then `-race` |
 | T4 | Record a result per node and continue past a failed one (#865) | pending | — | eight named tests, build, vet, then `-race` |
 | T5 | Decide a node's endpoint in one pure function, and skip the probe for private hosts (#866) | pending | — | five named tests, build, vet, then `-race` |

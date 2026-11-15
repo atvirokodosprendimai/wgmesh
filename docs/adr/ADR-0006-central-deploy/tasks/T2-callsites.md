@@ -69,6 +69,13 @@ a=$(go test ./pkg/ssh -run '^(TestNoUnquotedRemoteCommand|TestHostileStateComman
 | 4 — it is used | every `-deploy` command from this task on |
 
 ## Mutation Log
+- 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/ssh/routes.go` · GetCurrentRoutes raw Sprintf: TestNoUnquotedRemoteCommand must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · rm -f concatenates configPath: TestNoUnquotedRemoteCommand must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · PostUp route unquoted: TestWgQuickQuotesRouteValues must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · newline and CR no longer refused: TestWgQuickRefusesControlCharacters must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/ssh/client.go` · WriteFile path unquoted: guard and TestHostileStateCommandsAreOneWordEach must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/ssh/routes.go` · route commands lose via: golden and e2e must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/wireguard/config.go` · wg set unquoted for PSK peers: guard must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
 
 ## Invariants
 
@@ -95,3 +102,25 @@ Stop and ask if the golden differs after S3 for a valid value (the safe set is w
 - `routes.ConnectedRouteCmd` in `pkg/routes` (permanent: boundary: its inputs are a parsed network, an interface name checked by `ifaceNameRe` and a parsed address; T2 only wraps the finished command at the call site in `pkg/ssh/routes.go`).
 
 ## Verification Log
+- 2026-11-15 · 2e07fdd* · exit 1 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:1273 · test-lock-sha256:27cfcf28781eaac35f9229fba539b55ab20d606105334ad5e654ebf0d7a88ee1 · test-lock-file:docs/adr/locks/27cfcf28781eaac35f9229fba539b55ab20d606105334ad5e654ebf0d7a88ee1.lock
+  ```
+  --- last 10 line(s) of stderr (of 228 after folding 234 raw)
+      remote_e2e_test.go:332: fresh=false bravo: `;` outside quotes in "cat > /etc/wireguard/wg0; touch /x.conf && chmod 600 /etc/wireguard/wg0; touch /x.conf"
+      remote_e2e_test.go:336: fresh=false bravo: injected word "touch" in "cat > /etc/wireguard/wg0; touch /x.conf && chmod 600 /etc/wireguard/wg0; touch /x.conf"  (x2)
+      remote_e2e_test.go:349: no command carries the hostile route inside one word
+      remote_e2e_test.go:349: no command carries the hostile endpoint inside one word
+      remote_e2e_test.go:349: no command carries the hostile interface name inside one word
+      remote_e2e_test.go:349: no command carries the hostile public key inside one word
+  --- FAIL: TestHostileStateCommandsAreOneWordEach (0.04s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/ssh	0.133s
+  FAIL
+  ```
+- 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:13203
+- 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:12873
+- 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:13956
+- 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:14053
+- 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:12045
+- 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:10320
+- 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:11082
+- 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:8000
