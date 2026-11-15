@@ -256,3 +256,97 @@ func TestSSHTestHostKeyIsVerified(t *testing.T) {
 		t.Fatalf("NewClient error = %v, want a changed-host-key refusal", err)
 	}
 }
+
+// splitWords reads cmd the way sh does for the quoting this repository
+// produces: single quotes, and a backslash outside quotes. It returns the
+// words, the text that sh would read as syntax (everything outside quotes
+// and not backslash-escaped) and false when a quote is left open.
+func splitWords(cmd string) (words []string, syntax string, ok bool) {
+	var word, syn strings.Builder
+	inWord, inQuote := false, false
+	flush := func() {
+		if inWord {
+			words = append(words, word.String())
+			word.Reset()
+			inWord = false
+		}
+	}
+	for i := 0; i < len(cmd); i++ {
+		c := cmd[i]
+		switch {
+		case inQuote:
+			if c == '\'' {
+				inQuote = false
+			} else {
+				word.WriteByte(c)
+			}
+		case c == '\'':
+			inQuote, inWord = true, true
+		case c == '\\' && i+1 < len(cmd):
+			i++
+			word.WriteByte(cmd[i])
+			inWord = true
+		case c == ' ' || c == '\t' || c == '\n':
+			flush()
+			syn.WriteByte(c)
+		default:
+			word.WriteByte(c)
+			syn.WriteByte(c)
+			inWord = true
+		}
+	}
+	flush()
+	return words, syn.String(), !inQuote
+}
+
+// TestHostileStateCommandsAreOneWordEach deploys a state whose interface
+// name, public key, routable network and endpoint each end in `; touch /x`
+// and checks every command the node received: no shell syntax (a `;`) and no
+// word of its own for the injected text, and each hostile value present as
+// part of one word.
+func TestHostileStateCommandsAreOneWordEach(t *testing.T) {
+	const marker = "; touch /x"
+	hostile := fixture{
+		iface:         "wg0" + marker,
+		alphaKey:      "ALPHAKEY" + marker,
+		alphaNets:     []string{"10.0.0.0/8" + marker},
+		bravoEndpoint: "198.51.100.1:51820" + marker,
+	}
+	values := map[string]string{
+		"interface name": hostile.iface,
+		"public key":     hostile.alphaKey,
+		"route":          hostile.alphaNets[0],
+		"endpoint":       hostile.bravoEndpoint,
+	}
+	seen := map[string]bool{}
+
+	for _, fresh := range []bool{true, false} {
+		for _, ns := range deploy(t, hostile, nodeReplies(fresh, "203.0.113.5")) {
+			for _, cmd := range ns.srv.Commands() {
+				words, syntax, ok := splitWords(cmd)
+				if !ok {
+					t.Errorf("fresh=%v %s: unbalanced quote in %q", fresh, ns.name, cmd)
+					continue
+				}
+				if strings.Contains(syntax, ";") {
+					t.Errorf("fresh=%v %s: `;` outside quotes in %q", fresh, ns.name, cmd)
+				}
+				for _, w := range words {
+					if w == "touch" || w == "/x" {
+						t.Errorf("fresh=%v %s: injected word %q in %q", fresh, ns.name, w, cmd)
+					}
+					for name, v := range values {
+						if strings.Contains(w, v) {
+							seen[name] = true
+						}
+					}
+				}
+			}
+		}
+	}
+	for name := range values {
+		if !seen[name] {
+			t.Errorf("no command carries the hostile %s inside one word", name)
+		}
+	}
+}

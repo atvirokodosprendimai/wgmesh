@@ -9,7 +9,7 @@ import (
 
 // GenerateWgQuickConfig renders a wg-quick compatible configuration file for
 // the given FullConfig and optional extra routes.
-func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) string {
+func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) (string, error) {
 	var sb strings.Builder
 
 	sb.WriteString("[Interface]\n")
@@ -57,13 +57,16 @@ func GenerateWgQuickConfig(config *FullConfig, routes []ssh.RouteEntry) string {
 		sb.WriteString("\n")
 	}
 
-	return sb.String()
+	return sb.String(), nil
 }
 
 // ApplyPersistentConfig writes a wg-quick configuration file to the remote
 // host and (re)starts the wg-quick systemd service.
 func ApplyPersistentConfig(client *ssh.Client, iface string, config *FullConfig, routes []ssh.RouteEntry) error {
-	configContent := GenerateWgQuickConfig(config, routes)
+	configContent, err := GenerateWgQuickConfig(config, routes)
+	if err != nil {
+		return fmt.Errorf("failed to render config: %w", err)
+	}
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", iface)
 
 	fmt.Printf("  Writing persistent configuration to %s\n", configPath)
@@ -96,7 +99,10 @@ func UpdatePersistentConfig(client *ssh.Client, iface string, config *FullConfig
 
 	fmt.Printf("  Applying online peer updates and updating persistent config\n")
 
-	configContent := GenerateWgQuickConfig(config, routes)
+	configContent, err := GenerateWgQuickConfig(config, routes)
+	if err != nil {
+		return fmt.Errorf("failed to render config: %w", err)
+	}
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", iface)
 
 	if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {

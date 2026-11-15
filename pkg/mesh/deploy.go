@@ -85,7 +85,11 @@ func (m *Mesh) Deploy() error {
 			}
 
 			// Always ensure config file is up to date
-			configContent := wireguard.GenerateWgQuickConfig(config, desiredRoutes)
+			configContent, err := wireguard.GenerateWgQuickConfig(config, desiredRoutes)
+			if err != nil {
+				client.Close()
+				return fmt.Errorf("failed to render config for %s: %w", hostname, err)
+			}
 			configPath := fmt.Sprintf("/etc/wireguard/%s.conf", m.InterfaceName)
 			if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {
 				fmt.Printf("  Warning: failed to update config file: %v\n", err)
