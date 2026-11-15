@@ -11,7 +11,7 @@
 
 ## Goal
 
-The ten production `peerStore.Update` calls name their source and hand, the first-hand punch reply at `dht.go:1068` stops being labelled second-hand, and a test fails when any production file outside `pkg/node` mutates the store directly.
+The ten production `peerStore.Update` calls name their source and hand, the first-hand punch reply at `dht.go:1068` is offered first hand (its `dht-transitive` label stays, `daemon.go:720` reads it), and a test fails when any production file outside `pkg/node` mutates the store directly.
 
 ## Affected Files
 
@@ -20,7 +20,7 @@ The ten production `peerStore.Update` calls name their source and hand, the firs
 | `pkg/node/admit_guard_test.go` | add | `TestNoDirectPeerStoreMutation`: parses every non-test `.go` file outside `pkg/node` and fails on `Update` or `SetPeerDirectly` called on a receiver whose last identifier is `peerStore`, `PeerStore`, `ps` or `store` |
 | `pkg/discovery/lan.go` | edit | `:229` LAN, first hand |
 | `pkg/discovery/exchange.go` | edit | `:403` HELLO sender, first hand; `:436` REPLY sender, first hand; `:891` rendezvous, first hand; `:1035` transitive, second hand |
-| `pkg/discovery/dht.go` | edit | `:1068` and `:1129` through one new helper `admitPunchReply(peerInfo, source)`, first hand; `:1068` passes `dht` (today `dht-transitive`), `:1129` passes the caller's method unchanged (`dht`, `dht-ipv6-sync`) |
+| `pkg/discovery/dht.go` | edit | `:1068` and `:1129` through one new helper `admitPunchReply(peerInfo, source)`, first hand; `:1068` passes `dht-transitive` unchanged (M 2026-11-15: the label stays, the hand becomes first hand; `daemon.go:720` reads the label), `:1129` passes the caller's method unchanged (`dht`, `dht-ipv6-sync`) |
 | `pkg/discovery/gossip.go` | edit | `:323` first hand, `:340` second hand |
 | `pkg/daemon/cache.go` | edit | `:126` restored |
 | `pkg/discovery/exchange_test.go`, `pkg/discovery/gossip_test.go`, `pkg/daemon/cache_test.go`, `pkg/discovery/dht_test.go` | edit | the four site tests below, next to the existing ones |
@@ -76,13 +76,13 @@ n=$(go test ./pkg/node ./pkg/discovery ./pkg/daemon -run '^(TestNoDirectPeerStor
 
 ## Invariants
 
-- Method strings stored in `DiscoveredVia` are unchanged for every site except `dht.go:1068`, which now says `dht` (was `dht-transitive`); `dht-ipv6-sync` and its endpoint rank are kept.
+- Method strings stored in `DiscoveredVia` are unchanged for every site, `dht.go:1068` included (it keeps `dht-transitive`, M 2026-11-15); the hand at `dht.go:1068` changes from second to first; `dht-ipv6-sync` and its endpoint rank are kept.
 - No source changes its parsing, its sender-address handling or its rate limiting.
 - `pkg/daemon` still does not import `pkg/discovery`; `pkg/discovery` names the new types through the aliases T1 added.
 
 ## Risks
 
-- The guard works by receiver name, so a store assigned to a variable named otherwise is missed; the doc comment says so, and the mutants include a renamed receiver being caught by the name list.
+- The guard works by receiver name, so a store assigned to a variable named otherwise is missed; the doc comment says so, and `TestGuardFlagsEveryMutatingMethod` proves four receiver names are caught and an unrelated one is not.
 - Test doubles: none; the site tests build the real `PeerExchange`, `MeshGossip` and `PeerStore` the neighbouring tests already build.
 
 ## Stop Condition

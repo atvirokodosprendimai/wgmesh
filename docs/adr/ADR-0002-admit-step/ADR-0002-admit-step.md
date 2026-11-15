@@ -22,6 +22,7 @@ M answered the six questions of the first draft on 2026-11-15. Recorded here, da
 6. **Route approval is in this ADR** (M 2026-11-15: "Daryti šiame ADR"). Design in Decision item 4a, task T10. M's earlier decision of 2026-11-15 is kept: two HA exit nodes each drop the other's `0.0.0.0/0`, and an advertised default route stays a feature (#859).
 7. **An unset `accept-routes` stays open after N+2** (M 2026-11-15: "Lieka atviras kaip šiandien (Recommended)"): no deny-by-default; an operator opts in by setting the list.
 8. **Approval is by network only** (M 2026-11-15: "Ne, tik tinklas (Recommended)"): an `accept-routes` entry never names an advertiser key.
+9. **The punch reply keeps its label** (M 2026-11-15, harness question during T2 review: "Hand=FirstHand, Source lieka dht-transitive (Recommended)"). `dht.go:1068` offers the reply of a successful punch first hand, and its `Source` stays `dht-transitive`: `pkg/daemon/daemon.go:720` prefers a relay for a peer whose `DiscoveredVia` holds `dht-transitive` and that has no handshake yet, and `endpointMethodRank` ranks the label 40. Trust is read from `Hand`; the label is a path marker. T2's first version passed `dht` there; the review found the consumer.
 
 ## Open Questions for M
 
@@ -74,7 +75,7 @@ Left out on purpose: `main.go:573` prints a reply and writes nothing (the join d
 
 | Rule | Issue | Decision |
 |---|---|---|
-| R1 hand is explicit | (class) | trust is read from `Hand`, never from the method string; the one `-transitive` label on a first-hand reply (`dht.go:1068`) is corrected; method strings such as `dht-ipv6-sync` are kept |
+| R1 hand is explicit | (class) | trust is read from `Hand`, never from the method string; the one first-hand reply labelled `-transitive` (`dht.go:1068`) gets the first hand and keeps its label, which `daemon.go:720` reads (decision 9); method strings such as `dht-ipv6-sync` are kept |
 | R2 tombstone | #854 | a key withdrawn by GOODBYE, health eviction or stale cleanup refuses `SecondHand` and `Restored` offers for `TombstoneTTL` (5 minutes); a `FirstHand` offer clears it |
 | R3 local claim | #856 | the node's own `(key, mesh IP)` is a member of the IP claim table; a candidate that claims the local IP is a collision decided by the same order as any other pair |
 | R4 claim order | #864, #856 | on one IP: a bound claim (IP equals the IP derived from that claim's own key, nonce 0 to 10) beats an unbound one; equal classes fall to the lower public key, which is what every observer computes |
@@ -170,7 +171,7 @@ See `tasks/README.md`. Eleven tasks in five waves (the tasks share files and run
 | A tombstone hides a peer that is back but heard only through mentions; stale cleanup would otherwise make mention-only peers vanish for five minutes in a loop | Med | Low | cleanup tombstones only peers once heard first-hand (`HeardFirstHand`); GOODBYE and health eviction always tombstone; its own first-hand packet clears it at once |
 | `Decide` under the store lock slows discovery at 1000 peers | Low | Med | T1 benchmarks it at the cap; the claim index is built once per offer, not per rule |
 | A new source is added and calls `Update` | Med | High | `TestNoDirectPeerStoreMutation` fails the build; the receiver-name heuristic is the guard's limit (T2 states it and mutation-tests it) |
-| Relabelling `dht.go:1068` as first-hand refreshes `LastSeen` of a peer that answered a punch | Low | Low | that is the intended behaviour (it just answered, and `exchange.go:436` already stored it first-hand); T2 has a test |
+| Offering `dht.go:1068` as first hand (its label stays, decision 9) refreshes `LastSeen` of a peer that answered a punch | Low | Low | that is the intended behaviour (it just answered, and `exchange.go:436` already stored it first-hand); T2 has a test |
 | `ObserveEndpoint` delays a real endpoint change by three STUN cycles (3 minutes at the 60-second refresh) | Med | Low | a peer reflection applies at once, and so does any observation while the current endpoint is empty or unspecified (`0.0.0.0`), so start-up is not delayed; only STUN-only changes of a usable endpoint wait |
 
 ## Rollback
