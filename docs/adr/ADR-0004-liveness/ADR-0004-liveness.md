@@ -1,6 +1,6 @@
 # ADR-0004: Decide that a peer is alive from all the evidence the node has, in one stateless step
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Owner:** wgmesh maintainers
 **Spec:** None — no spec stage; `eidos/spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md` and `eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md` are amended by T7
