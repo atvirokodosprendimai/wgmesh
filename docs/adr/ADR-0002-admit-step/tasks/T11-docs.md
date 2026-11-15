@@ -28,8 +28,8 @@ The peer store, exchange, DHT core and daemon support specs and a release note d
 
 ## Ordered Steps
 
-1. [S1] Add `pkg/node/spec_admit_test.go` with `TestSpecNamesAdmit`: it reads the three specs, `docs/admit-rollout.md` and `docs/adr/BACKLOG.md` and fails when `Offer`, `Withdraw` and `tombstone` (peer store spec), `FilterAnnouncement` (exchange spec), `ResolveClaims` (daemon spec), `EnforceIPBinding`, `EnforceRouteBinding`, `N+1`, `N+2`, `accept-routes` and `wgmesh_admit_warnings_total` (note) or `ADR-0002` (backlog) are missing. Run it red.
-2. [S2] Amend the three specs.
+1. [S1] Add `pkg/node/spec_admit_test.go` with `TestSpecNamesAdmit`: it reads the four specs (peer store, exchange, daemon support, DHT core, which also names `ObserveEndpoint`), `docs/admit-rollout.md` and `docs/adr/BACKLOG.md` and fails when `Offer`, `Withdraw` and `tombstone` (peer store spec), `FilterAnnouncement` (exchange spec), `ResolveClaims` (daemon spec), `EnforceIPBinding`, `EnforceRouteBinding`, `N+1`, `N+2`, `accept-routes` and `wgmesh_admit_warnings_total` (note) or `ADR-0002` (backlog) are missing. Run it red.
+2. [S2] Amend the four specs.
 3. [S3] Write `docs/admit-rollout.md`.
 4. [S4] Edit `docs/adr/BACKLOG.md`; run `adr-debt docs/adr` and paste that no deferred row of ADR-0002 is reported unreceipted.
 5. [S5] Run the mutants with `adr-verify --mutant`: the peer store spec stops naming the tombstone; the note stops naming the counter; the backlog loses the N+2 row. [proof: mutation]
@@ -45,7 +45,7 @@ n=$(go test ./pkg/node -run '^TestSpecNamesAdmit$' -count=1 -v 2>&1 | tee /dev/s
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestSpecNamesAdmit` | `pkg/node/spec_admit_test.go` | the three specs, the release note and the backlog name the admit rules, the switches, the counter and ADR-0002 | — | S1, S2, S3, S4 |
+| `TestSpecNamesAdmit` | `pkg/node/spec_admit_test.go` | the four specs, the release note and the backlog name the admit rules, the switches, the counter and ADR-0002 | — | S1, S2, S3, S4 |
 
 ## Reachability
 
@@ -60,6 +60,10 @@ n=$(go test ./pkg/node -run '^TestSpecNamesAdmit$' -count=1 -v 2>&1 | tee /dev/s
 - 2026-11-16 · db371c0* · mutant killed · exit 1 · `pkg/node/spec_admit_test.go` · the peer store spec stops naming the tombstone (the doc path has spaces: the name list of the test is mutated instead) · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
 - 2026-11-16 · db371c0* · mutant killed · exit 1 · `docs/admit-rollout.md` · docs/admit-rollout.md stops naming wgmesh_admit_warnings_total · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
 - 2026-11-16 · db371c0* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · the backlog loses the ADR-0002 rows (N+1, N+2 and the known limits) · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
+- 2026-11-16 · 02dc3a7* · mutant killed · exit 1 · `pkg/node/spec_admit_test.go` · r2: the peer store spec stops naming the tombstone (doc path has spaces: the test's name list is mutated) · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
+- 2026-11-16 · 02dc3a7* · mutant killed · exit 1 · `docs/admit-rollout.md` · r2: docs/admit-rollout.md stops naming wgmesh_admit_warnings_total (all three lines removed) · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
+- 2026-11-16 · 02dc3a7* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · r2: the backlog loses the eight ADR-0002 known-limit rows · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
+- 2026-11-16 · 02dc3a7* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · r2: the backlog loses the ADR-0002 N+2 row · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
 
 ## Invariants
 
@@ -98,3 +102,9 @@ Stop and ask if a spec section named here does not exist in the file (the spec f
   FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.003s
   FAIL
   ```
+- 2026-11-16 · 02dc3a7* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:0 · test-lock-sha256:831db8f09ebb4836e916dba4f70bd3f381fb08b7cf0d30de1cc07a494e1495ed · test-lock-file:docs/adr/locks/831db8f09ebb4836e916dba4f70bd3f381fb08b7cf0d30de1cc07a494e1495ed.lock · test-lock-kind:replace
+- 2026-11-16 · 02dc3a7* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1476
+- 2026-11-16 · 02dc3a7* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1501
+- 2026-11-16 · 02dc3a7* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1406
+- 2026-11-16 · 02dc3a7* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1646
+- 2026-11-16 · 02dc3a7* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1071
