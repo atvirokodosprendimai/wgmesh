@@ -149,7 +149,7 @@ Edit the `/var/lib/wgmesh/mesh-state.json` file and add routable networks to a n
 After editing, run `wgmesh -deploy` to apply the changes.
 
 **What happens:**
-- `node1` gets direct routes: `ip route add 192.168.10.0/24 dev wg0` and `ip route add 192.168.20.0/24 dev wg0`
+- `node1` gets no mesh routes for its own networks (it is their gateway); a stale `<net> dev wg0` route left by older versions is removed
 - All other nodes get routes via node1's mesh IP: `ip route add 192.168.10.0/24 via 10.99.0.1 dev wg0`
 - Routes are added to both the live routing table and the persistent config file
 - If you remove a network from `routable_networks`, it will be automatically cleaned up from all nodes on the next deploy

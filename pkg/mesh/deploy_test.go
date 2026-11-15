@@ -3,10 +3,12 @@ package mesh
 import (
 	"net"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
 func TestDeploymentConfigUnderLock(t *testing.T) {
@@ -31,7 +33,10 @@ func TestDeploymentConfigUnderLock(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			node := &Node{Hostname: "node1", MeshIP: net.ParseIP("10.99.0.1"), ListenPort: 51820}
+			node := &Node{
+				Hostname: "node1", MeshIP: net.ParseIP("10.99.0.1"), ListenPort: 51820,
+				RoutableNetworks: []string{"192.168.10.0/24"},
+			}
 			peer := &Node{
 				Hostname: "node2", MeshIP: net.ParseIP("10.99.0.2"), PublicKey: "peer-public-key",
 				RoutableNetworks: []string{"192.168.20.0/24"},
@@ -82,8 +87,49 @@ func TestDeploymentConfigUnderLock(t *testing.T) {
 			if tt.wantPeers > 0 && !reflect.DeepEqual(config.Peers[0].AllowedIPs, wantAllowedIPs) {
 				t.Errorf("AllowedIPs = %v, want %v", config.Peers[0].AllowedIPs, wantAllowedIPs)
 			}
+			// The node's own 192.168.10.0/24 must never become a route on it.
 			if len(routes) != len(wantRoutes) || (len(wantRoutes) > 0 && !reflect.DeepEqual(routes, wantRoutes)) {
 				t.Errorf("routes = %v, want %v", routes, wantRoutes)
+			}
+			if conf := wireguard.GenerateWgQuickConfig(config, routes); strings.Contains(conf, "via  dev") {
+				t.Errorf("wg-quick config has a gateway-less route:\n%s", conf)
+			}
+		})
+	}
+}
+
+func TestOwnNetworkRoutes(t *testing.T) {
+	t.Parallel()
+
+	own := []string{"192.168.10.0/24"}
+	tests := []struct {
+		name    string
+		current []ssh.RouteEntry
+		want    []ssh.RouteEntry
+	}{
+		{name: "no routes"},
+		{
+			name:    "stale own network on mesh interface",
+			current: []ssh.RouteEntry{{Network: "192.168.10.0/24"}},
+			want:    []ssh.RouteEntry{{Network: "192.168.10.0/24"}},
+		},
+		{
+			name: "mesh subnet and peer networks kept",
+			current: []ssh.RouteEntry{
+				{Network: "10.99.0.0/16"},
+				{Network: "192.168.20.0/24", Gateway: "10.99.0.2"},
+			},
+		},
+		{
+			name:    "own network via a peer kept",
+			current: []ssh.RouteEntry{{Network: "192.168.10.0/24", Gateway: "10.99.0.2"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := ownNetworkRoutes(tt.current, own); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("ownNetworkRoutes() = %v, want %v", got, tt.want)
 			}
 		})
 	}
