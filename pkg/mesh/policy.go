@@ -96,6 +96,11 @@ func (m *Mesh) GetNodeGroups(hostname string) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	return m.getNodeGroupsLocked(hostname)
+}
+
+// getNodeGroupsLocked requires the caller to hold m.mu.
+func (m *Mesh) getNodeGroupsLocked(hostname string) []string {
 	groups := make([]string, 0)
 	for groupName, group := range m.Groups {
 		for _, member := range group.Members {
@@ -114,8 +119,13 @@ func (m *Mesh) GetAllowedPeers(hostname string) map[string]*PeerAccess {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	return m.getAllowedPeersLocked(hostname)
+}
+
+// getAllowedPeersLocked requires the caller to hold m.mu.
+func (m *Mesh) getAllowedPeersLocked(hostname string) map[string]*PeerAccess {
 	allowedPeers := make(map[string]*PeerAccess)
-	nodeGroups := m.GetNodeGroups(hostname)
+	nodeGroups := m.getNodeGroupsLocked(hostname)
 
 	// If node is not in any group, it gets no peers (deny by default)
 	if len(nodeGroups) == 0 {
@@ -258,5 +268,13 @@ func (m *Mesh) HasPolicies() bool {
 
 // IsAccessControlEnabled returns true if access control is enabled (groups or policies exist)
 func (m *Mesh) IsAccessControlEnabled() bool {
-	return m.HasGroups() || m.HasPolicies()
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.isAccessControlEnabledLocked()
+}
+
+// isAccessControlEnabledLocked requires the caller to hold m.mu.
+func (m *Mesh) isAccessControlEnabledLocked() bool {
+	return len(m.Groups) > 0 || len(m.AccessPolicies) > 0
 }

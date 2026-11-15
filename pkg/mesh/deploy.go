@@ -173,10 +173,8 @@ func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
 	return routes
 }
 
+// collectAllRoutesForNode requires the caller to hold m.mu.
 func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	routes := make([]ssh.RouteEntry, 0)
 
 	// Add this node's own networks (direct routes, no gateway)
@@ -188,9 +186,9 @@ func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
 	}
 
 	// Check if access control is enabled
-	if m.IsAccessControlEnabled() {
+	if m.isAccessControlEnabledLocked() {
 		// Use policy-based route collection
-		allowedPeers := m.GetAllowedPeers(node.Hostname)
+		allowedPeers := m.getAllowedPeersLocked(node.Hostname)
 		for peerHostname, access := range allowedPeers {
 			peer := m.Nodes[peerHostname]
 			if access.AllowRoutableNetworks {
@@ -244,10 +242,8 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 	return ssh.ApplyRouteDiff(client, m.InterfaceName, toAdd, toRemove)
 }
 
+// generateConfigForNode requires the caller to hold m.mu.
 func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
 	// Extract prefix length from mesh network CIDR
 	prefixLen := 16 // default
 	if m.Network != "" {
@@ -270,9 +266,9 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 	}
 
 	// Check if access control is enabled
-	if m.IsAccessControlEnabled() {
+	if m.isAccessControlEnabledLocked() {
 		// Use policy-based peer selection
-		allowedPeers := m.GetAllowedPeers(node.Hostname)
+		allowedPeers := m.getAllowedPeersLocked(node.Hostname)
 		for peerHostname, access := range allowedPeers {
 			peer := m.Nodes[peerHostname]
 			peerConfig := m.buildPeerConfig(peer, access)
