@@ -60,7 +60,7 @@ func routeRule(s Snapshot, key, route string) string {
 	if ones == bits && claimsOn(s, key, n.IP.String(), func(Claim) bool { return true }) {
 		return "route-inside-member-ip"
 	}
-	if m := s.Policy.MeshNet; m != nil && m.Contains(n.IP) {
+	if m := s.Policy.MeshNet; m != nil && len(n.Mask) == len(m.Mask) && m.Contains(n.IP) {
 		if meshOnes, _ := m.Mask.Size(); ones >= meshOnes {
 			return "route-inside-mesh"
 		}

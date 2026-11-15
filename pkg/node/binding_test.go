@@ -149,6 +149,24 @@ func TestRouteSupernetIsKept(t *testing.T) {
 		}
 	}
 }
+ 
+func TestRouteMappedIPv6IsNotInsideMesh(t *testing.T) {
+	routes := []string{"::ffff:10.42.0.0/112", "::ffff:10.42.7.0/120"}
+	for _, sw := range [][2]bool{{false, false}, {true, true}} {
+		setSwitches(t, sw[0], sw[1])
+		ps, warned := bindingStore(t)
+		d := ps.Offer(firstHand("gw", "10.42.1.1", routes...))
+		if d.Verdict != Admit || len(d.Dropped) != 0 {
+			t.Errorf("switches %v: decision = %+v, want a plain Admit", sw, d)
+		}
+		if got, _ := ps.Get("gw"); got == nil || !reflect.DeepEqual(got.RoutableNetworks, routes) {
+			t.Errorf("switches %v: stored routes = %+v, want %v", sw, got, routes)
+		}
+		if len(*warned) != 0 {
+			t.Errorf("switches %v: IPv6 routes warned %v", sw, *warned)
+		}
+	}
+}
 
 func TestRotatedAddressAdmittedInEveryPhase(t *testing.T) {
 	for _, sw := range [][2]bool{{false, false}, {true, false}, {true, true}} {
