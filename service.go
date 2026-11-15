@@ -490,7 +490,8 @@ func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubne
 	// This won't match the daemon's mesh IP (which needs the WG pubkey),
 	// but it gives the Lighthouse enough info to associate the origin.
 	// The user should run `join` first to establish the WG identity.
-	fmt.Fprintln(os.Stderr, "Warning: no local WireGuard identity found. Run 'wgmesh join' first for accurate mesh IP.")
+	fmt.Fprintf(os.Stderr, "Warning: no local WireGuard identity found (looked in %s).\n", statePath)
+	fmt.Fprintln(os.Stderr, "Run 'wgmesh join' first for accurate mesh IP.")
 	fmt.Fprintln(os.Stderr, "Using derived placeholder — service may need re-registration after join.")
 	if customSubnet != nil {
 		ip, err := crypto.DeriveMeshIPInSubnet(customSubnet, "unjoined", secret)
