@@ -218,3 +218,130 @@ func BenchmarkOfferRefusedAtCap(b *testing.B) {
 		ps.Offer(c)
 	}
 }
+
+// clockedStore returns a store whose clock the test owns: every reading
+// advances it by step, and the test moves it further through the pointer.
+func clockedStore(step time.Duration) (*PeerStore, *time.Time) {
+	now := time.Unix(1_700_000_000, 0)
+	ps := NewPeerStore()
+	ps.now = func() time.Time {
+		now = now.Add(step)
+		return now
+	}
+	return ps, &now
+}
+
+func offerHand(ps *PeerStore, key string, h Hand, introducer bool) Decision {
+	return ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: key, Introducer: introducer}, Source: "dht", Hand: h})
+}
+
+func wantTombstoned(t *testing.T, d Decision, what string) {
+	t.Helper()
+	if d.Verdict != Refuse || d.Reason != "tombstoned" {
+		t.Errorf("%s: decision = %+v, want Refuse tombstoned", what, d)
+	}
+}
+
+func TestTombstoneBlocksSecondHandReadd(t *testing.T) {
+	t.Parallel()
+
+	ps := NewPeerStore()
+	offerHand(ps, "k", FirstHand, false)
+	ps.Withdraw("k", "goodbye")
+
+	for _, h := range []Hand{SecondHand, Restored} {
+		wantTombstoned(t, offerHand(ps, "k", h, true), fmt.Sprintf("hand %d", h))
+		if got, ok := ps.Get("k"); ok {
+			t.Errorf("hand %d: refused offer left an entry: %+v", h, got)
+		}
+	}
+	if d := offerHand(ps, "other", SecondHand, true); d.Verdict != Admit {
+		t.Errorf("a key that was never withdrawn was refused: %+v", d)
+	}
+}
+
+func TestFirstHandClearsTombstone(t *testing.T) {
+	t.Parallel()
+
+	ps := NewPeerStore()
+	offerHand(ps, "k", FirstHand, false)
+	ps.Withdraw("k", "goodbye")
+
+	if d := offerHand(ps, "k", FirstHand, false); d.Verdict != Admit {
+		t.Fatalf("the peer's own first-hand offer was refused: %+v", d)
+	}
+	if len(ps.tombstones) != 0 {
+		t.Errorf("first-hand offer left tombstones: %v", ps.tombstones)
+	}
+	// Drop the entry without a tombstone, so only a cleared tombstone can
+	// let the next second-hand mention in.
+	ps.mu.Lock()
+	delete(ps.peers, "k")
+	ps.mu.Unlock()
+	if d := offerHand(ps, "k", SecondHand, false); d.Verdict != Admit {
+		t.Errorf("second-hand offer after the clear: %+v, want Admit", d)
+	}
+}
+
+func TestTombstoneExpiresAfterTombstoneTTL(t *testing.T) {
+	t.Parallel()
+
+	ps, now := clockedStore(0)
+	offerHand(ps, "k", FirstHand, false)
+	ps.Withdraw("k", "evicted")
+
+	*now = now.Add(TombstoneTTL - time.Second)
+	wantTombstoned(t, offerHand(ps, "k", SecondHand, false), "just before the TTL")
+
+	*now = now.Add(2 * time.Second)
+	if d := offerHand(ps, "k", SecondHand, false); d.Verdict != Admit {
+		t.Errorf("just after the TTL: %+v, want Admit", d)
+	}
+}
+
+func TestTombstoneTTLIsFiveMinutes(t *testing.T) {
+	t.Parallel()
+
+	ttl, remove := TombstoneTTL, PeerRemoveTimeout
+	if ttl != 5*time.Minute {
+		t.Errorf("TombstoneTTL = %v, want 5m", ttl)
+	}
+	if ttl == remove {
+		t.Errorf("TombstoneTTL equals PeerRemoveTimeout (%v): it must be a constant of its own", remove)
+	}
+}
+
+func TestCleanupStaleLeavesTombstone(t *testing.T) {
+	t.Parallel()
+
+	ps := NewPeerStore()
+	old := time.Now().Add(-PeerRemoveTimeout - time.Minute)
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "heard", LastSeen: old}, Source: "dht", Hand: FirstHand})
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "mentioned", LastSeen: old}, Source: "dht", Hand: SecondHand})
+	if removed := ps.CleanupStale(); len(removed) != 2 {
+		t.Fatalf("CleanupStale removed %v, want both peers", removed)
+	}
+
+	wantTombstoned(t, offerHand(ps, "heard", SecondHand, false), "a peer once heard first-hand")
+	if d := offerHand(ps, "mentioned", SecondHand, false); d.Verdict != Admit {
+		t.Errorf("a mention-only peer was hidden by cleanup: %+v", d)
+	}
+}
+
+func TestTombstoneSetIsBounded(t *testing.T) {
+	t.Parallel()
+
+	const n = 2000
+	ps, _ := clockedStore(time.Millisecond)
+	for i := 0; i < n; i++ {
+		ps.Withdraw(fmt.Sprintf("w-%d", i), "goodbye")
+	}
+
+	if got := len(ps.tombstones); got != DefaultMaxPeers {
+		t.Errorf("%d withdrawals left %d tombstones, want %d", n, got, DefaultMaxPeers)
+	}
+	wantTombstoned(t, offerHand(ps, fmt.Sprintf("w-%d", n-1), SecondHand, false), "the newest withdrawal")
+	if d := offerHand(ps, "w-0", SecondHand, false); d.Verdict != Admit {
+		t.Errorf("the oldest tombstone was kept: %+v", d)
+	}
+}

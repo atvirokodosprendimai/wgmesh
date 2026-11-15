@@ -95,6 +95,26 @@ func TestAADGoodbyeRemovesPeer(t *testing.T) {
 	}
 }
 
+func TestGoodbyeLeavesTombstone(t *testing.T) {
+	t.Parallel()
+	victim := aadKey(5)
+	pe, store, cfg := newAADExchange(t, "wgmesh-test-aad-goodbye-tombstone-1", aadKey(9), victim)
+
+	bound, err := crypto.SealEnvelopeAAD(crypto.MessageTypeGoodbye, goodbyeFor(victim), cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe.handleMessage(bound, aadRemote)
+	if _, ok := store.Get(victim); ok {
+		t.Fatal("the GOODBYE did not remove the peer")
+	}
+
+	pe.updateTransitivePeers([]crypto.KnownPeer{{WGPubKey: victim, MeshIP: "10.0.0.5", WGEndpoint: "203.0.113.5:51820", Introducer: true}})
+	if got, ok := store.Get(victim); ok {
+		t.Errorf("a KnownPeers mention brought the peer back after its GOODBYE: %+v", got)
+	}
+}
+
 func TestSendGoodbyeIsAADBound(t *testing.T) {
 	t.Parallel()
 	const secret = "wgmesh-test-aad-send-goodbye-1"

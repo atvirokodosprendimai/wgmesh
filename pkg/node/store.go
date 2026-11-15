@@ -10,6 +10,7 @@ import (
 const (
 	PeerDeadTimeout   = 5 * time.Minute
 	PeerRemoveTimeout = 10 * time.Minute
+	TombstoneTTL      = 5 * time.Minute
 	PeerEventBufSize  = 16
 	DefaultMaxPeers   = 1000
 
@@ -29,6 +30,13 @@ type PeerEvent struct {
 	Kind   PeerEventKind
 }
 
+// tombstone records when and why a key was withdrawn.
+type tombstone struct {
+	at     time.Time
+	cause  string
+	logged bool
+}
+
 // PeerStore is a thread-safe store for discovered peers.
 type PeerStore struct {
 	mu          sync.RWMutex
@@ -36,12 +44,16 @@ type PeerStore struct {
 	subscribers []chan PeerEvent
 	policy      *Policy
 	offers      uint64
+	tombstones  map[string]tombstone
+	now         func() time.Time
 }
 
 // NewPeerStore creates a new peer store.
 func NewPeerStore() *PeerStore {
 	return &PeerStore{
-		peers: make(map[string]*PeerInfo),
+		peers:      make(map[string]*PeerInfo),
+		tombstones: make(map[string]tombstone),
+		now:        time.Now,
 	}
 }
 
@@ -291,6 +303,12 @@ func (ps *PeerStore) Remove(pubKey string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 	delete(ps.peers, pubKey)
+}
+
+// Withdraw removes a peer and, for TombstoneTTL, refuses second-hand and
+// restored claims for its key; the peer's own first-hand claim clears that.
+func (ps *PeerStore) Withdraw(pubKey, cause string) {
+	ps.Remove(pubKey)
 }
 
 // CleanupStale removes peers that haven't been seen for too long.

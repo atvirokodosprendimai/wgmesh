@@ -14,13 +14,13 @@ import (
 // guardMethods and guardReceivers name what TestNoDirectPeerStoreMutation
 // flags: a call of one of the methods on a receiver of one of the names.
 var (
-	guardMethods   = map[string]bool{"Update": true, "SetPeerDirectly": true}
+	guardMethods   = map[string]bool{"Update": true, "SetPeerDirectly": true, "Remove": true}
 	guardReceivers = map[string]bool{"peerStore": true, "PeerStore": true, "ps": true, "store": true}
 )
 
 // TestNoDirectPeerStoreMutation fails when a non-test file outside pkg/node
-// calls Update or SetPeerDirectly on a receiver whose last identifier is
-// peerStore, PeerStore, ps or store: production claims go through Offer.
+// calls Update, SetPeerDirectly or Remove on a receiver whose last identifier
+// is peerStore, PeerStore, ps or store: production claims go through Offer.
 // pkg/node itself is not scanned.
 //
 // Limit: the match is by receiver name. A store held in a variable of another
@@ -93,6 +93,8 @@ func TestGuardFlagsEveryMutatingMethod(t *testing.T) {
 		{"update_upper", `d.PeerStore.Update(x, "m")`, "Update"},
 		{"other_receiver", `other.Update(x, "m")`, ""},
 		{"offer", `peerStore.Offer(c)`, ""},
+		{"remove_field", `d.peerStore.Remove(k)`, "Remove"},
+		{"os_remove", `os.Remove(p)`, ""},
 	}
 	root := t.TempDir()
 	skip := filepath.Join(root, "skipped")

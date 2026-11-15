@@ -50,7 +50,10 @@ const (
 // Reason names why a candidate was refused.
 type Reason string
 
-const ReasonPeerCap Reason = "peer-cap"
+const (
+	ReasonPeerCap    Reason = "peer-cap"
+	ReasonTombstoned Reason = "tombstoned"
+)
 
 // Decision is the result of Decide. AdmitPartial, Dropped and Warnings are
 // declared for the rules of T3 to T10 and nothing produces them yet; Dropped
