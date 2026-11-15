@@ -100,6 +100,12 @@ func RestoreFromCache(interfaceName string, peerStore *PeerStore) int {
 		return 0
 	}
 
+	return restorePeers(cache, peerStore)
+}
+
+// restorePeers puts the entries of a loaded cache that have not expired into
+// the peer store and returns how many it restored.
+func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 	now := time.Now()
 	restored := 0
 

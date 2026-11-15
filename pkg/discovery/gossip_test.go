@@ -376,3 +376,47 @@ func TestMeshGossipExchangeModeRestartAfterStop(t *testing.T) {
 	}
 	stopTwice(t, g)
 }
+
+// TestGossipTransitiveOffersSecondHand verifies that a gossip KnownPeers
+// mention cannot rewrite the named peer's mesh IP, while the peer's own
+// announcement can.
+func TestGossipTransitiveOffersSecondHand(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+
+	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode.SetEndpoint("127.0.0.1:51820")
+	gossip, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	announce := func(from, meshIP string, known ...crypto.KnownPeer) {
+		gossip.HandleAnnounceFrom(&crypto.PeerAnnouncement{
+			Protocol:   crypto.ProtocolVersion,
+			WGPubKey:   from,
+			MeshIP:     meshIP,
+			WGEndpoint: "192.168.1.10:51820",
+			Timestamp:  time.Now().Unix(),
+			KnownPeers: known,
+		}, nil)
+	}
+	meshIP := func(key string) string {
+		t.Helper()
+		peer, ok := store.Get(key)
+		if !ok {
+			t.Fatalf("expected %s in peer store", key)
+		}
+		return peer.MeshIP
+	}
+
+	announce("remote-B", "10.0.0.3")
+	announce("remote-A", "10.0.0.2", crypto.KnownPeer{WGPubKey: "remote-B", MeshIP: "10.0.0.66", WGEndpoint: "192.168.1.20:51820"})
+	if got := meshIP("remote-B"); got != "10.0.0.3" {
+		t.Errorf("after a mention by remote-A, remote-B MeshIP = %q, want 10.0.0.3", got)
+	}
+	announce("remote-B", "10.0.0.4")
+	if got := meshIP("remote-B"); got != "10.0.0.4" {
+		t.Errorf("after its own announcement, remote-B MeshIP = %q, want 10.0.0.4", got)
+	}
+}

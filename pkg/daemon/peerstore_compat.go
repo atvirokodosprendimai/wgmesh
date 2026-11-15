@@ -13,6 +13,7 @@ type Hand = node.Hand
 type Source = node.Source
 type Decision = node.Decision
 type Policy = node.Policy
+type Verdict = node.Verdict
 
 const (
 	PeerDeadTimeout   = node.PeerDeadTimeout
@@ -24,6 +25,15 @@ const (
 
 	LANMethod        = node.LANMethod
 	RendezvousMethod = node.RendezvousMethod
+)
+
+const (
+	FirstHand  = node.FirstHand
+	SecondHand = node.SecondHand
+	Restored   = node.Restored
+
+	Admit  = node.Admit
+	Refuse = node.Refuse
 )
 
 func NewPeerStore() *PeerStore { return node.NewPeerStore() }

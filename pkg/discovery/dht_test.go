@@ -368,3 +368,43 @@ func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
 		t.Error("bootstrapWithRetry did not stop within 500ms after context cancel")
 	}
 }
+
+// TestPunchReplyIsFirstHand verifies that the reply of a punch is the peer's
+// own claim: it refreshes LastSeen, may rewrite the peer's own fields and
+// stores the source it was given.
+func TestPunchReplyIsFirstHand(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-punch-first-hand-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localNode := &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}
+	localNode.SetEndpoint("198.51.100.1:51820")
+
+	for _, source := range []daemon.Source{DHTMethod, "dht-ipv6-sync"} {
+		t.Run(string(source), func(t *testing.T) {
+			store := daemon.NewPeerStore()
+			d, err := NewDHTDiscovery(context.Background(), cfg, localNode, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := time.Now().Add(-4 * time.Minute)
+			store.SetPeerDirectly("remote-pubkey", &daemon.PeerInfo{WGPubKey: "remote-pubkey", MeshIP: "10.0.0.2", LastSeen: seen})
+
+			d.admitPunchReply(&daemon.PeerInfo{WGPubKey: "remote-pubkey", MeshIP: "10.0.0.9", Endpoint: "203.0.113.42:51820"}, source)
+
+			got, ok := store.Get("remote-pubkey")
+			if !ok {
+				t.Fatal("expected remote-pubkey in peer store")
+			}
+			if got.MeshIP != "10.0.0.9" {
+				t.Errorf("MeshIP = %q, want 10.0.0.9", got.MeshIP)
+			}
+			if !got.LastSeen.After(seen) {
+				t.Errorf("LastSeen = %v, want it refreshed past %v", got.LastSeen, seen)
+			}
+			if got.EndpointMethod != string(source) {
+				t.Errorf("EndpointMethod = %q, want %q", got.EndpointMethod, source)
+			}
+		})
+	}
+}

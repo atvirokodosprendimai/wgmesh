@@ -104,3 +104,40 @@ func TestCacheExpiration(t *testing.T) {
 		t.Errorf("Expected 1 active peer, got %d", len(active))
 	}
 }
+
+// TestCacheRestoreOffersRestored verifies that a restored entry neither
+// refreshes LastSeen nor withdraws the routes the store already holds.
+func TestCacheRestoreOffersRestored(t *testing.T) {
+	ps := NewPeerStore()
+	seen := time.Now().Add(-2 * time.Minute)
+	ps.SetPeerDirectly("k", &PeerInfo{
+		WGPubKey:         "k",
+		MeshIP:           "10.0.0.2",
+		RoutableNetworks: []string{"192.168.0.0/24"},
+		LastSeen:         seen,
+	})
+	cache := &PeerCache{Peers: []PeerCacheEntry{{
+		WGPubKey: "k",
+		MeshIP:   "10.0.0.2",
+		Endpoint: "1.2.3.4:51820",
+		LastSeen: time.Now().Add(-time.Hour).Unix(),
+	}}}
+
+	if n := restorePeers(cache, ps); n != 1 {
+		t.Fatalf("restorePeers = %d, want 1", n)
+	}
+
+	got, ok := ps.Get("k")
+	if !ok {
+		t.Fatal("expected k in peer store")
+	}
+	if !got.LastSeen.Equal(seen) {
+		t.Errorf("LastSeen = %v, want it unchanged at %v", got.LastSeen, seen)
+	}
+	if len(got.RoutableNetworks) != 1 {
+		t.Errorf("RoutableNetworks = %v, want the stored route kept", got.RoutableNetworks)
+	}
+	if got.EndpointMethod != "cache" {
+		t.Errorf("EndpointMethod = %q, want cache", got.EndpointMethod)
+	}
+}

@@ -794,3 +794,49 @@ func TestValidateExchangeAnnouncementKnownPeersLimit(t *testing.T) {
 		t.Fatal("expected error for too many KnownPeers")
 	}
 }
+
+// TestHandleReplyOffersFirstHand verifies that a REPLY is its sender's own
+// claim (a new mesh IP replaces the stored one), while a KnownPeers entry for
+// the same key in another member's REPLY is second-hand (it does not).
+func TestHandleReplyOffersFirstHand(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-reply-first-hand-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+	localNode := &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}
+	localNode.SetEndpoint("0.0.0.0:51820")
+	pe := NewPeerExchange(cfg, localNode, peerStore)
+
+	peerStore.Offer(daemon.Candidate{
+		Info:   &daemon.PeerInfo{WGPubKey: "remote-pubkey", MeshIP: "10.0.0.2", Endpoint: "198.51.100.1:51820"},
+		Source: DHTMethod,
+		Hand:   daemon.FirstHand,
+	})
+	meshIP := func() string {
+		t.Helper()
+		peer, ok := peerStore.Get("remote-pubkey")
+		if !ok {
+			t.Fatal("expected remote-pubkey in peer store")
+		}
+		return peer.MeshIP
+	}
+	reply := func(from, ip string, known ...crypto.KnownPeer) {
+		pe.handleReply(&crypto.PeerAnnouncement{
+			Protocol:   crypto.ProtocolVersion,
+			WGPubKey:   from,
+			MeshIP:     ip,
+			WGEndpoint: "198.51.100.1:51820",
+			KnownPeers: known,
+		}, &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: int(cfg.Keys.GossipPort)})
+	}
+
+	reply("remote-pubkey", "10.0.0.9")
+	if got := meshIP(); got != "10.0.0.9" {
+		t.Errorf("after its own REPLY, MeshIP = %q, want 10.0.0.9", got)
+	}
+	reply("other-pubkey", "10.0.0.3", crypto.KnownPeer{WGPubKey: "remote-pubkey", MeshIP: "10.0.0.66", WGEndpoint: "198.51.100.1:51820"})
+	if got := meshIP(); got != "10.0.0.9" {
+		t.Errorf("after a mention in another REPLY, MeshIP = %q, want 10.0.0.9", got)
+	}
+}

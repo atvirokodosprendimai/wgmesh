@@ -1129,6 +1129,12 @@ func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod strin
 	d.peerStore.Update(peerInfo, discoveryMethod)
 }
 
+// admitPunchReply offers the reply of a punch or an exchange to the store as
+// the peer's own claim.
+func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.Source) {
+	d.peerStore.Update(peerInfo, DHTMethod+"-transitive")
+}
+
 func getPeerHandshakeTS(iface, peerPubKey string) int64 {
 	if iface == "" || peerPubKey == "" {
 		return 0
