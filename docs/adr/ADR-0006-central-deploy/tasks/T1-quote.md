@@ -17,7 +17,7 @@ One function decides how a value becomes shell text for a node (`ssh.Quote`, `ss
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/ssh/quote.go` | add | `Quote(s string) string` (safe set `[A-Za-z0-9._:/,@%+=\[\]-]` unchanged, else single-quoted with `'` written as `'\''`, empty string `''`) and `Cmd(name string, args ...string) string` (`name` joined to each quoted argument with one space) |
+| `pkg/ssh/quote.go` | add | `Quote(s string) string` (safe set `[A-Za-z0-9._:/,@%+=-]` unchanged (`[` and `]` are glob characters in `sh`, so they are quoted; review 2026-11-15), else single-quoted with `'` written as `'\''`, empty string `''`) and `Cmd(name string, args ...string) string` (`name` joined to each quoted argument with one space) |
 | `pkg/ssh/quote_test.go` | add | tests below |
 | `pkg/ifname/validate.go` | edit | `ValidateLinux(name string) error` holds the Linux branch (length, `linuxRegex`); `Validate` calls it in its default case; the empty string stays valid in `Validate` and is an error in `ValidateLinux` (a deploy needs a name) |
 | `pkg/ifname/validate_test.go` | edit | tests below |
@@ -30,14 +30,14 @@ Selection: nothing calls these yet; T2 and T3 do. The mutant that makes `Cmd` sk
 2. [S2] Implement `Quote` and `Cmd`.
 3. [S3] Implement `ValidateLinux` and make `Validate` call it for the non-darwin branch; the existing `Validate` tests must pass unchanged.
 4. [S4] Run `go test ./pkg/ifname -count=1` and record the exit line in the commit message: the daemon's existing interface-name tests are the proof that `Validate` did not change. [proof: acceptance]
-5. [S5] Run the mutants with `adr-verify --mutant`: `Quote` returns its input; `Quote` does not escape an embedded single quote; `Cmd` skips `Quote`; `ValidateLinux` reads `runtime.GOOS`. [proof: mutation]
+5. [S5] Run the mutants with `adr-verify --mutant`: `Quote` returns its input; `Quote` does not escape an embedded single quote; `Cmd` skips `Quote`; `ValidateLinux` skips the grammar; `ValidateLinux` accepts one character more than `MaxLen` (a mutant that reads `runtime.GOOS` cannot be killed on a Linux host: GOOS independence is structural, `runtime` appears only in `Validate`). [proof: mutation]
 
 ## Acceptance
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/ssh -run '^(TestQuoteLeavesSafeValuesUnchanged|TestQuoteNeutralisesHostileValues|TestQuoteRoundTripsThroughSh|TestCmdQuotesEachArgument)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 4 ] \
- && b=$(go test ./pkg/ifname -run '^(TestValidateLinuxIgnoresGOOS|TestValidateLinuxRejectsEmpty)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$b" -ge 2 ] \
+a=$(go test ./pkg/ssh -run '^(TestQuoteLeavesSafeValuesUnchanged|TestQuoteNeutralisesHostileValues|TestQuoteRoundTripsThroughSh|TestCmdQuotesEachArgument)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -eq 4 ] \
+ && b=$(go test ./pkg/ifname -run '^(TestValidateLinuxIgnoresGOOS|TestValidateLinuxRejectsEmpty)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$b" -eq 2 ] \
  && go test -race ./pkg/ssh ./pkg/ifname -count=1
 ```
 
@@ -45,9 +45,9 @@ a=$(go test ./pkg/ssh -run '^(TestQuoteLeavesSafeValuesUnchanged|TestQuoteNeutra
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestQuoteLeavesSafeValuesUnchanged` | `pkg/ssh/quote_test.go` | `wg0`, `10.99.0.2/32`, `192.168.1.10:51820`, `[fd00::1]:51820`, a 44-character base64 key and `0.0.0.0/0` come back byte for byte | — | S1, S2 |
-| `TestQuoteNeutralisesHostileValues` | `pkg/ssh/quote_test.go` | `a; rm -rf /`, `$(id)`, a backtick, a newline, a double quote, a single quote, a space, a pipe, an ampersand, a redirect `>x` and the empty string each come back wrapped so that the result is one shell word | — | S1, S2 |
-| `TestQuoteRoundTripsThroughSh` | `pkg/ssh/quote_test.go` | for each hostile value, `/bin/sh -c 'printf %s ' + Quote(v)` prints exactly `v` (fails, does not skip, when `sh` is missing) | — | S1, S2 |
+| `TestQuoteLeavesSafeValuesUnchanged` | `pkg/ssh/quote_test.go` | `wg0`, `10.99.0.2/32`, `192.168.1.10:51820`, a 44-character base64 key and `0.0.0.0/0` come back byte for byte | — | S1, S2 |
+| `TestQuoteNeutralisesHostileValues` | `pkg/ssh/quote_test.go` | `a; touch PWNED`, `$(id)`, a backtick, a newline, a double quote, a single quote, a space, a pipe, an ampersand, a redirect `>x` and the empty string, the glob characters `*`, `?` and `[x]` and the IPv6 endpoint `[fd00::1]:51820` each come back wrapped so that the result is one shell word | — | S1, S2 |
+| `TestQuoteRoundTripsThroughSh` | `pkg/ssh/quote_test.go` | for each hostile value, `/bin/sh -c 'printf %s ' + Quote(v)` prints exactly `v`, run in an empty temp directory that holds files named `x` and `PWNED` so a glob would expand and a command would show (fails, does not skip, when `sh` is missing) | — | S1, S2 |
 | `TestCmdQuotesEachArgument` | `pkg/ssh/quote_test.go` | `Cmd("wg", "set", "wg0; id", "peer")` is `wg set 'wg0; id' peer` | — | S1, S2 |
 | `TestValidateLinuxIgnoresGOOS` | `pkg/ifname/validate_test.go` | `wg0` and `mesh-1` pass, `0bad`, `a b`, `a;b` and a 16-character name fail, whatever `runtime.GOOS` is | — | S1, S3 |
 | `TestValidateLinuxRejectsEmpty` | `pkg/ifname/validate_test.go` | the empty name is an error in `ValidateLinux` and still valid in `Validate` | — | S1, S3 |
