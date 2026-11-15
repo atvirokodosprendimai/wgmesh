@@ -47,7 +47,13 @@ var clientPassThrough = map[string]bool{"Run": true, "RunQuiet": true, "RunWithS
 //
 // It does not follow a command through a function value, an interface, a
 // method value or a differently named wrapper, and it does not resolve a name
-// that a local variable shadows. The files of pkg/ssh/sshtest and every
+// that a local variable shadows. Two limits of matching by name: the
+// pass-through exemption is given to methods named Run, RunQuiet and
+// RunWithStdin whose receiver type is named Client, so another type that
+// is also called Client (in one of the three packages) would get it too; and
+// Cmd and Quote are recognised unqualified or with the qualifier `ssh`, so a
+// package imported under another name, or a different package called ssh,
+// would be taken for this one. The files of pkg/ssh/sshtest and every
 // _test.go file are not parsed.
 func TestNoUnquotedRemoteCommand(t *testing.T) {
 	for _, dir := range remoteGuardDirs {
@@ -116,7 +122,7 @@ func rawCommands(fset *token.FileSet, files []*ast.File) (raw []string, checked 
 				}
 				return true
 			})
-			passThrough := fd.Recv != nil && clientPassThrough[fd.Name.Name]
+			passThrough := recvIsClient(fd) && clientPassThrough[fd.Name.Name]
 			ast.Inspect(fd.Body, func(n ast.Node) bool {
 				call, ok := n.(*ast.CallExpr)
 				if !ok || len(call.Args) == 0 {
@@ -200,16 +206,32 @@ func isConstString(e ast.Expr, consts map[string]bool) bool {
 	return false
 }
 
-// calleeName is the function name of a call: `Cmd` for both Cmd(...) and
-// ssh.Cmd(...).
+// calleeName is the function name of a call to this repository's helpers:
+// `Cmd` for Cmd(...) and ssh.Cmd(...). A call qualified by any other package
+// (strconv.Quote) has no name here.
 func calleeName(fun ast.Expr) string {
 	switch f := fun.(type) {
 	case *ast.Ident:
 		return f.Name
 	case *ast.SelectorExpr:
-		return f.Sel.Name
+		if x, ok := f.X.(*ast.Ident); ok && x.Name == "ssh" {
+			return f.Sel.Name
+		}
 	}
 	return ""
+}
+
+// recvIsClient reports whether fd is a method of Client or *Client.
+func recvIsClient(fd *ast.FuncDecl) bool {
+	if fd.Recv == nil || len(fd.Recv.List) == 0 {
+		return false
+	}
+	t := fd.Recv.List[0].Type
+	if star, ok := t.(*ast.StarExpr); ok {
+		t = star.X
+	}
+	id, ok := t.(*ast.Ident)
+	return ok && id.Name == "Client"
 }
 
 func render(fset *token.FileSet, e ast.Expr) string {
@@ -250,6 +272,8 @@ func TestRemoteGuardJudgesShapes(t *testing.T) {
 		{"function result", `client.Run(build(iface))`, true},
 		{"RunWithStdin with a variable", `cmd := "wg"; client.RunWithStdin(cmd, "psk")`, true},
 		{"session Start with a variable", `session.Start(iface)`, true},
+		{"Cmd with no arguments", `client.Run(Cmd())`, true},
+		{"Quote of another package", `client.RunQuiet("cat > " + strconv.Quote(iface))`, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -278,6 +302,18 @@ func TestRemoteGuardJudgesShapes(t *testing.T) {
 		raw, _ := rawCommands(fset, []*ast.File{f})
 		if len(raw) != 1 || !strings.Contains(raw[0], "Start(p)") {
 			t.Errorf("want only the Start in WriteFile rejected, got %v", raw)
+		}
+	})
+	t.Run("a method of another type is not the primitive", func(t *testing.T) {
+		src := "package p\nfunc (x *other) Run(p string) { session.Run(fmt.Sprintf(\"x %s\", p)) }\n"
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, "x.go", src, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := rawCommands(fset, []*ast.File{f})
+		if len(raw) != 1 {
+			t.Errorf("want the Sprintf in other.Run rejected, got %v", raw)
 		}
 	})
 }
