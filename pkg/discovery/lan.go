@@ -28,7 +28,7 @@ func lanPortClashWarning(wgListenPort int) string {
 		return ""
 	}
 	return fmt.Sprintf("WARNING: WireGuard listen port %d is reserved for LAN discovery; "+
-		"the two sockets conflict and discovery may be flaky. Choose another --listen-port (default 51820)", wgListenPort)
+		"the two sockets conflict and discovery may be flaky. Choose another --listen-port (default %d)", wgListenPort, daemon.DefaultWGPort)
 }
 
 // LANDiscovery handles peer discovery via UDP multicast on the local network
