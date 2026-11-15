@@ -1,0 +1,168 @@
+package atomicfile
+
+// Words: a state file is replaced by atomicfile.WriteFile and by nothing else.
+// These tests parse every production .go file of the module and fail when a
+// file has more os.WriteFile / ioutil.WriteFile calls than the table below
+// allows, or when os.Rename appears outside this package's atomicfile.go.
+//
+// Why: the private temp-and-rename copies never fsynced and shared one fixed
+// ".tmp" name (issue #870 class). One helper plus a guard that fails on a new
+// bypass keeps the rule in one place (ADR-0005, M6).
+//
+// Limits, stated so nobody trusts the guard more than it is:
+//   - it counts calls per file, so a second call that replaces an allowed one
+//     in the same file is not seen;
+//   - a call through an alias import (import o "os"; o.WriteFile) is not seen,
+//     and neither is a call made through a function value (w := os.WriteFile;
+//     w(...)): only the selector expression is counted;
+//   - identifiers named os and ioutil are matched by name, not by import.
+//
+// Invariant: the module root comes from `go list -m -f {{.Dir}}`, never from a
+// typed path.
+
+import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
+	"os/exec"
+	"path/filepath"
+	"sort"
+	"strings"
+	"testing"
+)
+
+// allowedWriteFile is the table of production files that may call
+// os.WriteFile or ioutil.WriteFile, with the exact count (2026-11-15, after
+// T2). A file not in the table must have 0. Add a row only with a reason.
+var allowedWriteFile = map[string]int{
+	"main.go":                1, // --output report, not state read again
+	"pkg/pilot/report.go":    1, // report output
+	"pkg/pilot/config.go":    1, // pilot config template
+	"pkg/daemon/systemd.go":  2, // unit and secret files (BACKLOG)
+	"cmd/status-gen/main.go": 1, // generated STATUS.md
+}
+
+// allowedRename is the only file that may call os.Rename.
+const allowedRename = "pkg/atomicfile/atomicfile.go"
+
+// moduleRoot returns the directory of the module under test.
+func moduleRoot(t *testing.T) string {
+	t.Helper()
+	out, err := exec.Command("go", "list", "-m", "-f", "{{.Dir}}").Output()
+	if err != nil {
+		t.Fatalf("go list -m -f {{.Dir}}: %v", err)
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// countCalls parses every production .go file under root and returns, per
+// slash-separated relative path, the number of calls to pkg.fn for each
+// "pkg.fn" in names.
+func countCalls(t *testing.T, root string, names ...string) map[string]map[string]int {
+	t.Helper()
+	want := map[string]bool{}
+	for _, n := range names {
+		want[n] = true
+	}
+	found := map[string]map[string]int{}
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case "vendor", "testdata", ".git":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		f, err := parser.ParseFile(fset, path, nil, 0)
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		rel = filepath.ToSlash(rel)
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok {
+				return true
+			}
+			id, ok := sel.X.(*ast.Ident)
+			if !ok {
+				return true
+			}
+			name := id.Name + "." + sel.Sel.Name
+			if want[name] {
+				if found[rel] == nil {
+					found[rel] = map[string]int{}
+				}
+				found[rel][name]++
+			}
+			return true
+		})
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", root, err)
+	}
+	return found
+}
+
+func TestNoInPlaceStateWrite(t *testing.T) {
+	found := countCalls(t, moduleRoot(t), "os.WriteFile", "ioutil.WriteFile")
+	files := map[string]bool{}
+	for f := range found {
+		files[f] = true
+	}
+	for f := range allowedWriteFile {
+		files[f] = true
+	}
+	var names []string
+	for f := range files {
+		names = append(names, f)
+	}
+	sort.Strings(names)
+	for _, f := range names {
+		got := found[f]["os.WriteFile"] + found[f]["ioutil.WriteFile"]
+		allowed := allowedWriteFile[f]
+		if got != allowed {
+			t.Errorf("%s: found %d os.WriteFile/ioutil.WriteFile calls, allowed %d; "+
+				"a state file must be written with atomicfile.WriteFile; "+
+				"if this call is not state, add or change a justified row in allowedWriteFile",
+				f, got, allowed)
+		}
+	}
+}
+
+func TestNoPrivateRenameCopy(t *testing.T) {
+	found := countCalls(t, moduleRoot(t), "os.Rename")
+	var names []string
+	for f := range found {
+		names = append(names, f)
+	}
+	sort.Strings(names)
+	for _, f := range names {
+		if f == allowedRename {
+			continue
+		}
+		t.Errorf("%s: found %d os.Rename calls, allowed 0; "+
+			"a state file must be replaced with atomicfile.WriteFile, not a private temp-and-rename copy",
+			f, found[f]["os.Rename"])
+	}
+	if found[allowedRename]["os.Rename"] != 1 {
+		t.Errorf("%s: found %d os.Rename calls, allowed 1 (the helper's own commit step)",
+			allowedRename, found[allowedRename]["os.Rename"])
+	}
+}
