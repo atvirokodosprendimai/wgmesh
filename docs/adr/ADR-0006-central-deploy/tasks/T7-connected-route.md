@@ -42,7 +42,7 @@ a=$(go test ./pkg/mesh -run '^(TestSyncRoutesRestoresConnectedRouteForGatewayedO
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
 | `TestSyncRoutesRestoresConnectedRouteForGatewayedOwnNetwork` | `pkg/mesh/deploy_routes_test.go` | the node's own network `10.1.0.0/24` is present as `10.1.0.0/24 via 10.99.0.3` on the mesh interface: the recorded commands hold the `ip route del` of it, and after it the address query and the connected-route add for `10.1.0.0/24` | — | S1, S2 |
-| `TestSyncRoutesRestoresGatewaylessOwnNetworkOnce` | `pkg/mesh/deploy_routes_test.go` | a gateway-less own-network route (removed both as stale and by the diff) triggers exactly one restore | — | S1, S2 |
+| `TestSyncRoutesRestoresGatewaylessOwnNetworkOnce` | `pkg/mesh/deploy_routes_test.go` | one network that appears in the route table both as a gateway-less and as a gatewayed route (so it is in the removed list twice: once as stale, once through the diff) triggers exactly one restore | — | S1, S2 |
 | `TestSyncRoutesDoesNotRestoreForeignNetwork` | `pkg/mesh/deploy_routes_test.go` | a removed route to a network that is not the node's own triggers no address query | — | S1, S2 |
 
 ## Reachability
