@@ -115,6 +115,35 @@ func TestGoodbyeLeavesTombstone(t *testing.T) {
 	}
 }
 
+// Stop-condition probe, not a requirement: ADR-0001 exempts HELLO from the
+// nonce cache, so a captured HELLO replayed inside the age window is a
+// first-hand offer and clears the tombstone. The test records that the peer
+// returns; a nonce-aware rule would turn it around.
+func TestReplayedHelloAfterGoodbyeResurrectsPeer(t *testing.T) {
+	t.Parallel()
+	victim := aadKey(5)
+	pe, store, cfg := newAADExchange(t, "wgmesh-test-aad-goodbye-replay-1", aadKey(9), victim)
+
+	hello, err := crypto.SealEnvelopeAAD(crypto.MessageTypeHello, announcementFor(victim), cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bye, err := crypto.SealEnvelopeAAD(crypto.MessageTypeGoodbye, goodbyeFor(victim), cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe.handleMessage(hello, aadRemote)
+	pe.handleMessage(bye, aadRemote)
+	if _, ok := store.Get(victim); ok {
+		t.Fatal("the GOODBYE did not remove the peer")
+	}
+
+	pe.handleMessage(hello, aadRemote)
+	if _, ok := store.Get(victim); !ok {
+		t.Error("the replayed HELLO did not bring the peer back: the stop condition does not hold")
+	}
+}
+
 func TestSendGoodbyeIsAADBound(t *testing.T) {
 	t.Parallel()
 	const secret = "wgmesh-test-aad-send-goodbye-1"
