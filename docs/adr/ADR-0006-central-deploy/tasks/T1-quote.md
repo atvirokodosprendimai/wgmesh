@@ -62,6 +62,11 @@ a=$(go test ./pkg/ssh -run '^(TestQuoteLeavesSafeValuesUnchanged|TestQuoteNeutra
 | 4 — it is used | from T2 on: every remote command |
 
 ## Mutation Log
+- 2026-11-15 · 02692f3* · mutant killed · exit 1 · `pkg/ssh/quote.go` · Quote never wraps: TestQuoteNeutralisesHostileValues and the round trip must go red · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af
+- 2026-11-15 · 02692f3* · mutant killed · exit 1 · `pkg/ssh/quote.go` · an embedded single quote is not escaped: TestQuoteNeutralisesHostileValues and TestQuoteRoundTripsThroughSh must go red · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af
+- 2026-11-15 · 02692f3* · mutant killed · exit 1 · `pkg/ssh/quote.go` · Cmd skips Quote: TestCmdQuotesEachArgument must go red · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af
+- 2026-11-15 · 02692f3* · mutant killed · exit 1 · `pkg/ifname/validate.go` · ValidateLinux accepts 16 characters: TestValidateLinuxIgnoresGOOS must go red · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af
+- 2026-11-15 · 02692f3* · mutant killed · exit 1 · `pkg/ifname/validate.go` · ValidateLinux skips the grammar: TestValidateLinuxIgnoresGOOS must go red · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af
 
 ## Invariants
 
@@ -84,3 +89,23 @@ Stop and ask if an existing `ifname` test needs a changed expectation, or if a c
 - Changing `routes.ifaceNameRe` (permanent: boundary: it checks names read from a node's output, not state).
 
 ## Verification Log
+- 2026-11-15 · 02692f3* · exit 1 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:1839 · test-lock-sha256:e16727575df47094b9f7df72fa1e6812ce1b818707bcc4d54573f1e128279959 · test-lock-file:docs/adr/locks/e16727575df47094b9f7df72fa1e6812ce1b818707bcc4d54573f1e128279959.lock
+  ```
+  --- last 10 line(s) of stderr (of 35 after folding 35 raw)
+      quote_test.go:45: Quote("") = "", want single-quoted
+      quote_test.go:49: Quote("") = "", want ''
+      quote_test.go:52: Quote(it's) = "it's", want "'it'\\''s'"
+  --- FAIL: TestQuoteNeutralisesHostileValues (0.00s)
+  === NAME  TestQuoteRoundTripsThroughSh
+      quote_test.go:62: sh for "a; rm -rf /": exit status 1
+  --- FAIL: TestQuoteRoundTripsThroughSh (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/ssh	0.007s
+  FAIL
+  ```
+- 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:11478
+- 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:7814
+- 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:11382
+- 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:7315
+- 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:7110
+- 2026-11-15 · 02692f3* · exit 0 · `set -o pipefail …` · acceptance-sha256:fa989fff07d069d03d0bb90979cecb5ee07f7281093f5694a3f0fbc0269867af · ms:5962
