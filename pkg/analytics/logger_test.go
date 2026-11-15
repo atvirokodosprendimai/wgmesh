@@ -2,7 +2,9 @@ package analytics
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,5 +276,65 @@ func TestLogCommunityClick(t *testing.T) {
 
 	if logger.buffer[0].Properties[PropCommunityID] != "community-1" {
 		t.Error("community ID property missing")
+	}
+}
+
+type failingCloser struct{ err error }
+
+func (failingCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (c failingCloser) Close() error              { return c.err }
+
+func TestFlushReportsCloseError(t *testing.T) {
+	closeErr := fmt.Errorf("no space left on device")
+	orig := openLogFile
+	openLogFile = func(string) (io.WriteCloser, error) { return failingCloser{err: closeErr}, nil }
+	t.Cleanup(func() { openLogFile = orig })
+
+	logger := tempLogger(t)
+	logger.buffer = append(logger.buffer, ConversionEvent{Type: EventTrialSignup})
+
+	err := logger.Flush()
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("Flush() = %v, want an error wrapping the close failure", err)
+	}
+	if len(logger.buffer) != 0 {
+		t.Errorf("buffer length = %d, want 0: the events were written before Close failed", len(logger.buffer))
+	}
+}
+
+type countingCloser struct {
+	lines    *int
+	closeErr error
+}
+
+func (c countingCloser) Write(p []byte) (int, error) {
+	*c.lines += strings.Count(string(p), "\n")
+	return len(p), nil
+}
+func (c countingCloser) Close() error { return c.closeErr }
+
+func TestFlushCloseErrorDoesNotDuplicateEvents(t *testing.T) {
+	lines := 0
+	orig := openLogFile
+	openLogFile = func(string) (io.WriteCloser, error) {
+		return countingCloser{lines: &lines, closeErr: fmt.Errorf("i/o error")}, nil
+	}
+	t.Cleanup(func() { openLogFile = orig })
+
+	logger := tempLogger(t)
+	for i := 0; i < 3; i++ {
+		logger.buffer = append(logger.buffer, ConversionEvent{Type: EventTrialSignup})
+	}
+
+	if err := logger.Flush(); err == nil {
+		t.Fatal("first Flush() = nil, want the close error")
+	}
+	_ = logger.Flush()
+
+	if lines != 3 {
+		t.Errorf("lines written = %d, want 3 (events were already written; a retry must not repeat them)", lines)
+	}
+	if logger.flushed != 3 {
+		t.Errorf("flushed = %d, want 3", logger.flushed)
 	}
 }
