@@ -93,6 +93,9 @@ func knownHostKeyAlgorithms(path, addr string) []string {
 	}
 	lines := strings.Split(string(data), "\n")
 
+	// Promote only algorithms the library enables by default, so a saved
+	// ssh-rsa or ssh-dss key never brings back SHA-1 RSA or DSA signatures.
+	supported := ssh.SupportedAlgorithms().HostKeys
 	var algos []string
 	for _, known := range keyErr.Want {
 		// Want also holds matching @cert-authority keys. Those vouch for
@@ -103,15 +106,15 @@ func knownHostKeyAlgorithms(path, addr string) []string {
 		}
 		types := []string{known.Key.Type()}
 		if types[0] == ssh.KeyAlgoRSA {
-			types = []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+			types = []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}
 		}
 		for _, t := range types {
-			if !slices.Contains(algos, t) {
+			if slices.Contains(supported, t) && !slices.Contains(algos, t) {
 				algos = append(algos, t)
 			}
 		}
 	}
-	for _, t := range ssh.SupportedAlgorithms().HostKeys {
+	for _, t := range supported {
 		if !slices.Contains(algos, t) {
 			algos = append(algos, t)
 		}

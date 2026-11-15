@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -167,5 +168,27 @@ func TestNewClientHostKeyAlgorithms(t *testing.T) {
 				t.Errorf("error %q does not contain %q", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+// A saved RSA key must not bring SHA-1 RSA (ssh-rsa) back into the offer:
+// the library leaves it out by default, and promoting it would downgrade a
+// host that also has a stronger trusted key.
+func TestKnownHostKeyAlgorithmsNeverPromotesWeakAlgorithms(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	addr := "10.0.0.1:22"
+	line := knownhosts.Line([]string{addr}, newRSAKey(t))
+	if err := os.WriteFile(path, []byte(line+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := knownHostKeyAlgorithms(path, addr)
+	if len(got) < 2 || got[0] != ssh.KeyAlgoRSASHA512 || got[1] != ssh.KeyAlgoRSASHA256 {
+		t.Fatalf("algorithms = %v, want rsa-sha2-512, rsa-sha2-256 first", got)
+	}
+	supported := ssh.SupportedAlgorithms().HostKeys
+	for _, a := range got {
+		if !slices.Contains(supported, a) {
+			t.Errorf("algorithm %q is offered but not enabled by the library default", a)
+		}
 	}
 }
