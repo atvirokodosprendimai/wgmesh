@@ -6,6 +6,7 @@ package routes
 
 import (
 	"fmt"
+	"net"
 	"strings"
 )
 
@@ -100,4 +101,31 @@ func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 	}
 
 	return toAdd, toRemove
+}
+
+// canonicalNetwork returns the canonical CIDR form of network (a bare host
+// becomes /32 or /128), or the trimmed input when it does not parse.
+func canonicalNetwork(network string) string {
+	network = NormalizeNetwork(strings.TrimSpace(network))
+	if _, ipnet, err := net.ParseCIDR(network); err == nil {
+		return ipnet.String()
+	}
+	return network
+}
+
+// ExcludeOwn returns the entries of networks that are not in own. A node must
+// never route a network it advertises itself through the mesh, so a peer's
+// advertisement of the same network (HA) is dropped on this node.
+func ExcludeOwn(networks, own []string) []string {
+	ownSet := make(map[string]struct{}, len(own))
+	for _, n := range own {
+		ownSet[canonicalNetwork(n)] = struct{}{}
+	}
+	out := make([]string, 0, len(networks))
+	for _, n := range networks {
+		if _, ok := ownSet[canonicalNetwork(n)]; !ok {
+			out = append(out, n)
+		}
+	}
+	return out
 }

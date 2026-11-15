@@ -560,7 +560,7 @@ func TestBuildPeerConfig(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mesh := &Mesh{}
-			peerConfig := mesh.buildPeerConfig(tt.peer, tt.access)
+			peerConfig := mesh.buildPeerConfig(tt.peer, tt.access, nil)
 
 			if peerConfig.PublicKey != tt.peer.PublicKey {
 				t.Errorf("buildPeerConfig() PublicKey = %v, want %v", peerConfig.PublicKey, tt.peer.PublicKey)

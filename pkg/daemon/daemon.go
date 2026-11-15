@@ -20,6 +20,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -613,7 +614,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 				if p.MeshIPv6 != "" {
 					d.addAllowedIP(desired, relay, p.MeshIPv6+"/128")
 				}
-				for _, network := range p.RoutableNetworks {
+				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
 					network = strings.TrimSpace(network)
 					if network != "" {
 						d.addAllowedIP(desired, relay, network)
@@ -627,7 +628,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 		if p.MeshIPv6 != "" {
 			d.addAllowedIP(desired, p, p.MeshIPv6+"/128")
 		}
-		for _, network := range p.RoutableNetworks {
+		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
 			network = strings.TrimSpace(network)
 			if network != "" {
 				d.addAllowedIP(desired, p, network)
@@ -1342,6 +1343,25 @@ func shouldTreatPeerAsStale(handshakeTS int64, prevTransferTotal, currentTransfe
 	return currentTransferTotal <= prevTransferTotal
 }
 
+// reconnectAllowedCSV builds the allowed-ips list for a forced reconnect of
+// peer, leaving out the local node's own networks.
+func reconnectAllowedCSV(peer *PeerInfo, ownNetworks []string) string {
+	allowed := make(map[string]struct{})
+	if peer.MeshIP != "" {
+		allowed[peer.MeshIP+"/32"] = struct{}{}
+	}
+	if peer.MeshIPv6 != "" {
+		allowed[peer.MeshIPv6+"/128"] = struct{}{}
+	}
+	for _, route := range routes.ExcludeOwn(peer.RoutableNetworks, ownNetworks) {
+		r := strings.TrimSpace(route)
+		if r != "" {
+			allowed[r] = struct{}{}
+		}
+	}
+	return strings.Join(mapKeysSorted(allowed), ",")
+}
+
 func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
@@ -1351,20 +1371,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	allowed := make(map[string]struct{})
-	if peer.MeshIP != "" {
-		allowed[peer.MeshIP+"/32"] = struct{}{}
-	}
-	if peer.MeshIPv6 != "" {
-		allowed[peer.MeshIPv6+"/128"] = struct{}{}
-	}
-	for _, route := range peer.RoutableNetworks {
-		r := strings.TrimSpace(route)
-		if r != "" {
-			allowed[r] = struct{}{}
-		}
-	}
-	allowedCSV := strings.Join(mapKeysSorted(allowed), ",")
+	allowedCSV := reconnectAllowedCSV(peer, d.localNode.RoutableNetworks)
 	if allowedCSV == "" {
 		return
 	}

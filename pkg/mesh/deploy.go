@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 
+	netroutes "github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
@@ -175,15 +176,9 @@ func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
 
 // collectAllRoutesForNode requires the caller to hold m.mu.
 func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
+	// A node is the gateway for its own RoutableNetworks, so they are never
+	// routed into its mesh interface; peers reach them via its mesh IP.
 	routes := make([]ssh.RouteEntry, 0)
-
-	// Add this node's own networks (direct routes, no gateway)
-	for _, network := range node.RoutableNetworks {
-		routes = append(routes, ssh.RouteEntry{
-			Network: network,
-			Gateway: "",
-		})
-	}
 
 	// Check if access control is enabled
 	if m.isAccessControlEnabledLocked() {
@@ -192,7 +187,7 @@ func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
 		for peerHostname, access := range allowedPeers {
 			peer := m.Nodes[peerHostname]
 			if access.AllowRoutableNetworks {
-				for _, network := range peer.RoutableNetworks {
+				for _, network := range netroutes.ExcludeOwn(peer.RoutableNetworks, node.RoutableNetworks) {
 					routes = append(routes, ssh.RouteEntry{
 						Network: network,
 						Gateway: peer.MeshIP.String(),
@@ -207,7 +202,7 @@ func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
 				continue
 			}
 
-			for _, network := range peer.RoutableNetworks {
+			for _, network := range netroutes.ExcludeOwn(peer.RoutableNetworks, node.RoutableNetworks) {
 				routes = append(routes, ssh.RouteEntry{
 					Network: network,
 					Gateway: peer.MeshIP.String(),
@@ -239,7 +234,28 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 	}
 
 	toAdd, toRemove := ssh.CalculateRouteDiff(currentRoutes, desiredRoutes)
-	return ssh.ApplyRouteDiff(client, m.InterfaceName, toAdd, toRemove)
+	stale := ownNetworkRoutes(currentRoutes, node.RoutableNetworks)
+	toRemove = append(toRemove, stale...)
+	err = ssh.ApplyRouteDiff(client, m.InterfaceName, toAdd, toRemove)
+	// Removals run before adds, so restore even if an add failed.
+	for _, route := range stale {
+		ssh.RestoreConnectedRoute(client, route.Network)
+	}
+	return err
+}
+
+// ownNetworkRoutes returns the gateway-less mesh-interface routes to a node's
+// own networks. Older versions installed them; they blackhole the node's LAN.
+// currentRoutes only holds routes on the mesh interface, so the connected LAN
+// route is never matched.
+func ownNetworkRoutes(currentRoutes []ssh.RouteEntry, ownNetworks []string) []ssh.RouteEntry {
+	var stale []ssh.RouteEntry
+	for _, route := range currentRoutes {
+		if route.Gateway == "" && len(netroutes.ExcludeOwn([]string{route.Network}, ownNetworks)) == 0 {
+			stale = append(stale, route)
+		}
+	}
+	return stale
 }
 
 // generateConfigForNode requires the caller to hold m.mu.
@@ -271,7 +287,7 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 		allowedPeers := m.getAllowedPeersLocked(node.Hostname)
 		for peerHostname, access := range allowedPeers {
 			peer := m.Nodes[peerHostname]
-			peerConfig := m.buildPeerConfig(peer, access)
+			peerConfig := m.buildPeerConfig(peer, access, node.RoutableNetworks)
 			config.Peers = append(config.Peers, peerConfig)
 		}
 	} else {
@@ -280,7 +296,7 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 			if peerHostname == node.Hostname {
 				continue
 			}
-			peerConfig := m.buildPeerConfigFullAccess(peer)
+			peerConfig := m.buildPeerConfigFullAccess(peer, node.RoutableNetworks)
 			config.Peers = append(config.Peers, peerConfig)
 		}
 	}
@@ -288,8 +304,9 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 	return config
 }
 
-// buildPeerConfig creates a WireGuard peer config with access control
-func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess) WGPeer {
+// buildPeerConfig creates a WireGuard peer config with access control.
+// ownNetworks are the local node's RoutableNetworks, never added for the peer.
+func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess, ownNetworks []string) WGPeer {
 	allowedIPs := []string{}
 
 	// Always include mesh /32 for handshakes when peer is configured
@@ -297,7 +314,7 @@ func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess) WGPeer {
 
 	// Add routable networks only if policy permits
 	if access.AllowRoutableNetworks {
-		allowedIPs = append(allowedIPs, peer.RoutableNetworks...)
+		allowedIPs = append(allowedIPs, netroutes.ExcludeOwn(peer.RoutableNetworks, ownNetworks)...)
 	}
 
 	peerConfig := WGPeer{
@@ -314,10 +331,11 @@ func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess) WGPeer {
 	return peerConfig
 }
 
-// buildPeerConfigFullAccess creates a WireGuard peer config with full access (backward compatibility)
-func (m *Mesh) buildPeerConfigFullAccess(peer *Node) WGPeer {
+// buildPeerConfigFullAccess creates a WireGuard peer config with full access (backward compatibility).
+// ownNetworks are the local node's RoutableNetworks, never added for the peer.
+func (m *Mesh) buildPeerConfigFullAccess(peer *Node, ownNetworks []string) WGPeer {
 	allowedIPs := []string{fmt.Sprintf("%s/32", peer.MeshIP.String())}
-	allowedIPs = append(allowedIPs, peer.RoutableNetworks...)
+	allowedIPs = append(allowedIPs, netroutes.ExcludeOwn(peer.RoutableNetworks, ownNetworks)...)
 
 	peerConfig := WGPeer{
 		PublicKey:  peer.PublicKey,
