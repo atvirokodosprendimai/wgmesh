@@ -1,8 +1,10 @@
 package crypto
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -426,7 +428,7 @@ func TestOpenEnvelopeRejectsInvalidSender(t *testing.T) {
 		})
 	}
 }
- 
+
 // A failed call must leave the caller's announcement as it was received.
 func TestFilterAnnouncementErrorKeepsKnownPeers(t *testing.T) {
 	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
@@ -443,5 +445,73 @@ func TestFilterAnnouncementErrorKeepsKnownPeers(t *testing.T) {
 	}
 	if len(ann.KnownPeers) != 2 {
 		t.Errorf("len(KnownPeers) = %d after a failed call, want 2", len(ann.KnownPeers))
+	}
+}
+
+// slogCapture collects the records of the default logger for one test.
+type slogCapture struct{ records []slog.Record }
+
+func (c *slogCapture) Enabled(context.Context, slog.Level) bool { return true }
+func (c *slogCapture) Handle(_ context.Context, r slog.Record) error {
+	c.records = append(c.records, r)
+	return nil
+}
+func (c *slogCapture) WithAttrs([]slog.Attr) slog.Handler { return c }
+func (c *slogCapture) WithGroup(string) slog.Handler      { return c }
+
+// A message that lost entries says so once at Warn, with counts and no keys.
+// Not parallel: it swaps the default logger.
+func TestFilterAnnouncementWarnsOncePerMessage(t *testing.T) {
+	capture := &slogCapture{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(capture))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	ann := &PeerAnnouncement{
+		WGPubKey: goodKey,
+		MeshIP:   "10.0.0.2",
+		KnownPeers: []KnownPeer{
+			{WGPubKey: "bad-1", MeshIP: "10.0.0.3"},
+			{WGPubKey: goodKey, MeshIP: "10.0.0.4"},
+			{WGPubKey: "bad-2", MeshIP: "10.0.0.5"},
+		},
+	}
+	if err := FilterAnnouncement(ann); err != nil {
+		t.Fatalf("FilterAnnouncement: %v", err)
+	}
+	var warns []slog.Record
+	for _, r := range capture.records {
+		if r.Level == slog.LevelWarn {
+			warns = append(warns, r)
+		}
+	}
+	if len(warns) != 1 {
+		t.Fatalf("%d Warn records, want exactly 1", len(warns))
+	}
+	if warns[0].Message != "[crypto] dropped invalid known peers" {
+		t.Errorf("Warn message = %q", warns[0].Message)
+	}
+	got := map[string]int64{}
+	warns[0].Attrs(func(a slog.Attr) bool {
+		if a.Value.Kind() == slog.KindInt64 {
+			got[a.Key] = a.Value.Int64()
+		}
+		return true
+	})
+	if got["dropped"] != 2 || got["kept"] != 1 {
+		t.Errorf("Warn attrs = %v, want dropped=2 kept=1", got)
+	}
+
+	// A clean message produces no Warn.
+	capture.records = nil
+	clean := &PeerAnnouncement{WGPubKey: goodKey, MeshIP: "10.0.0.2", KnownPeers: []KnownPeer{{WGPubKey: goodKey, MeshIP: "10.0.0.4"}}}
+	if err := FilterAnnouncement(clean); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range capture.records {
+		if r.Level == slog.LevelWarn {
+			t.Errorf("Warn for a message that dropped nothing: %q", r.Message)
+		}
 	}
 }
