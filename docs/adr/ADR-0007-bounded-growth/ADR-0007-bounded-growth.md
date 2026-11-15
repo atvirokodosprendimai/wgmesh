@@ -1,6 +1,6 @@
 # ADR-0007: Give every long-lived collection and spawned process one bound and one owner
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Owner:** wgmesh maintainers
 **Spec:** None — no spec stage; `eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md` is amended by T7
