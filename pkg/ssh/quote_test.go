@@ -88,8 +88,17 @@ func TestQuoteRoundTripsThroughSh(t *testing.T) {
 func TestCmdQuotesEachArgument(t *testing.T) {
 	t.Parallel()
 
-	got := Cmd("wg", "set", "wg0; id", "peer")
-	if want := "wg set 'wg0; id' peer"; got != want {
-		t.Errorf("Cmd = %q, want %q", got, want)
+	for _, tc := range []struct {
+		name string
+		got  string
+		want string
+	}{
+		{"hostile argument", Cmd("wg", "set", "wg0; id", "peer"), "wg set 'wg0; id' peer"},
+		{"empty argument", Cmd("wg", ""), "wg ''"},
+		{"no arguments", Cmd("wg"), "wg"},
+	} {
+		if tc.got != tc.want {
+			t.Errorf("%s: Cmd = %q, want %q", tc.name, tc.got, tc.want)
+		}
 	}
 }
