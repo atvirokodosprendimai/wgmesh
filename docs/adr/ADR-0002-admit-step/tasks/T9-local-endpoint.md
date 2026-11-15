@@ -64,6 +64,13 @@ a=$(go test ./pkg/daemon -run '^(TestEndpointDoesNotFlapOnAlternatingObservation
 - 2026-11-15 · 305dd6a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · the confirmation count is 1 instead of 3 · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
 - 2026-11-15 · 305dd6a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · the first STUN observation over an unspecified endpoint is delayed: TestFirstStunAppliesOverUnspecified must go red · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
 - 2026-11-15 · 305dd6a* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · applyObservedEndpoint reverts to SetEndpoint: the fence's SetEndpoint count must fail · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · c8e3005* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · r2: stun applies at once · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · c8e3005* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · r2: reflection/interface/equal-stun reset no pending count · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · c8e3005* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · r2: count 1 not 3 · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · c8e3005* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · r2: first STUN over unspecified delayed · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · c8e3005* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · r2: applyObservedEndpoint reverts to SetEndpoint · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · c8e3005* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · r2: any STUN counts as consecutive · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · c8e3005* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · r2: a reflected unspecified address is accepted · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
 
 ## Invariants
 
@@ -106,3 +113,12 @@ Stop and ask if a test mesh shows that reflection is wrong more often than STUN 
 - 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:16144
 - 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:14020
 - 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:8436
+- 2026-11-15 · c8e3005* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:0 · test-lock-sha256:6451e99026c0bdb6060ab3e2ad90793e2da1dfc7d1fda8dd738d1cf53246e0b3 · test-lock-file:docs/adr/locks/6451e99026c0bdb6060ab3e2ad90793e2da1dfc7d1fda8dd738d1cf53246e0b3.lock · test-lock-kind:replace
+- 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:11998
+- 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:10804
+- 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:9829
+- 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:10286
+- 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:10584
+- 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:11190
+- 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:10703
+- 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:7193
