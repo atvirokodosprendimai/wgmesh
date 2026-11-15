@@ -21,6 +21,7 @@ var (
 // TestNoDirectPeerStoreMutation fails when a non-test file outside pkg/node
 // calls Update or SetPeerDirectly on a receiver whose last identifier is
 // peerStore, PeerStore, ps or store: production claims go through Offer.
+// pkg/node itself is not scanned.
 //
 // Limit: the match is by receiver name. A store held in a variable of another
 // name is not seen, nor is a call through a function value or an interface.
