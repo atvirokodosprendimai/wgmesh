@@ -79,7 +79,10 @@ func ReadState(iface string, maxAge time.Duration) (*State, error) {
 	started := time.Now()
 	stdout, stderr, err := runWG(nil, "show", iface, "dump")
 	if err != nil {
-		return nil, fmt.Errorf("wg show %s dump failed: %s: %w", iface, strings.TrimSpace(string(stderr)), err)
+		if msg := strings.TrimSpace(string(stderr)); msg != "" {
+			return nil, fmt.Errorf("wg show %s dump failed: %s: %w", iface, msg, err)
+		}
+		return nil, fmt.Errorf("wg show %s dump failed: %w", iface, err)
 	}
 	st, err := parseState(string(stdout))
 	if err != nil {
