@@ -1,0 +1,173 @@
+package node
+
+import (
+	"fmt"
+	"reflect"
+	"testing"
+)
+
+func legacyOffer(ps *PeerStore, info *PeerInfo, method string) Decision {
+	return ps.Offer(legacyCandidate(info, method))
+}
+
+// The merged rules (d50c51e, 7414656) give the same stored fields through
+// Offer as they did through Update.
+func TestOfferMatchesLegacyUpdate(t *testing.T) {
+	t.Parallel()
+
+	const key = "k"
+	direct := func() *PeerInfo {
+		return &PeerInfo{WGPubKey: key, MeshIP: "10.1.2.3", MeshIPv6: "fd00::3", RoutableNetworks: []string{"192.168.5.0/24"}, Introducer: true}
+	}
+	claim := func() *PeerInfo {
+		return &PeerInfo{WGPubKey: key, MeshIP: "10.9.9.9", MeshIPv6: "fd00::9", RoutableNetworks: []string{"0.0.0.0/0"}}
+	}
+
+	for _, method := range []string{"dht-transitive", "gossip-transitive"} {
+		for _, via := range []string{"offer", "update"} {
+			ps := NewPeerStore()
+			apply := func(info *PeerInfo, m string) {
+				if via == "offer" {
+					legacyOffer(ps, info, m)
+				} else {
+					ps.Update(info, m)
+				}
+			}
+			apply(direct(), "dht")
+			apply(claim(), method)
+			got, _ := ps.Get(key)
+			if got == nil || got.MeshIP != "10.1.2.3" || got.MeshIPv6 != "fd00::3" || !got.Introducer ||
+				!reflect.DeepEqual(got.RoutableNetworks, []string{"192.168.5.0/24"}) {
+				t.Errorf("%s/%s: transitive rewrote first-hand fields: %+v", via, method, got)
+			}
+		}
+	}
+
+	ps := NewPeerStore()
+	legacyOffer(ps, &PeerInfo{WGPubKey: key}, "dht")
+	legacyOffer(ps, &PeerInfo{WGPubKey: key, MeshIP: "10.3.3.3", MeshIPv6: "fd00::33", RoutableNetworks: []string{"10.7.0.0/16"}}, "gossip-transitive")
+	got, _ := ps.Get(key)
+	if got == nil || got.MeshIP != "10.3.3.3" || got.MeshIPv6 != "fd00::33" || !reflect.DeepEqual(got.RoutableNetworks, []string{"10.7.0.0/16"}) {
+		t.Errorf("transitive did not fill empty fields: %+v", got)
+	}
+
+	for _, tt := range []struct {
+		method   string
+		withdraw bool
+	}{
+		{"dht", true}, {"lan", true}, {"gossip", true}, {"dht-rendezvous", true},
+		{"cache", false}, {"dht-transitive", false}, {"gossip-transitive", false},
+	} {
+		ps := NewPeerStore()
+		legacyOffer(ps, &PeerInfo{WGPubKey: key, RoutableNetworks: []string{"10.5.0.0/16"}}, "dht")
+		legacyOffer(ps, &PeerInfo{WGPubKey: key}, tt.method)
+		got, _ := ps.Get(key)
+		if got == nil {
+			t.Fatalf("%s: peer vanished", tt.method)
+		}
+		if tt.withdraw && len(got.RoutableNetworks) != 0 {
+			t.Errorf("%s: empty announcement did not withdraw routes: %v", tt.method, got.RoutableNetworks)
+		}
+		if !tt.withdraw && !reflect.DeepEqual(got.RoutableNetworks, []string{"10.5.0.0/16"}) {
+			t.Errorf("%s: routes wrongly withdrawn: %v", tt.method, got.RoutableNetworks)
+		}
+	}
+
+	ps = NewPeerStore()
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: key, MeshIP: "10.1.1.1", Endpoint: "1.2.3.4:5"}, Source: "dht-ipv6-sync", Hand: FirstHand})
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: key}, Source: "dht", Hand: SecondHand})
+	got, _ = ps.Get(key)
+	if want := []string{"dht-ipv6-sync", "dht-transitive"}; got == nil || !reflect.DeepEqual(got.DiscoveredVia, want) || got.EndpointMethod != "dht-ipv6-sync" {
+		t.Errorf("method strings changed: %+v", got)
+	}
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "c", Endpoint: "1.2.3.4:6"}, Source: "cache", Hand: Restored})
+	got, _ = ps.Get("c")
+	if got == nil || !reflect.DeepEqual(got.DiscoveredVia, []string{"cache"}) || got.EndpointMethod != "cache" {
+		t.Errorf("restored method string changed: %+v", got)
+	}
+}
+
+// Trust is read from Hand, not from the method string.
+func TestOfferHandIsExplicitNotSubstring(t *testing.T) {
+	t.Parallel()
+
+	setup := func() *PeerStore {
+		ps := NewPeerStore()
+		ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k", MeshIP: "10.1.1.1", Introducer: true}, Source: "dht", Hand: FirstHand})
+		return ps
+	}
+	claim := func() *PeerInfo { return &PeerInfo{WGPubKey: "k", MeshIP: "10.2.2.2"} }
+
+	ps := setup()
+	ps.Offer(Candidate{Info: claim(), Source: "dht-transitive", Hand: FirstHand})
+	if got, _ := ps.Get("k"); got == nil || got.MeshIP != "10.2.2.2" || got.Introducer {
+		t.Errorf("first-hand with a transitive-looking label did not rewrite: %+v", got)
+	}
+
+	ps = setup()
+	ps.Offer(Candidate{Info: claim(), Source: "dht", Hand: SecondHand})
+	if got, _ := ps.Get("k"); got == nil || got.MeshIP != "10.1.1.1" || !got.Introducer {
+		t.Errorf("second-hand rewrote first-hand fields: %+v", got)
+	}
+}
+
+func TestOfferRefusesAtPeerCapWithReason(t *testing.T) {
+	t.Parallel()
+
+	ps := NewPeerStore()
+	for i := 0; i < DefaultMaxPeers; i++ {
+		d := ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: fmt.Sprintf("key-%d", i)}, Source: "dht", Hand: FirstHand})
+		if d.Verdict != Admit {
+			t.Fatalf("peer %d refused: %+v", i, d)
+		}
+	}
+	d := ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "one-too-many"}, Source: "dht", Hand: FirstHand})
+	if d.Verdict != Refuse || d.Reason != "peer-cap" {
+		t.Errorf("decision = %+v, want Refuse peer-cap", d)
+	}
+	if n := ps.Count(); n != DefaultMaxPeers {
+		t.Errorf("count = %d, want %d", n, DefaultMaxPeers)
+	}
+	if d := ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "key-0", Hostname: "h"}, Source: "dht", Hand: FirstHand}); d.Verdict != Admit {
+		t.Errorf("known key refused at cap: %+v", d)
+	}
+}
+
+// A store with no policy admits what the old Update admitted.
+func TestOfferNilPolicyIsPermissive(t *testing.T) {
+	t.Parallel()
+
+	ps := NewPeerStore()
+	for _, h := range []Hand{FirstHand, SecondHand, Restored} {
+		key := fmt.Sprintf("k%d", h)
+		d := ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: key, MeshIP: "10.0.0.1"}, Source: "dht", Hand: h})
+		if d.Verdict != Admit {
+			t.Errorf("hand %d: %+v", h, d)
+		}
+		if _, ok := ps.Get(key); !ok {
+			t.Errorf("hand %d: peer not stored", h)
+		}
+	}
+}
+
+func TestUpdateGoesThroughOffer(t *testing.T) {
+	t.Parallel()
+
+	ps := NewPeerStore()
+	ps.Update(&PeerInfo{WGPubKey: "k"}, "dht")
+	if ps.offers != 1 {
+		t.Errorf("offers = %d after one Update, want 1", ps.offers)
+	}
+}
+
+func BenchmarkOfferAtCap(b *testing.B) {
+	ps := NewPeerStore()
+	for i := 0; i < DefaultMaxPeers; i++ {
+		ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: fmt.Sprintf("key-%d", i), MeshIP: "10.0.0.1"}, Source: "dht", Hand: FirstHand})
+	}
+	c := Candidate{Info: &PeerInfo{WGPubKey: "key-500", MeshIP: "10.0.0.2"}, Source: "dht", Hand: FirstHand}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ps.Offer(c)
+	}
+}

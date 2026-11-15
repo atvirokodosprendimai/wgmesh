@@ -35,6 +35,8 @@ type PeerStore struct {
 	mu          sync.RWMutex
 	peers       map[string]*PeerInfo
 	subscribers []chan PeerEvent
+	policy      *Policy
+	offers      uint64
 }
 
 // NewPeerStore creates a new peer store.
