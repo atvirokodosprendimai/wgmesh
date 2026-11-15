@@ -124,6 +124,9 @@ func (m *Mesh) deployNode(hostname string, node *Node) NodeResult {
 	// Always ensure config file is up to date
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", m.InterfaceName)
 	if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		if PersistFailureFatal {
+			return fail(PhasePersist, fmt.Errorf("failed to update config file: %w", err))
+		}
 		fmt.Printf("  Warning: failed to update config file: %v\n", err)
 		result.Warnings = append(result.Warnings, fmt.Sprintf("failed to update config file: %v", err))
 	}
