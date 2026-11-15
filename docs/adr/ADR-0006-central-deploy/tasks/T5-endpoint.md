@@ -35,7 +35,7 @@ Selection: `detectEndpoints` calls `resolveEndpoint`; reverting the call restore
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassification|TestDetectEndpointsSkipsProbeForPrivateHost|TestAllLANMeshRendersEndpoints|TestMixedMeshKeepsTodaysRule)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -eq 5 ] \
+a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassification|TestDetectEndpointsSkipsProbeForPrivateHost|TestAllLANMeshRendersEndpoints|TestMixedMeshKeepsTodaysRule|TestResolveEndpointIsPure|TestDetectEndpointsClassifiesUnreachableNodes|TestDetectEndpointsTwiceRecomputesItsOwnEndpoints)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -eq 8 ] \
  && go build ./... && go vet ./... && go test -race ./pkg/mesh -count=1
 ```
 
@@ -48,6 +48,9 @@ a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassific
 | `TestDetectEndpointsSkipsProbeForPrivateHost` | `pkg/mesh/endpoint_test.go` | against a server on `127.0.0.1` classed private through the test seam for the address, no recorded command contains `curl`; for a node classed public, one does | — | S1, S3 |
 | `TestAllLANMeshRendersEndpoints` | `pkg/mesh/endpoint_test.go` | two nodes with private SSH hosts: each generated config has the other peer with `Endpoint = <ssh host>:51820` | — | S1, S3, S4 |
 | `TestMixedMeshKeepsTodaysRule` | `pkg/mesh/endpoint_test.go` | one private and one public SSH host: the peer config for the private node has no `Endpoint`, as on `b8b83f3` | — | S1, S3 |
+| `TestResolveEndpointIsPure` | `pkg/mesh/endpoint_test.go` | the same input gives the same decision and the node is not written by `resolveEndpoint` | — | S1, S2 |
+| `TestDetectEndpointsClassifiesUnreachableNodes` | `pkg/mesh/endpoint_test.go` | an unreachable node with a non-private SSH host keeps the mesh mixed (its reachable peers get no endpoint and are behind NAT); an unreachable private node does not (the rule is a function of the state alone) | — | S3 |
+| `TestDetectEndpointsTwiceRecomputesItsOwnEndpoints` | `pkg/mesh/endpoint_test.go` | a second `detectEndpoints` call in the same process recomputes the endpoints the first call wrote, while an operator-written endpoint stays | — | S3 |
 
 ## Reachability
 
