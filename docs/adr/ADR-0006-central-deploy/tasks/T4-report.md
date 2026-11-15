@@ -75,6 +75,22 @@ a=$(go test ./pkg/mesh -run '^(TestDeployContinuesPastUnreachableNode|TestDeploy
 - 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · failures are swallowed: the continue and report tests must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
 - 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a render refusal is ignored: the render-error test must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
 - 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a node that failed detect goes to deployNode again: TestDeployDoesNotRedialAFailedDetect must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · the run stops at the first failed node: TestDeployContinuesPastUnreachableNode must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a node that failed detect goes to deployNode again: TestDeployDoesNotRedialAFailedDetect must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · map order in the apply loop: TestDeployVisitsNodesInSortedOrder must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · the fatal switch does nothing: TestPersistWriteFailureFailsWhenFatal must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/report.go` · the phase is not in the text: TestDeployReportsEveryFailureWithPhase must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · failures are swallowed: the continue and report tests must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a render refusal is ignored: the render-error test must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · install failures are labelled apply: the install subtest must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · route failures are labelled apply: the routes subtest must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/report.go` · multi-line errors split the report: the folded-line subtest must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/report.go` · errors.As cannot reach the node error: the net.OpError assertion must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+- 2026-11-16 · e3546a6* · mutant inconclusive · exit 1 · `pkg/mesh/deploy.go` · the persist warning is invisible: TestPersistWriteFailureIsAWarningAtN must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-16 · e3546a6* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · the persist warning is invisible in the summary: TestPersistWriteFailureIsAWarningAtN must go red · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7
 
 ## Invariants
 
@@ -123,3 +139,18 @@ Stop and ask if a failure in one node's apply can corrupt the config of a node p
 - 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11826
 - 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:9069
 - 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11238
+- 2026-11-16 · e3546a6* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:0 · test-lock-sha256:bf482bd3af6856417eac7c5f73f73f45abf90f6ae2ac0b6c01dfd2ee094f2d61 · test-lock-file:docs/adr/locks/bf482bd3af6856417eac7c5f73f73f45abf90f6ae2ac0b6c01dfd2ee094f2d61.lock · test-lock-kind:replace
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:12019
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:11916
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:12972
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:11956
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:12015
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:12946
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:13647
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:11816
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:11563
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:11795
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:13534
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:11995
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:8669
+- 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:12427
