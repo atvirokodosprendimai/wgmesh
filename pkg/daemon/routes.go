@@ -76,11 +76,14 @@ func restoreConnectedRoute(network string) {
 		family = "-6"
 	}
 	out, err := cmdExecutor.Command("ip", family, "-o", "addr", "show", "to", ipnet.String()).Output()
+	const hint = "if it was reachable other than via the mesh interface, restore that route manually"
 	if err != nil {
+		log.Printf("Warning: could not query local addresses in %s: %v; %s", ipnet, err, hint)
 		return
 	}
 	iface, src, ok := routes.ParseLocalAddr(string(out), ipnet)
 	if !ok {
+		log.Printf("Warning: no local address in %s; %s", ipnet, hint)
 		return
 	}
 	args := strings.Fields(routes.ConnectedRouteCmd(ipnet, iface, src))

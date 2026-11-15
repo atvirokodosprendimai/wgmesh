@@ -202,3 +202,30 @@ func TestFailedDelDoesNotRestoreConnectedRoute(t *testing.T) {
 		t.Errorf("logged a restore after a failed del: %s", logs.String())
 	}
 }
+
+func TestRestoreConnectedRouteLogsWhyItSkips(t *testing.T) {
+	const shared = "192.168.10.0/24"
+	tests := []struct {
+		name string
+		out  string
+		err  error
+		want string
+	}{
+		{name: "query fails", err: errors.New("exec: ip not found"), want: "exec: ip not found"},
+		{name: "no local address", want: "no local address in " + shared},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mock := &MockCommandExecutor{commandFunc: func(string, ...string) Command {
+				return &MockCommand{outputFunc: func() ([]byte, error) { return []byte(tt.out), tt.err }}
+			}}
+			var logs strings.Builder
+			log.SetOutput(&logs)
+			defer log.SetOutput(os.Stderr)
+			withMockExecutor(t, mock, func() { restoreConnectedRoute(shared) })
+			if !strings.Contains(logs.String(), tt.want) {
+				t.Errorf("log = %q, want it to contain %q", logs.String(), tt.want)
+			}
+		})
+	}
+}
