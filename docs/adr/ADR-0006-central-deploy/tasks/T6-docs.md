@@ -59,6 +59,13 @@ n=$(go test ./pkg/mesh -run '^TestSpecNamesCentralized$' -count=1 -v 2>&1 | tee 
 - 2026-11-16 · e9b76ce* · mutant killed · exit 1 · `docs/centralized-rollout.md` · the release note no longer names PersistFailureFatal: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
 - 2026-11-16 · e9b76ce* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · the backlog row for PersistFailureFatal is gone: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
 - 2026-11-16 · e9b76ce* · mutant killed · exit 1 · `eidos/spec - centralized SSH deploy - diff-based persistent WireGuard config pushed via SSH.md` · the old NAT sentence without the private-address condition: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
+- 2026-11-16 · 7c9b426* · mutant killed · exit 1 · `docs/centralized-rollout.md` · the release note no longer names PersistFailureFatal: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
+- 2026-11-16 · 7c9b426* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · the backlog row ADR-0006 follow-up N+2 is gone: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
+- 2026-11-16 · 7c9b426* · mutant killed · exit 1 · `eidos/spec - centralized SSH deploy - diff-based persistent WireGuard config pushed via SSH.md` · the old NAT sentence returns: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
+- 2026-11-16 · 7c9b426* · mutant inconclusive · exit 1 · `pkg/ssh/quote.go` · Cmd is renamed: the spec test (and the build) must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
 
 ## Invariants
 
@@ -99,3 +106,9 @@ Stop and ask if T3, T4 or T5 changed a name this task's test requires.
 - 2026-11-16 · e9b76ce* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1716
 - 2026-11-16 · e9b76ce* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1821
 - 2026-11-16 · e9b76ce* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1025
+- 2026-11-16 · 7c9b426* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:0 · test-lock-sha256:4b85f3ff007e67a7aef6647935472c6185bcb59763556450615060e7c01219ec · test-lock-file:docs/adr/locks/4b85f3ff007e67a7aef6647935472c6185bcb59763556450615060e7c01219ec.lock · test-lock-kind:replace
+- 2026-11-16 · 7c9b426* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1589
+- 2026-11-16 · 7c9b426* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1690
+- 2026-11-16 · 7c9b426* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:2096
+- 2026-11-16 · 7c9b426* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1907
+- 2026-11-16 · 7c9b426* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1152
