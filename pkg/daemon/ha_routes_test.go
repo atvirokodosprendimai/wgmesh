@@ -150,6 +150,9 @@ func TestRemovedOwnViaRouteRestoresConnectedRoute(t *testing.T) {
 	if !strings.Contains(all, add) {
 		t.Errorf("connected route not restored:\n%s", all)
 	}
+	if strings.Index(all, del) > strings.Index(all, add) {
+		t.Errorf("connected route added before the via route was removed:\n%s", all)
+	}
 	if strings.Contains(all, "ip -4 -o addr show to "+other) {
 		t.Errorf("connected route restore attempted for a non-own network:\n%s", all)
 	}
