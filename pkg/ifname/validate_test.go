@@ -165,7 +165,7 @@ func TestValidate_Darwin(t *testing.T) {
 }
 
 func TestValidateLinuxIgnoresGOOS(t *testing.T) {
-	for _, ok := range []string{"wg0", "mesh-1"} {
+	for _, ok := range []string{"wg0", "mesh-1", strings.Repeat("a", 15)} {
 		if err := ValidateLinux(ok); err != nil {
 			t.Errorf("ValidateLinux(%q) = %v, want nil", ok, err)
 		}
