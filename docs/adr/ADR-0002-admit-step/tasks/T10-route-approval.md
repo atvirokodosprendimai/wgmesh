@@ -86,8 +86,8 @@ Stop and ask if reading `reconcile` shows that a peer's default route is install
 
 ## Out of Scope
 
-- Approval bound to an advertiser key or operator-signed grants (permanent: boundary: announcements carry an unauthenticated public key, so a per-key rule would not hold).
-- Deny-by-default when the list is unset (permanent: boundary: it would break every existing mesh at upgrade; the operator opts in by setting the list).
+- Approval bound to an advertiser key or operator-signed grants (permanent: boundary: M decision 8, 2026-11-15, network only; announcements also carry an unauthenticated public key).
+- Deny-by-default when the list is unset (permanent: boundary: M decision 7, 2026-11-15, open as today; the operator opts in by setting the list).
 - Duplicate-subnet and default-route flapping in reconcile, #859 (permanent: boundary: apply-side route state belongs to the group that owns #859).
 
 ## Verification Log

@@ -19,14 +19,13 @@ M answered the six questions of the first draft on 2026-11-15. Recorded here, da
 3. **Winner order** (M 2026-11-15: "Susietas pirmas, tada mažesnis raktas"): a bound claim first, then the lower public key; a collision loser keeps its resolved address (persist the IP).
 4. **Staging** (M 2026-11-15: "Taip: N+1 IP, N+2 maršrutai"): N warns, N+1 enforces the IP rules, N+2 enforces the route rules.
 5. **#828 stays** (M 2026-11-15: "Taip, lieka kaip T9").
-6. **Route approval is in this ADR** (M 2026-11-15: "Daryti šiame ADR"). Design in Decision item 6, task T10. M's earlier decision of 2026-11-15 is kept: two HA exit nodes each drop the other's `0.0.0.0/0`, and an advertised default route stays a feature (#859).
+6. **Route approval is in this ADR** (M 2026-11-15: "Daryti šiame ADR"). Design in Decision item 4a, task T10. M's earlier decision of 2026-11-15 is kept: two HA exit nodes each drop the other's `0.0.0.0/0`, and an advertised default route stays a feature (#859).
+7. **An unset `accept-routes` stays open after N+2** (M 2026-11-15: "Lieka atviras kaip šiandien (Recommended)"): no deny-by-default; an operator opts in by setting the list.
+8. **Approval is by network only** (M 2026-11-15: "Ne, tik tinklas (Recommended)"): an `accept-routes` entry never names an advertiser key.
 
 ## Open Questions for M
 
-Raised by decision 6; none is decided here. Each has a recommendation.
-
-1. **What does an unset `accept-routes` mean after N+2?** Recommendation: open, as today (every non-mesh network is approved); an operator who wants approval sets the list. Deny-by-default would break every existing mesh at upgrade.
-2. **May an `accept-routes` entry name the advertiser key?** Recommendation: no. Announcements carry an unauthenticated public key (no signatures, Out of Scope), so a per-key list would look like a guarantee and not be one, and HA needs several advertisers for one network.
+None. M answered the last two on 2026-11-15 (decisions 7 and 8 above).
 
 ## Context
 
