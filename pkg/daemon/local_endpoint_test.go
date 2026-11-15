@@ -26,8 +26,8 @@ func TestEndpointDoesNotFlapOnAlternatingObservations(t *testing.T) {
 			changes++
 		}
 	}
-	if changes > 1 {
-		t.Fatalf("endpoint changed %d times in 20 alternating observations, want at most 1", changes)
+	if changes != 0 {
+		t.Fatalf("endpoint changed %d times in 20 alternating observations, want 0", changes)
 	}
 }
 
@@ -46,6 +46,48 @@ func TestStunNeedsThreeConsecutiveObservations(t *testing.T) {
 	}
 	if got := n.GetEndpoint(); got != epNew {
 		t.Fatalf("endpoint = %s, want %s", got, epNew)
+	}
+
+	// consecutive: B, B, C, B must not apply; then B, B, B does
+	m := nodeWith(epOld)
+	for i, ep := range []string{epNew, epNew, epV6, epNew} {
+		if m.ObserveEndpoint(EndpointSTUN, ep) {
+			t.Fatalf("interleaved observation %d (%s) applied, want it pending", i+1, ep)
+		}
+	}
+	if got := m.GetEndpoint(); got != epOld {
+		t.Fatalf("endpoint = %s, want %s", got, epOld)
+	}
+	m.ObserveEndpoint(EndpointSTUN, epNew)
+	if !m.ObserveEndpoint(EndpointSTUN, epNew) {
+		t.Fatal("three identical observations in a row did not apply")
+	}
+}
+
+func TestStunEqualToCurrentDiscardsPending(t *testing.T) {
+	n := nodeWith(epOld)
+	n.ObserveEndpoint(EndpointSTUN, epNew)
+	n.ObserveEndpoint(EndpointSTUN, epNew)
+	n.ObserveEndpoint(EndpointSTUN, epOld)
+	n.ObserveEndpoint(EndpointSTUN, epNew)
+	if n.ObserveEndpoint(EndpointSTUN, epNew) {
+		t.Fatal("pending STUN count survived a STUN equal to the current endpoint")
+	}
+}
+
+func TestInterfaceDiscardsPendingStun(t *testing.T) {
+	n := nodeWith(epOld)
+	n.ObserveEndpoint(EndpointSTUN, epNew)
+	n.ObserveEndpoint(EndpointSTUN, epNew)
+	if !n.ObserveEndpoint(EndpointInterface, epV6) {
+		t.Fatal("interface observation did not apply at once")
+	}
+	n.ObserveEndpoint(EndpointSTUN, epNew)
+	if n.ObserveEndpoint(EndpointSTUN, epNew) {
+		t.Fatal("pending STUN count survived an interface observation")
+	}
+	if got := n.GetEndpoint(); got != epV6 {
+		t.Fatalf("endpoint = %s, want %s", got, epV6)
 	}
 }
 
