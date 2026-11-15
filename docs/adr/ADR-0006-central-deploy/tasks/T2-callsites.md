@@ -58,6 +58,10 @@ a=$(go test ./pkg/ssh -run '^(TestNoUnquotedRemoteCommand|TestHostileStateComman
 | `TestWgQuickRefusesControlCharacters` | `pkg/wireguard/persist_test.go` | a newline, carriage return or NUL in the address, key, endpoint, allowed IP or route returns an error naming the field | — | S1, S3 |
 | `TestWgQuickQuotesRouteValues` | `pkg/wireguard/persist_test.go` | a route network `10.0.0.0/8; id` appears inside quotes in the `PostUp` and `PreDown` lines | — | S1, S3 |
 | `TestWgQuickValidConfigUnchanged` | `pkg/wireguard/persist_test.go` | the text for the valid fixture equals the recorded one | — | S1, S3 |
+| `TestRemoteGuardJudgesShapes` | `pkg/ssh/remote_guard_test.go` | a table of source snippets pins the guard: it fails on a `Sprintf`, a variable, a concatenation with a variable, a `Cmd` with a built name or no arguments, a leading `Quote`, `strconv.Quote`, a function result and a same-named method of another type, and passes constants, `Cmd`, `Cmd` plus a constant suffix and `"cat > " + Quote(p)` | — | S2 |
+| `TestSSHTestHostKeyIsVerified` | `pkg/ssh/remote_e2e_test.go` | the client accepts the `sshtest` key through the temp `known_hosts` and refuses a different key | — | S1, S2 |
+| `TestIPv6EndpointIsQuotedOnWgSet` | `pkg/ssh/remote_e2e_test.go` | an IPv6 endpoint `[2001:db8::1]:51820` reaches `wg set` as one single-quoted word (brackets are glob characters; the golden holds no bracket) | — | S3 |
+| `TestWgQuickRouteWithoutGatewayHasNoVia` | `pkg/wireguard/persist_test.go` | a route without gateway renders `PostUp = ip route add 10.9.0.0/24 dev %i || true` and the matching `PreDown`, with no `via` and no `''` (the old text was the broken `via  dev`, hidden by `|| true`; deploy never passes such a route) | — | S3 |
 
 ## Reachability
 
@@ -88,6 +92,8 @@ a=$(go test ./pkg/ssh -run '^(TestNoUnquotedRemoteCommand|TestHostileStateComman
 ## Risks
 
 - A wg-quick consumer reads a quoted value differently from an unquoted one; for valid values nothing is quoted, so the file is identical, and only hostile values change.
+- An empty route gateway: the old wg-quick text was `ip route add N via  dev %i || true` (a broken line that `|| true` hid, so the route was never installed); `RouteArgs` omits `via`, so a gateway-less route would now be installed at `wg-quick up`. Deploy never passes one (`TestDeploymentConfigUnderLock` asserts no `via  dev`; T3 refuses a node without a mesh IP); `TestWgQuickRouteWithoutGatewayHasNoVia` pins the new text.
+- `Cmd(routes.ConnectedRouteCmd(...))` quotes nothing (`Cmd` quotes arguments, not its name): the guard names it as the one exception, and its inputs are the parsed network, an interface name checked by `ifaceNameRe` and a parsed address.
 - `sshtest` is a new package with a server in it; it is imported only from `_test.go` files, and the guard test `TestNoUnquotedRemoteCommand` does not list it. A non-test import would put a test server in the binary; `go list -deps . | grep sshtest` must print nothing (run in S4).
 - Test doubles: the fake server is a double of the node; the golden is recorded from the real code, not written by hand.
 
