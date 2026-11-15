@@ -8,6 +8,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
@@ -90,6 +91,11 @@ type PeerExchange struct {
 
 	logMu         sync.Mutex
 	lastPacketLog map[string]time.Time
+
+	// legacyOpens counts received envelopes sealed without type authentication
+	// (ADR-0001). Meaningful as "senders still to upgrade" once writers seal with
+	// additional data; until then it counts most traffic.
+	legacyOpens atomic.Uint64
 }
 
 // NewPeerExchange creates a new peer exchange handler
@@ -206,8 +212,8 @@ func (pe *PeerExchange) listenLoop() {
 }
 
 // LegacyEnvelopeOpens returns how many received envelopes were sealed without
-// type authentication. STUB for ADR-0001 T2 step S1 (red run); implemented in S2.
-func (pe *PeerExchange) LegacyEnvelopeOpens() uint64 { return 0 }
+// type authentication.
+func (pe *PeerExchange) LegacyEnvelopeOpens() uint64 { return pe.legacyOpens.Load() }
 
 // handleMessage processes an incoming peer exchange message
 func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
@@ -220,6 +226,13 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	}
 
 	pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+
+	if envelope.LegacyAAD {
+		pe.legacyOpens.Add(1)
+		if pe.allowLog("legacy "+envelope.MessageType, remoteAddr) {
+			log.Printf("[Exchange] %s from %s was sealed without type authentication (sender runs an older release)", envelope.MessageType, remoteAddr.String())
+		}
+	}
 
 	switch envelope.MessageType {
 	case crypto.MessageTypeHello:
@@ -275,6 +288,15 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		}
 		pe.handleRendezvousStart(&start, remoteAddr)
 	case crypto.MessageTypeGoodbye:
+		// An envelope sealed without additional data does not authenticate its
+		// type, so anyone who captured a HELLO could have re-sent it as GOODBYE.
+		// Only a GOODBYE whose type is bound to the tag may remove a peer.
+		if envelope.LegacyAAD {
+			if pe.allowLog("ignored legacy GOODBYE", remoteAddr) {
+				log.Printf("[Exchange] Ignored GOODBYE from %s: sent without type authentication, the sender must be upgraded", remoteAddr.String())
+			}
+			return
+		}
 		var bye goodbyeMessage
 		if err := json.Unmarshal(plaintext, &bye); err != nil {
 			log.Printf("[Exchange] Invalid GOODBYE payload from %s: %v", remoteAddr.String(), err)
@@ -1150,7 +1172,7 @@ func (pe *PeerExchange) SendGoodbye(addr string) error {
 		WGPubKey:  pe.localNode.WGPubKey,
 	}
 
-	data, err := crypto.SealEnvelope(crypto.MessageTypeGoodbye, msg, pe.config.Keys.GossipKey)
+	data, err := crypto.SealEnvelopeAAD(crypto.MessageTypeGoodbye, msg, pe.config.Keys.GossipKey)
 	if err != nil {
 		return fmt.Errorf("failed to seal goodbye: %w", err)
 	}
@@ -1181,17 +1203,25 @@ func (pe *PeerExchange) MarshalJSON() ([]byte, error) {
 }
 
 func (pe *PeerExchange) logIncomingPacket(messageType string, remoteAddr *net.UDPAddr) {
-	if remoteAddr == nil {
-		return
+	if pe.allowLog(messageType, remoteAddr) {
+		log.Printf("[Exchange] Received valid %s from %s", messageType, remoteAddr.String())
 	}
-	key := messageType + "|" + remoteAddr.String()
+}
+
+// allowLog reports whether a log line of this kind for this address is due: at
+// most one per ExchangeLogCooldown, so a flood of packets cannot fill the log.
+func (pe *PeerExchange) allowLog(kind string, remoteAddr *net.UDPAddr) bool {
+	if remoteAddr == nil {
+		return false
+	}
+	key := kind + "|" + remoteAddr.String()
 	now := time.Now()
 
 	pe.logMu.Lock()
+	defer pe.logMu.Unlock()
 	last, exists := pe.lastPacketLog[key]
 	if exists && now.Sub(last) < ExchangeLogCooldown {
-		pe.logMu.Unlock()
-		return
+		return false
 	}
 	pe.lastPacketLog[key] = now
 	// Periodic cleanup of stale log entries
@@ -1202,7 +1232,5 @@ func (pe *PeerExchange) logIncomingPacket(messageType string, remoteAddr *net.UD
 			}
 		}
 	}
-	pe.logMu.Unlock()
-
-	log.Printf("[Exchange] Received valid %s from %s", messageType, remoteAddr.String())
+	return true
 }
