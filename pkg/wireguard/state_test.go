@@ -3,6 +3,7 @@ package wireguard
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -137,7 +138,9 @@ func TestReadStateDoesNotStoreErrors(t *testing.T) {
 
 func TestRunWGKillsChildAfterTimeout(t *testing.T) {
 	dir := fakeWG(t)
-	script := "#!/bin/sh\necho $$ > \"$FAKEWG_DIR/pid\"\nexec sleep 30\n"
+	// A background sleep inherits stdout and outlives the exec'd one: without
+	// cmd.WaitDelay runWG would block until it exits (30 s).
+	script := "#!/bin/sh\nsleep 30 &\necho $! > \"$FAKEWG_DIR/bgpid\"\necho $$ > \"$FAKEWG_DIR/pid\"\nexec sleep 30\n"
 	path := filepath.Join(dir, "wg-slow")
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
@@ -157,18 +160,31 @@ func TestRunWGKillsChildAfterTimeout(t *testing.T) {
 		t.Fatalf("error = %v, want one naming the sub-command and the timeout", err)
 	}
 
-	b, rerr := os.ReadFile(filepath.Join(dir, "pid"))
-	if rerr != nil {
-		t.Fatal(rerr)
-	}
-	var pid int
-	for _, c := range strings.TrimSpace(string(b)) {
-		pid = pid*10 + int(c-'0')
-	}
+	pid := readPidFile(t, filepath.Join(dir, "pid"))
+	bg := readPidFile(t, filepath.Join(dir, "bgpid"))
+	t.Cleanup(func() { _ = syscall.Kill(bg, syscall.SIGKILL) })
 	deadline := time.Now().Add(2 * time.Second)
 	for syscall.Kill(pid, 0) == nil {
 		if time.Now().After(deadline) {
 			t.Fatalf("child %d is still alive", pid)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// readPidFile polls up to 2 s for the fake script to have written its pid.
+func readPidFile(t *testing.T, path string) int {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		b, err := os.ReadFile(path)
+		if err == nil {
+			if pid, perr := strconv.Atoi(strings.TrimSpace(string(b))); perr == nil {
+				return pid
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no pid in %s after 2s (last error %v)", path, err)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -256,5 +272,42 @@ func TestReadStateMalformedColumnsCountAsZero(t *testing.T) {
 	}
 	if tr["keyA"] != (PeerTransfer{RxBytes: 7, TxBytes: 8}) || tr["keyB"] != (PeerTransfer{RxBytes: 5, TxBytes: 6}) {
 		t.Errorf("transfers = %v", tr)
+	}
+}
+
+func TestReadStateReforksPastMaxAge(t *testing.T) {
+	dir := fakeWG(t)
+	setDump(t, dir, "wg0", dumpWG0)
+
+	if _, err := ReadState("wg0", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	s := slotFor("wg0")
+	s.mu.Lock()
+	s.at = time.Now().Add(-2 * time.Hour)
+	s.mu.Unlock()
+	if _, err := ReadState("wg0", time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(calls(t, dir)); n != 2 {
+		t.Fatalf("forks = %d, want 2 (the stored result is older than maxAge)", n)
+	}
+}
+
+func TestLegacyReadersPropagateErrors(t *testing.T) {
+	dir := fakeWG(t)
+	setDump(t, dir, "wg0", dumpWG0)
+	if err := os.WriteFile(filepath.Join(dir, "fail"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if peers, err := GetPeers("wg0"); err == nil {
+		t.Errorf("GetPeers: want an error from the failing wg, got %+v", peers)
+	}
+	if hs, err := GetLatestHandshakes("wg0"); err == nil {
+		t.Errorf("GetLatestHandshakes: want an error from the failing wg, got %v", hs)
+	}
+	if tr, err := GetPeerTransfers("wg0"); err == nil {
+		t.Errorf("GetPeerTransfers: want an error from the failing wg, got %v", tr)
 	}
 }
