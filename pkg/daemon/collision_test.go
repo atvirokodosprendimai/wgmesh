@@ -26,6 +26,9 @@ func TestCollisionLoserPersistsResolvedIP(t *testing.T) {
 	d.CheckAndResolveCollisions()
 
 	want := nonceOne(d)
+	if want == "10.42.1.1" {
+		t.Fatalf("test needs a resolved address that differs from the natural one, both %s", want)
+	}
 	if d.localNode.MeshIP != want {
 		t.Fatalf("local IP = %s, want the nonce-1 address %s", d.localNode.MeshIP, want)
 	}
