@@ -196,20 +196,25 @@ func TestNormalizeRoutes(t *testing.T) {
 		{"only empty", []string{""}, []string{}, false},
 		{"duplicates removed", []string{"10.0.0.0/8", "10.1.2.3/8", "10.0.0.0/8"}, []string{"10.0.0.0/8"}, false},
 		{"ipv6", []string{"fd00:1::5/64", "2001:db8::/32"}, []string{"fd00:1::/64", "2001:db8::/32"}, false},
-		{"bare ipv4 rejected", []string{"192.168.1.0"}, nil, true},
-		{"bare ipv6 rejected", []string{"fd00::1"}, nil, true},
+		{"bare ipv4 becomes /32", []string{"192.168.1.5"}, []string{"192.168.1.5/32"}, false},
+		{"bare ipv6 becomes /128", []string{"fd00::1"}, []string{"fd00::1/128"}, false},
+		{"bare v4-mapped ipv6 is a v4 host route", []string{"::ffff:10.0.0.1"}, []string{"10.0.0.1/32"}, false},
+		{"bare ip duplicate of host route", []string{"10.0.0.5", "10.0.0.5/32"}, []string{"10.0.0.5/32"}, false},
+		{"mix of bare, host bits and cidr", []string{"192.168.1.5", " fd00::1", "192.168.1.10/24", "10.0.0.0/8"}, []string{"192.168.1.5/32", "fd00::1/128", "192.168.1.0/24", "10.0.0.0/8"}, false},
+		{"mix with garbage rejected", []string{"192.168.1.5", "192.168.1.10/24", "10.0.0.300"}, nil, true},
+		{"ip with port rejected", []string{"192.168.1.5:80"}, nil, true},
 		{"garbage rejected", []string{"10.0.0.0/8", "bogus"}, nil, true},
 		{"bad prefix rejected", []string{"10.0.0.0/33"}, nil, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got, err := normalizeRoutes(tt.in)
+			got, err := NormalizeRoutes(tt.in)
 			if (err != nil) != tt.wantErr {
-				t.Fatalf("normalizeRoutes(%q) err = %v, wantErr %v", tt.in, err, tt.wantErr)
+				t.Fatalf("NormalizeRoutes(%q) err = %v, wantErr %v", tt.in, err, tt.wantErr)
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("normalizeRoutes(%q) = %#v, want %#v", tt.in, got, tt.want)
+				t.Errorf("NormalizeRoutes(%q) = %#v, want %#v", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -225,8 +230,17 @@ func TestNewConfigAdvertiseRoutes(t *testing.T) {
 		t.Errorf("AdvertiseRoutes = %v, want %v", cfg.AdvertiseRoutes, want)
 	}
 
-	_, err = NewConfig(DaemonOpts{Secret: testConfigSecret, AdvertiseRoutes: []string{"192.168.1.0"}})
+	// A bare IP (accepted unvalidated by older releases) must not stop startup.
+	cfg, err = NewConfig(DaemonOpts{Secret: testConfigSecret, AdvertiseRoutes: []string{"192.168.1.5", "fd00::1"}})
+	if err != nil {
+		t.Fatalf("NewConfig with bare IP routes failed: %v", err)
+	}
+	if want := []string{"192.168.1.5/32", "fd00::1/128"}; !reflect.DeepEqual(cfg.AdvertiseRoutes, want) {
+		t.Errorf("AdvertiseRoutes = %v, want %v", cfg.AdvertiseRoutes, want)
+	}
+
+	_, err = NewConfig(DaemonOpts{Secret: testConfigSecret, AdvertiseRoutes: []string{"bogus"}})
 	if err == nil || !strings.Contains(err.Error(), "advertise-routes") {
-		t.Fatalf("NewConfig with bare IP route: err = %v, want advertise-routes error", err)
+		t.Fatalf("NewConfig with garbage route: err = %v, want advertise-routes error", err)
 	}
 }
