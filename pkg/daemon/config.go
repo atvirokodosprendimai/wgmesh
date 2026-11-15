@@ -29,6 +29,7 @@ type Config struct {
 	InterfaceName   string
 	WGListenPort    int
 	AdvertiseRoutes []string
+	AcceptRoutes    []string
 	LogLevel        string
 	Privacy         bool
 	Gossip          bool
@@ -123,12 +124,18 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		return nil, fmt.Errorf("invalid advertise-routes: %w", err)
 	}
 
+	acceptRoutes, err := parseAcceptRoutes(opts.AcceptRoutes)
+	if err != nil {
+		return nil, err
+	}
+
 	return &Config{
 		Secret:          secret,
 		Keys:            keys,
 		InterfaceName:   ifaceName,
 		WGListenPort:    listenPort,
 		AdvertiseRoutes: advertiseRoutes,
+		AcceptRoutes:    acceptRoutes,
 		LogLevel:        logLevel,
 		Privacy:         opts.Privacy,
 		Gossip:          opts.Gossip,
@@ -177,6 +184,17 @@ func normalizeRoutes(routes []string) ([]string, error) {
 	return out, nil
 }
 
+// parseAcceptRoutes validates the operator's accept-routes list. It is the one
+// place the list is parsed, for the flag, the config and the reload file; it
+// shares the parser of advertise-routes.
+func parseAcceptRoutes(routes []string) ([]string, error) {
+	out, err := normalizeRoutes(routes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid accept-routes: %w", err)
+	}
+	return out, nil
+}
+
 // PrefixLen returns the prefix length for the mesh subnet.
 // Uses CustomSubnet mask if set, otherwise defaults to 16.
 func (c *Config) PrefixLen() int {
@@ -211,6 +229,7 @@ func FormatSecretURI(secret string) string {
 // and contains lines of the form KEY=VALUE.  Currently supported keys:
 //
 //	advertise-routes   comma-separated CIDR list
+//	accept-routes      comma-separated CIDR list of approved non-mesh networks
 //	log-level          debug|info|warn|error
 func ReloadConfigPath(ifaceName string) string {
 	return fmt.Sprintf("/var/lib/wgmesh/%s.reload", ifaceName)
@@ -248,6 +267,12 @@ func LoadReloadFile(path string) (DaemonOpts, error) {
 				return DaemonOpts{}, fmt.Errorf("invalid advertise-routes: %w", err)
 			}
 			opts.AdvertiseRoutes = routes
+		case "accept-routes":
+			routes, err := parseAcceptRoutes(strings.Split(val, ","))
+			if err != nil {
+				return DaemonOpts{}, err
+			}
+			opts.AcceptRoutes = routes
 		case "log-level":
 			opts.LogLevel = val
 		}

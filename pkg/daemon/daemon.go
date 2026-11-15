@@ -280,9 +280,10 @@ func (d *Daemon) admitPolicy() *Policy {
 			}
 			return d.localNode.WGPubKey, d.localNode.MeshIP
 		},
-		MeshNet: d.meshNet(),
-		Derive:  d.deriveMeshIP,
-		OnWarn:  RecordAdmitWarning,
+		MeshNet:      d.meshNet(),
+		Derive:       d.deriveMeshIP,
+		OnWarn:       RecordAdmitWarning,
+		AcceptRoutes: d.acceptRoutes,
 	}
 }
 
@@ -1786,7 +1787,7 @@ func (d *Daemon) handleSIGHUP() {
 	opts, err := LoadReloadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes or log-level)", path)
+			log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes, accept-routes or log-level)", path)
 		} else {
 			log.Printf("[Reload] Failed to load reload file %s: %v", path, err)
 		}
@@ -1805,6 +1806,20 @@ func (d *Daemon) GetAdvertiseRoutes() []string {
 	return out
 }
 
+// acceptRoutes is the operator's accept list as networks (R9), read under the
+// config lock; nil means no list. The entries were validated when they were set.
+func (d *Daemon) acceptRoutes() []*net.IPNet {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
+	var out []*net.IPNet
+	for _, s := range d.config.AcceptRoutes {
+		if _, n, err := net.ParseCIDR(s); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // GetLogLevel returns the current log level (thread-safe).
 func (d *Daemon) GetLogLevel() string {
 	d.configMu.RLock()
@@ -1816,6 +1831,8 @@ func (d *Daemon) GetLogLevel() string {
 // the WireGuard interface or DHT connections.  It updates:
 //   - AdvertiseRoutes (triggers immediate reconcile on next tick)
 //   - LogLevel
+//   - AcceptRoutes (judges later offers; routes already stored change when the
+//     peer next announces)
 //
 // Non-reloadable fields (Secret, InterfaceName, WGListenPort, Privacy, Gossip)
 // are silently ignored.
@@ -1834,6 +1851,11 @@ func (d *Daemon) reloadConfig(opts DaemonOpts) {
 		if d.localNode != nil {
 			d.localNode.RoutableNetworks = opts.AdvertiseRoutes
 		}
+	}
+
+	if opts.AcceptRoutes != nil && !routeSlicesEqual(d.config.AcceptRoutes, opts.AcceptRoutes) {
+		log.Printf("[Reload] AcceptRoutes: %v → %v", d.config.AcceptRoutes, opts.AcceptRoutes)
+		d.config.AcceptRoutes = opts.AcceptRoutes
 	}
 }
 
