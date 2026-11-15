@@ -58,6 +58,10 @@ n=$(go test ./pkg/discovery -run '^(TestLegacyGoodbyeIsIgnored|TestAADGoodbyeRem
 | 4 — it is used | the counter is read only by tests here; it is meaningful from release N+1 and is not in `daemon.status` (deferred: docs/adr/BACKLOG.md) |
 
 ## Mutation Log
+- 2026-11-15 · e6a1df0* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the legacy GOODBYE gate is switched off: a legacy GOODBYE removes a peer · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
+- 2026-11-15 · e6a1df0* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the gate refuses every GOODBYE, including AAD-bound ones · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
+- 2026-11-15 · e6a1df0* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · SendGoodbye goes back to the legacy form and graceful shutdown stops working between upgraded nodes · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
+- 2026-11-15 · e6a1df0* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · legacy opens are no longer counted · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
 
 ## Invariants
 
@@ -95,3 +99,7 @@ Stop and ask if the gate would also have to cover a type other than GOODBYE.
   FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery	0.010s
   FAIL
   ```
+- 2026-11-15 · e6a1df0* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:17583
+- 2026-11-15 · e6a1df0* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:14732
+- 2026-11-15 · e6a1df0* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:8216
+- 2026-11-15 · e6a1df0* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:9362
