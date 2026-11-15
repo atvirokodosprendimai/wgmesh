@@ -840,3 +840,32 @@ func TestHandleReplyOffersFirstHand(t *testing.T) {
 		t.Errorf("after a mention in another REPLY, MeshIP = %q, want 10.0.0.9", got)
 	}
 }
+
+// A peer known only by a guessed endpoint is listed with its key and no
+// endpoint: a wrong address is worse than none (#839).
+func TestGuessedEndpointNotAnnounced(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-guessed-endpoint-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+	peerStore.Offer(daemon.Candidate{Info: &daemon.PeerInfo{
+		WGPubKey: "guessed-pubkey", MeshIP: "10.0.0.2", Endpoint: "203.0.113.1:51820", EndpointGuessed: true,
+	}, Source: DHTMethod, Hand: daemon.FirstHand})
+	peerStore.Offer(daemon.Candidate{Info: &daemon.PeerInfo{
+		WGPubKey: "advertised-pubkey", MeshIP: "10.0.0.3", Endpoint: "198.51.100.7:51821",
+	}, Source: DHTMethod, Hand: daemon.FirstHand})
+
+	pe := NewPeerExchange(cfg, &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}, peerStore)
+
+	got := map[string]string{}
+	for _, kp := range pe.getKnownPeers() {
+		got[kp.WGPubKey] = kp.WGEndpoint
+	}
+	if ep, ok := got["guessed-pubkey"]; !ok || ep != "" {
+		t.Errorf("guessed peer listed = %v with endpoint %q; want listed with an empty endpoint", ok, ep)
+	}
+	if got["advertised-pubkey"] != "198.51.100.7:51821" {
+		t.Errorf("advertised peer endpoint = %q, want 198.51.100.7:51821", got["advertised-pubkey"])
+	}
+}

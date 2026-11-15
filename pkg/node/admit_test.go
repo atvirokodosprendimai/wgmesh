@@ -439,3 +439,76 @@ func TestTombstonePrunesExpiredBeforeEvictingOldest(t *testing.T) {
 	}
 	wantTombstoned(t, offerHand(ps, "new-0", SecondHand, false), "the oldest unexpired tombstone")
 }
+
+func offerEndpoint(ps *PeerStore, key, endpoint string, guessed bool, source Source, hand Hand) {
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: key, Endpoint: endpoint, EndpointGuessed: guessed}, Source: source, Hand: hand})
+}
+
+// A guess is stored below every advertisement, so the first advertisement
+// from any source replaces it, and a guess never replaces an advertisement.
+func TestGuessedEndpointLosesToAdvertisement(t *testing.T) {
+	t.Parallel()
+
+	const guess, real = "203.0.113.1:51820", "198.51.100.7:51821"
+	sources := []struct {
+		name   string
+		source Source
+		hand   Hand
+		method string
+	}{
+		{"cache", "cache", Restored, "cache"},
+		{"dht transitive", "dht", SecondHand, "dht-transitive"},
+		{"gossip transitive", "gossip", SecondHand, "gossip-transitive"},
+		{"dht first-hand", "dht", FirstHand, "dht"},
+	}
+	for _, s := range sources {
+		ps := NewPeerStore()
+		offerEndpoint(ps, "k", guess, true, "dht", FirstHand)
+		offerEndpoint(ps, "k", real, false, s.source, s.hand)
+		got, _ := ps.Get("k")
+		if got.Endpoint != real || got.EndpointGuessed || got.EndpointMethod != s.method {
+			t.Errorf("%s: after guess then advertisement: %q guessed=%v method=%q; want %q guessed=false method=%q",
+				s.name, got.Endpoint, got.EndpointGuessed, got.EndpointMethod, real, s.method)
+		}
+
+		ps = NewPeerStore()
+		offerEndpoint(ps, "k", real, false, s.source, s.hand)
+		offerEndpoint(ps, "k", guess, true, "lan", FirstHand)
+		got, _ = ps.Get("k")
+		if got.Endpoint != real || got.EndpointGuessed {
+			t.Errorf("%s: a guess replaced an advertisement: %q guessed=%v", s.name, got.Endpoint, got.EndpointGuessed)
+		}
+	}
+
+	// A guess is replaced by a newer guess, and a peer first seen with a guess keeps the flag.
+	ps := NewPeerStore()
+	offerEndpoint(ps, "k", guess, true, "dht", FirstHand)
+	if got, _ := ps.Get("k"); !got.EndpointGuessed {
+		t.Errorf("a new peer stored with a guess lost EndpointGuessed")
+	}
+	offerEndpoint(ps, "k", "203.0.113.2:51820", true, "dht", FirstHand)
+	if got, _ := ps.Get("k"); got.Endpoint != "203.0.113.2:51820" || !got.EndpointGuessed {
+		t.Errorf("a newer guess did not replace the older one: %q guessed=%v", got.Endpoint, got.EndpointGuessed)
+	}
+}
+
+// An empty first-hand endpoint says nothing about the endpoint: it leaves a
+// known one and its method unchanged (store.go guards this today; this pins it).
+func TestEmptyFirstHandEndpointKeepsKnown(t *testing.T) {
+	t.Parallel()
+
+	for _, known := range []struct {
+		source Source
+		method string
+	}{{"lan", "lan"}, {"dht", "dht"}, {"gossip", "gossip"}} {
+		ps := NewPeerStore()
+		offerEndpoint(ps, "k", "198.51.100.7:51821", false, known.source, FirstHand)
+		for _, src := range []Source{"dht", "lan", "gossip"} {
+			offerEndpoint(ps, "k", "", false, src, FirstHand)
+		}
+		got, _ := ps.Get("k")
+		if got.Endpoint != "198.51.100.7:51821" || got.EndpointMethod != known.method || got.EndpointGuessed {
+			t.Errorf("known via %s: after empty first-hand offers: %q method=%q guessed=%v", known.source, got.Endpoint, got.EndpointMethod, got.EndpointGuessed)
+		}
+	}
+}
