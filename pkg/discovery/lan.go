@@ -95,7 +95,12 @@ func (l *LANDiscovery) Start() error {
 func (l *LANDiscovery) Stop() error {
 	l.mu.Lock()
 	if !l.running {
+		// A concurrent Stop is draining: wait for the same loops.
+		wg := l.wg
 		l.mu.Unlock()
+		if wg != nil {
+			wg.Wait()
+		}
 		return nil
 	}
 

@@ -123,7 +123,12 @@ func (g *MeshGossip) Start() error {
 func (g *MeshGossip) Stop() error {
 	g.mu.Lock()
 	if !g.running {
+		// A concurrent Stop is draining: wait for the same loops.
+		wg := g.wg
 		g.mu.Unlock()
+		if wg != nil {
+			wg.Wait()
+		}
 		return nil
 	}
 

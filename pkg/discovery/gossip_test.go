@@ -240,7 +240,6 @@ func TestMeshGossipRestartAfterStop(t *testing.T) {
 	if err := g.Start(); err != nil {
 		t.Fatalf("second Start: %v", err)
 	}
-	defer g.Stop()
 
 	select {
 	case <-g.stopCh:
@@ -266,10 +265,12 @@ func TestMeshGossipRestartAfterStop(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, ok := store.Get(remoteKey); ok {
+			stopTwice(t, g)
 			return
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+	g.Stop()
 	t.Fatal("restarted gossip did not process a message")
 }
 
@@ -304,4 +305,48 @@ func TestMeshGossipStopStartRaceOnPort(t *testing.T) {
 		<-done
 	}
 	g.Stop()
+}
+
+func TestMeshGossipConcurrentStopWaitsForLoops(t *testing.T) {
+	cfg := newTestConfig(t)
+	cfg.Keys.GossipPort = 0
+	g, err := NewMeshGossip(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}, daemon.NewPeerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Stand in for a loop that has not exited yet: both Stops must wait for it.
+	g.wg.Add(1)
+	stopped := make(chan struct{}, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			g.Stop()
+			stopped <- struct{}{}
+		}()
+	}
+	select {
+	case <-stopped:
+		t.Fatal("a Stop returned while a loop was still running")
+	case <-time.After(200 * time.Millisecond):
+	}
+	g.wg.Done()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-stopped:
+		case <-time.After(3 * time.Second):
+			t.Fatal("Stop did not return after the loop exited")
+		}
+	}
+}
+
+// stopTwice pins that a second Stop is a no-op returning nil.
+func stopTwice(t *testing.T, s interface{ Stop() error }) {
+	t.Helper()
+	for i := 0; i < 2; i++ {
+		if err := s.Stop(); err != nil {
+			t.Fatalf("Stop #%d: %v", i+1, err)
+		}
+	}
 }
