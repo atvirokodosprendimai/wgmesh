@@ -249,3 +249,33 @@ func TestDetectEndpointsClassifiesUnreachableNodes(t *testing.T) {
 		}
 	})
 }
+
+// An endpoint detectEndpoints wrote is not the operator's: a second call in the
+// same process recomputes it, while an operator-set endpoint stays.
+func TestDetectEndpointsTwiceRecomputesItsOwnEndpoints(t *testing.T) {
+	lanHost(t)
+	const operator = "vpn.example.com:443"
+	a := sshtest.Start(t, nodeReplies())
+	o := sshtest.Start(t, nodeReplies())
+	m := newTestMesh(
+		tnode{name: "a", host: a.Host, port: a.Port},
+		tnode{name: "o", host: o.Host, port: o.Port},
+	)
+	m.Nodes["o"].PublicEndpoint = operator
+
+	m.detectEndpoints()
+
+	if got := m.Nodes["a"].PublicEndpoint; got != "127.0.0.1:51820" {
+		t.Fatalf("first call: a has endpoint %q, want 127.0.0.1:51820", got)
+	}
+	m.Nodes["c"] = &Node{Hostname: "c", SSHHost: "127.0.0.2", SSHPort: closedPort(t), ListenPort: 51820}
+
+	m.detectEndpoints()
+
+	if n := m.Nodes["a"]; n.PublicEndpoint != "" || !n.BehindNAT {
+		t.Errorf("second call: a has endpoint %q behindNAT %v, want none and true", n.PublicEndpoint, n.BehindNAT)
+	}
+	if got := m.Nodes["o"].PublicEndpoint; got != operator {
+		t.Errorf("the operator-set endpoint is %q after two calls, want %q", got, operator)
+	}
+}
