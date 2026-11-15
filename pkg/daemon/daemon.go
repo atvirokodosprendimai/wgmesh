@@ -99,7 +99,9 @@ type RPCServer interface {
 
 // LocalNode represents our local WireGuard node.
 // The WG endpoint is accessed via GetEndpoint/SetEndpoint to allow
-// concurrent updates from discovery goroutines.
+// concurrent updates from discovery goroutines. RoutableNetworks changes on
+// SIGHUP reload, so once the node is shared it must be accessed only via
+// GetRoutableNetworks/SetRoutableNetworks.
 type LocalNode struct {
 	WGPubKey         string
 	WGPrivateKey     string
@@ -116,6 +118,8 @@ type LocalNode struct {
 	// observation; both fields are guarded by endpointMu.
 	pendingSTUN      string
 	pendingSTUNCount int
+
+	routesMu sync.RWMutex // guards RoutableNetworks
 }
 
 // GetEndpoint returns the current WireGuard endpoint (thread-safe).
@@ -188,6 +192,21 @@ func endpointUnspecified(ep string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsUnspecified()
+}
+
+// GetRoutableNetworks returns a copy of the advertised networks (thread-safe).
+func (n *LocalNode) GetRoutableNetworks() []string {
+	n.routesMu.RLock()
+	defer n.routesMu.RUnlock()
+	return append([]string(nil), n.RoutableNetworks...)
+}
+
+// SetRoutableNetworks stores a copy of the advertised networks (thread-safe).
+func (n *LocalNode) SetRoutableNetworks(networks []string) {
+	networks = append([]string(nil), networks...)
+	n.routesMu.Lock()
+	defer n.routesMu.Unlock()
+	n.RoutableNetworks = networks
 }
 
 // DiscoveryLayer is the interface for discovery implementations
@@ -511,7 +530,7 @@ func (d *Daemon) initLocalNode() error {
 			}
 		}
 
-		d.localNode.RoutableNetworks = d.config.AdvertiseRoutes
+		d.localNode.SetRoutableNetworks(d.config.AdvertiseRoutes)
 		d.localNode.Introducer = d.config.Introducer
 		d.localNode.Hostname = hostname
 		return nil
@@ -707,6 +726,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 
 	prevRelayRoutes := d.currentRelayRoutesSnapshot()
 	prevDirectStable := d.directStableCyclesSnapshot()
+	ownNetworks := d.ownRoutableNetworks()
 
 	for _, p := range peers {
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" || p.MeshIP == "" {
@@ -739,7 +759,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 				if p.MeshIPv6 != "" {
 					d.addAllowedIP(desired, relay, p.MeshIPv6+"/128")
 				}
-				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
+				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, ownNetworks) {
 					network = strings.TrimSpace(network)
 					if network != "" {
 						d.addAllowedIP(desired, relay, network)
@@ -753,7 +773,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 		if p.MeshIPv6 != "" {
 			d.addAllowedIP(desired, p, p.MeshIPv6+"/128")
 		}
-		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
+		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, ownNetworks) {
 			network = strings.TrimSpace(network)
 			if network != "" {
 				d.addAllowedIP(desired, p, network)
@@ -1496,7 +1516,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	allowedCSV := reconnectAllowedCSV(peer, d.localNode.RoutableNetworks)
+	allowedCSV := reconnectAllowedCSV(peer, d.ownRoutableNetworks())
 	if allowedCSV == "" {
 		return
 	}
@@ -1820,6 +1840,15 @@ func (d *Daemon) acceptRoutes() []*net.IPNet {
 	return out
 }
 
+// ownRoutableNetworks returns a copy of the local node's RoutableNetworks,
+// which SIGHUP reload replaces.
+func (d *Daemon) ownRoutableNetworks() []string {
+	if d.localNode == nil {
+		return nil
+	}
+	return d.localNode.GetRoutableNetworks()
+}
+
 // GetLogLevel returns the current log level (thread-safe).
 func (d *Daemon) GetLogLevel() string {
 	d.configMu.RLock()
@@ -1849,7 +1878,7 @@ func (d *Daemon) reloadConfig(opts DaemonOpts) {
 		log.Printf("[Reload] AdvertiseRoutes: %v → %v", d.config.AdvertiseRoutes, opts.AdvertiseRoutes)
 		d.config.AdvertiseRoutes = opts.AdvertiseRoutes
 		if d.localNode != nil {
-			d.localNode.RoutableNetworks = opts.AdvertiseRoutes
+			d.localNode.SetRoutableNetworks(opts.AdvertiseRoutes)
 		}
 	}
 

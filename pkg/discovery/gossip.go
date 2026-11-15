@@ -233,7 +233,7 @@ func (g *MeshGossip) exchangeWithRandomPeer(conn *net.UDPConn) {
 		g.localNode.MeshIP,
 		g.localNode.GetEndpoint(),
 		g.localNode.Introducer,
-		g.localNode.RoutableNetworks,
+		g.localNode.GetRoutableNetworks(),
 		knownPeers,
 		g.localNode.Hostname,
 		g.localNode.MeshIPv6,

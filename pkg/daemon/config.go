@@ -119,7 +119,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		}
 	}
 
-	advertiseRoutes, err := normalizeRoutes(opts.AdvertiseRoutes)
+	advertiseRoutes, err := NormalizeRoutes(opts.AdvertiseRoutes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid advertise-routes: %w", err)
 	}
@@ -148,12 +148,12 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 	}, nil
 }
 
-// normalizeRoutes trims and validates advertised routes. Empty entries are
-// dropped, each entry must be a CIDR (a bare IP is rejected), host bits are
-// cleared (192.168.1.10/24 -> 192.168.1.0/24, with a warning) and duplicates
-// are removed. Peers drop announcements carrying invalid CIDRs, so a bad entry
+// NormalizeRoutes trims and validates advertised routes. Empty entries are
+// dropped, each entry must be a CIDR or a bare IP (taken as a /32 or /128 host
+// route), host bits are cleared (192.168.1.10/24 -> 192.168.1.0/24), any
+// rewrite is logged as a warning, and duplicates are removed. Peers drop announcements carrying invalid CIDRs, so a bad entry
 // must fail here rather than make this node silently invisible.
-func normalizeRoutes(routes []string) ([]string, error) {
+func NormalizeRoutes(routes []string) ([]string, error) {
 	if routes == nil {
 		return nil, nil
 	}
@@ -164,7 +164,16 @@ func normalizeRoutes(routes []string) ([]string, error) {
 		if r == "" {
 			continue
 		}
-		_, ipnet, err := net.ParseCIDR(r)
+		cidr := r
+		if ip := net.ParseIP(r); ip != nil {
+			// Releases before #849 accepted a bare IP unvalidated; take it
+			// as a host route so their systemd units still start.
+			cidr = r + "/32"
+			if strings.Contains(r, ":") {
+				cidr = r + "/128"
+			}
+		}
+		_, ipnet, err := net.ParseCIDR(cidr)
 		if err != nil {
 			return nil, fmt.Errorf("%q is not a CIDR (expected e.g. 192.168.1.0/24 or 10.0.0.5/32)", r)
 		}
@@ -191,7 +200,7 @@ func normalizeRoutes(routes []string) ([]string, error) {
 // but none survived (",", " , ") is an error, because it would silently become
 // the empty list and open the node.
 func parseAcceptRoutes(routes []string) ([]string, error) {
-	out, err := normalizeRoutes(routes)
+	out, err := NormalizeRoutes(routes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid accept-routes: %w", err)
 	}
@@ -268,7 +277,7 @@ func LoadReloadFile(path string) (DaemonOpts, error) {
 		val = strings.TrimSpace(val)
 		switch key {
 		case "advertise-routes":
-			routes, err := normalizeRoutes(strings.Split(val, ","))
+			routes, err := NormalizeRoutes(strings.Split(val, ","))
 			if err != nil {
 				return DaemonOpts{}, fmt.Errorf("invalid advertise-routes: %w", err)
 			}

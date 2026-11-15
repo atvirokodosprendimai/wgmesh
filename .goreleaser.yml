@@ -55,6 +55,8 @@ nfpms:
     contents:
       - src: packaging/wgmesh.service
         dst: /lib/systemd/system/wgmesh.service
+        file_info:
+          mode: 0644
       - dst: /etc/wgmesh
         type: dir
         file_info:
