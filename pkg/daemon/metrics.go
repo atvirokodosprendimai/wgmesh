@@ -72,18 +72,26 @@ func RegisterMetrics() {
 		return
 	}
 	metricsRegistered = true
-	prometheus.MustRegister(activePeers)
-	prometheus.MustRegister(relayedPeers)
-	prometheus.MustRegister(natType)
-	prometheus.MustRegister(discoveryEvents)
-	prometheus.MustRegister(reconcileDuration)
-	prometheus.MustRegister(probeRTT)
-	prometheus.MustRegister(probeRTTSummary)
-	prometheus.MustRegister(natTraversalAttempts)
-	prometheus.MustRegister(natTraversalSuccesses)
-	prometheus.MustRegister(admitWarnings)
-	prometheus.MustRegister(goCollector)
-	prometheus.MustRegister(processCollector)
+	registerMetrics(prometheus.DefaultRegisterer)
+}
+
+// registerMetrics registers the metrics with reg. The admit warning counter
+// starts with its known rule at 0, so a query for 0 finds a series before the
+// first warning.
+func registerMetrics(reg prometheus.Registerer) {
+	reg.MustRegister(activePeers)
+	reg.MustRegister(relayedPeers)
+	reg.MustRegister(natType)
+	reg.MustRegister(discoveryEvents)
+	reg.MustRegister(reconcileDuration)
+	reg.MustRegister(probeRTT)
+	reg.MustRegister(probeRTTSummary)
+	reg.MustRegister(natTraversalAttempts)
+	reg.MustRegister(natTraversalSuccesses)
+	reg.MustRegister(admitWarnings)
+	admitWarnings.WithLabelValues("winner-differs")
+	reg.MustRegister(goCollector)
+	reg.MustRegister(processCollector)
 }
 
 // UpdateMetrics reads state from the daemon and updates all metric gauges.

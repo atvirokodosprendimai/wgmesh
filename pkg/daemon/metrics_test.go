@@ -286,3 +286,28 @@ func TestAdmitWarningCounterCounts(t *testing.T) {
 		t.Errorf("another rule's counter rose by %v, want 0", got)
 	}
 }
+
+func TestAdmitWarningSeriesExistsAtZero(t *testing.T) {
+	admitWarnings.Reset() // as if no warning had been counted yet
+	reg := prometheus.NewRegistry()
+	registerMetrics(reg)
+
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != "wgmesh_admit_warnings_total" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			if len(m.GetLabel()) == 1 && m.GetLabel()[0].GetValue() == "winner-differs" {
+				if got := m.GetCounter().GetValue(); got != 0 {
+					t.Errorf("winner-differs series = %v, want 0", got)
+				}
+				return
+			}
+		}
+	}
+	t.Error("no wgmesh_admit_warnings_total{rule=\"winner-differs\"} series before the first warning")
+}
