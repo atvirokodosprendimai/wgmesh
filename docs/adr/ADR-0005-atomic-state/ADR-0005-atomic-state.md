@@ -1,6 +1,6 @@
 # ADR-0005: Give every piece of shared state one owner: atomic state files, exclusive host claims, per-caller replies, a locked local node
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Owner:** wgmesh maintainers
 **Spec:** None — no spec stage; `eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md`, `eidos/spec - daemon lifecycle - secret-derived identity with interface setup and hot-reload.md`, `eidos/spec - rpc - unix socket json-rpc server and client for peer and daemon queries.md` and `eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md` are amended by T11
