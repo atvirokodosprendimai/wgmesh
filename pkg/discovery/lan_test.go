@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -139,6 +140,9 @@ func TestLANPortClashWarning(t *testing.T) {
 			}
 			if tt.warn && !strings.Contains(got, "--listen-port") {
 				t.Fatalf("warning must tell the operator to choose another --listen-port: %q", got)
+			}
+			if tt.warn && !strings.Contains(got, strconv.Itoa(LANMulticastPort)) {
+				t.Fatalf("warning must name port %d: %q", LANMulticastPort, got)
 			}
 		})
 	}
