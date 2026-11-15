@@ -95,6 +95,31 @@ func TestWgQuickQuotesRouteValues(t *testing.T) {
 	}
 }
 
+// TestWgQuickRouteWithoutGatewayHasNoVia pins the exact lines for a route with
+// no gateway. The old text was `via  dev`, a broken line that `|| true` hid;
+// deploy never passes a gateway-less route here, but an empty quoted gateway
+// must not appear if one does.
+func TestWgQuickRouteWithoutGatewayHasNoVia(t *testing.T) {
+	config, _ := validWgQuickFixture()
+	got, err := GenerateWgQuickConfig(config, []ssh.RouteEntry{{Network: "10.9.0.0/24"}})
+	if err != nil {
+		t.Fatalf("GenerateWgQuickConfig: %v", err)
+	}
+	for _, want := range []string{
+		"PostUp = ip route add 10.9.0.0/24 dev %i || true\n",
+		"PreDown = ip route del 10.9.0.0/24 dev %i || true\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want line %q in:\n%s", want, got)
+		}
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "10.9.0.0/24") && (strings.Contains(line, "via") || strings.Contains(line, "''")) {
+			t.Errorf("gateway-less route line has a via or an empty word: %q", line)
+		}
+	}
+}
+
 func TestWgQuickRefusesControlCharacters(t *testing.T) {
 	fields := []struct {
 		name   string
