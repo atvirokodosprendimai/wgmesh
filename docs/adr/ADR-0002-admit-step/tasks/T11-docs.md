@@ -57,6 +57,9 @@ n=$(go test ./pkg/node -run '^TestSpecNamesAdmit$' -count=1 -v 2>&1 | tee /dev/s
 | 4 — it is used | nothing measures this yet |
 
 ## Mutation Log
+- 2026-11-16 · db371c0* · mutant killed · exit 1 · `pkg/node/spec_admit_test.go` · the peer store spec stops naming the tombstone (the doc path has spaces: the name list of the test is mutated instead) · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
+- 2026-11-16 · db371c0* · mutant killed · exit 1 · `docs/admit-rollout.md` · docs/admit-rollout.md stops naming wgmesh_admit_warnings_total · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
+- 2026-11-16 · db371c0* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · the backlog loses the ADR-0002 rows (N+1, N+2 and the known limits) · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f
 
 ## Invariants
 
@@ -77,3 +80,21 @@ Stop and ask if a spec section named here does not exist in the file (the spec f
 - Flipping the switches (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-16 · db371c0* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1796
+- 2026-11-16 · db371c0* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1835
+- 2026-11-16 · db371c0* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1530
+- 2026-11-16 · db371c0* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1030
+- 2026-11-16 · db371c0* · exit 1 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:723 · test-lock-sha256:2f36df406f31baaf3cb6638c0aa3d635bebc3506ed7c2f89281ebd89ae09079d · test-lock-file:docs/adr/locks/2f36df406f31baaf3cb6638c0aa3d635bebc3506ed7c2f89281ebd89ae09079d.lock
+  ```
+  --- last 10 line(s) of stderr (of 12 after folding 12 raw)
+      spec_admit_test.go:33: eidos/spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md does not name "Withdraw"
+      spec_admit_test.go:33: eidos/spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md does not name "tombstone"
+      spec_admit_test.go:33: eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md does not name "FilterAnnouncement"
+      spec_admit_test.go:33: eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md does not name "ResolveClaims"
+      spec_admit_test.go:33: eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md does not name "ObserveEndpoint"
+      spec_admit_test.go:28: docs/admit-rollout.md: open ../../docs/admit-rollout.md: no such file or directory
+  --- FAIL: TestSpecNamesAdmit (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.003s
+  FAIL
+  ```
