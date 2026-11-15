@@ -400,7 +400,7 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 		NATType:          announcement.NATType,
 	}
 
-	pe.peerStore.Update(peerInfo, DHTMethod)
+	pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod, Hand: daemon.FirstHand})
 
 	pe.updateTransitivePeers(announcement.KnownPeers)
 
@@ -433,7 +433,7 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 
 	// Always update the peer store so reconcile can configure WG promptly,
 	// even when we also route this reply to a pending ExchangeWithPeer caller.
-	pe.peerStore.Update(peerInfo, DHTMethod)
+	pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod, Hand: daemon.FirstHand})
 
 	if ch, ok := pe.getPendingReplyChannel(remoteAddr.String()); ok {
 		select {
@@ -888,7 +888,7 @@ func (pe *PeerExchange) runRendezvousPunch(pairID, peerPubKey string, candidates
 		} else {
 			log.Printf("[NAT] Rendezvous punch succeeded for pair %s with %s at %s", shortKey(pairID), shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
 		}
-		pe.peerStore.Update(peerInfo, DHTMethod+"-rendezvous")
+		pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod + "-rendezvous", Hand: daemon.FirstHand})
 		return
 	}
 
@@ -1032,7 +1032,7 @@ func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
 			Introducer: kp.Introducer,
 			NATType:    kp.NATType,
 		}
-		pe.peerStore.Update(transitivePeer, DHTMethod+"-transitive")
+		pe.peerStore.Offer(daemon.Candidate{Info: transitivePeer, Source: DHTMethod + "-transitive", Hand: daemon.SecondHand})
 	}
 }
 

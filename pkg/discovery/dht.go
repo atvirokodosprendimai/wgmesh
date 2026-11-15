@@ -1065,7 +1065,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 				log.Printf("[NAT] Punch succeeded: %s (%s)", shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
 			}
 			d.setControlEndpoint(peerInfo.WGPubKey, endpoint)
-			d.peerStore.Update(peerInfo, DHTMethod+"-transitive")
+			d.admitPunchReply(peerInfo, DHTMethod)
 			d.recordRendezvousAttempt(target.WGPubKey, true)
 		}
 	}(targetControlEndpoint, peer)
@@ -1126,13 +1126,13 @@ func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod strin
 		}
 	}
 	d.setControlEndpoint(peerInfo.WGPubKey, addrStr)
-	d.peerStore.Update(peerInfo, discoveryMethod)
+	d.admitPunchReply(peerInfo, daemon.Source(discoveryMethod))
 }
 
 // admitPunchReply offers the reply of a punch or an exchange to the store as
 // the peer's own claim.
 func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.Source) {
-	d.peerStore.Update(peerInfo, DHTMethod+"-transitive")
+	d.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: source, Hand: daemon.FirstHand})
 }
 
 func getPeerHandshakeTS(iface, peerPubKey string) int64 {

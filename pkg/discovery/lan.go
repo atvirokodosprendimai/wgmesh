@@ -241,7 +241,7 @@ func (l *LANDiscovery) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *s
 		}
 
 		log.Printf("[LAN] Discovered peer %s (%s) at %s", safeTruncate(peer.WGPubKey, 8), peer.MeshIP, peer.Endpoint)
-		l.peerStore.Update(peer, LANMethod)
+		l.peerStore.Offer(daemon.Candidate{Info: peer, Source: LANMethod, Hand: daemon.FirstHand})
 		daemon.RecordDiscoveryEvent("lan")
 	}
 }

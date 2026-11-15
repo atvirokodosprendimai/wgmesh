@@ -129,7 +129,7 @@ func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 			LastSeen:         lastSeen,
 		}
 
-		peerStore.Update(peer, "cache")
+		peerStore.Offer(Candidate{Info: peer, Source: "cache", Hand: Restored})
 		restored++
 	}
 

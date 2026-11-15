@@ -320,7 +320,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		RoutableNetworks: announcement.RoutableNetworks,
 		NATType:          announcement.NATType,
 	}
-	g.peerStore.Update(peer, GossipMethod)
+	g.peerStore.Offer(daemon.Candidate{Info: peer, Source: GossipMethod, Hand: daemon.FirstHand})
 	daemon.RecordDiscoveryEvent("gossip")
 
 	// Process transitive peers
@@ -337,7 +337,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 			Introducer: kp.Introducer,
 			NATType:    kp.NATType,
 		}
-		g.peerStore.Update(transitivePeer, GossipMethod+"-transitive")
+		g.peerStore.Offer(daemon.Candidate{Info: transitivePeer, Source: GossipMethod + "-transitive", Hand: daemon.SecondHand})
 	}
 }
 

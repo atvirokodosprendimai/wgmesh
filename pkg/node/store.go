@@ -84,9 +84,9 @@ func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
 	}
 }
 
-// Update adds or updates a peer in the store. It is kept for tests and
-// fixtures and reads the hand from the method string; production callers
-// still call it until T2 moves them to Offer.
+// Update adds or updates a peer in the store. It is for tests and fixtures
+// only and reads the hand from the method string; production code calls
+// Offer with an explicit Source and Hand.
 func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 	ps.Offer(legacyCandidate(info, discoveryMethod))
 }
