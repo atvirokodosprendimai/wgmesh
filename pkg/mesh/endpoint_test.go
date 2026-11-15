@@ -56,7 +56,15 @@ func countCurl(s *sshtest.Server) int {
 }
 
 func TestResolveEndpointTable(t *testing.T) {
-	const operator = "vpn.example.com:443"
+	const (
+		operator   = "vpn.example.com:443"
+		inState    = "public_endpoint is set in the state"
+		lan        = "all SSH hosts are private IP addresses"
+		mixed      = "private SSH host in a mesh with other hosts; set public_endpoint to give it an endpoint"
+		equal      = "public IP equals the SSH host"
+		differs    = "behind NAT (public IP 198.51.100.7 differs from the SSH host)"
+		undetected = "public IP could not be detected; set public_endpoint to give it an endpoint"
+	)
 	rows := []struct {
 		name       string
 		host       string
@@ -66,19 +74,20 @@ func TestResolveEndpointTable(t *testing.T) {
 		probed     bool
 		want       string
 		wantNAT    bool
+		wantReason string
 	}{
-		{"operator endpoint wins when public IP equals the SSH host", "203.0.113.9", operator, false, "203.0.113.9", true, operator, false},
-		{"operator endpoint wins when public IP differs", "203.0.113.9", operator, false, "198.51.100.7", true, operator, false},
-		{"operator endpoint wins in an all-private mesh", "192.168.1.10", operator, true, "", false, operator, false},
-		{"all-private local node gets host:port", "192.168.1.10", "", true, "", false, "192.168.1.10:51820", false},
-		{"all-private remote node gets host:port", "10.0.0.2", "", true, "", false, "10.0.0.2:51820", false},
-		{"IPv6 literal is bracketed", "fd00::1", "", true, "", false, "[fd00::1]:51820", false},
-		{"mixed mesh: private host gets none", "192.168.1.10", "", false, "", false, "", true},
-		{"public IP equal to SSH host", "203.0.113.9", "", false, "203.0.113.9", true, "203.0.113.9:51820", false},
-		{"public IPv6 equal to SSH host is bracketed", "2001:db8::1", "", false, "2001:db8::1", true, "[2001:db8::1]:51820", false},
-		{"DNS name equal to the probed value", "node.example.com", "", false, "node.example.com", true, "node.example.com:51820", false},
-		{"public IP differs: behind NAT", "203.0.113.9", "", false, "198.51.100.7", true, "", true},
-		{"probe failed: behind NAT", "203.0.113.9", "", false, "", true, "", true},
+		{"operator endpoint wins when public IP equals the SSH host", "203.0.113.9", operator, false, "203.0.113.9", true, operator, false, inState},
+		{"operator endpoint wins when public IP differs", "203.0.113.9", operator, false, "198.51.100.7", true, operator, false, inState},
+		{"operator endpoint wins in an all-private mesh", "192.168.1.10", operator, true, "", false, operator, false, inState},
+		{"all-private local node gets host:port", "192.168.1.10", "", true, "", false, "192.168.1.10:51820", false, lan},
+		{"all-private remote node gets host:port", "10.0.0.2", "", true, "", false, "10.0.0.2:51820", false, lan},
+		{"IPv6 literal is bracketed", "fd00::1", "", true, "", false, "[fd00::1]:51820", false, lan},
+		{"mixed mesh: private host gets none", "192.168.1.10", "", false, "", false, "", true, mixed},
+		{"public IP equal to SSH host", "203.0.113.9", "", false, "203.0.113.9", true, "203.0.113.9:51820", false, equal},
+		{"public IPv6 equal to SSH host is bracketed", "2001:db8::1", "", false, "2001:db8::1", true, "[2001:db8::1]:51820", false, equal},
+		{"DNS name equal to the probed value", "node.example.com", "", false, "node.example.com", true, "node.example.com:51820", false, equal},
+		{"public IP differs: behind NAT", "203.0.113.9", "", false, "198.51.100.7", true, "", true, differs},
+		{"probe failed: behind NAT", "203.0.113.9", "", false, "", true, "", true, undetected},
 	}
 	for _, r := range rows {
 		t.Run(r.name, func(t *testing.T) {
@@ -87,8 +96,8 @@ func TestResolveEndpointTable(t *testing.T) {
 			if got.Endpoint != r.want || got.BehindNAT != r.wantNAT {
 				t.Errorf("got endpoint %q behindNAT %v, want %q %v", got.Endpoint, got.BehindNAT, r.want, r.wantNAT)
 			}
-			if got.Reason == "" || got.Reason == "stub" {
-				t.Errorf("reason %q does not tell the operator why", got.Reason)
+			if got.Reason != r.wantReason {
+				t.Errorf("reason %q, want %q", got.Reason, r.wantReason)
 			}
 		})
 	}
@@ -131,7 +140,7 @@ func TestDetectEndpointsSkipsProbeForPrivateHost(t *testing.T) {
 			t.Errorf("a private host received %d curl commands: %q", n, s.Commands())
 		}
 	})
-	t.Run("public host: one curl", func(t *testing.T) {
+	t.Run("not private host: one curl", func(t *testing.T) {
 		s := sshtest.Start(t, nodeReplies())
 		m := newTestMesh(tnode{name: "a", host: s.Host, port: s.Port})
 
@@ -146,45 +155,14 @@ func TestDetectEndpointsSkipsProbeForPrivateHost(t *testing.T) {
 }
 
 func TestAllLANMeshRendersEndpoints(t *testing.T) {
-	lanHost(t)
+	lanHost(t, "localhost")
+	// Node a is the local node at 127.0.0.1; node b is dialled as localhost, so
+	// the two peers carry different endpoints.
 	a := sshtest.Start(t, nodeReplies())
 	b := sshtest.Start(t, nodeReplies())
-	m := newTestMesh(
-		tnode{name: "a", host: a.Host, port: a.Port},
-		tnode{name: "b", host: b.Host, port: b.Port},
-	)
-
-	err, out := deployCapturing(t, m)
-
-	if err != nil {
-		t.Fatalf("Deploy: %v\n%s", err, out)
-	}
-	for name, srv := range map[string]*sshtest.Server{"a": a, "b": b} {
-		conf, ok := writtenConfig(srv)
-		if !ok {
-			t.Fatalf("node %s received no config", name)
-		}
-		if !strings.Contains(conf, "Endpoint = 127.0.0.1:51820") {
-			t.Errorf("config of %s has no endpoint for its peer:\n%s", name, conf)
-		}
-	}
-	if !strings.Contains(out, "Detected a ") || !strings.Contains(out, "all SSH hosts are private") {
-		t.Errorf("the deploy does not print why a has an endpoint:\n%s", out)
-	}
-}
-
-func TestMixedMeshKeepsTodaysRule(t *testing.T) {
-	lanHost(t)
-	// Node a is private (127.0.0.1); node b is a DNS name whose probed public
-	// IP equals its SSH host, so it keeps the endpoint of b8b83f3.
-	aReplies := nodeReplies()
-	bReplies := nodeReplies()
-	bReplies["curl -s -4"] = sshtest.Reply{Out: "localhost\n"}
-	a := sshtest.Start(t, aReplies)
-	b := sshtest.Start(t, bReplies)
 	trustAlias(t, b, "localhost")
 	m := newTestMesh(
-		tnode{name: "a", host: a.Host, port: a.Port},
+		tnode{name: "a", host: a.Host, port: a.Port, local: true},
 		tnode{name: "b", host: "localhost", port: b.Port},
 	)
 
@@ -193,16 +171,71 @@ func TestMixedMeshKeepsTodaysRule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Deploy: %v\n%s", err, out)
 	}
-	aConf, _ := writtenConfig(a)
-	bConf, _ := writtenConfig(b)
+	aConf, ok := writtenConfig(a)
+	if !ok {
+		t.Fatal("node a received no config")
+	}
+	bConf, ok := writtenConfig(b)
+	if !ok {
+		t.Fatal("node b received no config")
+	}
+	if n := strings.Count(aConf, "Endpoint ="); n != 1 || !strings.Contains(aConf, "Endpoint = localhost:51820\n") {
+		t.Errorf("the config of a has %d Endpoint lines, want one for b (localhost:51820):\n%s", n, aConf)
+	}
+	if n := strings.Count(bConf, "Endpoint ="); n != 1 || !strings.Contains(bConf, "Endpoint = 127.0.0.1:51820\n") {
+		t.Errorf("the config of b has %d Endpoint lines, want one for a (127.0.0.1:51820):\n%s", n, bConf)
+	}
+	if strings.Contains(aConf, "127.0.0.1:51820") || strings.Contains(bConf, "localhost:51820") {
+		t.Errorf("a node's own endpoint is in its own config:\n%s\n%s", aConf, bConf)
+	}
+	if n := m.Nodes["a"]; n.PublicEndpoint != "127.0.0.1:51820" || n.BehindNAT {
+		t.Errorf("the local node a has endpoint %q behindNAT %v, want 127.0.0.1:51820 and false", n.PublicEndpoint, n.BehindNAT)
+	}
+	why := resolveEndpoint(&Node{SSHHost: "127.0.0.1", ListenPort: 51820}, true, "", false).Reason
+	if !strings.Contains(out, why) {
+		t.Errorf("the deploy does not print why a has an endpoint (%q):\n%s", why, out)
+	}
+}
+
+func TestMixedMeshKeepsTodaysRule(t *testing.T) {
+	lanHost(t)
+	// Node a is private (127.0.0.1) and local; node b is a DNS name whose probed
+	// public IP equals its SSH host, so it keeps the endpoint of b8b83f3.
+	aReplies := nodeReplies()
+	bReplies := nodeReplies()
+	bReplies["curl -s -4"] = sshtest.Reply{Out: "localhost\n"}
+	a := sshtest.Start(t, aReplies)
+	b := sshtest.Start(t, bReplies)
+	trustAlias(t, b, "localhost")
+	m := newTestMesh(
+		tnode{name: "a", host: a.Host, port: a.Port, local: true},
+		tnode{name: "b", host: "localhost", port: b.Port},
+	)
+
+	err, out := deployCapturing(t, m)
+
+	if err != nil {
+		t.Fatalf("Deploy: %v\n%s", err, out)
+	}
+	aConf, ok := writtenConfig(a)
+	if !ok {
+		t.Fatal("node a received no config")
+	}
+	bConf, ok := writtenConfig(b)
+	if !ok {
+		t.Fatal("node b received no config")
+	}
 	if !strings.Contains(aConf, "Endpoint = localhost:51820") {
 		t.Errorf("the public node lost its endpoint:\n%s", aConf)
 	}
 	if strings.Contains(bConf, "Endpoint") {
-		t.Errorf("the private node got an endpoint in a mixed mesh:\n%s", bConf)
+		t.Errorf("the config of b carries an endpoint for the private peer a in a mixed mesh:\n%s", bConf)
 	}
 	if n := countCurl(a); n != 0 {
 		t.Errorf("the private host was probed: %q", a.Commands())
+	}
+	if n := m.Nodes["a"]; n.PublicEndpoint != "" || n.BehindNAT {
+		t.Errorf("the local node a was touched in a mixed mesh: endpoint %q behindNAT %v", n.PublicEndpoint, n.BehindNAT)
 	}
 }
 
