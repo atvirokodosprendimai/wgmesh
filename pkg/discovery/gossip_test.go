@@ -244,7 +244,7 @@ func TestMeshGossipRestartAfterStop(t *testing.T) {
 	select {
 	case <-g.stopCh:
 		t.Fatal("stopCh is closed after restart: loops exit at once")
-	case <-time.After(1500 * time.Millisecond):
+	default:
 	}
 
 	remoteKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
@@ -349,4 +349,30 @@ func stopTwice(t *testing.T, s interface{ Stop() error }) {
 			t.Fatalf("Stop #%d: %v", i+1, err)
 		}
 	}
+}
+
+func TestMeshGossipExchangeModeRestartAfterStop(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	g, err := NewMeshGossipWithExchange(cfg, localNode, store, NewPeerExchange(cfg, localNode, store))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	select {
+	case <-g.stopCh:
+		t.Fatal("stopCh is closed after restart: gossipLoop exits at once")
+	default:
+	}
+	stopTwice(t, g)
 }
