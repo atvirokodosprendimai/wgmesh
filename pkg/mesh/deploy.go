@@ -160,6 +160,15 @@ func (m *Mesh) detectEndpoints() map[string]error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// An endpoint this process wrote is not the operator's: take it back, so
+	// only a value the operator set is read as sticky below.
+	for hostname, endpoint := range m.autoEndpoints {
+		if node, ok := m.Nodes[hostname]; ok && node.PublicEndpoint == endpoint {
+			node.PublicEndpoint = ""
+		}
+	}
+	m.autoEndpoints = map[string]string{}
+
 	failures := map[string]error{}
 	probes := map[string]probeResult{}
 	hostnames := slices.Sorted(maps.Keys(m.Nodes))
@@ -220,8 +229,9 @@ func (m *Mesh) detectEndpoints() map[string]error {
 		node := m.Nodes[hostname]
 		probe := probes[hostname]
 		d := resolveEndpoint(node, allPrivate, probe.publicIP, probe.probed)
-		if d.Endpoint != "" {
+		if d.Endpoint != "" && node.PublicEndpoint == "" {
 			node.PublicEndpoint = d.Endpoint
+			m.autoEndpoints[hostname] = d.Endpoint
 		}
 		if !node.IsLocal {
 			node.BehindNAT = d.BehindNAT

@@ -57,4 +57,8 @@ type Mesh struct {
 	Groups         map[string]*Group `json:"groups,omitempty"`
 	AccessPolicies []*AccessPolicy   `json:"access_policies,omitempty"`
 	mu             sync.RWMutex      `json:"-"`
+
+	// autoEndpoints holds, by hostname, the endpoint detectEndpoints wrote onto
+	// a node, so a later call tells it from one the operator set.
+	autoEndpoints map[string]string
 }
