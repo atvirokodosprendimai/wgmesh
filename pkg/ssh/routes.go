@@ -58,6 +58,9 @@ func GetCurrentRoutes(client *Client, iface string) ([]RouteEntry, error) {
 // Without a local address in network the original route cannot be
 // reconstructed, so the operator is warned instead.
 func RestoreConnectedRoute(client *Client, network string) {
+	if network == "default" {
+		return // an exit node's stale default route has no connected route
+	}
 	_, ipnet, err := net.ParseCIDR(network)
 	if err != nil {
 		fmt.Printf("    Warning: not restoring route for invalid network %q: %v\n", network, err)
