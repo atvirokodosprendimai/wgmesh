@@ -52,6 +52,15 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 		return nil, err
 	}
 
+	return parseWGDump(output)
+}
+
+// parseWGDump parses `wg show <iface> dump` output. The first line is the
+// interface (private-key, public-key, listen-port, fwmark); each following line
+// is a peer (public-key, preshared-key, endpoint, allowed-ips, latest-handshake,
+// transfer-rx, transfer-tx, persistent-keepalive). "(none)" is normalized to ""
+// so it compares equal to an unset desired value.
+func parseWGDump(output string) (*Config, error) {
 	if strings.TrimSpace(output) == "" {
 		return nil, fmt.Errorf("interface does not exist or no config")
 	}
@@ -78,12 +87,12 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 		}
 
 		publicKey := parts[0]
-		presharedKey := parts[1]
-		endpoint := parts[2]
+		presharedKey := noneToEmpty(parts[1])
+		endpoint := noneToEmpty(parts[2])
 		allowedIPs := strings.Split(parts[3], ",")
 		var keepalive int
-		if len(parts) >= 5 {
-			fmt.Sscanf(parts[4], "%d", &keepalive)
+		if len(parts) >= 8 {
+			fmt.Sscanf(parts[7], "%d", &keepalive) // "off" leaves 0
 		}
 
 		peer := Peer{
@@ -98,6 +107,13 @@ func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
 	}
 
 	return config, nil
+}
+
+func noneToEmpty(s string) string {
+	if s == "(none)" {
+		return ""
+	}
+	return s
 }
 
 // CalculateDiff computes the set of changes required to transition from the
