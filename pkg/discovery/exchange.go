@@ -463,7 +463,7 @@ func (pe *PeerExchange) applyObservedEndpoint(observed string) {
 
 	// Ignore private/loopback — both peers are on the same LAN,
 	// so the observed address isn't useful for NAT traversal.
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+	if ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
 		return
 	}
 
