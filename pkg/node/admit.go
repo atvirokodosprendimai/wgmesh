@@ -86,10 +86,15 @@ type Snapshot struct {
 	Known      bool
 	Tombstoned bool
 	Policy     *Policy
+	// Holders lists the stored claims on an IP; nil means none.
+	Holders func(ip string) []Claim
 }
 
 // Decide is a pure function of a snapshot and a candidate. Its refusals are
-// a tombstoned key for a claim that is not first-hand, and the peer cap.
+// a tombstoned key for a claim that is not first-hand, the peer cap, and (R5,
+// once EnforceIPBinding is true) a first-hand claim from a new key for an
+// address a bound claim of another key holds; bindClaim also lists route
+// entries to drop once EnforceRouteBinding is true.
 func Decide(s Snapshot, c Candidate) Decision {
 	if s.Tombstoned && c.Hand != FirstHand {
 		return Decision{Verdict: Refuse, Reason: ReasonTombstoned}
@@ -97,7 +102,10 @@ func Decide(s Snapshot, c Candidate) Decision {
 	if !s.Known && s.Count >= DefaultMaxPeers {
 		return Decision{Verdict: Refuse, Reason: ReasonPeerCap}
 	}
-	return Decision{Verdict: Admit}
+	if s.Policy == nil {
+		return Decision{Verdict: Admit}
+	}
+	return bindClaim(s, c)
 }
 
 // SetPolicy sets the policy used by Offer; nil means no policy.
@@ -127,7 +135,7 @@ func (ps *PeerStore) Offer(c Candidate) Decision {
 
 		key := c.Info.WGPubKey
 		_, known := ps.peers[key]
-		d = Decide(Snapshot{Count: len(ps.peers), Known: known, Tombstoned: ps.isTombstoned(key), Policy: ps.policy}, c)
+		d = Decide(Snapshot{Count: len(ps.peers), Known: known, Tombstoned: ps.isTombstoned(key), Policy: ps.policy, Holders: ps.holders}, c)
 		if d.Verdict == Refuse {
 			if d.Reason == ReasonPeerCap {
 				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
@@ -143,6 +151,9 @@ func (ps *PeerStore) Offer(c Candidate) Decision {
 		}
 		if c.Hand == FirstHand {
 			delete(ps.tombstones, key)
+		}
+		if d.Verdict == AdmitPartial {
+			c.Info = withoutDropped(c.Info, d.Dropped)
 		}
 		eventKey, eventKind = ps.merge(c)
 	}()
