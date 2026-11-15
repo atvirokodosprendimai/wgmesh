@@ -121,7 +121,9 @@ func canonicalNetwork(network string) string {
 
 // ExcludeOwn returns the entries of networks that are not in own. A node must
 // never route a network it advertises itself through the mesh, so a peer's
-// advertisement of the same network (HA) is dropped on this node.
+// advertisement of the same network (HA) is dropped on this node. This holds
+// for the default route too: two HA exit nodes both advertising 0.0.0.0/0 each
+// drop the other's default route.
 func ExcludeOwn(networks, own []string) []string {
 	ownSet := make(map[string]struct{}, len(own))
 	for _, n := range own {
