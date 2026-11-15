@@ -23,6 +23,7 @@ M answered the six questions of the first draft on 2026-11-15. Recorded here, da
 7. **An unset `accept-routes` stays open after N+2** (M 2026-11-15: "Lieka atviras kaip šiandien (Recommended)"): no deny-by-default; an operator opts in by setting the list.
 8. **Approval is by network only** (M 2026-11-15: "Ne, tik tinklas (Recommended)"): an `accept-routes` entry never names an advertiser key.
 9. **The punch reply keeps its label** (M 2026-11-15, harness question during T2 review: "Hand=FirstHand, Source lieka dht-transitive (Recommended)"). `dht.go:1068` offers the reply of a successful punch first hand, and its `Source` stays `dht-transitive`: `pkg/daemon/daemon.go:720` prefers a relay for a peer whose `DiscoveredVia` holds `dht-transitive` and that has no handshake yet, and `endpointMethodRank` ranks the label 40. Trust is read from `Hand`; the label is a path marker. T2's first version passed `dht` there; the review found the consumer.
+10. **`ObserveEndpoint` lives on the daemon's local node** (M 2026-11-15, harness question before T9: "Pataisyti T9: ObserveEndpoint ant daemon.LocalNode (Recommended)"). `pkg/node/types.go:35` declares a `LocalNode` that nothing uses (`grep -rn "node\.LocalNode" --include=*.go .` lists no user, checked 2026-11-15 at `b8b83f3`); the type discovery calls `SetEndpoint` on is `daemon.LocalNode` (`pkg/daemon/daemon.go:102`). T9 adds `ObserveEndpoint` there, with the endpoint lock that type already has or one it gets in the same task. Merging the two types is ADR-0005's work, not this ADR's.
 
 ## Open Questions for M
 
@@ -118,7 +119,7 @@ What would make this decision fail: (a) a source that calls `Update` or `Remove`
 | `node.EnforceIPBinding`, `node.EnforceRouteBinding` | new package variables, `false` at N | `pkg/node` | the later releases flip them; tests set them |
 | `wgmesh_admit_warnings_total{rule}` | new Prometheus counter (T4) | `pkg/daemon/metrics.go` | operators, the N+1 go/no-go |
 | `accept-routes` (config field, `--accept-routes` flag, reload file), `Policy.AcceptRoutes` | new, receiver-side only; unset means open | `pkg/daemon/config.go`, `main.go` | `Decide` (R9) |
-| `LocalNode.ObserveEndpoint(source, endpoint)` | new; the 7 observation `SetEndpoint` calls move to it | `pkg/node` | `dht.go`, `exchange.go` |
+| `LocalNode.ObserveEndpoint(source, endpoint)` | new; the 7 observation `SetEndpoint` calls move to it | `pkg/daemon` | `dht.go`, `exchange.go` |
 | Local node state file | the collision-resolved mesh IP is written | `pkg/daemon` | `initLocalNode`, `service add` |
 | `crypto.OpenEnvelope` | invalid `KnownPeers` entries are dropped, the message is kept | `pkg/crypto` | LAN, gossip, registry, `main.go` |
 | `testdata/compat/admit/v1/cases.json` | new frozen fixture | T6 | `TestAdmitCompatFixtures` |

@@ -17,7 +17,7 @@ The node's announced endpoint does not flip between a STUN answer and a peer ref
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/node/types.go` | edit | `LocalNode.ObserveEndpoint(source EndpointSource, endpoint string) bool` under the existing `endpointMu`; sources `interface` (a global IPv6 address), `reflection`, `stun`; the pending STUN value and its count are fields guarded by the same mutex |
+| `pkg/daemon/daemon.go` | edit | `daemon.LocalNode.ObserveEndpoint(source EndpointSource, endpoint string) bool` under the existing `endpointMu`; sources `interface` (a global IPv6 address), `reflection`, `stun`; the pending STUN value and its count are fields guarded by the same mutex |
 | `pkg/discovery/dht.go` | edit | the six observation sites `:255`, `:271`, `:284`, `:420`, `:440`, `:457` call it (`interface` for the IPv6 ones, `stun` for the others) |
 | `pkg/discovery/exchange.go` | edit | `applyObservedEndpoint` `:494` calls it with `reflection` |
 | `pkg/node/local_endpoint_test.go` | add | tests below |
