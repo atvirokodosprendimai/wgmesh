@@ -11,6 +11,7 @@ import (
 )
 
 // openLogFile opens the event log for appending; tests replace it to inject a failing writer.
+// Tests that replace it must not run in parallel.
 var openLogFile = func(path string) (io.WriteCloser, error) {
 	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 }
@@ -115,13 +116,19 @@ func (l *Logger) flush() error {
 	encoder := json.NewEncoder(f)
 	for _, event := range l.buffer {
 		if err := encoder.Encode(event); err != nil {
+			// A partial encode failure may re-write events on the next flush;
+			// readers dedup by the event ID.
 			f.Close()
 			return fmt.Errorf("encode event: %w", err)
 		}
 	}
 
-	// Close can fail with buffered data not on disk; keep the events then.
+	// os.File writes are unbuffered: when Close fails the events are already
+	// on disk, so drop them from the buffer (a retry would duplicate them)
+	// and still report the error.
 	if err := f.Close(); err != nil {
+		l.flushed += len(l.buffer)
+		l.buffer = l.buffer[:0]
 		return fmt.Errorf("close log file: %w", err)
 	}
 
