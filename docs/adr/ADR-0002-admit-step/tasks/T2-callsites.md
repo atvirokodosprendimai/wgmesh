@@ -122,3 +122,4 @@ Stop and ask if a site needs a hand that is neither first, second nor restored, 
 - 2026-11-15 · 89fd574 · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:13229
 - 2026-11-15 · 89fd574* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:15808
 - 2026-11-15 · 89fd574* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:9066
+- 2026-11-15 · 4e28c49* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:1 · test-lock-sha256:a27406a4631cdfb71442d9b0db04c3a87dd3ce90c005924cc78fd54674cbc8a7 · test-lock-file:docs/adr/locks/a27406a4631cdfb71442d9b0db04c3a87dd3ce90c005924cc78fd54674cbc8a7.lock · test-lock-kind:replace
