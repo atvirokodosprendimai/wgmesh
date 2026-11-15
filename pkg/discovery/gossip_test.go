@@ -1,6 +1,8 @@
 package discovery
 
 import (
+	"bytes"
+	"encoding/base64"
 	"net"
 	"testing"
 	"time"
@@ -217,4 +219,160 @@ func TestNewMeshGossipWithExchangeSetsExchange(t *testing.T) {
 	if gossip.conn != nil {
 		t.Error("expected conn to be nil when using exchange mode")
 	}
+}
+
+func TestMeshGossipRestartAfterStop(t *testing.T) {
+	cfg := newTestConfig(t)
+	cfg.Keys.GossipPort = 0
+	store := daemon.NewPeerStore()
+	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}
+	g, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+
+	select {
+	case <-g.stopCh:
+		t.Fatal("stopCh is closed after restart: loops exit at once")
+	default:
+	}
+
+	remoteKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	// The restarted listener must still receive and apply a message.
+	ann := crypto.CreateAnnouncement(remoteKey, "10.0.0.2", "192.168.1.10:51820", false, nil, nil, "remote", "", "")
+	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, ann, cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: int(g.port)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := store.Get(remoteKey); ok {
+			stopTwice(t, g)
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	g.Stop()
+	t.Fatal("restarted gossip did not process a message")
+}
+
+func TestMeshGossipStopStartRaceOnPort(t *testing.T) {
+	old := gossipInterval
+	gossipInterval = 50 * time.Microsecond
+	defer func() { gossipInterval = old }()
+
+	cfg := newTestConfig(t)
+	cfg.Keys.GossipPort = 0
+	store := daemon.NewPeerStore()
+	peerKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
+	store.Update(&daemon.PeerInfo{WGPubKey: peerKey, MeshIP: "127.0.0.1"}, "test")
+	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}
+	g, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 1500; i++ {
+		done := make(chan struct{})
+		go func() {
+			g.Stop()
+			close(done)
+		}()
+		// Start is allowed as soon as Stop has flipped running; retry until then.
+		for g.Start() != nil {
+			time.Sleep(time.Millisecond)
+		}
+		<-done
+	}
+	g.Stop()
+}
+
+func TestMeshGossipConcurrentStopWaitsForLoops(t *testing.T) {
+	cfg := newTestConfig(t)
+	cfg.Keys.GossipPort = 0
+	g, err := NewMeshGossip(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}, daemon.NewPeerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatal(err)
+	}
+	// Stand in for a loop that has not exited yet: both Stops must wait for it.
+	g.wg.Add(1)
+	stopped := make(chan struct{}, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			g.Stop()
+			stopped <- struct{}{}
+		}()
+	}
+	select {
+	case <-stopped:
+		t.Fatal("a Stop returned while a loop was still running")
+	case <-time.After(200 * time.Millisecond):
+	}
+	g.wg.Done()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-stopped:
+		case <-time.After(3 * time.Second):
+			t.Fatal("Stop did not return after the loop exited")
+		}
+	}
+}
+
+// stopTwice pins that a second Stop is a no-op returning nil.
+func stopTwice(t *testing.T, s interface{ Stop() error }) {
+	t.Helper()
+	for i := 0; i < 2; i++ {
+		if err := s.Stop(); err != nil {
+			t.Fatalf("Stop #%d: %v", i+1, err)
+		}
+	}
+}
+
+func TestMeshGossipExchangeModeRestartAfterStop(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	g, err := NewMeshGossipWithExchange(cfg, localNode, store, NewPeerExchange(cfg, localNode, store))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	select {
+	case <-g.stopCh:
+		t.Fatal("stopCh is closed after restart: gossipLoop exits at once")
+	default:
+	}
+	stopTwice(t, g)
 }

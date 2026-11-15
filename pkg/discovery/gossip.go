@@ -14,6 +14,9 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
+// gossipInterval is the tick used by gossipLoop; a variable so tests can shorten it.
+var gossipInterval = GossipInterval
+
 const (
 	GossipInterval       = 10 * time.Second
 	GossipMethod         = "gossip"
@@ -35,6 +38,7 @@ type MeshGossip struct {
 	mu      sync.RWMutex
 	running bool
 	stopCh  chan struct{}
+	wg      *sync.WaitGroup
 }
 
 // NewMeshGossip creates a new in-mesh gossip instance
@@ -46,7 +50,6 @@ func NewMeshGossip(config *daemon.Config, localNode *daemon.LocalNode, peerStore
 		gossipKey: config.Keys.GossipKey,
 		port:      config.Keys.GossipPort,
 		limiter:   ratelimit.NewDefault(),
-		stopCh:    make(chan struct{}),
 	}, nil
 }
 
@@ -60,7 +63,6 @@ func NewMeshGossipWithExchange(config *daemon.Config, localNode *daemon.LocalNod
 		port:      config.Keys.GossipPort,
 		exchange:  exchange,
 		limiter:   ratelimit.NewDefault(),
-		stopCh:    make(chan struct{}),
 	}, nil
 }
 
@@ -75,7 +77,10 @@ func (g *MeshGossip) Start() error {
 
 	if g.exchange != nil {
 		g.running = true
-		go g.gossipLoop()
+		g.stopCh = make(chan struct{}) // Re-create for restart safety: Stop closes it
+		g.wg = &sync.WaitGroup{}
+		g.wg.Add(1)
+		go g.gossipLoop(g.stopCh, nil, g.wg)
 		log.Printf("[Gossip] In-mesh gossip started via exchange on port %d", g.port)
 		return nil
 	}
@@ -101,9 +106,12 @@ func (g *MeshGossip) Start() error {
 
 	g.conn = conn
 	g.running = true
+	g.stopCh = make(chan struct{}) // Re-create for restart safety: Stop closes it
+	g.wg = &sync.WaitGroup{}
+	g.wg.Add(2)
 
-	go g.listenLoop()
-	go g.gossipLoop()
+	go g.listenLoop(g.stopCh, conn, g.wg)
+	go g.gossipLoop(g.stopCh, conn, g.wg)
 
 	log.Printf("[Gossip] In-mesh gossip started on %s", addr.String())
 	return nil
@@ -112,9 +120,13 @@ func (g *MeshGossip) Start() error {
 // Stop stops in-mesh gossip
 func (g *MeshGossip) Stop() error {
 	g.mu.Lock()
-	defer g.mu.Unlock()
-
 	if !g.running {
+		// A concurrent Stop is draining: wait for the same loops.
+		wg := g.wg
+		g.mu.Unlock()
+		if wg != nil {
+			wg.Wait()
+		}
 		return nil
 	}
 
@@ -124,28 +136,34 @@ func (g *MeshGossip) Stop() error {
 	if g.conn != nil {
 		g.conn.Close()
 	}
+	wg := g.wg
+	g.mu.Unlock()
+
+	// Wait outside the lock: the loops take g.mu.RLock on read errors.
+	wg.Wait()
 
 	log.Printf("[Gossip] In-mesh gossip stopped")
 	return nil
 }
 
 // gossipLoop periodically exchanges peer information with random peers
-func (g *MeshGossip) gossipLoop() {
-	ticker := time.NewTicker(GossipInterval)
+func (g *MeshGossip) gossipLoop(stopCh chan struct{}, conn *net.UDPConn, wg *sync.WaitGroup) {
+	defer wg.Done()
+	ticker := time.NewTicker(gossipInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-g.stopCh:
+		case <-stopCh:
 			return
 		case <-ticker.C:
-			g.exchangeWithRandomPeer()
+			g.exchangeWithRandomPeer(conn)
 		}
 	}
 }
 
 // exchangeWithRandomPeer sends our peer list to a random known peer
-func (g *MeshGossip) exchangeWithRandomPeer() {
+func (g *MeshGossip) exchangeWithRandomPeer(conn *net.UDPConn) {
 	peers := g.peerStore.GetActive()
 	if len(peers) == 0 {
 		return
@@ -172,9 +190,13 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		log.Printf("[Gossip] Invalid mesh IP for peer %s: %s", target.WGPubKey, target.MeshIP)
 		return
 	}
+	// A restart may be writing g.port while an old loop is still draining.
+	g.mu.RLock()
+	port := int(g.port)
+	g.mu.RUnlock()
 	targetAddr := &net.UDPAddr{
 		IP:   ip,
-		Port: int(g.port),
+		Port: port,
 	}
 
 	// When using the exchange socket, delegate sending (exchange builds its own peer list)
@@ -219,24 +241,25 @@ func (g *MeshGossip) exchangeWithRandomPeer() {
 		return
 	}
 
-	if _, err := g.conn.WriteToUDP(data, targetAddr); err != nil {
+	if _, err := conn.WriteToUDP(data, targetAddr); err != nil {
 		log.Printf("[Gossip] Failed to send to %s: %v", target.MeshIP, err)
 	}
 }
 
 // listenLoop listens for gossip messages
-func (g *MeshGossip) listenLoop() {
+func (g *MeshGossip) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *sync.WaitGroup) {
+	defer wg.Done()
 	buf := make([]byte, GossipMaxMessageSize)
 
 	for {
 		select {
-		case <-g.stopCh:
+		case <-stopCh:
 			return
 		default:
 		}
 
-		g.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		n, remoteAddr, err := g.conn.ReadFromUDP(buf)
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		n, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
