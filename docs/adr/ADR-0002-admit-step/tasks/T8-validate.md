@@ -61,6 +61,10 @@ a=$(go test ./pkg/crypto -run '^(TestOpenEnvelopeDropsInvalidKnownPeerKeepsMessa
 | 4 — it is used | one invalid entry no longer hides a whole LAN or gossip announcement |
 
 ## Mutation Log
+- 2026-11-15 · 03b7113* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · OpenEnvelope goes back to Validate: TestOpenEnvelopeDropsInvalidKnownPeerKeepsMessage must go red · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396
+- 2026-11-15 · 03b7113* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the valid log line moves back before validation: TestValidLogFollowsValidation must go red · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396
+- 2026-11-15 · 03b7113* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the exchange handlers stop using the shared filter · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396
+- 2026-11-15 · 03b7113* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · the filter keeps an invalid known peer (no continue): TestOpenEnvelopeDropsInvalidKnownPeerKeepsMessage must go red · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396
 
 ## Invariants
 
@@ -83,3 +87,22 @@ Stop and ask if `OpenEnvelope` has a caller that relies on the whole-message rej
 - Any change to the envelope bytes or the AAD rules (permanent: boundary: ADR-0001 owns them).
 
 ## Verification Log
+- 2026-11-15 · 03b7113* · exit 1 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:1080 · test-lock-sha256:cbd6bff9da1466f572795ba4c70b8efd432af0d0baf57703e4e7c7e88fe87580 · test-lock-file:docs/adr/locks/cbd6bff9da1466f572795ba4c70b8efd432af0d0baf57703e4e7c7e88fe87580.lock
+  ```
+  --- last 10 line(s) of stderr (of 22 after folding 22 raw)
+  === RUN   TestOpenEnvelopeRejectsInvalidSender/bad_mesh_ip
+  === RUN   TestOpenEnvelopeRejectsInvalidSender/bad_key
+  === RUN   TestOpenEnvelopeRejectsInvalidSender/too_many_known_peers
+  --- PASS: TestOpenEnvelopeRejectsInvalidSender (0.01s)
+      --- PASS: TestOpenEnvelopeRejectsInvalidSender/bad_mesh_ip (0.00s)
+      --- PASS: TestOpenEnvelopeRejectsInvalidSender/bad_key (0.00s)
+      --- PASS: TestOpenEnvelopeRejectsInvalidSender/too_many_known_peers (0.01s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/crypto	0.018s
+  FAIL
+  ```
+- 2026-11-15 · 03b7113* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:18392
+- 2026-11-15 · 03b7113* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:20277
+- 2026-11-15 · 03b7113* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:20622
+- 2026-11-15 · 03b7113* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:17808
+- 2026-11-15 · 03b7113* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:22316
