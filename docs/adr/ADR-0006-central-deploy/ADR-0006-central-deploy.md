@@ -1,6 +1,6 @@
 # ADR-0006: Plan, quote and report every node of a centralized deploy
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Owner:** wgmesh maintainers
 **Spec:** None — no spec stage; `eidos/spec - centralized SSH deploy - diff-based persistent WireGuard config pushed via SSH.md` and `eidos/spec - mesh state and access control - centralized node registry with policy-filtered peer configuration.md` and `docs/centralized-mode.md` are amended by T6
