@@ -1,6 +1,6 @@
 # ADR-0002: Add one stateless admit step between peer discovery and the PeerStore
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Owner:** wgmesh maintainers
 **Spec:** None — no spec stage; `eidos/spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md`, `eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md` and `eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md` are amended by T11
