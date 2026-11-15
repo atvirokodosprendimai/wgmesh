@@ -2,10 +2,12 @@ package atomicfile
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -49,7 +51,8 @@ func TestWriteFileReplacesWhole(t *testing.T) {
 
 func TestWriteFileKeepsOldFileWhenRenameFails(t *testing.T) {
 	dir := t.TempDir()
-	// A non-empty directory at path makes the rename fail.
+	// A directory at path makes the rename fail: a file cannot be renamed
+	// over any directory.
 	path := filepath.Join(dir, "target")
 	if err := os.Mkdir(path, 0o755); err != nil {
 		t.Fatal(err)
@@ -58,8 +61,9 @@ func TestWriteFileKeepsOldFileWhenRenameFails(t *testing.T) {
 	if err := os.WriteFile(inner, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := WriteFile(path, []byte("new"), 0o600); err == nil {
-		t.Fatal("WriteFile returned nil, want the rename error")
+	err := WriteFile(path, []byte("new"), 0o600)
+	if !errors.Is(err, syscall.EEXIST) {
+		t.Fatalf("WriteFile error = %v, want the rename error (EEXIST: os.Rename refuses to replace a directory)", err)
 	}
 	if got, err := os.ReadFile(inner); err != nil || string(got) != "old" {
 		t.Fatalf("old content = %q, %v; want it untouched", got, err)
