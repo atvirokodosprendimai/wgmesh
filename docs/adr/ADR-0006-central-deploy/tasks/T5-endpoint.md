@@ -62,7 +62,7 @@ a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassific
 
 ## Invariants
 
-- A mesh with at least one non-private or DNS-named SSH host gets the endpoints it gets on `b8b83f3`, except that an endpoint already in the state is no longer overwritten (Open Question 4).
+- A mesh with at least one non-private or DNS-named SSH host gets the endpoints it gets on `b8b83f3`, except that an endpoint already in the state is no longer overwritten (M's decision 4).
 - No endpoint is written to the state file; detection stays in memory.
 - A node's endpoint never comes from the address of the machine running the deploy.
 
@@ -74,7 +74,7 @@ a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassific
 
 ## Stop Condition
 
-Stop and ask if Open Question 3 is answered (b) or (c) (the rule changes shape), or if a test shows the local node must not receive an endpoint.
+Stop and ask if a test shows the local node must not receive an endpoint, or if the all-private rule changes the endpoint of a mixed mesh.
 
 ## Out of Scope
 

@@ -67,7 +67,7 @@ a=$(go test ./pkg/mesh -run '^(TestValidateRefusesShellMetacharacters|TestValida
 
 ## Invariants
 
-- `Load`, `Save`, `AddNode`, `RemoveNode`, `List` and `ListSimple` are unchanged: a state that fails validation can still be listed, edited with `-remove` and saved (Open Question 7, recommended answer).
+- `Load`, `Save`, `AddNode`, `RemoveNode`, `List` and `ListSimple` are unchanged: a state that fails validation can still be listed, edited with `-remove` and saved (M's decision 7, recommended answer).
 - A state that deployed before and holds only characters from the safe set is never refused at N.
 - `Validate` reads the mesh under `m.mu.RLock` and is not called with the write lock held (`Deploy` calls it before it takes the lock).
 - No import of `pkg/node`, `pkg/daemon` or `pkg/discovery`.
@@ -83,7 +83,7 @@ Stop and ask if either saved state produces a class A finding (the safe set refu
 
 ## Out of Scope
 
-- Validation in `Load` (permanent: boundary: Open Question 7 recommends `Deploy`; if M answers (b) this task is amended, not extended).
+- Validation in `Load` (permanent: boundary: M's decision 7 puts validation in `Deploy`, so `-list` and `-remove` work on a state that fails it).
 - Cross-checking `Groups` and `AccessPolicies` (permanent: boundary: `ValidateGroups` and `ValidatePolicies` already do it and run after this).
 - Setting `StrictState` (deferred: docs/adr/BACKLOG.md, the N+1 row written by T6).
 

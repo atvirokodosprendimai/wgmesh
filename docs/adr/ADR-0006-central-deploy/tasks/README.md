@@ -44,4 +44,4 @@ README must be regenerated.
 - The waves show dependencies, not safe parallelism: `deploy.go` is edited by T2, T3, T4 and T5. Run the tasks one after another in the order T1 to T6 on one branch.
 - Each code task is reviewed per commit under the repository's code-review flow before the next starts.
 - N+1 (`StrictState`) and N+2 (`PersistFailureFatal`) are not tasks; they are rows in `docs/adr/BACKLOG.md` written by T6, and the ADR's catalog row stays out of `docs/adr/README.md` until M accepts.
-- Open Questions 1 to 7 of the ADR change these tasks: (1) and (6) change T4, (2) and (7) change T3, (3) and (4) change T5, (5) adds a task if answered (b).
+- M's decisions of 2026-11-15 (ADR Decisions 1 to 7, all the recommended options) are built into these tasks: 1 and 6 in T4, 2 and 7 in T3, 3 and 4 in T5, 5 adds no task (a BACKLOG row, written by T6).

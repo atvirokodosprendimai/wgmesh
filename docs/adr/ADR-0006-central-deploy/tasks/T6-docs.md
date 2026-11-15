@@ -70,7 +70,7 @@ n=$(go test ./pkg/mesh -run '^TestSpecNamesCentralized$' -count=1 -v 2>&1 | tee 
 
 ## Stop Condition
 
-Stop and ask if T3, T4 or T5 changed a name this task's test requires, or if an Open Question was answered differently from the recommendation (the note and the rows then change).
+Stop and ask if T3, T4 or T5 changed a name this task's test requires.
 
 ## Out of Scope
 
