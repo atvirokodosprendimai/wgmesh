@@ -40,4 +40,4 @@ README must be regenerated.
 - Run the tasks of wave 2 one after another: T2 and T3 both edit `dht.go`, T3 and T4 both edit `daemon.go`.
 - Go tests run on the laptop with `-race` for the packages each fence names; the whole gate is `go build ./... && go vet ./... && go test -race ./...`.
 - Each code task is reviewed per commit under the repository's code-review flow before the next starts.
-- Four of M's seven open questions change a task: 1 (T3), 2 (T1), 3 (T2), 4 (T6). Until M answers, each task implements the recommendation in the ADR.
+- M decided on 2026-11-15 (Decisions 1 to 7 of the ADR): 1 shapes T3, 2 shapes T1, 3 shapes T2, 4 shapes T6, 5 and 7 are deferrals, 6 is a recommendation with no task.

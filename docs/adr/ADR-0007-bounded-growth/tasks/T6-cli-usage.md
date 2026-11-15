@@ -61,7 +61,7 @@ n=$(go test . -run '^TestScript/(cli-unknown-command|cli-bare-usage|cli-version-
 ## Invariants
 
 - Every existing subcommand and `-v`, `--version`, `version` behave as before; `TestVersionFlag` (`main_test.go:27`) and the existing scripts stay green.
-- The legacy centralized flags keep working when the first argument starts with `-` (Open Question 4 of ADR-0007 asks whether to remove the legacy mode; this task does not).
+- The legacy centralized flags keep working when the first argument starts with `-` (Decision 4 of ADR-0007 keeps the legacy mode; this task does not remove it).
 - No flag is added and no default path changes.
 
 ## Risks
@@ -71,7 +71,7 @@ n=$(go test . -run '^TestScript/(cli-unknown-command|cli-bare-usage|cli-version-
 
 ## Stop Condition
 
-Stop and ask if M answers Open Question 4 differently, or if a documented invocation (README, `docs/`, packaging unit files, `grep -rn "wgmesh " packaging deploy`) uses a bare word that this change would now refuse.
+Stop and ask if a documented invocation (README, `docs/`, packaging unit files, `grep -rn "wgmesh " packaging deploy`) uses a bare word that this change would now refuse.
 
 ## Out of Scope
 

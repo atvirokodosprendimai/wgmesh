@@ -83,7 +83,7 @@ Stop and ask if any existing probe, health or relay test needs a changed expecta
 
 ## Out of Scope
 
-- Changing any probe, health or reconcile interval (Open Question 1 of ADR-0007; the recommendation changes none).
+- Changing any probe, health or reconcile interval (Decision 1 of ADR-0007 changes none).
 - Reading transfer counters at a finer grain than the health check (permanent: boundary: the health check is every 20 s).
 
 ## Verification Log

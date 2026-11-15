@@ -80,7 +80,7 @@ Stop and ask if ADR-0002's tasks have changed `markContacted`, `checkStaleHandsh
 
 ## Out of Scope
 
-- The cap value 8192 and the fail-closed behaviour are Open Question 3 of ADR-0007; this task implements the recommendation and changes if M answers otherwise.
+- The cap value 8192 and the fail-closed behaviour are Decision 3 of ADR-0007 (M 2026-11-15).
 - Bounding collections outside the daemon and discovery layers (permanent: boundary: the audit covers the long-running peer path).
 
 ## Verification Log

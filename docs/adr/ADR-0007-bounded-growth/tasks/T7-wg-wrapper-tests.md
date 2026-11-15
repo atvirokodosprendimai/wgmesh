@@ -64,7 +64,7 @@ n=$(go test ./pkg/wireguard -run '^(TestSetPeerPassesPresharedKeyOnStdinNotArgv|
 
 - No production file changes except a fix a test proves necessary.
 - The preshared key never appears in an argument list (the property the first test pins, `apply.go:149-152`).
-- No coverage target is asserted anywhere (Open Question 7 of ADR-0007).
+- No coverage target is asserted anywhere (Decision 7 of ADR-0007).
 
 ## Risks
 
