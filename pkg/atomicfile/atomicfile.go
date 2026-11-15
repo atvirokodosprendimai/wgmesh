@@ -1,12 +1,22 @@
 // Package atomicfile replaces a state file whole or not at all.
 //
 // WriteFile is the one commit step for files that hold the only copy of
-// identity, cache or state: a crash, a full disk or a failed rename leaves the
-// old file and no temp file behind.
+// identity, cache or state: a crash, a full disk, a failed write, sync or
+// rename leaves the old file in place.
 //
 // It is an atomic whole-file replace. There is no locking between writers: two
 // writers of one file race and the last rename wins. A directory fsync that
-// the filesystem does not support is ignored.
+// the filesystem does not support is ignored. A directory fsync that fails
+// for another reason is reported after the rename: the new content is already
+// at path and the temp file is already gone. After kill -9 or power loss a
+// "<name>.tmp-*" file can remain in the directory; nothing sweeps it.
+//
+// Differences from os.WriteFile that callers must know:
+//   - perm is applied exactly to the new file, not filtered by the umask.
+//   - a symlink at path is replaced by a regular file, not followed.
+//   - the new file is owned by the process user and group, whatever owned the
+//     old file.
+//   - the directory of path must be writable, not only the file.
 package atomicfile
 
 import (
@@ -39,7 +49,10 @@ var (
 // atomic), with perm applied before the first byte is written. The temp file
 // is synced and closed, renamed over path, and then the directory is synced so
 // the rename itself survives a crash. The target is never opened for writing.
-// On every failure the temp file is removed and path keeps its old content.
+// If a step before the rename fails, the temp file is removed and path keeps
+// its old content. If the rename fails, the same holds. If only the final
+// directory sync fails, the error is returned but path already holds the new
+// content.
 func WriteFile(path string, data []byte, perm os.FileMode) (err error) {
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, filepath.Base(path)+".tmp-*")
