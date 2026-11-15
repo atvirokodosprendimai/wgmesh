@@ -2,6 +2,7 @@ package node
 
 import (
 	"fmt"
+	"net"
 	"reflect"
 	"testing"
 	"time"
@@ -203,6 +204,35 @@ func TestOfferAdmitsWithNilAndEmptyPolicy(t *testing.T) {
 		d := ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k", MeshIP: "10.0.0.1"}, Source: "dht", Hand: FirstHand})
 		if _, ok := ps.Get("k"); d.Verdict != Admit || !ok {
 			t.Errorf("policy %+v: decision %+v, stored %v", p, d, ok)
+		}
+	}
+}
+
+// One REPLY mentions 1000 peers (KnownPeers) at a full store. Every mention is a
+// known key with two host routes, so each offer scans the store for a holder of
+// each route (the longest path of R5): the cost of one message is ns/op, the
+// longest the write lock is held is one offer, ns/op divided by 1000.
+func BenchmarkOfferReplyAtCap(b *testing.B) {
+	ps := NewPeerStore()
+	_, meshNet, _ := net.ParseCIDR("10.42.0.0/16")
+	ps.SetPolicy(&Policy{Derive: fakeDerive, MeshNet: meshNet, OnWarn: func(string) {}})
+	for i := 0; i < DefaultMaxPeers; i++ {
+		ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: fmt.Sprintf("key-%d", i), MeshIP: fmt.Sprintf("10.42.%d.%d", i/250, i%250+1)}, Source: "dht", Hand: FirstHand})
+	}
+	reply := make([]Candidate, 1000)
+	for i := range reply {
+		reply[i] = Candidate{
+			Info: &PeerInfo{
+				WGPubKey:         fmt.Sprintf("key-%d", i%DefaultMaxPeers),
+				RoutableNetworks: []string{fmt.Sprintf("172.16.%d.1/32", i%250), "192.168.9.0/24"},
+			},
+			Source: "gossip", Hand: SecondHand,
+		}
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for _, c := range reply {
+			ps.Offer(c)
 		}
 	}
 }
