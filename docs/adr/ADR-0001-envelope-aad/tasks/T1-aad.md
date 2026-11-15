@@ -64,6 +64,8 @@ n=$(go test ./pkg/crypto -run '^(TestEnvelopeTypeIsAuthenticated|TestLegacyEnvel
 - 2026-11-15 · 23cec9a* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · unknown v opened with nil additional data instead of refused · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
 - 2026-11-15 · 23cec9a* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · legacy envelope no longer marked LegacyAAD, so the GOODBYE gate in T2 would have nothing to read · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
 - 2026-11-15 · 23cec9a* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · acceptLegacyAAD false no longer refuses legacy envelopes · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
+- 2026-11-15 · d8082c6* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · SealEnvelope ignores the sealWithAAD switch, so release N+1 could not flip it · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
+- 2026-11-15 · d8082c6* · mutant killed · exit 1 · `pkg/crypto/envelope.go` · invalid UTF-8 message types are sealed and then fail to open · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c
 
 ## Invariants
 
@@ -106,3 +108,6 @@ Stop and ask if `v1` stops opening or if any caller of `OpenEnvelope` or `OpenEn
 - 2026-11-15 · 23cec9a* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:9816
 - 2026-11-15 · 23cec9a* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:8743
 - 2026-11-15 · 23cec9a* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:9065
+- 2026-11-15 · d8082c6* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:16675
+- 2026-11-15 · d8082c6* · exit 0 · `set -o pipefail …` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:10359
+- 2026-11-15 · d8082c6* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:acd930e62c31a50d666fbfcbdbfc76e08a0163d34ae963182a9af9d31e27186c · ms:1 · test-lock-sha256:58abe5fdc63c0b8e0c50103184ddffafc4d2d3944082e752f1fd7bc7909c35d0 · test-lock-file:docs/adr/locks/58abe5fdc63c0b8e0c50103184ddffafc4d2d3944082e752f1fd7bc7909c35d0.lock · test-lock-kind:replace
