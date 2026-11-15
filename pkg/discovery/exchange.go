@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"log/slog"
 	"net"
 	"strconv"
 	"sync"
@@ -236,9 +235,15 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		return
 	}
 
-	// A legacy GOODBYE is ignored below, so it is not announced as valid.
-	if !(envelope.LegacyAAD && envelope.MessageType == crypto.MessageTypeGoodbye) {
-		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+	// HELLO, REPLY and ANNOUNCE are logged as valid after their payload passes
+	// validation below. A legacy GOODBYE is ignored below, so it is not
+	// announced as valid.
+	switch envelope.MessageType {
+	case crypto.MessageTypeHello, crypto.MessageTypeReply, crypto.MessageTypeAnnounce:
+	default:
+		if !(envelope.LegacyAAD && envelope.MessageType == crypto.MessageTypeGoodbye) {
+			pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+		}
 	}
 
 	if envelope.LegacyAAD {
@@ -276,6 +281,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Dropping invalid HELLO from %s: %v", remoteAddr.String(), err)
 			return
 		}
+		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
 		pe.handleHello(&announcement, remoteAddr)
 	case crypto.MessageTypeReply:
 		var reply crypto.PeerAnnouncement
@@ -287,6 +293,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Dropping invalid REPLY from %s: %v", remoteAddr.String(), err)
 			return
 		}
+		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
 		pe.handleReply(&reply, remoteAddr)
 	case crypto.MessageTypeAnnounce:
 		var announcement crypto.PeerAnnouncement
@@ -298,6 +305,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Dropping invalid ANNOUNCE from %s: %v", remoteAddr.String(), err)
 			return
 		}
+		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
 		pe.mu.RLock()
 		handler := pe.announceHandler
 		pe.mu.RUnlock()
@@ -357,29 +365,11 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	}
 }
 
-// validateExchangeAnnouncement applies the same checks as crypto.OpenEnvelope
-// (used by LAN and gossip) to HELLO/REPLY/ANNOUNCE payloads, which arrive via
-// OpenEnvelopeRaw. The sender's own fields must be valid or the message is
-// rejected. Invalid KnownPeers are filtered out individually instead, so one
-// bad transitive entry relayed by an otherwise valid peer (e.g. an older node
-// that stored it before this check existed) does not hide that peer.
+// validateExchangeAnnouncement is crypto.FilterAnnouncement, the validation
+// path shared with OpenEnvelope (LAN, gossip, registry), applied to
+// HELLO/REPLY/ANNOUNCE payloads that arrive via OpenEnvelopeRaw.
 func validateExchangeAnnouncement(a *crypto.PeerAnnouncement) error {
-	known := a.KnownPeers
-	if len(known) > crypto.MaxKnownPeers {
-		return fmt.Errorf("KnownPeers: too many entries (%d, max %d)", len(known), crypto.MaxKnownPeers)
-	}
-	a.KnownPeers = nil
-	if err := a.Validate(); err != nil {
-		return err
-	}
-	for _, kp := range known {
-		if err := kp.Validate(); err != nil {
-			slog.Debug("[Exchange] dropping invalid known peer", "error", err)
-			continue
-		}
-		a.KnownPeers = append(a.KnownPeers, kp)
-	}
-	return nil
+	return crypto.FilterAnnouncement(a)
 }
 
 // handleHello responds to a peer's HELLO message

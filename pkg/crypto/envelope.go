@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
 	"time"
@@ -93,7 +94,7 @@ func (kp *KnownPeer) Validate() error {
 }
 
 // Validate checks all fields of a PeerAnnouncement for correctness.
-// Called from OpenEnvelope after deserialization.
+// Called from FilterAnnouncement after deserialization.
 func (pa *PeerAnnouncement) Validate() error {
 	if err := validateWGPubKey(pa.WGPubKey); err != nil {
 		return fmt.Errorf("WGPubKey: %w", err)
@@ -126,6 +127,31 @@ func (pa *PeerAnnouncement) Validate() error {
 		if err := kp.Validate(); err != nil {
 			return fmt.Errorf("KnownPeers[%d]: %w", i, err)
 		}
+	}
+	return nil
+}
+
+// FilterAnnouncement is the one validation path for a received announcement on
+// every reader (LAN, gossip, registry, exchange). The sender's own fields must
+// be valid and KnownPeers must not exceed MaxKnownPeers, or the message is
+// rejected. Invalid KnownPeers entries are dropped individually instead, so one
+// bad transitive entry relayed by an otherwise valid peer (e.g. an older node
+// that stored it before this check existed) does not hide that peer.
+func FilterAnnouncement(a *PeerAnnouncement) error {
+	known := a.KnownPeers
+	if len(known) > MaxKnownPeers {
+		return fmt.Errorf("KnownPeers: too many entries (%d, max %d)", len(known), MaxKnownPeers)
+	}
+	a.KnownPeers = nil
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	for _, kp := range known {
+		if err := kp.Validate(); err != nil {
+			slog.Debug("[crypto] dropping invalid known peer", "error", err)
+			continue
+		}
+		a.KnownPeers = append(a.KnownPeers, kp)
 	}
 	return nil
 }
@@ -297,8 +323,8 @@ func OpenEnvelope(data []byte, gossipKey [32]byte) (*Envelope, *PeerAnnouncement
 		return nil, nil, fmt.Errorf("failed to unmarshal announcement: %w", err)
 	}
 
-	// Validate announcement fields
-	if err := announcement.Validate(); err != nil {
+	// Validate the sender strictly, drop invalid KnownPeers entries
+	if err := FilterAnnouncement(&announcement); err != nil {
 		return nil, nil, fmt.Errorf("invalid announcement: %w", err)
 	}
 
