@@ -35,7 +35,7 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 				gateway = relayIP
 			}
 		}
-		for _, network := range peer.RoutableNetworks {
+		for _, network := range routes.ExcludeOwn(peer.RoutableNetworks, d.localNode.RoutableNetworks) {
 			network = strings.TrimSpace(network)
 			if network == "" {
 				continue

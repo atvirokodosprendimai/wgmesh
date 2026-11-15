@@ -175,3 +175,34 @@ func TestCalculateDiff_Idempotent(t *testing.T) {
 		t.Errorf("second CalculateDiff should be no-op; add=%v remove=%v", add2, remove2)
 	}
 }
+
+func TestExcludeOwn(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		networks []string
+		own      []string
+		want     []string
+	}{
+		{name: "no own networks keeps all", networks: []string{"10.1.0.0/24"}, want: []string{"10.1.0.0/24"}},
+		{name: "disjoint kept", networks: []string{"10.1.0.0/24"}, own: []string{"10.2.0.0/24"}, want: []string{"10.1.0.0/24"}},
+		{name: "shared dropped", networks: []string{"10.1.0.0/24", "10.2.0.0/24"}, own: []string{"10.1.0.0/24"}, want: []string{"10.2.0.0/24"}},
+		{name: "host bits and spaces canonicalised", networks: []string{" 10.1.0.5/24"}, own: []string{"10.1.0.0/24"}, want: []string{}},
+		{name: "default route kept unless advertised by both", networks: []string{"0.0.0.0/0"}, own: []string{"10.1.0.0/24"}, want: []string{"0.0.0.0/0"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := ExcludeOwn(tt.networks, tt.own)
+			if len(got) != len(tt.want) {
+				t.Fatalf("ExcludeOwn() = %v, want %v", got, tt.want)
+			}
+			for i := range got {
+				if got[i] != tt.want[i] {
+					t.Fatalf("ExcludeOwn() = %v, want %v", got, tt.want)
+				}
+			}
+		})
+	}
+}

@@ -20,6 +20,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -613,7 +614,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 				if p.MeshIPv6 != "" {
 					d.addAllowedIP(desired, relay, p.MeshIPv6+"/128")
 				}
-				for _, network := range p.RoutableNetworks {
+				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
 					network = strings.TrimSpace(network)
 					if network != "" {
 						d.addAllowedIP(desired, relay, network)
@@ -627,7 +628,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 		if p.MeshIPv6 != "" {
 			d.addAllowedIP(desired, p, p.MeshIPv6+"/128")
 		}
-		for _, network := range p.RoutableNetworks {
+		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
 			network = strings.TrimSpace(network)
 			if network != "" {
 				d.addAllowedIP(desired, p, network)
@@ -1358,7 +1359,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 	if peer.MeshIPv6 != "" {
 		allowed[peer.MeshIPv6+"/128"] = struct{}{}
 	}
-	for _, route := range peer.RoutableNetworks {
+	for _, route := range routes.ExcludeOwn(peer.RoutableNetworks, d.localNode.RoutableNetworks) {
 		r := strings.TrimSpace(route)
 		if r != "" {
 			allowed[r] = struct{}{}

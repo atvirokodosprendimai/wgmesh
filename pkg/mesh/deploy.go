@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 
+	netroutes "github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
@@ -187,7 +188,7 @@ func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
 		for peerHostname, access := range allowedPeers {
 			peer := m.Nodes[peerHostname]
 			if access.AllowRoutableNetworks {
-				for _, network := range peer.RoutableNetworks {
+				for _, network := range netroutes.ExcludeOwn(peer.RoutableNetworks, node.RoutableNetworks) {
 					routes = append(routes, ssh.RouteEntry{
 						Network: network,
 						Gateway: peer.MeshIP.String(),
@@ -202,7 +203,7 @@ func (m *Mesh) collectAllRoutesForNode(node *Node) []ssh.RouteEntry {
 				continue
 			}
 
-			for _, network := range peer.RoutableNetworks {
+			for _, network := range netroutes.ExcludeOwn(peer.RoutableNetworks, node.RoutableNetworks) {
 				routes = append(routes, ssh.RouteEntry{
 					Network: network,
 					Gateway: peer.MeshIP.String(),
@@ -287,7 +288,7 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 		allowedPeers := m.getAllowedPeersLocked(node.Hostname)
 		for peerHostname, access := range allowedPeers {
 			peer := m.Nodes[peerHostname]
-			peerConfig := m.buildPeerConfig(peer, access)
+			peerConfig := m.buildPeerConfig(peer, access, node.RoutableNetworks)
 			config.Peers = append(config.Peers, peerConfig)
 		}
 	} else {
@@ -296,7 +297,7 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 			if peerHostname == node.Hostname {
 				continue
 			}
-			peerConfig := m.buildPeerConfigFullAccess(peer)
+			peerConfig := m.buildPeerConfigFullAccess(peer, node.RoutableNetworks)
 			config.Peers = append(config.Peers, peerConfig)
 		}
 	}
@@ -304,8 +305,9 @@ func (m *Mesh) generateConfigForNode(node *Node) *WireGuardConfig {
 	return config
 }
 
-// buildPeerConfig creates a WireGuard peer config with access control
-func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess) WGPeer {
+// buildPeerConfig creates a WireGuard peer config with access control.
+// ownNetworks are the local node's RoutableNetworks, never added for the peer.
+func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess, ownNetworks []string) WGPeer {
 	allowedIPs := []string{}
 
 	// Always include mesh /32 for handshakes when peer is configured
@@ -313,7 +315,7 @@ func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess) WGPeer {
 
 	// Add routable networks only if policy permits
 	if access.AllowRoutableNetworks {
-		allowedIPs = append(allowedIPs, peer.RoutableNetworks...)
+		allowedIPs = append(allowedIPs, netroutes.ExcludeOwn(peer.RoutableNetworks, ownNetworks)...)
 	}
 
 	peerConfig := WGPeer{
@@ -330,10 +332,11 @@ func (m *Mesh) buildPeerConfig(peer *Node, access *PeerAccess) WGPeer {
 	return peerConfig
 }
 
-// buildPeerConfigFullAccess creates a WireGuard peer config with full access (backward compatibility)
-func (m *Mesh) buildPeerConfigFullAccess(peer *Node) WGPeer {
+// buildPeerConfigFullAccess creates a WireGuard peer config with full access (backward compatibility).
+// ownNetworks are the local node's RoutableNetworks, never added for the peer.
+func (m *Mesh) buildPeerConfigFullAccess(peer *Node, ownNetworks []string) WGPeer {
 	allowedIPs := []string{fmt.Sprintf("%s/32", peer.MeshIP.String())}
-	allowedIPs = append(allowedIPs, peer.RoutableNetworks...)
+	allowedIPs = append(allowedIPs, netroutes.ExcludeOwn(peer.RoutableNetworks, ownNetworks)...)
 
 	peerConfig := WGPeer{
 		PublicKey:  peer.PublicKey,
