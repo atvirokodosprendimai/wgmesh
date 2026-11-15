@@ -211,12 +211,17 @@ func (g *MeshGossip) exchangeWithRandomPeer(conn *net.UDPConn) {
 	var knownPeers []crypto.KnownPeer
 	for _, p := range peers {
 		if p.WGPubKey != target.WGPubKey {
+			// A guessed endpoint is not announced; the key stays (#839).
+			endpoint := p.Endpoint
+			if p.EndpointGuessed {
+				endpoint = ""
+			}
 			knownPeers = append(knownPeers, crypto.KnownPeer{
 				WGPubKey:   p.WGPubKey,
 				Hostname:   p.Hostname,
 				MeshIP:     p.MeshIP,
 				MeshIPv6:   p.MeshIPv6,
-				WGEndpoint: p.Endpoint,
+				WGEndpoint: endpoint,
 				Introducer: p.Introducer,
 				NATType:    p.NATType,
 			})
