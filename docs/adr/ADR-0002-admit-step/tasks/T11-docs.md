@@ -1,11 +1,11 @@
-# Task ADR-0002-T10: Amend the specs, write the release notes and the backlog rows
+# Task ADR-0002-T11: Amend the specs, write the release notes and the backlog rows
 
-**Depends-on:** T3, T5, T6, T7, T8, T9
+**Depends-on:** T3, T5, T6, T7, T8, T9, T10
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
 **Produces:** none
-**Consumes:** `Withdraw`, tombstones (T3); persisted resolved IP (T5); `EnforceRouteBinding`, compat fixtures, `wgmesh_admit_warnings_total` (T6); `ResolveEndpoint` (T7); `crypto.FilterAnnouncement` (T8); `LocalNode.ObserveEndpoint` (T9)
+**Consumes:** `Withdraw`, tombstones (T3); persisted resolved IP (T5); `EnforceRouteBinding`, compat fixtures, `wgmesh_admit_warnings_total` (T6); `ResolveEndpoint` (T7); `crypto.FilterAnnouncement` (T8); `LocalNode.ObserveEndpoint` (T9); `Policy.AcceptRoutes`, `Config.AcceptRoutes`, rule R9 (T10)
 **Data dependency:** hermetic
 **Proof map:** v1
 
@@ -22,13 +22,13 @@ The peer store, exchange, DHT core and daemon support specs and a release note d
 | `eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md` | edit | claim order, the local node in collisions, the persisted resolved IP |
 | `eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md` | edit | `ObserveEndpoint` and the STUN rule |
 | `README.md`, `docs/envelope-rollout.md` | edit | one link each to the new note |
-| `docs/admit-rollout.md` | add | operator and release note for N, N+1 and N+2: what each switch does, how to read `wgmesh_admit_warnings_total{rule}` as the go/no-go, what a rotated address is, the grinding limit with the number measured in T6, the 10-minute tombstone |
-| `docs/adr/BACKLOG.md` | edit | the ADR-0001 row about the winner rule and binding is rewritten to say it is taken up by ADR-0002; rows for N+1, N+2, route approval, the multi-candidate local endpoint and the `install-service` route check |
+| `docs/admit-rollout.md` | add | operator and release note for N, N+1 and N+2: what each switch does, how to read `wgmesh_admit_warnings_total{rule}` as the go/no-go, what a rotated address is, the grinding limit with the number measured in T6, the 5-minute tombstone, the `accept-routes` list and what open means, how HA networks and the default route are treated |
+| `docs/adr/BACKLOG.md` | edit | the ADR-0001 row about the winner rule and binding is rewritten to say it is taken up by ADR-0002; rows for N+1, N+2 (which now names `accept-routes`), the multi-candidate local endpoint and the `install-service` route check |
 | `pkg/node/spec_admit_test.go` | add | the specs, the note and the backlog must name the rules |
 
 ## Ordered Steps
 
-1. [S1] Add `pkg/node/spec_admit_test.go` with `TestSpecNamesAdmit`: it reads the three specs, `docs/admit-rollout.md` and `docs/adr/BACKLOG.md` and fails when `Offer`, `Withdraw` and `tombstone` (peer store spec), `FilterAnnouncement` (exchange spec), `ResolveClaims` (daemon spec), `EnforceIPBinding`, `EnforceRouteBinding`, `N+1`, `N+2` and `wgmesh_admit_warnings_total` (note) or `ADR-0002` (backlog) are missing. Run it red.
+1. [S1] Add `pkg/node/spec_admit_test.go` with `TestSpecNamesAdmit`: it reads the three specs, `docs/admit-rollout.md` and `docs/adr/BACKLOG.md` and fails when `Offer`, `Withdraw` and `tombstone` (peer store spec), `FilterAnnouncement` (exchange spec), `ResolveClaims` (daemon spec), `EnforceIPBinding`, `EnforceRouteBinding`, `N+1`, `N+2`, `accept-routes` and `wgmesh_admit_warnings_total` (note) or `ADR-0002` (backlog) are missing. Run it red.
 2. [S2] Amend the three specs.
 3. [S3] Write `docs/admit-rollout.md`.
 4. [S4] Edit `docs/adr/BACKLOG.md`; run `adr-debt docs/adr` and paste that no deferred row of ADR-0002 is reported unreceipted.
@@ -75,6 +75,5 @@ Stop and ask if a spec section named here does not exist in the file (the spec f
 ## Out of Scope
 
 - Flipping the switches (deferred: docs/adr/BACKLOG.md).
-- Route approval design (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log

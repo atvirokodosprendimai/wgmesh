@@ -11,7 +11,7 @@
 
 ## Goal
 
-A peer removed by GOODBYE, health eviction or stale cleanup is not brought back by a `KnownPeers` mention or a cache restore for `PeerRemoveTimeout`, and its own first-hand packet clears the tombstone at once.
+A peer removed by GOODBYE, health eviction or stale cleanup is not brought back by a `KnownPeers` mention or a cache restore for `TombstoneTTL` (5 minutes), and its own first-hand packet clears the tombstone at once.
 
 ## Affected Files
 
@@ -29,8 +29,8 @@ Selection: `Withdraw` is selected by its two production callers and by the exten
 
 ## Ordered Steps
 
-1. [S1] Add the six tests below with a compiling `Withdraw` stub that only deletes; run red.
-2. [S2] Implement the tombstone map, `Withdraw`, the `CleanupStale` hook and the clock seam.
+1. [S1] Add the tests below with a compiling `Withdraw` stub that only deletes; run red.
+2. [S2] Implement the tombstone map, the constant `TombstoneTTL = 5 * time.Minute` (its own constant, not `PeerRemoveTimeout`), `Withdraw`, the `CleanupStale` hook and the clock seam.
 3. [S3] Add rule R2 to `Decide`; keep every other rule as T2 left it.
 4. [S4] Switch the two callers; extend the guard's name list with `Remove`; re-run `grep -rnE "peerStore\.Remove\(" --include=*.go . | grep -v _test.go | wc -l`, which prints 0, and record it in the commit message.
 5. [S5] Run the mutants with `adr-verify --mutant`: R2 returns `Admit`; `FirstHand` no longer clears the tombstone; `CleanupStale` stops tombstoning; the tombstone lifetime is 0. [proof: mutation]
@@ -39,7 +39,7 @@ Selection: `Withdraw` is selected by its two production callers and by the exten
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandClearsTombstone|TestTombstoneExpiresAfterRemoveTimeout|TestCleanupStaleLeavesTombstone|TestTombstoneSetIsBounded|TestNoDirectPeerStoreMutation)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 6 ] \
+a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandClearsTombstone|TestTombstoneExpiresAfterTombstoneTTL|TestTombstoneTTLIsFiveMinutes|TestCleanupStaleLeavesTombstone|TestTombstoneSetIsBounded|TestNoDirectPeerStoreMutation)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 7 ] \
  && b=$(go test ./pkg/discovery -run '^TestGoodbyeLeavesTombstone$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$b" -ge 1 ] \
  && c=$(go test ./pkg/daemon -run '^TestEvictionLeavesTombstone$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$c" -ge 1 ] \
  && go test -race ./pkg/node ./pkg/discovery ./pkg/daemon -count=1
@@ -51,7 +51,8 @@ a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandC
 |-----------|------|----------|--------|-------|
 | `TestTombstoneBlocksSecondHandReadd` | `pkg/node/admit_test.go` | after `Withdraw`, a `SecondHand` offer with `Introducer: true` is refused with reason `tombstoned` and the store has no entry | — | S1, S2, S3 |
 | `TestFirstHandClearsTombstone` | `pkg/node/admit_test.go` | the peer's own first-hand offer is admitted and later second-hand offers are admitted again | — | S1, S3 |
-| `TestTombstoneExpiresAfterRemoveTimeout` | `pkg/node/admit_test.go` | with the injected clock just before `PeerRemoveTimeout` the offer is refused, just after it is admitted | — | S1, S2, S3 |
+| `TestTombstoneExpiresAfterTombstoneTTL` | `pkg/node/admit_test.go` | with the injected clock just before `TombstoneTTL` the offer is refused, just after it is admitted | — | S1, S2, S3 |
+| `TestTombstoneTTLIsFiveMinutes` | `pkg/node/admit_test.go` | `TombstoneTTL` equals 5 minutes and is a constant of its own, not an alias of `PeerRemoveTimeout` (the two differ) | — | S1, S2 |
 | `TestCleanupStaleLeavesTombstone` | `pkg/node/admit_test.go` | a once-first-hand key removed by `CleanupStale` refuses a second-hand re-add; a mention-only key does not | — | S1, S2 |
 | `TestTombstoneSetIsBounded` | `pkg/node/admit_test.go` | 2000 withdrawals keep at most `DefaultMaxPeers` tombstones, the newest kept | — | S1, S2 |
 | `TestNoDirectPeerStoreMutation` | `pkg/node/admit_guard_test.go` | `Remove` on a store-named receiver outside `pkg/node` fails the guard | — | S1, S4 |
@@ -64,7 +65,7 @@ a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandC
 |------|------------------------|
 | 1 — exists | the eight tests |
 | 2 — something selects it | `Withdraw` is called from `exchange.go` and `daemon.go`; reverting either turns a named test red |
-| 3 — the caller can discover it | doc comment on `Withdraw`; T10 amends the peer store spec |
+| 3 — the caller can discover it | doc comment on `Withdraw`; T11 amends the peer store spec |
 | 4 — it is used | the log line `[Admit] refused tombstoned peer` (rate-limited per key) shows each suppressed resurrection |
 
 ## Mutation Log
@@ -78,7 +79,7 @@ a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandC
 ## Risks
 
 - The store lock is held while pruning expired tombstones; pruning is done at most once per offer and is bounded by the cap.
-- A health-evicted peer is hidden up to ten minutes unless heard first-hand; today it can return after the 30-second `TemporaryOfflineTTL`. Its own packet ends it.
+- A health-evicted peer is hidden up to five minutes unless heard first-hand; today it can return after the 30-second `TemporaryOfflineTTL`. Its own packet ends it.
 
 ## Stop Condition
 

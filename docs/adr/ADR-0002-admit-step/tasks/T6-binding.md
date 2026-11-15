@@ -62,7 +62,7 @@ a=$(go test ./pkg/node -run '^(TestIPClaimWarnsAtReleaseN|TestIPClaimRefusedWhen
 |------|------------------------|
 | 1 — exists | the eight tests and the fixture |
 | 2 — something selects it | `SetPolicy` in the daemon (T4); deleting it turns `TestDaemonInstallsAdmitPolicy` red |
-| 3 — the caller can discover it | the counter (T4) is on the metrics endpoint; T10 writes the release note that names it |
+| 3 — the caller can discover it | the counter (T4) is on the metrics endpoint; T11 writes the release note that names it |
 | 4 — it is used | the counter value is the go/no-go for N+1 and N+2 |
 
 ## Mutation Log
@@ -86,7 +86,7 @@ Stop and ask if a frozen case that older releases emit would be refused in enfor
 
 ## Out of Scope
 
-- Route approval for routes outside the mesh network (deferred: docs/adr/BACKLOG.md).
+- Approval of routes outside the mesh network by an operator list (T10).
 - Flipping either switch (deferred: docs/adr/BACKLOG.md).
 - Signature-based binding (permanent: boundary: separate decision, see the ADR).
 

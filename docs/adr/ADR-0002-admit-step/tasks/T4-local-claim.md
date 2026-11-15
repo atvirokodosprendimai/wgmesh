@@ -65,7 +65,7 @@ a=$(go test ./pkg/node -run '^(TestClaimOrderBoundBeatsUnbound|TestClaimOrderFal
 |------|------------------------|
 | 1 — exists | the seven tests |
 | 2 — something selects it | `reconcile` calls `CheckAndResolveCollisions`, which calls `ResolveClaims`; dropping the local claim turns `TestLocalNodeLosesCollisionAgainstRemote` red |
-| 3 — the caller can discover it | doc comments; T10 amends the daemon support spec |
+| 3 — the caller can discover it | doc comments; T11 amends the daemon support spec |
 | 4 — it is used | the `[Collision]` log lines and the `winner-differs` counter registered by T6 |
 
 ## Mutation Log

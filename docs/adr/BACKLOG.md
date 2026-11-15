@@ -8,7 +8,6 @@ Deferred work from accepted decisions, so `adr-debt` can resurface it.
 - ADR-0001 deferred: a replay cache in the gossip reader (gossip is unicast, `pkg/discovery/gossip.go:222`) and the legacy counter in `daemon.status`.
 - ADR-0001 deferred: stop a replayed HELLO from being answered every time (HELLO is exempt from the nonce cache because the retry loop at `pkg/discovery/exchange.go:527` resends identical bytes; a fix needs a per-HELLO sequence or token).
 - ADR-0002 follow-up N+1: set `node.EnforceIPBinding = true` (claim order bound-first, refusal of a claim for a bound member's mesh IP) in the release after the one that ships ADR-0002 T1 to T10; needs a release note and `wgmesh_admit_warnings_total` at zero for a release.
-- ADR-0002 follow-up N+2: set `node.EnforceRouteBinding = true` (drop route entries inside the mesh network or a member's mesh IP) one release after N+1, with a release note.
-- ADR-0002 deferred: route approval for routes outside the mesh network (operator allow-list or signed route grants), the long-term half of issue #864.
+- ADR-0002 follow-up N+2: set `node.EnforceRouteBinding = true` (drop route entries inside the mesh network or a member's mesh IP, and networks the receiver's `accept-routes` list does not approve) one release after N+1, with a release note.
 - ADR-0002 deferred: keep and announce several reflexive local endpoints on a multi-egress network, the second half of issue #828 (needs a candidate list in the node state).
 - ADR-0002 deferred: `install-service` validates `--advertise-routes` at install time with the parser the daemon uses, item 1 of issue #875.

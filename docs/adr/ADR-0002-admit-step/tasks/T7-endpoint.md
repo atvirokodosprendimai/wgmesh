@@ -61,7 +61,7 @@ a=$(go test ./pkg/node -run '^(TestResolveEndpointKeepsAdvertisedPort|TestResolv
 |------|------------------------|
 | 1 — exists | the six tests |
 | 2 — something selects it | `resolvePeerEndpoint`, `resolveEndpoint` and the gossip path call `ResolveEndpoint`; reverting one turns a named test red |
-| 3 — the caller can discover it | doc comment; T10 amends the peer store and exchange specs |
+| 3 — the caller can discover it | doc comment; T11 amends the peer store and exchange specs |
 | 4 — it is used | `daemon.status` peers show an empty endpoint instead of a wrong one until an advertisement arrives |
 
 ## Mutation Log

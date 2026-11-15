@@ -56,7 +56,7 @@ n=$(go test ./pkg/node -run '^(TestOfferMatchesLegacyUpdate|TestOfferHandIsExpli
 |------|------------------------|
 | 1 — exists | the four tests |
 | 2 — something selects it | `Update` calls `Offer`; the `Update`-bypass mutant turns `TestUpdateGoesThroughOffer` red |
-| 3 — the caller can discover it | exported with doc comments; T10 amends the peer store spec |
+| 3 — the caller can discover it | exported with doc comments; T11 amends the peer store spec |
 | 4 — it is used | every production claim from T2 on |
 
 ## Mutation Log

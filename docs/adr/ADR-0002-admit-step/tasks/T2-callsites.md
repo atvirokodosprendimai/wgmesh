@@ -57,7 +57,7 @@ n=$(go test ./pkg/node ./pkg/discovery ./pkg/daemon -run '^(TestNoDirectPeerStor
 |------|------------------------|
 | 1 — exists | the five tests |
 | 2 — something selects it | the guard test selects the rule for every future file; a site converted back turns it red |
-| 3 — the caller can discover it | the `Update` doc comment says test-only and names `Offer`; T10 amends the specs |
+| 3 — the caller can discover it | the `Update` doc comment says test-only and names `Offer`; T11 amends the specs |
 | 4 — it is used | all ten production claims |
 
 ## Mutation Log

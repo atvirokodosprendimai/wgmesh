@@ -52,7 +52,7 @@ n=$(go test ./pkg/daemon . -run '^(TestCollisionLoserPersistsResolvedIP|TestRest
 |------|------------------------|
 | 1 — exists | the three tests |
 | 2 — something selects it | `CheckAndResolveCollisions` runs from `reconcile`; deleting the save turns the first test red |
-| 3 — the caller can discover it | doc comment on `CheckAndResolveCollisions`; T10 amends the daemon support spec |
+| 3 — the caller can discover it | doc comment on `CheckAndResolveCollisions`; T11 amends the daemon support spec |
 | 4 — it is used | the state file on a node that lost a collision |
 
 ## Mutation Log

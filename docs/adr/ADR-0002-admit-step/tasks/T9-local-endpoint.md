@@ -55,7 +55,7 @@ a=$(go test ./pkg/node -run '^(TestEndpointDoesNotFlapOnAlternatingObservations|
 |------|------------------------|
 | 1 — exists | the four tests |
 | 2 — something selects it | the seven call sites; the acceptance fence counts the remaining `SetEndpoint` calls, which fails if one is added |
-| 3 — the caller can discover it | doc comment; T10 amends the DHT core spec |
+| 3 — the caller can discover it | doc comment; T11 amends the DHT core spec |
 | 4 — it is used | the `[STUN] External endpoint changed` log line stops repeating each cycle on a dual-egress network |
 
 ## Mutation Log

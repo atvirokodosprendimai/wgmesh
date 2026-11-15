@@ -57,7 +57,7 @@ a=$(go test ./pkg/crypto -run '^(TestOpenEnvelopeDropsInvalidKnownPeerKeepsMessa
 |------|------------------------|
 | 1 — exists | the five tests |
 | 2 — something selects it | `OpenEnvelope` and the exchange handlers call it; reverting either turns a named test red |
-| 3 — the caller can discover it | doc comment; T10 amends the exchange spec |
+| 3 — the caller can discover it | doc comment; T11 amends the exchange spec |
 | 4 — it is used | one invalid entry no longer hides a whole LAN or gossip announcement |
 
 ## Mutation Log
