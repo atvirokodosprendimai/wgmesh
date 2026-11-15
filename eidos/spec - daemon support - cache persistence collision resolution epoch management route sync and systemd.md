@@ -28,9 +28,9 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 - Mesh IPs are derived deterministically from `(shared secret, WireGuard public key)`. Two peers can independently derive the same IP. A claim is **bound** when its IP equals the IP derived from its own key at nonce 0 to 10 (`node.MaxNonce`); rotated, nonce and custom-subnet addresses are legitimate and are never refused for being unbound.
 - **Detection:** `node.ResolveClaims(local, peers, derive)` lists the IPs claimed by more than one member, **the local node included** (ADR-0002 R3), sorted by IP then key so every observer computes the same list. `DetectCollisions(ps, local)` wraps it.
 - **Claim order:** with `EnforceIPBinding` set, a bound claim beats an unbound one and equal classes fall to the lower public key. While the switch is `false` (this release) the lower public key wins as before, and each collision the bound order would decide differently is counted as `winner-differs` in `wgmesh_admit_warnings_total`.
-- **Resolution:** the loser re-derives: the first address of nonce 1 to 10 that no other member claims (the nonce-1 address when all are claimed).
+- **Resolution:** a local loser (`moverIP`) takes the first address of nonce 1 to 10 that no other member claims (the nonce-1 address when all are claimed). For a remote loser `ResolveCollision` derives the nonce-1 address only to log it.
 - If the **local node** is the loser: reconfigure the WireGuard interface address at once (so from release N the interface address of a node can change at runtime) and persist the resolved IP in the state file (`saveLocalNode`), so a restart keeps it: the IP is stored, not the nonce. `wgmesh service add` reads the state file `wg0.json` only (known limit, `docs/adr/BACKLOG.md`).
-- If a **remote peer** is the loser: record the expected new IP (the remote will self-correct on its next cycle).
+- If a **remote peer** is the loser: only log the expected nonce-1 address; nothing is recorded or changed here. The remote moves only if it runs release N or later code.
 - Collision check runs at the end of every reconcile cycle.
 
 ### Epoch management (Dandelion++)
