@@ -25,7 +25,7 @@ README must be regenerated.
 | T3 | Keep a tombstone for removed peers and refuse second-hand re-adds (#854) | done | — | eight named tests in three packages, then `-race` |
 | T4 | Put the local node into the mesh IP claim table and order claims (#856) | done | — | seven named tests in two packages, then `-race` |
 | T5 | Persist the collision-resolved mesh IP (#830) | done | — | three named tests, then `-race` |
-| T6 | Bind mesh IPs and routes to what the key derives, in warn mode, with frozen compat cases (#864) | done | — | eight named tests in two packages, fixture file exists, then `-race` |
+| T6 | Bind mesh IPs and routes to what the key derives, in warn mode, with frozen compat cases (#864) | done | — | seven named tests in pkg/node, fixture file exists, then `-race` |
 | T7 | One endpoint rule set: guessed endpoints rank last and are not re-announced (#839) | pending | — | six named tests in two packages, then `-race` |
 | T8 | One validation path for announcements on LAN, gossip, registry and exchange (#875) | pending | — | five named tests in two packages (ADR-0001 fixtures included), then `-race` |
 | T9 | Observe the local endpoint through one rule instead of eight writers (#828) | pending | — | four named tests, `SetEndpoint` count is 1, then `-race` |
