@@ -363,3 +363,24 @@ func TestWithdrawOfUnknownKeyLeavesNoTombstone(t *testing.T) {
 	}
 	wantTombstoned(t, offerHand(ps, "victim", SecondHand, false), "the real victim after a junk flood")
 }
+
+func TestTombstoneEvictionTreatsEmptyKeyAsAKey(t *testing.T) {
+	t.Parallel()
+
+	ps, _ := clockedStore(time.Millisecond)
+	for i := 0; i < DefaultMaxPeers; i++ {
+		key := fmt.Sprintf("w-%d", i)
+		if i == 0 {
+			key = ""
+		}
+		offerHand(ps, key, FirstHand, false)
+		ps.Withdraw(key, "goodbye")
+	}
+	offerHand(ps, "newest", FirstHand, false)
+	ps.Withdraw("newest", "goodbye")
+
+	if d := offerHand(ps, "", SecondHand, false); d.Verdict != Admit {
+		t.Errorf("the oldest tombstone, the empty key, was kept: %+v", d)
+	}
+	wantTombstoned(t, offerHand(ps, "w-1", SecondHand, false), "the second oldest")
+}

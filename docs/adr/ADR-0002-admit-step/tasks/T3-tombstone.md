@@ -18,8 +18,8 @@ A peer removed by GOODBYE, health eviction or stale cleanup is not brought back 
 | File | Change | Why |
 |------|--------|-----|
 | `pkg/node/admit.go` | edit | rule R2 in `Decide`: refuse `SecondHand` and `Restored` for a tombstoned key, reason `tombstoned`; a `FirstHand` offer clears it |
-| `pkg/node/types.go` | edit | `PeerInfo.HeardFirstHand bool` |
-| `pkg/node/store.go` | edit | `Withdraw(key, cause)` deletes and tombstones; `CleanupStale` tombstones what it removes only when `PeerInfo.HeardFirstHand` is true (a new field the merge sets on a `FirstHand` offer), so a peer known only by mentions is not hidden for ten more minutes each time cleanup drops it; the tombstone map is bounded at `DefaultMaxPeers` (oldest dropped first) and keyed to an injectable clock (`ps.now`, default `time.Now`) |
+| `pkg/node/types.go` | edit | `PeerInfo.heardFirstHand bool` (unexported: only the store reads it) |
+| `pkg/node/store.go` | edit | `Withdraw(key, cause)` deletes and tombstones; `CleanupStale` tombstones what it removes only when `PeerInfo.heardFirstHand` is true (a new field the merge sets on a `FirstHand` offer), so a peer known only by mentions is not hidden for ten more minutes each time cleanup drops it; the tombstone map is bounded at `DefaultMaxPeers` (oldest dropped first) and an injectable clock for the tombstone timestamps and `CleanupStale` (`ps.now`, default `time.Now`; `merge` keeps `time.Now`) |
 | `pkg/discovery/exchange.go` | edit | `:348` GOODBYE calls `Withdraw` with cause `goodbye` |
 | `pkg/daemon/daemon.go` | edit | `:1394` eviction calls `Withdraw` with cause `evicted` |
 | `pkg/node/admit_guard_test.go` | edit | the guard's name list gains `Remove` |
@@ -66,7 +66,7 @@ a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandC
 | 1 — exists | the eight tests |
 | 2 — something selects it | `Withdraw` is called from `exchange.go` and `daemon.go`; reverting either turns a named test red |
 | 3 — the caller can discover it | doc comment on `Withdraw`; T11 amends the peer store spec |
-| 4 — it is used | the log line `[Admit] refused tombstoned peer` (rate-limited per key) shows each suppressed resurrection |
+| 4 — it is used | the log line `[Admit] refused tombstoned peer` (rate-limited per key) shows the first suppressed resurrection of each tombstone |
 
 ## Mutation Log
 - 2026-11-15 · ba34965* · mutant killed · exit 1 · `pkg/node/admit.go` · R2 returns Admit: TestTombstoneBlocksSecondHandReadd must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
@@ -79,11 +79,13 @@ a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandC
 - A peer's own first-hand packet is never refused by a tombstone.
 - Tombstones are memory only and bounded; nothing is written to disk.
 - `markTemporarilyOffline` and its 30-second flag are unchanged.
+- Through `Update` the stored fields are as T2 left them; the only addition is the unexported `heardFirstHand` flag on stored entries.
 
 ## Risks
 
 - The store lock is held while pruning expired tombstones; pruning is done at most once per offer and is bounded by the cap.
 - A health-evicted peer is hidden up to five minutes unless heard first-hand; today it can return after the 30-second `TemporaryOfflineTTL`. Its own packet ends it.
+- A member can forge GOODBYE packets (the AAD key is the shared gossip key). `Withdraw` therefore tombstones only a key that is in the store, so a flood of junk-key GOODBYEs cannot fill the tombstone set; a forged GOODBYE for a real peer is as strong as the `Remove` it replaces, plus five minutes of hiding.
 
 ## Stop Condition
 

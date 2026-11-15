@@ -328,11 +328,12 @@ func (ps *PeerStore) tombstone(pubKey, cause string) {
 	now := ps.now()
 	if _, ok := ps.tombstones[pubKey]; !ok && len(ps.tombstones) >= DefaultMaxPeers {
 		var oldest string
+		found := false
 		for key, t := range ps.tombstones {
 			if now.Sub(t.at) >= TombstoneTTL {
 				delete(ps.tombstones, key)
-			} else if oldest == "" || t.at.Before(ps.tombstones[oldest].at) {
-				oldest = key
+			} else if !found || t.at.Before(ps.tombstones[oldest].at) {
+				oldest, found = key, true
 			}
 		}
 		if len(ps.tombstones) >= DefaultMaxPeers {
