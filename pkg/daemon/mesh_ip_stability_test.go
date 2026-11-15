@@ -53,17 +53,14 @@ func startWithPersisted(t *testing.T, persisted localNodeState, opts DaemonOpts)
 
 func defaultPersisted(t *testing.T) localNodeState {
 	t.Helper()
-	cfg, err := NewConfig(DaemonOpts{Secret: testConfigSecret})
-	if err != nil {
-		t.Fatal(err)
-	}
 	return localNodeState{
 		WGPubKey:     stabilityPubKey,
 		WGPrivateKey: "stability-test-private",
 		// Inside 10.0.0.0/8 but not what the derivation would pick, so a
 		// re-derivation is visible as a change.
-		MeshIP:   "10.77.5.9",
-		MeshIPv6: crypto.DeriveMeshIPv6(cfg.Keys.MeshPrefixV6, stabilityPubKey, testConfigSecret),
+		MeshIP: "10.77.5.9",
+		// Likewise not the derived IPv6, so a re-derivation shows up.
+		MeshIPv6: "fd77::5",
 	}
 }
 
