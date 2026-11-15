@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -336,8 +337,18 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: true,
 		},
 		{
-			name:   "legacy subnet mismatch",
+			// Rotating the secret derives another /16; the persisted address is kept.
+			name:   "legacy other /16 is kept after secret rotation",
 			meshIP: "10.99.1.1",
+			cfg: &Config{
+				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+				CustomSubnet: nil,
+			},
+			want: true,
+		},
+		{
+			name:   "legacy outside 10.0.0.0/8 is rejected",
+			meshIP: "192.168.1.1",
 			cfg: &Config{
 				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
 				CustomSubnet: nil,
@@ -390,5 +401,22 @@ func TestMeshIPInSubnet(t *testing.T) {
 				t.Errorf("meshIPInSubnet(%q) = %v, want %v", tt.meshIP, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAnnounceableHostname(t *testing.T) {
+	t.Parallel()
+	tests := []struct{ in, want string }{
+		{"node-1.example.com", "node-1.example.com"},
+		{"", ""},
+		{"müller-pc", ""},
+		{"tab\there", ""},
+		{strings.Repeat("a", crypto.MaxHostnameLength), strings.Repeat("a", crypto.MaxHostnameLength)},
+		{strings.Repeat("a", crypto.MaxHostnameLength+1), ""},
+	}
+	for _, tt := range tests {
+		if got := announceableHostname(tt.in); got != tt.want {
+			t.Errorf("announceableHostname(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }

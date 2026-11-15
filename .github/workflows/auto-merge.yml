@@ -106,6 +106,17 @@ jobs:
                   continue;
                 }
 
+                // --- Trust gate: same-repo branches only ---
+                // The check runs read below come from workflow files that the PR
+                // itself can change, so for a fork PR the author decides what
+                // "all checks passed" means. A fork PR is never approved or merged
+                // here; a maintainer merges it by hand after reading it.
+                const headRepo = pr.head.repo ? pr.head.repo.full_name : null;
+                if (headRepo !== `${owner}/${repo}`) {
+                  core.warning(`PR #${prNumber}: head repo is ${headRepo || 'gone'}, not ${owner}/${repo}; not auto-merging, a maintainer must review and merge it`);
+                  continue;
+                }
+
                 // --- Branch freshness check ---
                 // GitHub may return mergeable=null if it hasn't computed yet.
                 // The mergeable_state tells us if the branch is behind main.
@@ -149,7 +160,9 @@ jobs:
                   owner, repo,
                   pull_number: prNumber,
                 });
-                const hasApproval = reviews.some(r => r.state === 'APPROVED');
+                // An approval counts only for the commit that was reviewed; a push
+                // after it makes the approval stale.
+                const hasApproval = reviews.some(r => r.state === 'APPROVED' && r.commit_id === pr.head.sha);
 
                 // Verify ALL check runs passed
                 const { data: checkRuns } = await github.rest.checks.listForRef({
@@ -323,7 +336,7 @@ jobs:
                         'Accept': 'application/vnd.github+json',
                         'Content-Type': 'application/json',
                       },
-                      body: JSON.stringify({ event: 'APPROVE', body: 'Auto-approved: all CI checks passed.' }),
+                      body: JSON.stringify({ event: 'APPROVE', commit_id: pr.head.sha, body: 'Auto-approved: all CI checks passed.' }),
                     }
                   );
                   if (!approveResp.ok) {
@@ -342,6 +355,10 @@ jobs:
                     owner, repo,
                     pull_number: prNumber,
                     merge_method: 'squash',
+                    // Merge only the commit whose checks were read above; if the
+                    // head moved meanwhile GitHub answers 409 and the next cycle
+                    // starts over with fresh checks.
+                    sha: pr.head.sha,
                   });
                   core.info(`PR #${prNumber}: squash-merged`);
                   mergeResult.succeeded = true;

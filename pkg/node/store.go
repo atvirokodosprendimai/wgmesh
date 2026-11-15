@@ -116,19 +116,27 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 			existing.Endpoint = info.Endpoint
 			existing.EndpointMethod = discoveryMethod
 		}
-		if len(info.RoutableNetworks) > 0 {
+		// A transitive mention is second-hand (another member says it knows this
+		// peer), so it may fill a field the peer never announced itself but must
+		// not rewrite one it did: otherwise any member can move another member's
+		// mesh IP or routes, or flip its introducer flag, by naming it in
+		// KnownPeers. Only the peer's own announcements replace these fields.
+		transitive := isTransitiveMethod(discoveryMethod)
+		if len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0) {
 			existing.RoutableNetworks = info.RoutableNetworks
 		}
-		if info.MeshIP != "" {
+		if info.MeshIP != "" && (!transitive || existing.MeshIP == "") {
 			existing.MeshIP = info.MeshIP
 		}
-		if info.MeshIPv6 != "" {
+		if info.MeshIPv6 != "" && (!transitive || existing.MeshIPv6 == "") {
 			existing.MeshIPv6 = info.MeshIPv6
 		}
 		if info.Hostname != "" {
 			existing.Hostname = info.Hostname
 		}
-		existing.Introducer = info.Introducer
+		if !transitive {
+			existing.Introducer = info.Introducer
+		}
 		if info.NATType != "" {
 			existing.NATType = info.NATType
 		}

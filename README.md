@@ -287,7 +287,7 @@ wgmesh version
 - **Decentralized mode**: Each node stores its keypair in `/var/lib/wgmesh/{interface}.json` with `0600` permissions.
 - WireGuard traffic is encrypted end-to-end.
 - **SSH authentication**: The tool tries the SSH agent first (`SSH_AUTH_SOCK`), then `~/.ssh/id_rsa`, `~/.ssh/id_ed25519`, and `~/.ssh/id_ecdsa`.
-- The tool currently uses `InsecureIgnoreHostKey` for SSH — consider implementing proper host key verification for production.
+- **SSH host keys** are verified against `~/.ssh/known_hosts` (`WGMESH_SSH_KNOWN_HOSTS` overrides the path). An unknown or changed host key stops the deploy; see [Centralized mode](docs/centralized-mode.md). `WGMESH_SSH_INSECURE_HOST_KEY=1` disables the check for lab use.
 
 ## Architecture
 

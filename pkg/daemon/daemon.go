@@ -300,9 +300,15 @@ func (d *Daemon) Shutdown() {
 	d.cancel()
 }
 
-// meshIPInSubnet returns true when the given IP string falls within the mesh
-// subnet implied by cfg. This is used to detect when a persisted mesh IP is no
-// longer valid because the operator changed --mesh-subnet.
+// meshIPInSubnet returns true when a persisted mesh IP may be kept. It is used
+// to decide whether the persisted address is still valid or must be re-derived.
+//
+// With an explicit --mesh-subnet the address must lie inside it, so changing
+// the subnet moves the node. Without one, the default /16 is derived from the
+// secret, and an address that was valid under the old secret must stay valid
+// after the secret is rotated: the operator changed the key, not the address
+// space, and peers, DNS and firewall rules refer to the old address. Any IPv4
+// address in 10.0.0.0/8 (where the default derivation lives) is kept.
 func meshIPInSubnet(meshIP string, cfg *Config) bool {
 	ip := net.ParseIP(meshIP)
 	if ip == nil {
@@ -311,12 +317,27 @@ func meshIPInSubnet(meshIP string, cfg *Config) bool {
 	if cfg.CustomSubnet != nil {
 		return cfg.CustomSubnet.Contains(ip)
 	}
-	// Legacy derivation: 10.<meshSubnet[0]>.x.y — check the /16 prefix only.
-	subnet := &net.IPNet{
-		IP:   net.IP{10, cfg.Keys.MeshSubnet[0], 0, 0},
-		Mask: net.CIDRMask(16, 32),
+	return legacyMeshSpace.Contains(ip)
+}
+
+// legacyMeshSpace is the address space of the secret-derived default mesh
+// subnet (10.<byte>.0.0/16, see crypto.DeriveMeshIP).
+var legacyMeshSpace = &net.IPNet{IP: net.IP{10, 0, 0, 0}, Mask: net.CIDRMask(8, 32)}
+
+// announceableHostname returns hostname if peers will accept it in an
+// announcement (printable ASCII, at most crypto.MaxHostnameLength bytes, as
+// checked by PeerAnnouncement.Validate); otherwise it logs and returns "" so
+// the node is announced without a hostname instead of being dropped.
+func announceableHostname(hostname string) string {
+	valid := len(hostname) <= crypto.MaxHostnameLength
+	for i := 0; valid && i < len(hostname); i++ {
+		valid = hostname[i] >= 32 && hostname[i] <= 126
 	}
-	return subnet.Contains(ip)
+	if !valid {
+		log.Printf("Warning: hostname %q is not printable ASCII or is too long; announcing without a hostname", hostname)
+		return ""
+	}
+	return hostname
 }
 
 // initLocalNode loads or creates the local WireGuard node
@@ -325,6 +346,7 @@ func (d *Daemon) initLocalNode() error {
 	if hostErr != nil {
 		hostname = ""
 	}
+	hostname = announceableHostname(hostname)
 
 	// Try to load existing key from state file
 	stateFile := fmt.Sprintf("/var/lib/wgmesh/%s.json", d.config.InterfaceName)
@@ -752,6 +774,8 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		}
 	}
 
+	// One failing peer must not block the rest: keep going, report the first error.
+	var firstErr error
 	for pubKey, cfg := range desired {
 		if cfg.peer.Endpoint == "" {
 			continue
@@ -781,11 +805,15 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 			d.appliedMu.Lock()
 			delete(d.lastAppliedPeerConfigs, pubKey)
 			d.appliedMu.Unlock()
-			return fmt.Errorf("failed to configure peer %s: %w", shortKey(pubKey), err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to configure peer %s: %w", shortKey(pubKey), err)
+			} else {
+				log.Printf("Failed to configure peer %s: %v", shortKey(pubKey), err)
+			}
 		}
 	}
 
-	return nil
+	return firstErr
 }
 
 func mapKeysSorted(m map[string]struct{}) []string {
@@ -985,16 +1013,21 @@ func (d *Daemon) acceptProbeConnections(ln net.Listener) {
 	}
 }
 
+// probeMaxLineBytes bounds a single probe request line. The protocol only
+// sends "ping\n"; anything longer without a newline is rejected so a peer
+// cannot make the server buffer unbounded data.
+const probeMaxLineBytes = 64
+
 func handleProbeConnection(conn net.Conn) {
 	defer conn.Close()
-	reader := bufio.NewReader(conn)
+	reader := bufio.NewReaderSize(conn, probeMaxLineBytes)
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadSlice('\n')
 		if err != nil {
-			return
+			return // includes bufio.ErrBufferFull for oversize lines
 		}
-		if strings.TrimSpace(line) != "ping" {
+		if strings.TrimSpace(string(line)) != "ping" {
 			continue
 		}
 		_ = conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
@@ -1092,13 +1125,13 @@ func (d *Daemon) probePeer(peer *PeerInfo) bool {
 	}
 
 	_ = session.conn.SetReadDeadline(time.Now().Add(MeshProbeDialTimeout))
-	line, err := session.reader.ReadString('\n')
+	reply, err := readProbeReply(session.reader)
 	if err != nil {
 		d.closeProbeSession(peer.WGPubKey)
 		return false
 	}
 
-	if strings.TrimSpace(line) != "pong" {
+	if reply != "pong" {
 		d.closeProbeSession(peer.WGPubKey)
 		return false
 	}
@@ -1108,6 +1141,17 @@ func (d *Daemon) probePeer(peer *PeerInfo) bool {
 	ObserveProbeRTTSummary(peer.WGPubKey[:8], rtt)
 	d.peerStore.SetLatency(peer.WGPubKey, rtt)
 	return true
+}
+
+// readProbeReply reads one probe reply line through a reader sized to
+// probeMaxLineBytes. A responder that never sends a newline fails with
+// bufio.ErrBufferFull instead of making the prober buffer unbounded data.
+func readProbeReply(r *bufio.Reader) (string, error) {
+	line, err := r.ReadSlice('\n')
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(line)), nil
 }
 
 func (d *Daemon) getOrDialProbeSession(peer *PeerInfo) *peerProbeSession {
@@ -1128,7 +1172,7 @@ func (d *Daemon) getOrDialProbeSession(peer *PeerInfo) *peerProbeSession {
 		if err != nil {
 			continue
 		}
-		session := &peerProbeSession{conn: conn, reader: bufio.NewReader(conn)}
+		session := &peerProbeSession{conn: conn, reader: bufio.NewReaderSize(conn, probeMaxLineBytes)}
 		d.probeMu.Lock()
 		d.probeSessions[peer.WGPubKey] = session
 		d.probeMu.Unlock()

@@ -1,6 +1,8 @@
 package discovery
 
 import (
+	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"net"
 	"strings"
@@ -699,5 +701,96 @@ func TestGetKnownPeers_ExcludesSelfAndEmpty(t *testing.T) {
 	}
 	if !found {
 		t.Error("getKnownPeers() should include remote peer (remote-pubkey-xyz)")
+	}
+}
+
+// TestHandleMessage_ValidatesAnnouncements verifies that HELLO/REPLY/ANNOUNCE
+// payloads arriving via OpenEnvelopeRaw are validated before reaching the
+// PeerStore, and that invalid KnownPeers are filtered without dropping the
+// sender.
+func TestHandleMessage_ValidatesAnnouncements(t *testing.T) {
+	t.Parallel()
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-exchange-validate-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	validKey := func(b byte) string { return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{b}, 32)) }
+	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.7"), Port: 51821}
+
+	tests := []struct {
+		name      string
+		msgType   string
+		ann       crypto.PeerAnnouncement
+		wantPeer  bool
+		wantKnown []string // known-peer pubkeys expected in the store
+	}{
+		{
+			name:    "valid hello accepted, bad known peer filtered",
+			msgType: crypto.MessageTypeHello,
+			ann: crypto.PeerAnnouncement{
+				WGPubKey: validKey(1), MeshIP: "10.0.0.2", WGEndpoint: "198.51.100.7:51820",
+				RoutableNetworks: []string{"192.168.10.0/24"},
+				KnownPeers: []crypto.KnownPeer{
+					{WGPubKey: validKey(2), MeshIP: "10.0.0.3", WGEndpoint: "203.0.113.3:51820"},
+					{WGPubKey: "not-a-key", MeshIP: "10.0.0.4"},
+				},
+			},
+			wantPeer:  true,
+			wantKnown: []string{validKey(2)},
+		},
+		{"hello bad pubkey", crypto.MessageTypeHello, crypto.PeerAnnouncement{WGPubKey: "garbage", MeshIP: "10.0.0.2"}, false, nil},
+		{"hello bad mesh ip", crypto.MessageTypeHello, crypto.PeerAnnouncement{WGPubKey: validKey(1), MeshIP: "10.0.0.2/16"}, false, nil},
+		{"hello bad route", crypto.MessageTypeHello, crypto.PeerAnnouncement{WGPubKey: validKey(1), MeshIP: "10.0.0.2", RoutableNetworks: []string{"192.168.1.0"}}, false, nil},
+		{"reply bad route", crypto.MessageTypeReply, crypto.PeerAnnouncement{WGPubKey: validKey(1), MeshIP: "10.0.0.2", RoutableNetworks: []string{"bogus"}}, false, nil},
+		{"reply valid", crypto.MessageTypeReply, crypto.PeerAnnouncement{WGPubKey: validKey(1), MeshIP: "10.0.0.2"}, true, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			peerStore := daemon.NewPeerStore()
+			localNode := &daemon.LocalNode{WGPubKey: validKey(9), MeshIP: "10.0.0.1"}
+			pe := NewPeerExchange(cfg, localNode, peerStore)
+			conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer conn.Close()
+			pe.conn = conn // HELLO handling sends a REPLY
+
+			ann := tt.ann
+			ann.Protocol = crypto.ProtocolVersion
+			ann.Timestamp = time.Now().Unix()
+			data, err := crypto.SealEnvelope(tt.msgType, ann, cfg.Keys.GossipKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pe.handleMessage(data, remoteAddr)
+
+			if _, ok := peerStore.Get(ann.WGPubKey); ok != tt.wantPeer {
+				t.Errorf("sender in PeerStore = %v, want %v", ok, tt.wantPeer)
+			}
+			for _, k := range tt.wantKnown {
+				if _, ok := peerStore.Get(k); !ok {
+					t.Errorf("known peer %s missing from PeerStore", k[:8])
+				}
+			}
+			if got, want := len(peerStore.GetAll()), len(tt.wantKnown); tt.wantPeer && got != want+1 {
+				t.Errorf("PeerStore has %d peers, want %d", got, want+1)
+			}
+		})
+	}
+}
+
+func TestValidateExchangeAnnouncementKnownPeersLimit(t *testing.T) {
+	t.Parallel()
+	a := &crypto.PeerAnnouncement{
+		Protocol:   crypto.ProtocolVersion,
+		WGPubKey:   base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32)),
+		MeshIP:     "10.99.0.1",
+		KnownPeers: make([]crypto.KnownPeer, crypto.MaxKnownPeers+1),
+	}
+	if err := validateExchangeAnnouncement(a); err == nil {
+		t.Fatal("expected error for too many KnownPeers")
 	}
 }
