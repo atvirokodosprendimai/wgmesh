@@ -1,0 +1,137 @@
+{
+  "secret": "compat-v1-secret",
+  "subnets": {
+    "default": {"mesh_net": "10.42.0.0/16", "mesh_subnet_bytes": [42, 7]},
+    "custom": {"mesh_net": "192.168.100.0/24"}
+  },
+  "keys": {
+    "key-victim":    {"default": ["10.42.113.42", "10.42.128.226"], "custom": ["192.168.100.45", "192.168.100.11"]},
+    "key-thief":     {"default": ["10.42.94.79", "10.42.45.63"], "custom": ["192.168.100.63", "192.168.100.116"]},
+    "key-rotated":   {"default": ["10.42.201.166", "10.42.110.155"], "custom": ["192.168.100.56", "192.168.100.174"]},
+    "key-nonce":     {"default": ["10.42.114.125", "10.42.209.133"], "custom": ["192.168.100.100", "192.168.100.35"]},
+    "key-custom":    {"default": ["10.42.159.101", "10.42.145.33"], "custom": ["192.168.100.54", "192.168.100.166"]},
+    "key-plain":     {"default": ["10.42.232.165", "10.42.231.157"], "custom": ["192.168.100.36", "192.168.100.8"]},
+    "key-routes":    {"default": ["10.42.140.8", "10.42.70.111"], "custom": ["192.168.100.41", "192.168.100.40"]},
+    "key-nat":       {"default": ["10.42.70.233", "10.42.83.189"], "custom": ["192.168.100.176", "192.168.100.65"]},
+    "key-rot":       {"default": ["10.42.148.113", "10.42.28.237"], "custom": ["192.168.100.14", "192.168.100.123"]}
+  },
+  "cases": [
+    {
+      "name": "rotated-address",
+      "why": "a node kept its address across a secret rotation: inside the mesh network, derived by no key",
+      "subnet": "default", "never_refused": true,
+      "store": [],
+      "offer": {"key": "key-rotated", "ip": "10.42.200.200", "routes": []},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-rotated"]},
+        "ip": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-rotated"]},
+        "both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-rotated"]},
+        "ip-then-both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-rotated"]}
+      }
+    },
+    {
+      "name": "foreign-10-address",
+      "why": "an address inside 10.0.0.0/8 that is outside the mesh network and that no key derives to",
+      "subnet": "default", "never_refused": true,
+      "store": [],
+      "offer": {"key": "key-rotated", "ip": "10.99.1.1", "routes": []},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-rotated"]},
+        "ip": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-rotated"]},
+        "both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-rotated"]},
+        "ip-then-both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-rotated"]}
+      }
+    },
+    {
+      "name": "collision-nonce-address",
+      "why": "a collision loser moved to the address its key derives with nonce 1",
+      "subnet": "default", "never_refused": true,
+      "store": [],
+      "offer": {"key": "key-nonce", "ip": "10.42.209.133", "routes": []},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-nonce"]},
+        "ip": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-nonce"]},
+        "both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-nonce"]},
+        "ip-then-both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-nonce"]}
+      }
+    },
+    {
+      "name": "custom-subnet-address",
+      "why": "a node of a mesh with --mesh-subnet 192.168.100.0/24 at its natural address",
+      "subnet": "custom", "never_refused": true,
+      "store": [],
+      "offer": {"key": "key-custom", "ip": "192.168.100.54", "routes": []},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-custom"]},
+        "ip": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-custom"]},
+        "both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-custom"]},
+        "ip-then-both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-custom"]}
+      }
+    },
+    {
+      "name": "node-without-routes",
+      "why": "the common node: natural address, no advertised network",
+      "subnet": "default", "never_refused": true,
+      "store": [],
+      "offer": {"key": "key-plain", "ip": "10.42.232.165", "routes": []},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-plain"]},
+        "ip": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-plain"]},
+        "both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-plain"]},
+        "ip-then-both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-plain"]}
+      }
+    },
+    {
+      "name": "hijack",
+      "why": "a member that holds the secret claims the address key-victim derives; counted at N, refused once the IP switch is on",
+      "subnet": "default", "hijack": true,
+      "store": [{"key": "key-victim", "ip": "10.42.113.42"}],
+      "offer": {"key": "key-thief", "ip": "10.42.113.42", "routes": []},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": [], "warnings": ["ip-held-by-bound"], "stored_after": ["key-thief", "key-victim"]},
+        "ip": {"verdict": "refuse", "reason": "ip-held-by-bound", "stored": false, "warnings": [], "stored_after": ["key-victim"]},
+        "both": {"verdict": "refuse", "reason": "ip-held-by-bound", "stored": false, "warnings": [], "stored_after": ["key-victim"]},
+        "ip-then-both": {"verdict": "refuse", "reason": "ip-held-by-bound", "stored": false, "warnings": [], "stored_after": ["key-victim"]}
+      }
+    },
+    {
+      "name": "rotated-node-in-store",
+      "why": "key-rot is stored on an address that is the natural address of the newcomer key-nat; the rotated node stays admitted and stored in every phase",
+      "subnet": "default", "never_refused": true,
+      "store": [{"key": "key-rot", "ip": "10.42.70.233"}],
+      "offer": {"key": "key-nat", "ip": "10.42.70.233", "routes": []},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-nat", "key-rot"]},
+        "ip": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-nat", "key-rot"]},
+        "both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-nat", "key-rot"]},
+        "ip-then-both": {"verdict": "admit", "stored": true, "routes": [], "warnings": [], "stored_after": ["key-nat", "key-rot"]}
+      }
+    },
+    {
+      "name": "routes-inside-mesh-and-member-ip",
+      "why": "a member advertises a network inside the mesh network, a member's own address and two ordinary networks; kept and counted at N, the two offenders dropped when the route switch is on",
+      "subnet": "default",
+      "store": [{"key": "key-victim", "ip": "10.42.113.42"}],
+      "offer": {"key": "key-routes", "ip": "10.42.140.8", "routes": ["192.168.5.0/24", "10.42.7.0/24", "0.0.0.0/0", "10.42.113.42/32"]},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": ["192.168.5.0/24", "10.42.7.0/24", "0.0.0.0/0", "10.42.113.42/32"], "warnings": ["route-inside-mesh", "route-inside-member-ip"], "stored_after": ["key-routes", "key-victim"]},
+        "ip": {"verdict": "admit", "stored": true, "routes": ["192.168.5.0/24", "10.42.7.0/24", "0.0.0.0/0", "10.42.113.42/32"], "warnings": ["route-inside-mesh", "route-inside-member-ip"], "stored_after": ["key-routes", "key-victim"]},
+        "both": {"verdict": "admit-partial", "stored": true, "routes": ["192.168.5.0/24", "0.0.0.0/0"], "warnings": [], "stored_after": ["key-routes", "key-victim"]},
+        "ip-then-both": {"verdict": "admit-partial", "stored": true, "routes": ["192.168.5.0/24", "0.0.0.0/0"], "warnings": [], "stored_after": ["key-routes", "key-victim"]}
+      }
+    },
+    {
+      "name": "route-supernets",
+      "why": "the default routes and a /8 are kept in every phase: WireGuard matches AllowedIPs by longest prefix (#859)",
+      "subnet": "default", "never_refused": true,
+      "store": [],
+      "offer": {"key": "key-routes", "ip": "10.42.140.8", "routes": ["0.0.0.0/0", "::/0", "10.0.0.0/8"]},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": ["0.0.0.0/0", "::/0", "10.0.0.0/8"], "warnings": [], "stored_after": ["key-routes"]},
+        "ip": {"verdict": "admit", "stored": true, "routes": ["0.0.0.0/0", "::/0", "10.0.0.0/8"], "warnings": [], "stored_after": ["key-routes"]},
+        "both": {"verdict": "admit", "stored": true, "routes": ["0.0.0.0/0", "::/0", "10.0.0.0/8"], "warnings": [], "stored_after": ["key-routes"]},
+        "ip-then-both": {"verdict": "admit", "stored": true, "routes": ["0.0.0.0/0", "::/0", "10.0.0.0/8"], "warnings": [], "stored_after": ["key-routes"]}
+      }
+    }
+  ]
+}

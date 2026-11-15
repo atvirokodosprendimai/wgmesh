@@ -53,6 +53,7 @@ type Reason string
 const (
 	ReasonPeerCap    Reason = "peer-cap"
 	ReasonTombstoned Reason = "tombstoned"
+	ReasonIPHeld     Reason = "ip-held-by-bound"
 )
 
 // Decision is the result of Decide. AdmitPartial, Dropped and Warnings are
