@@ -33,7 +33,7 @@ Selection: `syncRoutesForNode` is called from `Deploy` for every node; deleting 
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/mesh -run '^(TestSyncRoutesRestoresConnectedRouteForGatewayedOwnNetwork|TestSyncRoutesRestoresGatewaylessOwnNetworkOnce|TestSyncRoutesDoesNotRestoreForeignNetwork)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -eq 3 ] \
+a=$(go test ./pkg/mesh -run '^(TestSyncRoutesRestoresConnectedRouteForGatewayedOwnNetwork|TestSyncRoutesRestoresOwnNetworkOnceWhenRemovedTwice|TestSyncRoutesDoesNotRestoreForeignNetwork|TestSyncRoutesRestoresAfterFailedAdd)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -eq 4 ] \
  && go build ./... && go vet ./... && go test -race ./pkg/mesh -count=1
 ```
 
@@ -42,8 +42,9 @@ a=$(go test ./pkg/mesh -run '^(TestSyncRoutesRestoresConnectedRouteForGatewayedO
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
 | `TestSyncRoutesRestoresConnectedRouteForGatewayedOwnNetwork` | `pkg/mesh/deploy_routes_test.go` | the node's own network `10.1.0.0/24` is present as `10.1.0.0/24 via 10.99.0.3` on the mesh interface: the recorded commands hold the `ip route del` of it, and after it the address query and the connected-route add for `10.1.0.0/24` | — | S1, S2 |
-| `TestSyncRoutesRestoresGatewaylessOwnNetworkOnce` | `pkg/mesh/deploy_routes_test.go` | one network that appears in the route table both as a gateway-less and as a gatewayed route (so it is in the removed list twice: once as stale, once through the diff) triggers exactly one restore | — | S1, S2 |
+| `TestSyncRoutesRestoresOwnNetworkOnceWhenRemovedTwice` | `pkg/mesh/deploy_routes_test.go` | one network that appears in the route table both as a gateway-less and as a gatewayed route (so it is in the removed list twice: once as stale, once through the diff) triggers exactly one restore | — | S1, S2 |
 | `TestSyncRoutesDoesNotRestoreForeignNetwork` | `pkg/mesh/deploy_routes_test.go` | a removed route to a network that is not the node's own triggers no address query | — | S1, S2 |
+| `TestSyncRoutesRestoresAfterFailedAdd` | `pkg/mesh/deploy_routes_test.go` | an add that fails (exit 1) still ends with the restore: `syncRoutesForNode` returns the error and the address query and connected-route add follow the removal | — | S1, S2 |
 
 ## Reachability
 
@@ -57,7 +58,7 @@ a=$(go test ./pkg/mesh -run '^(TestSyncRoutesRestoresConnectedRouteForGatewayedO
 ## Mutation Log
 - 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · the old behaviour: the gatewayed own-network route is not restored: TestSyncRoutesRestoresConnectedRouteForGatewayedOwnNetwork must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
 - 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · no restore at all: the restore tests must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
-- 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a network is restored once per route: TestSyncRoutesRestoresGatewaylessOwnNetworkOnce must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
+- 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a network is restored once per route: TestSyncRoutesRestoresOwnNetworkOnceWhenRemovedTwice must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
 - 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a foreign network is restored: TestSyncRoutesDoesNotRestoreForeignNetwork must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
 
 ## Invariants
@@ -88,7 +89,7 @@ Stop and ask if `CalculateRouteDiff` does not put a gatewayed own-network route 
   --- last 10 line(s) of stderr (of 18 after folding 18 raw)
       Removed route: 10.1.0.0/24
       Restored connected route: 10.1.0.0/24 dev eth0
-  --- PASS: TestSyncRoutesRestoresGatewaylessOwnNetworkOnce (0.00s)
+  --- PASS: TestSyncRoutesRestoresOwnNetworkOnceWhenRemovedTwice (0.00s)
   === RUN   TestSyncRoutesDoesNotRestoreForeignNetwork
     Route changes: 1 to remove, 0 to add
       Removed route: 10.5.0.0/24 via 10.99.0.3
