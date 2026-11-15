@@ -1,6 +1,7 @@
 package wireguard
 
 import (
+	"reflect"
 	"testing"
 )
 
@@ -626,5 +627,77 @@ func TestHasChanges(t *testing.T) {
 				t.Errorf("expected %v, got %v", tt.expected, got)
 			}
 		})
+	}
+}
+
+func TestParseWGDump(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		output    string
+		wantPort  int
+		wantPeers map[string]Peer
+	}{
+		{
+			name: "keepalive set, no endpoint",
+			output: "priv\tpub\t51820\toff\n" +
+				"peer1\t(none)\t(none)\t10.99.0.2/32\t0\t0\t0\t5\n",
+			wantPort: 51820,
+			wantPeers: map[string]Peer{
+				"peer1": {PublicKey: "peer1", AllowedIPs: []string{"10.99.0.2/32"}, PersistentKeepalive: 5},
+			},
+		},
+		{
+			name: "keepalive off, endpoint and handshake",
+			output: "priv\tpub\t51820\toff\n" +
+				"peer2\t(none)\t203.0.113.7:51820\t10.99.0.2/32,192.168.20.0/24\t1731670000\t1234\t5678\toff\n",
+			wantPort: 51820,
+			wantPeers: map[string]Peer{
+				"peer2": {
+					PublicKey:  "peer2",
+					Endpoint:   "203.0.113.7:51820",
+					AllowedIPs: []string{"10.99.0.2/32", "192.168.20.0/24"},
+				},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := parseWGDump(tt.output)
+			if err != nil {
+				t.Fatalf("parseWGDump: %v", err)
+			}
+			if got.Interface.PrivateKey != "priv" || got.Interface.ListenPort != tt.wantPort {
+				t.Errorf("interface = %+v, want PrivateKey=priv ListenPort=%d", got.Interface, tt.wantPort)
+			}
+			if !reflect.DeepEqual(got.Peers, tt.wantPeers) {
+				t.Errorf("peers = %+v, want %+v", got.Peers, tt.wantPeers)
+			}
+		})
+	}
+}
+
+func TestParseWGDumpConvergesWithDesired(t *testing.T) {
+	t.Parallel()
+
+	current, err := parseWGDump("priv\tpub\t51820\toff\n" +
+		"peer1\t(none)\t(none)\t10.99.0.2/32\t1731670000\t1234\t5678\t5\n")
+	if err != nil {
+		t.Fatalf("parseWGDump: %v", err)
+	}
+
+	desired := &Config{
+		Interface: Interface{PrivateKey: "priv", ListenPort: 51820},
+		Peers: map[string]Peer{
+			"peer1": {PublicKey: "peer1", AllowedIPs: []string{"10.99.0.2/32"}, PersistentKeepalive: 5},
+		},
+	}
+
+	if diff := CalculateDiff(current, desired); diff.HasChanges() {
+		t.Errorf("expected no changes, got %+v", diff)
 	}
 }
