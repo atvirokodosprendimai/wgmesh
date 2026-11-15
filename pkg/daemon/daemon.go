@@ -112,6 +112,10 @@ type LocalNode struct {
 
 	endpointMu sync.RWMutex
 	wgEndpoint string
+	// pendingSTUN is the STUN value waiting for its third identical
+	// observation; both fields are guarded by endpointMu.
+	pendingSTUN      string
+	pendingSTUNCount int
 }
 
 // GetEndpoint returns the current WireGuard endpoint (thread-safe).
@@ -140,14 +144,49 @@ const (
 	EndpointSTUN EndpointSource = "stun"
 )
 
+// stunConfirmations is how many identical STUN observations in a row replace
+// a usable endpoint (#828: dual-egress networks flapped between a STUN answer
+// and a peer reflection).
+const stunConfirmations = 3
+
 // ObserveEndpoint applies an observed endpoint and reports whether the
-// announced endpoint changed.
+// announced endpoint changed. While the current endpoint is empty or
+// unspecified any source applies at once. An interface address or a peer
+// reflection applies at once and discards a pending STUN value. A STUN answer
+// that differs from the current endpoint applies only on its third identical
+// observation in a row; one equal to it discards the pending value.
+// It sets the field itself under endpointMu and does not call SetEndpoint.
 func (n *LocalNode) ObserveEndpoint(source EndpointSource, endpoint string) bool {
 	n.endpointMu.Lock()
 	defer n.endpointMu.Unlock()
+	if source == EndpointSTUN && endpoint != n.wgEndpoint && !endpointUnspecified(n.wgEndpoint) {
+		if endpoint == n.pendingSTUN {
+			n.pendingSTUNCount++
+		} else {
+			n.pendingSTUN, n.pendingSTUNCount = endpoint, 1
+		}
+		if n.pendingSTUNCount < stunConfirmations {
+			return false
+		}
+	}
+	n.pendingSTUN, n.pendingSTUNCount = "", 0
 	changed := n.wgEndpoint != endpoint
 	n.wgEndpoint = endpoint
 	return changed
+}
+
+// endpointUnspecified reports whether ep is empty or has an unspecified
+// host (0.0.0.0, ::).
+func endpointUnspecified(ep string) bool {
+	if ep == "" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(ep)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsUnspecified()
 }
 
 // DiscoveryLayer is the interface for discovery implementations

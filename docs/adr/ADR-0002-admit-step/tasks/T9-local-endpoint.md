@@ -17,16 +17,16 @@ The node's announced endpoint does not flip between a STUN answer and a peer ref
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/daemon.go` | edit | `daemon.LocalNode.ObserveEndpoint(source EndpointSource, endpoint string) bool` under the existing `endpointMu`; sources `interface` (a global IPv6 address), `reflection`, `stun`; the pending STUN value and its count are fields guarded by the same mutex |
+| `pkg/daemon/daemon.go` | edit | `daemon.LocalNode.ObserveEndpoint(source EndpointSource, endpoint string) bool` under the existing `endpointMu`; the `EndpointSource` type and its constants `interface` (a global IPv6 address), `reflection`, `stun` live in `pkg/daemon` with it (decision 10); the pending STUN value and its count are fields guarded by the same mutex |
 | `pkg/discovery/dht.go` | edit | the six observation sites `:255`, `:271`, `:284`, `:420`, `:440`, `:457` call it (`interface` for the IPv6 ones, `stun` for the others) |
 | `pkg/discovery/exchange.go` | edit | `applyObservedEndpoint` `:494` calls it with `reflection` |
-| `pkg/node/local_endpoint_test.go` | add | tests below |
+| `pkg/daemon/local_endpoint_test.go` | add | tests below |
 
 `pkg/daemon/daemon.go:1738` keeps `SetEndpoint`: it sets the initial `0.0.0.0:<port>`, not an observation. Selection: the seven call sites; reverting one to `SetEndpoint` is caught by the guard step S4.
 
 ## Ordered Steps
 
-1. [S1] Add the four tests below with a compiling stub that applies every observation; run red; `TestEndpointDoesNotFlapOnAlternatingObservations` feeds 20 alternating STUN and reflection observations and counts changes (today 20).
+1. [S1] Add the five tests below with a compiling stub that applies every observation; run red; `TestEndpointDoesNotFlapOnAlternatingObservations` feeds 20 alternating STUN and reflection observations and counts changes (today 20).
 2. [S2] Implement `ObserveEndpoint` (it sets the field under `endpointMu` itself and does not call `SetEndpoint`, which would deadlock and keep the `SetEndpoint` count above 1): any source applies at once while the current endpoint is empty or unspecified (`0.0.0.0`, `::`), so the first STUN result after start-up is not delayed; `interface` and `reflection` apply at once and reset the pending STUN count; `stun` equal to the current value resets the count; `stun` different from the current value applies only on the third consecutive identical observation.
 3. [S3] Switch the seven sites. [proof: acceptance]
 4. [S4] [proof: acceptance] Run `grep -rn "\.SetEndpoint(" --include=*.go . | grep -v _test.go | grep -v "func (n" | wc -l`; it prints 1 (the initial set). Record the count in the commit message.
@@ -36,24 +36,24 @@ The node's announced endpoint does not flip between a STUN answer and a peer ref
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/node -run '^(TestEndpointDoesNotFlapOnAlternatingObservations|TestStunNeedsThreeConsecutiveObservations|TestReflectionAppliesAtOnce|TestInterfaceSourceAppliesAtOnce|TestFirstStunAppliesOverUnspecified)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 5 ] && [ "$(grep -rn "\.SetEndpoint(" --include=*.go . | grep -v _test.go | grep -v "func (n" | wc -l)" -eq 1 ] && go test -race ./pkg/node ./pkg/discovery -count=1
+a=$(go test ./pkg/daemon -run '^(TestEndpointDoesNotFlapOnAlternatingObservations|TestStunNeedsThreeConsecutiveObservations|TestReflectionAppliesAtOnce|TestInterfaceSourceAppliesAtOnce|TestFirstStunAppliesOverUnspecified)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 5 ] && [ "$(grep -rn "\.SetEndpoint(" --include=*.go . | grep -v _test.go | grep -v "func (n" | wc -l)" -eq 1 ] && go test -race ./pkg/daemon ./pkg/discovery -count=1
 ```
 
 ## Tests
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestEndpointDoesNotFlapOnAlternatingObservations` | `pkg/node/local_endpoint_test.go` | 20 alternating STUN and reflection observations change the endpoint at most once | — | S1, S2 |
-| `TestStunNeedsThreeConsecutiveObservations` | `pkg/node/local_endpoint_test.go` | two identical new STUN values change nothing, the third applies | — | S1, S2 |
-| `TestReflectionAppliesAtOnce` | `pkg/node/local_endpoint_test.go` | one reflection applies immediately and discards a pending STUN value | — | S1, S2 |
-| `TestInterfaceSourceAppliesAtOnce` | `pkg/node/local_endpoint_test.go` | a global IPv6 address from the interface applies at once | — | S1, S2 |
-| `TestFirstStunAppliesOverUnspecified` | `pkg/node/local_endpoint_test.go` | with the current endpoint `0.0.0.0:51820` the first STUN observation applies at once | — | S1, S2 |
+| `TestEndpointDoesNotFlapOnAlternatingObservations` | `pkg/daemon/local_endpoint_test.go` | 20 alternating STUN and reflection observations change the endpoint at most once | — | S1, S2 |
+| `TestStunNeedsThreeConsecutiveObservations` | `pkg/daemon/local_endpoint_test.go` | two identical new STUN values change nothing, the third applies | — | S1, S2 |
+| `TestReflectionAppliesAtOnce` | `pkg/daemon/local_endpoint_test.go` | one reflection applies immediately and discards a pending STUN value | — | S1, S2 |
+| `TestInterfaceSourceAppliesAtOnce` | `pkg/daemon/local_endpoint_test.go` | a global IPv6 address from the interface applies at once | — | S1, S2 |
+| `TestFirstStunAppliesOverUnspecified` | `pkg/daemon/local_endpoint_test.go` | with the current endpoint `0.0.0.0:51820` the first STUN observation applies at once | — | S1, S2 |
 
 ## Reachability
 
 | Rung | How this task shows it |
 |------|------------------------|
-| 1 — exists | the four tests |
+| 1 — exists | the five tests |
 | 2 — something selects it | the seven call sites; the acceptance fence counts the remaining `SetEndpoint` calls, which fails if one is added |
 | 3 — the caller can discover it | doc comment; T11 amends the DHT core spec |
 | 4 — it is used | the `[STUN] External endpoint changed` log line stops repeating each cycle on a dual-egress network |
@@ -69,7 +69,7 @@ a=$(go test ./pkg/node -run '^(TestEndpointDoesNotFlapOnAlternatingObservations|
 ## Risks
 
 - A real STUN-only change takes three refresh cycles (60 seconds each at `dht.go:410`), so up to three minutes; a reflection from a peer applies at once.
-- Test doubles: none; the tests call `ObserveEndpoint` on a real `LocalNode`.
+- Test doubles: none; the tests call `ObserveEndpoint` on a real `daemon.LocalNode` (ADR decision 10: `node.LocalNode` has no user; ADR-0005 merges the two types later).
 
 ## Stop Condition
 
