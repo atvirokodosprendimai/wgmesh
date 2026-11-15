@@ -123,7 +123,7 @@ func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKin
 		if info.Endpoint != "" {
 			info.EndpointMethod = discoveryMethod
 		}
-		info.HeardFirstHand = c.Hand == FirstHand
+		info.heardFirstHand = c.Hand == FirstHand
 		ps.peers[info.WGPubKey] = info
 		return info.WGPubKey, PeerEventNew
 	}
@@ -162,7 +162,7 @@ func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKin
 
 	if c.Hand == FirstHand {
 		existing.LastSeen = now
-		existing.HeardFirstHand = true
+		existing.heardFirstHand = true
 	} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
 		existing.LastSeen = info.LastSeen
 	}
@@ -369,7 +369,7 @@ func (ps *PeerStore) CleanupStale() []string {
 	for pubKey, peer := range ps.peers {
 		if now.Sub(peer.LastSeen) > PeerRemoveTimeout {
 			delete(ps.peers, pubKey)
-			if peer.HeardFirstHand {
+			if peer.heardFirstHand {
 				ps.tombstone(pubKey, "stale")
 			}
 			removed = append(removed, pubKey)

@@ -27,7 +27,7 @@ type PeerInfo struct {
 	Latency          *time.Duration // measured via WG handshake
 	NATType          string         // "cone", "symmetric", or "unknown"
 	EndpointMethod   string
-	HeardFirstHand   bool // a first-hand claim was accepted at least once
+	heardFirstHand   bool // a first-hand claim was accepted at least once
 }
 
 // LocalNode represents the local WireGuard node.
