@@ -28,7 +28,7 @@ Selection: `Deploy` calls `Validate`; deleting that call turns `TestDeployValida
 ## Ordered Steps
 
 1. [S1] Add the tests and a stub `Validate` that returns no findings; run red (the hostile-state tests fail on assertions; the saved-state test passes by construction and is the guard against over-refusing, not a red test).
-2. [S2] Implement the class A checks per field and per node: characters outside the safe set, control characters and spaces, empty `InterfaceName`, nil `MeshIP` (`<nil>` today), in `InterfaceName`, `PublicKey`, `PublicEndpoint`, `Network`, `RoutableNetworks`, `SSHHost`.
+2. [S2] Implement the class A checks per field and per node: characters outside the safe set, control characters and spaces, empty `InterfaceName`, a value that starts with `-` (it would reach `wg` or `ip` as an option; review 2026-11-15), nil `MeshIP` (`<nil>` today), in `InterfaceName`, `PublicKey`, `PublicEndpoint`, `Network`, `RoutableNetworks`, `SSHHost`.
 3. [S3] Implement the class B checks (ADR Decision item 2) with `StrictState` selecting warn or refuse.
 4. [S4] Wire it into `Deploy`; make `TestDeployValidatesBeforeDial` pass (zero connections to the fake server for a class A state).
 5. [S5] Add `TestCentralizedPackagesDoNotImportPeerStore`: it parses the non-test imports of `pkg/mesh`, `pkg/ssh`, `pkg/wireguard`; it is green at authoring because the imports are clean today, so its proof is the mutant. [proof: mutation]
