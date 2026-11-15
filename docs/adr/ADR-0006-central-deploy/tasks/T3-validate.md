@@ -22,6 +22,8 @@
 | `pkg/mesh/validate_test.go` | add | tests below |
 | `pkg/mesh/boundary_test.go` | add | `TestCentralizedPackagesDoNotImportPeerStore` |
 | `testdata/central/state-valid.json`, `testdata/central/state-docs-example.json` | add | saved states: a realistic one with a hostname endpoint, and the example of `docs/centralized-mode.md` with well-formed keys |
+| `pkg/ssh/remote_e2e_test.go` | edit | T2's `TestHostileStateCommandsAreOneWordEach` drives the builders and the renderer directly (Deploy refuses a class A state from this task on) and asserts the Deploy refusal |
+| `.gitignore` | edit | allow-line for `testdata/central/**/*.json` (the repository ignores `*.json`) |
 
 Selection: `Deploy` calls `Validate`; deleting that call turns `TestDeployValidatesBeforeDial` red (the fake server sees a connection).
 
