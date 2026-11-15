@@ -3,7 +3,10 @@ package discovery
 import (
 	"bytes"
 	"encoding/base64"
+	"log"
 	"net"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -116,5 +119,55 @@ func TestLANDiscoveryConcurrentStopWaitsForLoops(t *testing.T) {
 		case <-time.After(3 * time.Second):
 			t.Fatal("Stop did not return after the loop exited")
 		}
+	}
+}
+
+func TestLANPortClashWarning(t *testing.T) {
+	tests := []struct {
+		name string
+		port int
+		warn bool
+	}{
+		{name: "default WireGuard port", port: 51820, warn: false},
+		{name: "LAN discovery port", port: LANMulticastPort, warn: true},
+		{name: "unset", port: 0, warn: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := lanPortClashWarning(tt.port)
+			if (got != "") != tt.warn {
+				t.Fatalf("lanPortClashWarning(%d) = %q, warn want %v", tt.port, got, tt.warn)
+			}
+			if tt.warn && !strings.Contains(got, "--listen-port") {
+				t.Fatalf("warning must tell the operator to choose another --listen-port: %q", got)
+			}
+			if tt.warn && !strings.Contains(got, strconv.Itoa(LANMulticastPort)) {
+				t.Fatalf("warning must name port %d: %q", LANMulticastPort, got)
+			}
+		})
+	}
+}
+
+func TestLANDiscoveryStartLogsPortClash(t *testing.T) {
+	cfg := newTestConfig(t)
+	cfg.WGListenPort = LANMulticastPort
+	l, err := NewLANDiscovery(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(prev)
+
+	// The warning precedes the bind, so it is logged even when Start fails.
+	if err := l.Start(); err == nil {
+		if err := l.Stop(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !strings.Contains(buf.String(), "WARNING") {
+		t.Fatalf("Start did not log the port clash warning: %q", buf.String())
 	}
 }

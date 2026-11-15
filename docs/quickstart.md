@@ -230,6 +230,8 @@ ping 10.47.23.1
 | `--gossip` | Enable in-mesh gossip discovery | disabled |
 | `--socket-path` | Override RPC socket path | `/var/run/wgmesh.sock` |
 
+> UDP port `51830` is reserved for LAN discovery (multicast). Do not use it as `--listen-port`: the two sockets conflict and discovery becomes flaky. wgmesh logs a warning at start if you do and LAN discovery is enabled (the default).
+
 Example with extra options:
 
 ```bash
