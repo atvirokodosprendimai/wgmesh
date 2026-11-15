@@ -2,7 +2,9 @@ package analytics
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -274,5 +276,28 @@ func TestLogCommunityClick(t *testing.T) {
 
 	if logger.buffer[0].Properties[PropCommunityID] != "community-1" {
 		t.Error("community ID property missing")
+	}
+}
+
+type failingCloser struct{ err error }
+
+func (failingCloser) Write(p []byte) (int, error) { return len(p), nil }
+func (c failingCloser) Close() error              { return c.err }
+
+func TestFlushReportsCloseError(t *testing.T) {
+	closeErr := fmt.Errorf("no space left on device")
+	orig := openLogFile
+	openLogFile = func(string) (io.WriteCloser, error) { return failingCloser{err: closeErr}, nil }
+	t.Cleanup(func() { openLogFile = orig })
+
+	logger := tempLogger(t)
+	logger.buffer = append(logger.buffer, ConversionEvent{Type: EventTrialSignup})
+
+	err := logger.Flush()
+	if !errors.Is(err, closeErr) {
+		t.Fatalf("Flush() = %v, want an error wrapping the close failure", err)
+	}
+	if len(logger.buffer) != 1 {
+		t.Errorf("buffer length = %d, want 1: events must be kept when the close fails", len(logger.buffer))
 	}
 }

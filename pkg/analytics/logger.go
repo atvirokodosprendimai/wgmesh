@@ -3,11 +3,17 @@ package analytics
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
 )
+
+// openLogFile opens the event log for appending; tests replace it to inject a failing writer.
+var openLogFile = func(path string) (io.WriteCloser, error) {
+	return os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+}
 
 // Logger records analytics events to a log file.
 // For production use, events would be sent to an analytics service.
@@ -100,18 +106,23 @@ func (l *Logger) flush() error {
 	}
 
 	// Open file for appending
-	f, err := os.OpenFile(l.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	f, err := openLogFile(l.path)
 	if err != nil {
 		return fmt.Errorf("open log file: %w", err)
 	}
-	defer f.Close()
 
 	// Write each event as JSON line
 	encoder := json.NewEncoder(f)
 	for _, event := range l.buffer {
 		if err := encoder.Encode(event); err != nil {
+			f.Close()
 			return fmt.Errorf("encode event: %w", err)
 		}
+	}
+
+	// Close can fail with buffered data not on disk; keep the events then.
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close log file: %w", err)
 	}
 
 	l.flushed += len(l.buffer)
