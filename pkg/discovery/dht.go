@@ -1053,7 +1053,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			return
 		}
 		if peerInfo != nil {
-			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, HandshakeWaitTimeout)
+			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, handshakeWaitTimeout)
 			if newHandshake <= baseline {
 				log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(target.WGPubKey), endpoint)
 				d.recordRendezvousAttempt(target.WGPubKey, false)
@@ -1136,11 +1136,18 @@ func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.
 	d.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: source, Hand: daemon.FirstHand})
 }
 
+// peerHandshakes and handshakeWaitTimeout are test seams: production values are
+// wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
+var (
+	peerHandshakes       = wireguard.GetLatestHandshakes
+	handshakeWaitTimeout = HandshakeWaitTimeout
+)
+
 func getPeerHandshakeTS(iface, peerPubKey string) int64 {
 	if iface == "" || peerPubKey == "" {
 		return 0
 	}
-	hs, err := wireguard.GetLatestHandshakes(iface)
+	hs, err := peerHandshakes(iface)
 	if err != nil {
 		return 0
 	}

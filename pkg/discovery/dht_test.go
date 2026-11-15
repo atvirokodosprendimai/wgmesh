@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -482,5 +483,91 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 				t.Errorf("LastSeen = %v, want it refreshed past %v", got.LastSeen, seen)
 			}
 		})
+	}
+}
+
+// TestPunchSuccessKeepsTransitiveLabel drives the real tryRendezvousForPeer
+// against a real PeerExchange server on loopback. The WG handshake is stubbed
+// (0 for the two reads before the punch, 100 after). The stored peer must keep
+// the dht-transitive label that daemon.go reads to prefer relay, while the
+// first-hand reply rewrites its MeshIP and refreshes LastSeen.
+// Mutants: label DHTMethod+"-transitive" -> DHTMethod, or FirstHand ->
+// SecondHand in admitPunchReply, turn it red.
+func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
+	oldHS, oldWait := peerHandshakes, handshakeWaitTimeout
+	t.Cleanup(func() { peerHandshakes, handshakeWaitTimeout = oldHS, oldWait })
+	var calls atomic.Int32
+	serverKey := aadKey(2)
+	peerHandshakes = func(string) (map[string]int64, error) {
+		if calls.Add(1) <= 2 { // the skip check, then the baseline
+			return map[string]int64{serverKey: 0}, nil
+		}
+		return map[string]int64{serverKey: 100}, nil
+	}
+	handshakeWaitTimeout = 2 * time.Second
+
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-punch-transitive-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverNode := &daemon.LocalNode{WGPubKey: serverKey, MeshIP: "10.0.0.2"}
+	serverNode.SetEndpoint("203.0.113.42:51820")
+	server := NewPeerExchange(cfg, serverNode, daemon.NewPeerStore())
+	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.conn = serverConn
+	go server.listenLoop()
+	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
+	serverAddr := serverConn.LocalAddr().String()
+
+	clientNode := &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}
+	store := daemon.NewPeerStore()
+	d, err := NewDHTDiscovery(context.Background(), cfg, clientNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := NewPeerExchange(cfg, clientNode, daemon.NewPeerStore())
+	clientConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.conn = clientConn
+	go client.listenLoop()
+	t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
+	d.exchange = client
+
+	seen := time.Now().Add(-4 * time.Minute)
+	seed := &daemon.PeerInfo{WGPubKey: serverKey, MeshIP: "10.0.0.99", Endpoint: "198.51.100.9:51820", LastSeen: seen}
+	store.SetPeerDirectly(serverKey, seed)
+	d.mu.Lock()
+	d.controlPeers[serverKey] = serverAddr
+	d.mu.Unlock()
+
+	d.tryRendezvousForPeer(&daemon.PeerInfo{WGPubKey: serverKey, MeshIP: "10.0.0.99", Endpoint: "198.51.100.9:51820"})
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, ok := store.Get(serverKey); ok && got.EndpointMethod != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	got, ok := store.Get(serverKey)
+	if !ok {
+		t.Fatal("expected the server peer in the store")
+	}
+	if got.EndpointMethod != DHTMethod+"-transitive" {
+		t.Errorf("EndpointMethod = %q, want %q", got.EndpointMethod, DHTMethod+"-transitive")
+	}
+	if !strings.Contains(strings.Join(got.DiscoveredVia, ","), DHTMethod+"-transitive") {
+		t.Errorf("DiscoveredVia = %v, want it to contain %q", got.DiscoveredVia, DHTMethod+"-transitive")
+	}
+	if got.MeshIP != "10.0.0.2" {
+		t.Errorf("MeshIP = %q, want the first-hand 10.0.0.2", got.MeshIP)
+	}
+	if !got.LastSeen.After(seen) {
+		t.Errorf("LastSeen = %v, want it refreshed past %v", got.LastSeen, seen)
 	}
 }
