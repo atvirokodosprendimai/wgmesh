@@ -60,6 +60,9 @@ n=$(go test ./pkg/node -run '^(TestOfferMatchesLegacyUpdate|TestOfferHandIsExpli
 | 4 — it is used | every production claim from T2 on |
 
 ## Mutation Log
+- 2026-11-15 · a274161* · mutant killed · exit 1 · `pkg/node/store.go` · Update bypasses Offer: TestUpdateGoesThroughOffer must go red · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37
+- 2026-11-15 · a274161* · mutant killed · exit 1 · `pkg/node/store.go` · merge reads the method string instead of Hand: TestOfferHandIsExplicitNotSubstring must go red · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37
+- 2026-11-15 · a274161* · mutant killed · exit 1 · `pkg/node/admit.go` · peer-cap branch admits: TestOfferRefusesAtPeerCapWithReason must go red · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37
 
 ## Invariants
 
@@ -83,3 +86,20 @@ Stop and ask if any existing store test needs a changed expectation, or if `Deci
 - Any new refusal rule other than the peer cap (T3, T4, T6, T7).
 
 ## Verification Log
+- 2026-11-15 · a274161* · exit 1 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:1013 · test-lock-sha256:263989614a49830c8edc3b4f082ddd524b5d80976c4652c68ebc50666f0d77a5 · test-lock-file:docs/adr/locks/263989614a49830c8edc3b4f082ddd524b5d80976c4652c68ebc50666f0d77a5.lock
+  ```
+  --- last 10 line(s) of stderr (of 36 after folding 36 raw)
+  === CONT  TestUpdateGoesThroughOffer
+      admit_test.go:159: offers = 0 after one Update, want 1
+  --- FAIL: TestUpdateGoesThroughOffer (0.00s)
+  === CONT  TestOfferHandIsExplicitNotSubstring
+      admit_test.go:104: first-hand with a transitive-looking label did not rewrite: <nil>
+      admit_test.go:110: second-hand rewrote first-hand fields: <nil>
+  --- FAIL: TestOfferHandIsExplicitNotSubstring (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.004s
+  FAIL
+  ```
+- 2026-11-15 · a274161* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:11924
+- 2026-11-15 · a274161* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12160
+- 2026-11-15 · a274161* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12004
