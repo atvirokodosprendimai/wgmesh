@@ -3,6 +3,7 @@ package wireguard
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -50,11 +51,15 @@ func TestGenerateKeyPairReportsFailure(t *testing.T) {
 }
 
 func TestGenerateKeyPairReportsGenkeyFailure(t *testing.T) {
-	fakeWGScript(t, "echo boom >&2\nexit 1\n")
+	fakeWGScript(t,
+		"case \"$1\" in\n"+
+			"genkey) echo boom >&2; exit 1 ;;\n"+
+			"pubkey) cat >/dev/null; printf 'PUB\n' ;;\n"+
+			"esac\n")
 
 	priv, pub, err := GenerateKeyPair()
-	if err == nil {
-		t.Fatal("want an error when genkey fails")
+	if err == nil || !strings.Contains(err.Error(), "private key") {
+		t.Fatalf("err = %v, want a private key error when genkey fails and pubkey succeeds", err)
 	}
 	if priv != "" || pub != "" {
 		t.Fatalf("keys = %q, %q, want both empty on error", priv, pub)
