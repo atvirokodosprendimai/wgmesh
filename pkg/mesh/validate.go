@@ -1,11 +1,15 @@
 package mesh
 
 import (
+	"encoding/base64"
 	"io"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/ifname"
 )
 
 // StrictState makes a class B finding a refusal instead of a warning. It is
@@ -77,43 +81,123 @@ func unsafeRule(v string) string {
 	return ""
 }
 
+// The class B rules: each returns the rule name a value breaks, or "". The
+// grammars are permissive supersets of what wg, ip and systemctl accept, and
+// are measured against no node, which is why they only warn at release N.
+
+func interfaceNameRule(v string) string {
+	if v != "" && ifname.ValidateLinux(v) != nil {
+		return "interface-name-grammar"
+	}
+	return ""
+}
+
+func cidrRule(v string) string {
+	if _, _, err := net.ParseCIDR(v); err != nil {
+		return "not-a-cidr"
+	}
+	return ""
+}
+
+func meshNetworkRule(v string) string {
+	if v == "" {
+		return ""
+	}
+	return cidrRule(v)
+}
+
+func endpointRule(v string) string {
+	if v == "" {
+		return ""
+	}
+	host, port, err := net.SplitHostPort(v)
+	if err != nil || host == "" {
+		return "not-host-port"
+	}
+	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+		return "port-out-of-range"
+	}
+	return ""
+}
+
+func publicKeyRule(v string) string {
+	if raw, err := base64.StdEncoding.DecodeString(v); err != nil || len(v) != 44 || len(raw) != 32 {
+		return "not-44-base64"
+	}
+	return ""
+}
+
 // Validate checks the loaded state and returns every finding, the mesh fields
 // first and then the nodes in name order. It is pure and holds the read lock.
+// A value with a class A finding gets no class B finding on top.
 func (m *Mesh) Validate() []Finding {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	var fs []Finding
-	text := func(node, field, v string) {
+	text := func(node, field, v string, ruleB func(string) string) {
 		if rule := unsafeRule(v); rule != "" {
 			fs = append(fs, Finding{Node: node, Field: field, Value: v, Rule: rule, Class: ClassA})
+		} else if rule := ruleB(v); rule != "" {
+			fs = append(fs, Finding{Node: node, Field: field, Value: v, Rule: rule, Class: ClassB})
+		}
+	}
+	port := func(node, field string, p int) {
+		if p < 1 || p > 65535 {
+			fs = append(fs, Finding{Node: node, Field: field, Value: strconv.Itoa(p), Rule: "port-out-of-range", Class: ClassB})
 		}
 	}
 
 	if m.InterfaceName == "" {
 		fs = append(fs, Finding{Field: "interface_name", Rule: "empty", Class: ClassA})
 	}
-	text("", "interface_name", m.InterfaceName)
-	text("", "network", m.Network)
+	text("", "interface_name", m.InterfaceName, interfaceNameRule)
+	text("", "network", m.Network, meshNetworkRule)
+	port("", "listen_port", m.ListenPort)
+
+	var meshNet *net.IPNet
+	if m.Network != "" {
+		_, meshNet, _ = net.ParseCIDR(m.Network)
+	}
 
 	names := make([]string, 0, len(m.Nodes))
 	for name := range m.Nodes {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	seenIP := map[string]bool{}
+	seenKey := map[string]bool{}
 	for _, name := range names {
 		n := m.Nodes[name]
-		text(name, "public_key", n.PublicKey)
-		text(name, "public_endpoint", n.PublicEndpoint)
-		text(name, "ssh_host", n.SSHHost)
+		text(name, "public_key", n.PublicKey, publicKeyRule)
+		text(name, "public_endpoint", n.PublicEndpoint, endpointRule)
+		text(name, "ssh_host", n.SSHHost, func(string) string { return "" })
 		for _, r := range n.RoutableNetworks {
-			text(name, "routable_networks", r)
+			text(name, "routable_networks", r, cidrRule)
 		}
+		port(name, "listen_port", n.ListenPort)
+		port(name, "ssh_port", n.SSHPort)
+
 		switch {
 		case len(n.MeshIP) == 0:
 			fs = append(fs, Finding{Node: name, Field: "mesh_ip", Rule: "missing", Class: ClassA})
 		case net.IP(n.MeshIP).To16() == nil:
 			fs = append(fs, Finding{Node: name, Field: "mesh_ip", Value: n.MeshIP.String(), Rule: "unparsable", Class: ClassA})
+		default:
+			ip := n.MeshIP.String()
+			if meshNet != nil && !meshNet.Contains(n.MeshIP) {
+				fs = append(fs, Finding{Node: name, Field: "mesh_ip", Value: ip, Rule: "outside-network", Class: ClassB})
+			}
+			if seenIP[ip] {
+				fs = append(fs, Finding{Node: name, Field: "mesh_ip", Value: ip, Rule: "duplicate-mesh-ip", Class: ClassB})
+			}
+			seenIP[ip] = true
+		}
+		if n.PublicKey != "" {
+			if seenKey[n.PublicKey] {
+				fs = append(fs, Finding{Node: name, Field: "public_key", Value: n.PublicKey, Rule: "duplicate-public-key", Class: ClassB})
+			}
+			seenKey[n.PublicKey] = true
 		}
 	}
 	return fs
