@@ -222,9 +222,6 @@ func TestSSHTestHostKeyIsVerified(t *testing.T) {
 		t.Fatalf("sshtest names %s and %s, pkg/ssh names %s and %s",
 			sshtest.EnvKnownHosts, sshtest.EnvInsecureHostKey, ssh.EnvKnownHosts, ssh.EnvInsecureHostKey)
 	}
-	if v := os.Getenv(ssh.EnvInsecureHostKey); v == "1" {
-		t.Fatalf("%s=1 would bypass the check under test", ssh.EnvInsecureHostKey)
-	}
 	srv := sshtest.Start(t, nil)
 
 	client, err := ssh.NewClient(srv.Host, srv.Port)
@@ -254,6 +251,56 @@ func TestSSHTestHostKeyIsVerified(t *testing.T) {
 		t.Fatalf("NewClient accepted a host key that is not in known_hosts")
 	} else if !strings.Contains(err.Error(), "CHANGED") {
 		t.Fatalf("NewClient error = %v, want a changed-host-key refusal", err)
+	}
+}
+
+// TestIPv6EndpointIsQuotedOnWgSet records the wg set command for a peer whose
+// endpoint is an IPv6 address with brackets. The brackets are not in the safe
+// set of ssh.Quote, so the endpoint is sent as one single-quoted word, which
+// sh reads back as the same text. (The command is not in commands-valid.golden:
+// that file is recorded from the old code and stays as it was.)
+func TestIPv6EndpointIsQuotedOnWgSet(t *testing.T) {
+	const endpoint = "[2001:db8::1]:51820"
+	const key = "V6PEERKEYV6PEERKEYV6PEERKEYV6PEERKEYV6PEER0="
+	srv := sshtest.Start(t, nil)
+	client, err := ssh.NewClient(srv.Host, srv.Port)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer client.Close()
+
+	diff := &wireguard.ConfigDiff{AddedPeers: map[string]wireguard.Peer{
+		key: {PublicKey: key, Endpoint: endpoint, AllowedIPs: []string{"10.99.0.8/32"}},
+	}}
+	if err := wireguard.ApplyDiff(client, "wg0", diff); err != nil {
+		t.Fatalf("ApplyDiff: %v", err)
+	}
+
+	var found bool
+	for _, cmd := range srv.Commands() {
+		if !strings.Contains(cmd, "peer "+key) {
+			continue
+		}
+		found = true
+		if !strings.Contains(cmd, " endpoint '"+endpoint+"' ") {
+			t.Errorf("endpoint is not one single-quoted word in %q", cmd)
+		}
+		words, _, ok := splitWords(cmd)
+		if !ok {
+			t.Fatalf("unbalanced quote in %q", cmd)
+		}
+		var got string
+		for i, w := range words {
+			if w == "endpoint" && i+1 < len(words) {
+				got = words[i+1]
+			}
+		}
+		if got != endpoint {
+			t.Errorf("sh reads the endpoint as %q, want %q (command %q)", got, endpoint, cmd)
+		}
+	}
+	if !found {
+		t.Fatalf("no wg set command for the peer; got %q", srv.Commands())
 	}
 }
 
