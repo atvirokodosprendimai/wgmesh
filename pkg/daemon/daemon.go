@@ -590,6 +590,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 
 	prevRelayRoutes := d.currentRelayRoutesSnapshot()
 	prevDirectStable := d.directStableCyclesSnapshot()
+	ownNetworks := d.ownRoutableNetworks()
 
 	for _, p := range peers {
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" || p.MeshIP == "" {
@@ -622,7 +623,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 				if p.MeshIPv6 != "" {
 					d.addAllowedIP(desired, relay, p.MeshIPv6+"/128")
 				}
-				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
+				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, ownNetworks) {
 					network = strings.TrimSpace(network)
 					if network != "" {
 						d.addAllowedIP(desired, relay, network)
@@ -636,7 +637,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 		if p.MeshIPv6 != "" {
 			d.addAllowedIP(desired, p, p.MeshIPv6+"/128")
 		}
-		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
+		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, ownNetworks) {
 			network = strings.TrimSpace(network)
 			if network != "" {
 				d.addAllowedIP(desired, p, network)
@@ -1379,7 +1380,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	allowedCSV := reconnectAllowedCSV(peer, d.localNode.RoutableNetworks)
+	allowedCSV := reconnectAllowedCSV(peer, d.ownRoutableNetworks())
 	if allowedCSV == "" {
 		return
 	}
@@ -1687,6 +1688,17 @@ func (d *Daemon) GetAdvertiseRoutes() []string {
 	out := make([]string, len(d.config.AdvertiseRoutes))
 	copy(out, d.config.AdvertiseRoutes)
 	return out
+}
+
+// ownRoutableNetworks returns a copy of the local node's RoutableNetworks,
+// which SIGHUP reload replaces under configMu. Callers must not hold configMu.
+func (d *Daemon) ownRoutableNetworks() []string {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
+	if d.localNode == nil {
+		return nil
+	}
+	return append([]string(nil), d.localNode.RoutableNetworks...)
 }
 
 // GetLogLevel returns the current log level (thread-safe).
