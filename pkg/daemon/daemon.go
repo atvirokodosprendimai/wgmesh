@@ -48,6 +48,7 @@ type peerProbeSession struct {
 
 // Daemon manages the mesh node lifecycle
 type Daemon struct {
+	stateFile              string // local node state file, set by initLocalNode
 	config                 *Config
 	localNode              *LocalNode
 	peerStore              *PeerStore

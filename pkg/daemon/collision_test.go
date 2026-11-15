@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"net"
+	"path/filepath"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -10,6 +11,32 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
+
+// The loser's resolved address is written to the state file (#830).
+func TestCollisionLoserPersistsResolvedIP(t *testing.T) {
+	enforceIPBinding(t, false)
+	recordAddresses(t)
+
+	d := collisionDaemon(t, "zzz-local", "10.42.1.1")
+	d.stateFile = filepath.Join(t.TempDir(), "wg0.json")
+	if err := saveLocalNode(d.stateFile, d.localNode); err != nil {
+		t.Fatal(err)
+	}
+	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "10.42.1.1"}, "test")
+	d.CheckAndResolveCollisions()
+
+	want := nonceOne(d)
+	if d.localNode.MeshIP != want {
+		t.Fatalf("local IP = %s, want the nonce-1 address %s", d.localNode.MeshIP, want)
+	}
+	saved, err := loadLocalNode(d.stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.MeshIP != want {
+		t.Errorf("state file holds %s, want the resolved address %s", saved.MeshIP, want)
+	}
+}
 
 func TestDetectCollisions(t *testing.T) {
 	ps := NewPeerStore()
