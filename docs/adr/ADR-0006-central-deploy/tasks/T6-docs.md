@@ -56,6 +56,9 @@ n=$(go test ./pkg/mesh -run '^TestSpecNamesCentralized$' -count=1 -v 2>&1 | tee 
 | 4 — it is used | nothing measures this yet |
 
 ## Mutation Log
+- 2026-11-16 · e9b76ce* · mutant killed · exit 1 · `docs/centralized-rollout.md` · the release note no longer names PersistFailureFatal: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
+- 2026-11-16 · e9b76ce* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · the backlog row for PersistFailureFatal is gone: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
+- 2026-11-16 · e9b76ce* · mutant killed · exit 1 · `eidos/spec - centralized SSH deploy - diff-based persistent WireGuard config pushed via SSH.md` · the old NAT sentence without the private-address condition: TestSpecNamesCentralized must go red · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32
 
 ## Invariants
 
@@ -78,3 +81,21 @@ Stop and ask if T3, T4 or T5 changed a name this task's test requires.
 - A change to `docs/envelope-rollout.md` (permanent: boundary: that note is ADR-0001's).
 
 ## Verification Log
+- 2026-11-16 · e9b76ce* · exit 1 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:802 · test-lock-sha256:018916d9d12b9e83685d781de77b734b5a1971e55d743b073d8851587383f4bd · test-lock-file:docs/adr/locks/018916d9d12b9e83685d781de77b734b5a1971e55d743b073d8851587383f4bd.lock
+  ```
+  --- last 10 line(s) of stderr (of 21 after folding 21 raw)
+      spec_central_test.go:62: docs/centralized-mode.md does not name "PersistFailureFatal"
+      spec_central_test.go:56: docs/centralized-rollout.md: cannot read: open /claude/scratch/2026-11-15/adr-g5/docs/centralized-rollout.md: no such file or directory
+      spec_central_test.go:62: docs/adr/BACKLOG.md does not name "#894"
+      spec_central_test.go:62: README.md does not name "centralized-rollout.md"
+      spec_central_test.go:77: eidos/spec - centralized SSH deploy - diff-based persistent WireGuard config pushed via SSH.md keeps the old NAT sentence without the private-address condition: "  If the public IP differs from the SSH host address, the node is marked as behind NAT and given no public endpoint."
+      spec_central_test.go:81: eidos/spec - centralized SSH deploy - diff-based persistent WireGuard config pushed via SSH.md does not state the all-private endpoint rule
+  --- FAIL: TestSpecNamesCentralized (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/mesh	0.004s
+  FAIL
+  ```
+- 2026-11-16 · e9b76ce* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:2093
+- 2026-11-16 · e9b76ce* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1716
+- 2026-11-16 · e9b76ce* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1821
+- 2026-11-16 · e9b76ce* · exit 0 · `set -o pipefail …` · acceptance-sha256:00c8b695db7412fa9136a548a5f8c56b58da7a9b3fb9232b32014412dfea9a32 · ms:1025
