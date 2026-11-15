@@ -66,8 +66,9 @@ type Decision struct {
 }
 
 // EnforceIPBinding switches the claim order of R4 (a bound claim beats an
-// unbound one, then the lower key). It is false at release N: the lower key
-// decides and each case the bound order would decide differently is a warning.
+// unbound one, then the lower key). It is false until the binding is enforced
+// (release N+1, ADR-0002 decision 4): the lower key decides and each case the
+// bound order would decide differently is a warning.
 var EnforceIPBinding = false
 
 // Policy is what the daemon lends the store. All fields are optional.
