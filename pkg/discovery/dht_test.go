@@ -433,10 +433,16 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
 	serverAddr := serverConn.LocalAddr().String()
 
+	// Mutants: removing admitPunchReply from exchangeWithAddress leaves the
+	// seeded peer untouched (both subtests red); offering SecondHand keeps the
+	// seeded MeshIP and LastSeen (both red); a hardcoded DHTMethod source is
+	// caught only by the dht-ipv6-sync subtest.
 	for _, method := range []string{DHTMethod, DHTMethod + "-ipv6-sync"} {
 		t.Run(method, func(t *testing.T) {
 			clientNode := &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}
 			store := daemon.NewPeerStore()
+			seen := time.Now().Add(-4 * time.Minute)
+			store.SetPeerDirectly(serverKey, &daemon.PeerInfo{WGPubKey: serverKey, MeshIP: "10.0.0.99", LastSeen: seen})
 			d, err := NewDHTDiscovery(context.Background(), cfg, clientNode, store)
 			if err != nil {
 				t.Fatal(err)
@@ -468,6 +474,12 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 			}
 			if got.EndpointMethod != method {
 				t.Errorf("EndpointMethod = %q, want %q", got.EndpointMethod, method)
+			}
+			if got.MeshIP != "10.0.0.2" {
+				t.Errorf("MeshIP = %q, want the first-hand 10.0.0.2", got.MeshIP)
+			}
+			if !got.LastSeen.After(seen) {
+				t.Errorf("LastSeen = %v, want it refreshed past %v", got.LastSeen, seen)
 			}
 		})
 	}
