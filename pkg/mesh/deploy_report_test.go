@@ -6,7 +6,6 @@ import (
 	"io"
 	"net"
 	"os"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -159,6 +158,12 @@ func TestDeployContinuesPastUnreachableNode(t *testing.T) {
 	if !errors.As(err, &opErr) {
 		t.Errorf("errors.As does not reach the dial error of node a: %v", err)
 	}
+	// The nodes that succeeded have no failure line.
+	for _, ok := range []string{"b", "c"} {
+		if lines := failureLines(err, ok); len(lines) != 0 {
+			t.Errorf("error reports the configured node %s: %q", ok, lines)
+		}
+	}
 	for name, srv := range map[string]*sshtest.Server{"b": b, "c": c} {
 		conf, ok := writtenConfig(srv)
 		if !ok {
@@ -194,6 +199,70 @@ func TestDeployReportsEveryFailureWithPhase(t *testing.T) {
 	if _, ok := writtenConfig(c); !ok {
 		t.Error("node c received no config")
 	}
+	t.Run("install", func(t *testing.T) {
+		bReplies := nodeReplies()
+		bReplies["which wg"] = sshtest.Reply{Exit: 1}
+		bReplies["apt update"] = sshtest.Reply{Exit: 1}
+		b := sshtest.Start(t, bReplies)
+		c := sshtest.Start(t, nodeReplies())
+		m := newTestMesh(
+			tnode{name: "b", host: b.Host, port: b.Port},
+			tnode{name: "c", host: c.Host, port: c.Port},
+		)
+
+		err, _ := deployCapturing(t, m)
+
+		wantFailure(t, err, "b", PhaseInstall)
+		if _, ok := writtenConfig(c); !ok {
+			t.Error("node c received no config")
+		}
+	})
+	t.Run("routes", func(t *testing.T) {
+		// Node b is in sync, so the deploy reaches the route sync, and the
+		// route to c's network is the one change that is refused.
+		bReplies := nodeReplies()
+		bReplies["wg show"] = sshtest.Reply{Out: testKey('x') + "\tNODEPUBLICKEY\t51820\toff\n"}
+		bReplies["ip route add"] = sshtest.Reply{Exit: 1}
+		b := sshtest.Start(t, bReplies)
+		c := sshtest.Start(t, nodeReplies())
+		m := newTestMesh(
+			tnode{name: "b", host: b.Host, port: b.Port},
+			tnode{name: "c", host: c.Host, port: c.Port},
+		)
+		m.Nodes["c"].RoutableNetworks = []string{"192.168.50.0/24"}
+
+		err, _ := deployCapturing(t, m)
+
+		wantFailure(t, err, "b", PhaseRoutes)
+		if _, ok := writtenConfig(c); !ok {
+			t.Error("node c received no config")
+		}
+	})
+	t.Run("all nodes fail", func(t *testing.T) {
+		m := newTestMesh(
+			tnode{name: "a", host: "127.0.0.1", port: closedPort(t), local: true},
+			tnode{name: "b", host: "127.0.0.1", port: closedPort(t), local: true},
+		)
+
+		err, _ := deployCapturing(t, m)
+
+		wantFailure(t, err, "a", PhaseConnect)
+		wantFailure(t, err, "b", PhaseConnect)
+		for _, want := range []string{"deploy failed on 2 of 2 nodes", "configured: none"} {
+			if err == nil || !strings.Contains(err.Error(), want) {
+				t.Errorf("error lacks %q:\n%v", want, err)
+			}
+		}
+	})
+	t.Run("error text is folded to one line", func(t *testing.T) {
+		err := &DeployError{Results: []NodeResult{
+			{Hostname: "a", Phase: PhaseApply, Err: errors.New("first\n\tsecond\t third\n")},
+		}}
+
+		if !strings.Contains(err.Error(), "\n  a: apply: first second third\n") {
+			t.Errorf("error text is not folded to one line:\n%q", err.Error())
+		}
+	})
 }
 
 func TestDeployAllReachableReturnsNil(t *testing.T) {
@@ -235,7 +304,10 @@ func TestDeployVisitsNodesInSortedOrder(t *testing.T) {
 			t.Fatalf("run %d: Deploy: %v", run, err)
 		}
 
-		// The detect step and the apply loop each visit the nodes once.
+		// The printed visit order of both loops (the detect step and the apply
+		// loop) is what a test can see: sshtest records no arrival timestamps.
+		// Map order is random per run, so the run repeats to catch a loop that
+		// does not sort.
 		var detected, deployed []string
 		for _, line := range strings.Split(out, "\n") {
 			if f := strings.Fields(line); len(f) > 2 && f[0] == "Detected" {
@@ -251,9 +323,6 @@ func TestDeployVisitsNodesInSortedOrder(t *testing.T) {
 		if strings.Join(deployed, ",") != strings.Join(want, ",") {
 			t.Fatalf("run %d: apply order %v, want %v", run, deployed, want)
 		}
-	}
-	if !sort.StringsAreSorted(want) {
-		t.Fatal("test table: want is not sorted")
 	}
 }
 
@@ -301,9 +370,10 @@ func TestDeployDoesNotRedialAFailedDetect(t *testing.T) {
 	}
 }
 
-// persistReplies answers a node that is configured and in sync (so the deploy
-// takes the update path and ends with the config file write) and refuses the
-// write of the file.
+// persistReplies answers a node that is configured and in sync (the wg dump
+// shows the node's interface and no peer, so there is no diff, the update path
+// is not taken and the write of the config file is the last step of the node)
+// and refuses the write of the file.
 func persistReplies() map[string]sshtest.Reply {
 	r := nodeReplies()
 	r["wg show"] = sshtest.Reply{Out: testKey('x') + "\tNODEPUBLICKEY\t51820\toff\n"}
@@ -332,6 +402,12 @@ func TestPersistWriteFailureIsAWarningAtN(t *testing.T) {
 	}
 	if n := writeAttempts(a); n != 1 {
 		t.Fatalf("config file writes attempted = %d, want 1", n)
+	}
+	// The failed write is the node's own persist step, the last command, and
+	// not a write of UpdatePersistentConfig.
+	cmds := a.Commands()
+	if last := cmds[len(cmds)-1]; !strings.HasPrefix(last, confWrite) {
+		t.Errorf("last command of the node = %q, want the config file write", last)
 	}
 	const path = "/etc/wireguard/wg0.conf"
 	if n := strings.Count(out, "Warning: failed to update config file "+path+": "); n != 1 {
@@ -369,9 +445,13 @@ func TestDeployRenderErrorIsAPersistFailureAndLeavesTheNodeUntouched(t *testing.
 	err, out := deployCapturing(t, m)
 
 	wantFailure(t, err, "a", PhasePersist)
-	if err != nil && strings.Contains(err.Error(), secret) || strings.Contains(out, secret) {
-		t.Errorf("a private key reached the error or the output:\n%v\n%s", err, out)
+	if err != nil && strings.Contains(err.Error(), secret) {
+		t.Errorf("the private key reached the error:\n%v", err)
 	}
+	if strings.Contains(out, secret) {
+		t.Errorf("the private key reached the output:\n%s", out)
+	}
+
 	// Only the read-only probes of the detect step reached node a.
 	for _, c := range a.Commands() {
 		if !strings.HasPrefix(c, "hostname") && !strings.HasPrefix(c, "curl") {
