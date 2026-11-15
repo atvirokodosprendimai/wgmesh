@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
@@ -310,7 +311,8 @@ func initCmd() {
 }
 
 // saveSecretFile writes a mesh secret URI to path with 0600 permissions,
-// creating parent directories (0700). It backs the --save-to flag of
+// creating parent directories (0700). The write is atomic: a crash leaves the
+// old file or the new one, never a truncated secret. It backs the --save-to flag of
 // "wgmesh init" and feeds the WGMESH_SECRET_FILE path used by the macOS
 // Homebrew launchd service (and any other secret-file deployment).
 func saveSecretFile(path, secretURI string) error {
@@ -318,7 +320,7 @@ func saveSecretFile(path, secretURI string) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("creating secret directory: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(secretURI+"\n"), 0600); err != nil {
+	if err := atomicfile.WriteFile(path, []byte(secretURI+"\n"), 0600); err != nil {
 		return fmt.Errorf("writing secret file: %w", err)
 	}
 	return nil

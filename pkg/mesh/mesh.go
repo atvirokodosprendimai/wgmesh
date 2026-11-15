@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
@@ -81,6 +82,9 @@ func Load(stateFile string) (*Mesh, error) {
 	return &m, nil
 }
 
+// Save writes the mesh state (encrypted when a password is set) to stateFile.
+// The write is atomic: a crash leaves the old state or the new one, never a
+// truncated file.
 func (m *Mesh) Save(stateFile string) error {
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
@@ -102,7 +106,7 @@ func (m *Mesh) Save(stateFile string) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	if err := os.WriteFile(stateFile, data, 0600); err != nil {
+	if err := atomicfile.WriteFile(stateFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write state file: %w", err)
 	}
 

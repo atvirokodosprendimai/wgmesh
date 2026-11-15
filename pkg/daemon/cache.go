@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 )
 
 const (
@@ -56,7 +58,8 @@ func LoadPeerCache(interfaceName string) (*PeerCache, error) {
 	return &cache, nil
 }
 
-// SavePeerCache saves the peer cache to disk
+// SavePeerCache saves the peer cache to disk. The write is atomic: a crash
+// leaves the old cache or the new one, never a truncated file.
 func SavePeerCache(interfaceName string, peerStore *PeerStore) error {
 	peers := peerStore.GetAll()
 	cache := &PeerCache{
@@ -88,7 +91,7 @@ func SavePeerCache(interfaceName string, peerStore *PeerStore) error {
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0600)
+	return atomicfile.WriteFile(path, data, 0600)
 }
 
 // RestoreFromCache restores peers from the cache into the peer store

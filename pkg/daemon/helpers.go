@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 )
 
 // cmdExecutor is the command executor used by helper functions.
@@ -70,7 +72,8 @@ func loadLocalNode(path string) (*LocalNode, error) {
 	}, nil
 }
 
-// saveLocalNode saves the local node state to a file
+// saveLocalNode saves the local node state to a file. The write is atomic: a
+// crash leaves the old file or the new one, never a truncated identity.
 func saveLocalNode(path string, node *LocalNode) error {
 	// Ensure directory exists
 	dir := filepath.Dir(path)
@@ -90,8 +93,8 @@ func saveLocalNode(path string, node *LocalNode) error {
 		return err
 	}
 
-	// Write with secure permissions
-	return os.WriteFile(path, data, 0600)
+	// Write with secure permissions, whole or not at all
+	return atomicfile.WriteFile(path, data, 0600)
 }
 
 // interfaceExists checks if a network interface exists
