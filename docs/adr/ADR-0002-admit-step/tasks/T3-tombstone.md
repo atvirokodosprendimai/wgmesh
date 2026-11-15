@@ -73,6 +73,9 @@ a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandC
 - 2026-11-15 · ba34965* · mutant killed · exit 1 · `pkg/node/admit.go` · FirstHand no longer clears the tombstone: TestFirstHandClearsTombstone must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
 - 2026-11-15 · ba34965* · mutant killed · exit 1 · `pkg/node/store.go` · CleanupStale stops tombstoning: TestCleanupStaleLeavesTombstone must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
 - 2026-11-15 · ba34965* · mutant killed · exit 1 · `pkg/node/store.go` · TombstoneTTL is 0: TestTombstoneTTLIsFiveMinutes and the expiry test must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
+- 2026-11-15 · ad237a9* · mutant killed · exit 1 · `pkg/node/store.go` · expiry boundary: the exact-TTL read in TestTombstoneExpiresAfterTombstoneTTL must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
+- 2026-11-15 · ad237a9* · mutant killed · exit 1 · `pkg/node/store.go` · Withdraw tombstones keys not in the store: TestWithdrawOfUnknownKeyLeavesNoTombstone must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
+- 2026-11-15 · ad237a9* · mutant killed · exit 1 · `pkg/node/store.go` · expired entries not pruned at the cap: TestTombstonePrunesExpiredBeforeEvictingOldest must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
 
 ## Invariants
 
@@ -116,3 +119,8 @@ Stop and ask if clearing on first-hand would let a replayed first-hand packet (A
 - 2026-11-15 · ba34965* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:14741
 - 2026-11-15 · ba34965* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:14156
 - 2026-11-15 · ba34965* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:9776
+- 2026-11-15 · ad237a9* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:1 · test-lock-sha256:4419eea0a1473d1e5d1daf116c2f5f866584a5284344a99c67886d991dd56914 · test-lock-file:docs/adr/locks/4419eea0a1473d1e5d1daf116c2f5f866584a5284344a99c67886d991dd56914.lock · test-lock-kind:replace
+- 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:13786
+- 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:15649
+- 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:14238
+- 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:10390
