@@ -122,7 +122,10 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 		// mesh IP or routes, or flip its introducer flag, by naming it in
 		// KnownPeers. Only the peer's own announcements replace these fields.
 		transitive := isTransitiveMethod(discoveryMethod)
-		if len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0) {
+		// An empty list from the peer's own announcement withdraws its routes;
+		// a cache entry or a transitive mention with no routes says nothing.
+		withdraw := len(info.RoutableNetworks) == 0 && shouldRefreshLastSeen(discoveryMethod)
+		if withdraw || (len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0)) {
 			existing.RoutableNetworks = info.RoutableNetworks
 		}
 		if info.MeshIP != "" && (!transitive || existing.MeshIP == "") {
