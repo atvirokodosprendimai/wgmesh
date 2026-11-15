@@ -189,6 +189,8 @@ func TestExcludeOwn(t *testing.T) {
 		{name: "disjoint kept", networks: []string{"10.1.0.0/24"}, own: []string{"10.2.0.0/24"}, want: []string{"10.1.0.0/24"}},
 		{name: "shared dropped", networks: []string{"10.1.0.0/24", "10.2.0.0/24"}, own: []string{"10.1.0.0/24"}, want: []string{"10.2.0.0/24"}},
 		{name: "host bits and spaces canonicalised", networks: []string{" 10.1.0.5/24"}, own: []string{"10.1.0.0/24"}, want: []string{}},
+		{name: "bare v4 host matches /32", networks: []string{"192.168.5.5/32"}, own: []string{"192.168.5.5"}, want: []string{}},
+		{name: "bare v6 host matches /128", networks: []string{"fd00::1/128"}, own: []string{"fd00::1"}, want: []string{}},
 		{name: "default route kept unless advertised by both", networks: []string{"0.0.0.0/0"}, own: []string{"10.1.0.0/24"}, want: []string{"0.0.0.0/0"}},
 	}
 	for _, tt := range tests {

@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"slices"
 
 	netroutes "github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
@@ -252,7 +251,7 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 func ownNetworkRoutes(currentRoutes []ssh.RouteEntry, ownNetworks []string) []ssh.RouteEntry {
 	var stale []ssh.RouteEntry
 	for _, route := range currentRoutes {
-		if route.Gateway == "" && slices.Contains(ownNetworks, route.Network) {
+		if route.Gateway == "" && len(netroutes.ExcludeOwn([]string{route.Network}, ownNetworks)) == 0 {
 			stale = append(stale, route)
 		}
 	}

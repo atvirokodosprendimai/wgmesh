@@ -103,10 +103,10 @@ func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 	return toAdd, toRemove
 }
 
-// canonicalNetwork returns the canonical CIDR form of network, or the trimmed
-// input when it does not parse.
+// canonicalNetwork returns the canonical CIDR form of network (a bare host
+// becomes /32 or /128), or the trimmed input when it does not parse.
 func canonicalNetwork(network string) string {
-	network = strings.TrimSpace(network)
+	network = NormalizeNetwork(strings.TrimSpace(network))
 	if _, ipnet, err := net.ParseCIDR(network); err == nil {
 		return ipnet.String()
 	}

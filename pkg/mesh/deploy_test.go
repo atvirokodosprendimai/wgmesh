@@ -134,3 +134,14 @@ func TestOwnNetworkRoutes(t *testing.T) {
 		})
 	}
 }
+
+func TestOwnNetworkRoutesCanonicalNetworks(t *testing.T) {
+	t.Parallel()
+
+	// An own network configured with host bits must match the kernel's form.
+	got := ownNetworkRoutes([]ssh.RouteEntry{{Network: "10.1.0.0/24"}}, []string{"10.1.0.5/24"})
+	want := []ssh.RouteEntry{{Network: "10.1.0.0/24"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ownNetworkRoutes() = %v, want %v", got, want)
+	}
+}
