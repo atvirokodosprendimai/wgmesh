@@ -20,7 +20,7 @@ func TestSpecNamesAdmit(t *testing.T) {
 		{"eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md", []string{"ResolveClaims"}},
 		{"eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md", []string{"ObserveEndpoint"}},
 		{"docs/admit-rollout.md", []string{"EnforceIPBinding", "EnforceRouteBinding", "N+1", "N+2", "accept-routes", "wgmesh_admit_warnings_total"}},
-		{"docs/adr/BACKLOG.md", []string{"ADR-0002"}},
+		{"docs/adr/BACKLOG.md", []string{"ADR-0002 follow-up N+1", "ADR-0002 follow-up N+2", "ADR-0002 known limit"}},
 	}
 	for _, c := range cases {
 		body, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(c.file)))
