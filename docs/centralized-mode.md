@@ -192,4 +192,6 @@ The tool attempts authentication in this order:
 
 Ensure your SSH keys are added to the `authorized_keys` file on target hosts.
 
-**Security note:** The SSH client currently uses `InsecureIgnoreHostKey`, which skips host key verification. This means the tool does not verify the identity of remote hosts and is vulnerable to man-in-the-middle attacks. For production deployments, consider implementing proper host key verification using `known_hosts` files or pinned host keys.
+**Host keys:** The SSH client verifies each node's host key against `~/.ssh/known_hosts` (override the file with `WGMESH_SSH_KNOWN_HOSTS`). A node that is not in the file is refused with its fingerprint and the `ssh-keyscan` command to add it, and a node whose key changed is refused as a possible man-in-the-middle. A deploy sends each node's WireGuard private key over this connection, so check the fingerprint with the host's owner before adding it. `WGMESH_SSH_INSECURE_HOST_KEY=1` turns verification off for a lab and prints a warning; do not use it in production.
+
+**Upgrading:** versions before this change accepted any host key. After upgrading, the first `wgmesh -deploy` fails for every node that is not yet in `known_hosts`; add them as described above (or SSH to each once and accept the key).

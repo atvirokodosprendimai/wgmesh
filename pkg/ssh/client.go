@@ -41,10 +41,15 @@ func NewClient(host string, port int) (*Client, error) {
 		}
 	}
 
+	hostKey, err := defaultHostKeyCallback()
+	if err != nil {
+		return nil, err
+	}
+
 	config := &ssh.ClientConfig{
 		User:            "root",
 		Auth:            authMethods,
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		HostKeyCallback: hostKey,
 		Timeout:         10 * time.Second,
 	}
 

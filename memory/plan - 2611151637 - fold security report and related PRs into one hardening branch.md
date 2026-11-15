@@ -45,13 +45,16 @@ status: active
 
 ### Phase 2 - Fixes nobody proposed - status: open
 
-1. [ ] auto-merge.yml: skip PRs whose head repo is not this repo (:104), bind merge to head sha (:344), bind approval to commit_id (:326, :152)
+1. [x] auto-merge.yml: skip PRs whose head repo is not this repo (:104), bind merge to head sha (:344), bind approval to commit_id (:326, :152)
    - not requiring a label: only spec PRs carry approved-for-build
    - bot self-approval stays, that is a policy decision for the maintainer
-   - verify: extract the gate to a small node script with a test for a fork PR and a moved head sha, as other workflow handlers do
-2. [ ] PeerStore.Update: ignore MeshIP and route changes from transitive sources for an already-known key; reject 0.0.0.0/0 and ::/0 in Validate
-   - relates to issue #839 and #830
-   - verify: store test where a transitive update must not overwrite MeshIP
+   - => done in 843dd23. Not extracted into a script: the test runs the inline github-script body from the YAML with a mocked client (scripts/workflows/auto-merge.test.js, 5 cases, 4 fail on the old workflow)
+   - => the test is not wired into CI (no workflow runs `node --test` for scripts/workflows today); run it by hand
+   - => not run on GitHub itself: the workflow only runs on main, so the real effect shows after merge
+2. [x] PeerStore.Update: transitive updates do not overwrite MeshIP, MeshIPv6, RoutableNetworks, Introducer of a known peer
+   - relates to issue #839 and #864
+   - => done; pkg/node/store_transitive_test.go, red before, green after
+   - => dropped on purpose: rejecting 0.0.0.0/0 and ::/0 in Validate. Issue #859 treats an advertised default route as a feature (exit node); rejecting it would break that. Needs the maintainer's word.
 3. [ ] SSH host key verification (pkg/ssh/client.go:47)
    - changes behaviour for operators: first connect to an unknown host fails
    - needs a decision: ship in this PR with a release note, or separate PR
