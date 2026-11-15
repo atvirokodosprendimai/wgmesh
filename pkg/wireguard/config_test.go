@@ -701,3 +701,32 @@ func TestParseWGDumpConvergesWithDesired(t *testing.T) {
 		t.Errorf("expected no changes, got %+v", diff)
 	}
 }
+
+// TestCalculateDiff_RuntimeLearnedEndpoint: a peer with no desired endpoint is
+// not modified because WireGuard learned its address at runtime, but a desired
+// endpoint that is set and differs is still a modification.
+func TestCalculateDiff_RuntimeLearnedEndpoint(t *testing.T) {
+	mk := func(endpoint string) *Config {
+		return &Config{Peers: map[string]Peer{"k": {
+			PublicKey: "k", Endpoint: endpoint, AllowedIPs: []string{"10.0.0.2/32"},
+		}}}
+	}
+	tests := []struct {
+		name            string
+		current, wanted string
+		modified        bool
+	}{
+		{"learned endpoint, desired empty", "203.0.113.5:51820", "", false},
+		{"desired set and differs", "203.0.113.5:51820", "198.51.100.1:51820", true},
+		{"desired set, current empty", "", "198.51.100.1:51820", true},
+		{"both equal", "198.51.100.1:51820", "198.51.100.1:51820", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			diff := CalculateDiff(mk(tt.current), mk(tt.wanted))
+			if got := len(diff.ModifiedPeers) == 1; got != tt.modified {
+				t.Errorf("modified = %v, want %v", got, tt.modified)
+			}
+		})
+	}
+}

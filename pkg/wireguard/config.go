@@ -157,7 +157,9 @@ func peersEqual(a, b Peer) bool {
 		return false
 	}
 
-	if a.Endpoint != b.Endpoint {
+	// b is the desired peer. An empty desired endpoint means none is
+	// configured, so an address WireGuard learned at runtime is not a change.
+	if b.Endpoint != "" && a.Endpoint != b.Endpoint {
 		return false
 	}
 
