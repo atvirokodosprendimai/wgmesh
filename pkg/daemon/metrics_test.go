@@ -278,12 +278,19 @@ func TestAdmitWarningCounterCounts(t *testing.T) {
 	counter := admitWarnings.WithLabelValues("winner-differs")
 	other := admitWarnings.WithLabelValues("another-rule")
 	before, beforeOther := testutil.ToFloat64(counter), testutil.ToFloat64(other)
+	p.OnWarn("another-rule")
+	if got := testutil.ToFloat64(counter) - before; got != 0 {
+		t.Errorf("winner-differs rose by %v after another rule's warning, want 0", got)
+	}
+	if got := testutil.ToFloat64(other) - beforeOther; got != 1 {
+		t.Errorf("another rule's counter rose by %v, want 1", got)
+	}
 	p.OnWarn("winner-differs")
 	if got := testutil.ToFloat64(counter) - before; got != 1 {
 		t.Errorf("wgmesh_admit_warnings_total{rule=winner-differs} rose by %v, want 1", got)
 	}
-	if got := testutil.ToFloat64(other) - beforeOther; got != 0 {
-		t.Errorf("another rule's counter rose by %v, want 0", got)
+	if got := testutil.ToFloat64(other) - beforeOther; got != 1 {
+		t.Errorf("another rule's counter rose by %v after winner-differs, want it to stay 1", got)
 	}
 }
 

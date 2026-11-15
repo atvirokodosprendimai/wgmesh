@@ -105,8 +105,8 @@ func TestResolveClaimsIncludesLocal(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("collisions = %v, want exactly one", got)
 	}
-	if got[0].IP != "10.1.1.1" || (got[0].A != local && got[0].B != local) {
-		t.Errorf("collision = %v, want IP 10.1.1.1 naming the local key", got[0])
+	if got[0].IP != "10.1.1.1" || got[0].A != local || got[0].B != (Claim{Key: "k-remote", IP: "10.1.1.1"}) {
+		t.Errorf("collision = %v, want the lower key (local) first against k-remote on 10.1.1.1", got[0])
 	}
 
 	// The list does not depend on the order the peers were stored in.
@@ -125,8 +125,13 @@ func TestResolveClaimsIncludesLocal(t *testing.T) {
 	if !reflect.DeepEqual(forward, ResolveClaims(local, reversed, nil)) {
 		t.Errorf("ResolveClaims depends on peer order: %v", forward)
 	}
-	if len(forward) != 3 || forward[0].IP != "10.0.0.5" {
-		t.Errorf("collisions = %v, want 10.0.0.5 once and two on 10.3.3.3, sorted by IP", forward)
+	wantForward := []Collision{
+		{IP: "10.0.0.5", A: Claim{Key: "k-x", IP: "10.0.0.5"}, B: Claim{Key: "k-y", IP: "10.0.0.5"}},
+		{IP: "10.3.3.3", A: Claim{Key: "k-a", IP: "10.3.3.3"}, B: Claim{Key: "k-b", IP: "10.3.3.3"}},
+		{IP: "10.3.3.3", A: Claim{Key: "k-a", IP: "10.3.3.3"}, B: Claim{Key: "k-c", IP: "10.3.3.3"}},
+	}
+	if !reflect.DeepEqual(forward, wantForward) {
+		t.Errorf("collisions = %v, want %v: the lower key first, each other claim against it, sorted by IP then key", forward, wantForward)
 	}
 
 	if got := ResolveClaims(local, []*PeerInfo{{WGPubKey: "k-local", MeshIP: "10.1.1.1"}}, nil); len(got) != 0 {
@@ -149,5 +154,8 @@ func TestBoundAcceptsNonceOneToTen(t *testing.T) {
 	}
 	if Bound(Claim{Key: key, IP: fakeDerive(key, 0)}, nil, maxNonce) {
 		t.Error("a nil derive bound a claim")
+	}
+	if Bound(Claim{Key: key, IP: ""}, func(string, int) string { return "" }, maxNonce) {
+		t.Error("an empty address is bound to a derivation that gives an empty address")
 	}
 }

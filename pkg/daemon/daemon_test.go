@@ -548,8 +548,13 @@ func TestPolicyDeriveZeroIsNaturalDerivation(t *testing.T) {
 			natural = crypto.DeriveMeshIP(cfg.Keys.MeshSubnet, key, secret)
 			nonce1 = DeriveMeshIPWithNonce(cfg.Keys.MeshSubnet, key, secret, 1)
 		} else {
-			natural, _ = crypto.DeriveMeshIPInSubnet(custom, key, secret)
-			nonce1, _ = crypto.DeriveMeshIPInSubnetWithNonce(custom, key, secret, 1)
+			natural, err = crypto.DeriveMeshIPInSubnet(custom, key, secret)
+			if err == nil {
+				nonce1, err = crypto.DeriveMeshIPInSubnetWithNonce(custom, key, secret, 1)
+			}
+			if err != nil {
+				t.Fatalf("custom subnet derivation: %v", err)
+			}
 		}
 		if got := p.Derive(key, 0); got != natural {
 			t.Errorf("custom=%v: Derive(key, 0) = %q, want the natural %q", custom, got, natural)
