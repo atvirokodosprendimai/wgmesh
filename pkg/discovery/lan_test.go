@@ -196,3 +196,39 @@ func TestLANDiscoveryStartLogsPortClash(t *testing.T) {
 		t.Fatalf("Start did not log the port clash warning: %q", buf.String())
 	}
 }
+
+// One invalid known peer in a multicast announcement must not hide its sender.
+func TestLANDropsInvalidKnownPeerKeepsSender(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+	l, err := NewLANDiscovery(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := l.Start(); err != nil {
+		t.Skipf("multicast join failed: %v", err)
+	}
+	defer l.Stop()
+
+	remoteKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	known := []crypto.KnownPeer{{WGPubKey: "not-a-key", MeshIP: "10.0.0.3"}}
+	ann := crypto.CreateAnnouncement(remoteKey, "10.0.0.2", "192.168.1.10:51820", false, nil, known, "remote", "", "")
+	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, ann, cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.DialUDP("udp4", nil, l.multicastAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		conn.Write(data)
+		if _, ok := store.Get(remoteKey); ok {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("LAN discovery dropped the whole announcement for one invalid known peer")
+}

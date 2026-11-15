@@ -361,3 +361,68 @@ func TestOpenEnvelopeValidation(t *testing.T) {
 		t.Errorf("error %q should mention MeshIP", err.Error())
 	}
 }
+
+// One invalid KnownPeers entry must not hide the message: the sender is intact
+// and only the bad entry is gone (#875 item 2).
+func TestOpenEnvelopeDropsInvalidKnownPeerKeepsMessage(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-for-filter")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	ann := &PeerAnnouncement{
+		Protocol:  ProtocolVersion,
+		WGPubKey:  goodKey,
+		MeshIP:    "10.0.0.2",
+		Timestamp: time.Now().Unix(),
+		KnownPeers: []KnownPeer{
+			{WGPubKey: "not-a-key", MeshIP: "10.0.0.3"},
+			{WGPubKey: goodKey, MeshIP: "10.0.0.4", WGEndpoint: "203.0.113.4:51820"},
+		},
+	}
+	sealed, err := SealEnvelope(MessageTypeAnnounce, ann, keys.GossipKey)
+	if err != nil {
+		t.Fatalf("SealEnvelope: %v", err)
+	}
+	_, got, err := OpenEnvelope(sealed, keys.GossipKey)
+	if err != nil {
+		t.Fatalf("OpenEnvelope rejected the whole message for one bad known peer: %v", err)
+	}
+	if got.WGPubKey != goodKey || got.MeshIP != "10.0.0.2" {
+		t.Errorf("sender changed: %q %q", got.WGPubKey, got.MeshIP)
+	}
+	if len(got.KnownPeers) != 1 || got.KnownPeers[0].MeshIP != "10.0.0.4" {
+		t.Errorf("KnownPeers = %+v, want only the valid entry", got.KnownPeers)
+	}
+}
+
+// The sender's own fields stay strict: an invalid mesh IP or key fails to open.
+func TestOpenEnvelopeRejectsInvalidSender(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-for-filter")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	tests := []struct {
+		name string
+		ann  PeerAnnouncement
+	}{
+		{"bad mesh ip", PeerAnnouncement{WGPubKey: goodKey, MeshIP: "10.0.0.2/16"}},
+		{"bad key", PeerAnnouncement{WGPubKey: "garbage", MeshIP: "10.0.0.2"}},
+		{"too many known peers", PeerAnnouncement{WGPubKey: goodKey, MeshIP: "10.0.0.2", KnownPeers: make([]KnownPeer, MaxKnownPeers+1)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ann := tt.ann
+			ann.Protocol = ProtocolVersion
+			ann.Timestamp = time.Now().Unix()
+			sealed, err := SealEnvelope(MessageTypeAnnounce, &ann, keys.GossipKey)
+			if err != nil {
+				t.Fatalf("SealEnvelope: %v", err)
+			}
+			if _, _, err := OpenEnvelope(sealed, keys.GossipKey); err == nil {
+				t.Fatal("expected OpenEnvelope to reject the message")
+			}
+		})
+	}
+}

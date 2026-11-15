@@ -1,12 +1,17 @@
 package discovery
 
 import (
+	"bytes"
+	"encoding/base64"
 	"fmt"
+	"log"
 	"net"
+	"strings"
 	"sync"
 	"testing"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 )
 
 func TestAllowLogIsThrottledAndBounded(t *testing.T) {
@@ -57,5 +62,44 @@ func TestLegacyOpenCounterIsRaceFree(t *testing.T) {
 	wg.Wait()
 	if got := pe.LegacyEnvelopeOpens(); got != workers*each {
 		t.Errorf("LegacyEnvelopeOpens() = %d, want %d", got, workers*each)
+	}
+}
+
+// The "Received valid" line is written after validation: an invalid HELLO
+// produces none, a valid one exactly one.
+func TestValidLogFollowsValidation(t *testing.T) {
+	cfg := newTestConfig(t)
+	validKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	defer log.SetOutput(prev)
+
+	send := func(addr *net.UDPAddr, meshIP string) {
+		pe := NewPeerExchange(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+		conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		pe.conn = conn
+		ann := crypto.CreateAnnouncement(validKey, meshIP, "198.51.100.7:51820", false, nil, nil, "", "", "")
+		data, err := crypto.SealEnvelope(crypto.MessageTypeHello, ann, cfg.Keys.GossipKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pe.handleMessage(data, addr)
+	}
+	bad := &net.UDPAddr{IP: net.ParseIP("198.51.100.8"), Port: 51821}
+	good := &net.UDPAddr{IP: net.ParseIP("198.51.100.9"), Port: 51821}
+	send(bad, "10.0.0.2/16")
+	send(good, "10.0.0.2")
+
+	out := buf.String()
+	if n := strings.Count(out, "Received valid HELLO from "+bad.String()); n != 0 {
+		t.Errorf("invalid HELLO logged as valid %d times: %q", n, out)
+	}
+	if n := strings.Count(out, "Received valid HELLO from "+good.String()); n != 1 {
+		t.Errorf("valid HELLO logged %d times, want 1: %q", n, out)
 	}
 }
