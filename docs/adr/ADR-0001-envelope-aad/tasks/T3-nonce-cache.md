@@ -84,3 +84,17 @@ Stop and ask if the send-site audit in S1 finds a second site that resends ident
 - Stopping a replayed HELLO from being answered (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-15 · fc5db46* · exit 1 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:1513 · test-lock-sha256:3518175c2dea39904da1a46b021593835ff91c3b5f249e074182bc9a168bc2bc · test-lock-file:docs/adr/locks/3518175c2dea39904da1a46b021593835ff91c3b5f249e074182bc9a168bc2bc.lock
+  ```
+  --- last 10 line(s) of stderr (of 32 after folding 33 raw)
+  2026/11/15 17:33:24 [WARN] Secret does not use wgmesh:// format — it may have low entropy. Use 'wgmesh init --secret' to generate a cryptographically strong secret.  (x2)
+  2026/11/15 17:33:24 [Exchange] Received valid ANNOUNCE from 198.51.100.7:51821
+  === NAME  TestReplayedAnnounceIsProcessedOnce
+      exchange_replay_test.go:26: the same ANNOUNCE datagram reached the handler 2 times, want 1
+  --- FAIL: TestReplayedAnnounceIsProcessedOnce (0.00s)
+  2026/11/15 17:33:24 [Exchange] Received valid HELLO from 127.0.0.1:48981
+  --- PASS: TestHelloRetransmitIsNotDropped (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery	0.010s
+  FAIL
+  ```
