@@ -73,6 +73,8 @@ n=$(go test ./pkg/node ./pkg/discovery ./pkg/daemon -run '^(TestNoDirectPeerStor
   ```
 - 2026-11-15 · dad3239* · mutant killed · exit 1 · `pkg/node/admit_guard_test.go` · guard loses SetPeerDirectly: TestGuardFlagsEveryMutatingMethod must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
 - 2026-11-15 · dad3239* · mutant killed · exit 1 · `pkg/discovery/dht.go` · :1129 loses its caller's method: TestExchangeWithAddressStoresCallersMethod must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
+- 2026-11-15 · 89fd574 · mutant killed · exit 1 · `pkg/discovery/dht.go` · punch site loses its dht-transitive label (M decision 9): TestPunchSuccessKeepsTransitiveLabel must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
+- 2026-11-15 · 89fd574* · mutant killed · exit 1 · `pkg/daemon/cache.go` · cache restore offered first hand: TestCacheRestoreOffersRestored must go red (Haiku found the kill unverified) · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
 
 ## Invariants
 
@@ -117,3 +119,6 @@ Stop and ask if a site needs a hand that is neither first, second nor restored, 
 - 2026-11-15 · dad3239* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:14936
 - 2026-11-15 · dad3239* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:13711
 - 2026-11-15 · dad3239* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:10408
+- 2026-11-15 · 89fd574 · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:13229
+- 2026-11-15 · 89fd574* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:15808
+- 2026-11-15 · 89fd574* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:9066
