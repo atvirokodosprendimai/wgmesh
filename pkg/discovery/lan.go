@@ -55,7 +55,6 @@ func NewLANDiscovery(config *daemon.Config, localNode *daemon.LocalNode, peerSto
 		peerStore:     peerStore,
 		gossipKey:     config.Keys.GossipKey,
 		multicastAddr: multicastAddr,
-		stopCh:        make(chan struct{}),
 	}, nil
 }
 
@@ -79,7 +78,7 @@ func (l *LANDiscovery) Start() error {
 
 	l.conn = conn
 	l.running = true
-	l.stopCh = make(chan struct{})
+	l.stopCh = make(chan struct{}) // Re-create for restart safety: Stop closes it
 	l.wg = &sync.WaitGroup{}
 	l.wg.Add(2)
 

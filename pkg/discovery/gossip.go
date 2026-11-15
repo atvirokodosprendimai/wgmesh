@@ -50,7 +50,6 @@ func NewMeshGossip(config *daemon.Config, localNode *daemon.LocalNode, peerStore
 		gossipKey: config.Keys.GossipKey,
 		port:      config.Keys.GossipPort,
 		limiter:   ratelimit.NewDefault(),
-		stopCh:    make(chan struct{}),
 	}, nil
 }
 
@@ -64,7 +63,6 @@ func NewMeshGossipWithExchange(config *daemon.Config, localNode *daemon.LocalNod
 		port:      config.Keys.GossipPort,
 		exchange:  exchange,
 		limiter:   ratelimit.NewDefault(),
-		stopCh:    make(chan struct{}),
 	}, nil
 }
 
@@ -79,7 +77,7 @@ func (g *MeshGossip) Start() error {
 
 	if g.exchange != nil {
 		g.running = true
-		g.stopCh = make(chan struct{})
+		g.stopCh = make(chan struct{}) // Re-create for restart safety: Stop closes it
 		g.wg = &sync.WaitGroup{}
 		g.wg.Add(1)
 		go g.gossipLoop(g.stopCh, nil, g.wg)
@@ -108,7 +106,7 @@ func (g *MeshGossip) Start() error {
 
 	g.conn = conn
 	g.running = true
-	g.stopCh = make(chan struct{})
+	g.stopCh = make(chan struct{}) // Re-create for restart safety: Stop closes it
 	g.wg = &sync.WaitGroup{}
 	g.wg.Add(2)
 
