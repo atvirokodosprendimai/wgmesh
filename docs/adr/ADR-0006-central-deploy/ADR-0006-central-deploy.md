@@ -121,7 +121,7 @@ What would make this decision fail: (a) a builder that passes an unquoted value,
 
 ## Implementation
 
-See `tasks/README.md`. Six tasks in five waves (they share `deploy.go` and run one after another on one branch): T1 the quoting primitive and the Linux interface grammar, T2 every remote command through it plus the guard and the fake SSH server, T3 the state validation, T4 the per-node result and continuing past a failed node (#865), T5 the endpoint decision (#866), T6 specs, release note and backlog rows.
+See `tasks/README.md`. Seven tasks in six waves (T7 was added on 2026-11-15 for issue #894 item 1, verified in `pkg/mesh/deploy.go`) (they share `deploy.go` and run one after another on one branch): T1 the quoting primitive and the Linux interface grammar, T2 every remote command through it plus the guard and the fake SSH server, T3 the state validation, T4 the per-node result and continuing past a failed node (#865), T5 the endpoint decision (#866), T6 specs, release note and backlog rows.
 
 ## Consequences
 

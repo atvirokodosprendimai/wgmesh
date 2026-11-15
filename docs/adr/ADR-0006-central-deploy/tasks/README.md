@@ -14,7 +14,8 @@ README must be regenerated.
 | 2 | T2 | T1 |
 | 3 | T3, T4 | T2 (and T1 for T3) |
 | 4 | T5 | T4 |
-| 5 | T6 | T3, T4, T5 |
+| 5 | T7 | T5 |
+| 6 | T6 | T3, T4, T5, T7 |
 
 ## Task Index
 
@@ -26,6 +27,7 @@ README must be regenerated.
 | T4 | Record a result per node and continue past a failed one (#865) | done | — | eight named tests, build, vet, then `-race` |
 | T5 | Decide a node's endpoint in one pure function, and skip the probe for private hosts (#866) | done | — | five named tests, build, vet, then `-race` |
 | T6 | Amend the specs, write the release note and the backlog rows | pending | — | `go test ./pkg/mesh -run TestSpecNamesCentralized`, note exists, `adr-debt` reports no unreceipted row |
+| T7 | Restore the connected route for every removed own-network route, whatever its gateway (#894 item 1) | pending | — | three named tests, build, vet, then `-race` |
 
 ## Contract Coupling
 
@@ -36,6 +38,7 @@ README must be regenerated.
 | T3 | `Mesh.Validate`, `Finding`, `StrictState` | T6 | T3 before T6 |
 | T4 | `NodeResult`, `DeployError`, `PersistFailureFatal`, `deployNode` | T5, T6 | T4 before each (same file: `deploy.go`) |
 | T5 | `resolveEndpoint`, the probe skip | T6 | T5 before T6 |
+| T7 | `restoreOwnConnectedRoutes` | T6 | T7 before T6 (T6 documents it; same file `deploy.go` as T5) |
 
 ## Notes
 

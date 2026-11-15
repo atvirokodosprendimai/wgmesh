@@ -1,6 +1,6 @@
 # Task ADR-0006-T6: Amend the specs, write the release note and the backlog rows
 
-**Depends-on:** T3, T4, T5
+**Depends-on:** T3, T4, T5, T7
 **Covers:** none — no spec
 **Estimated scope:** S (documents and one test)
 **Owner:** unassigned
