@@ -1,6 +1,9 @@
 package daemon
 
 import (
+	"errors"
+	"log"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -149,5 +152,53 @@ func TestRemovedOwnViaRouteRestoresConnectedRoute(t *testing.T) {
 	}
 	if strings.Contains(all, "ip -4 -o addr show to "+other) {
 		t.Errorf("connected route restore attempted for a non-own network:\n%s", all)
+	}
+}
+
+// If `ip route del` fails the via route still stands: no restore, no "Restored" log.
+func TestFailedDelDoesNotRestoreConnectedRoute(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("syncPeerRoutes is Linux-only")
+	}
+	const shared = "192.168.10.0/24"
+
+	d := makeRelayTestDaemon()
+	d.config.InterfaceName = "wg0"
+	d.localNode.RoutableNetworks = []string{shared}
+	peer := &PeerInfo{WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(), RoutableNetworks: []string{shared}}
+
+	var cmds []string
+	mock := &MockCommandExecutor{
+		commandFunc: func(name string, args ...string) Command {
+			line := name + " " + strings.Join(args, " ")
+			cmds = append(cmds, line)
+			out := ""
+			switch line {
+			case "ip route show dev wg0":
+				out = shared + " via 10.0.0.20 dev wg0\n"
+			case "ip -4 -o addr show to " + shared:
+				out = "4: eth0    inet 192.168.10.1/24 scope global eth0\\       valid_lft forever preferred_lft forever\n"
+			}
+			cmd := &MockCommand{outputFunc: func() ([]byte, error) { return []byte(out), nil }}
+			if strings.HasPrefix(line, "ip route del ") {
+				cmd.runFunc = func() error { return errors.New("exit status 2") }
+			}
+			return cmd
+		},
+	}
+	var logs strings.Builder
+	log.SetOutput(&logs)
+	defer log.SetOutput(os.Stderr)
+	withMockExecutor(t, mock, func() {
+		if err := d.syncPeerRoutes([]*PeerInfo{peer}); err != nil {
+			t.Fatalf("syncPeerRoutes: %v", err)
+		}
+	})
+	all := strings.Join(cmds, "\n")
+	if strings.Contains(all, "ip route add "+shared) {
+		t.Errorf("connected route add attempted after a failed del:\n%s", all)
+	}
+	if strings.Contains(logs.String(), "Restored connected route") {
+		t.Errorf("logged a restore after a failed del: %s", logs.String())
 	}
 }

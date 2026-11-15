@@ -211,7 +211,7 @@ func TestApplyRouteDiff_AddAndRemove(t *testing.T) {
 	toRemove := []routes.Entry{{Network: "10.0.2.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
-		if err := applyRouteDiff("wg0", toAdd, toRemove); err != nil {
+		if _, err := applyRouteDiff("wg0", toAdd, toRemove); err != nil {
 			t.Fatalf("applyRouteDiff failed: %v", err)
 		}
 	})
@@ -258,7 +258,7 @@ func TestApplyRouteDiff_AddFailure(t *testing.T) {
 	toAdd := []routes.Entry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
-		err := applyRouteDiff("wg0", toAdd, nil)
+		_, err := applyRouteDiff("wg0", toAdd, nil)
 		if err == nil {
 			t.Fatal("expected error from failed route replace, got nil")
 		}

@@ -51,9 +51,10 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 	}
 
 	toAdd, toRemove := routes.CalculateDiff(current, desired)
-	err = applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
-	// Removals run before adds, so restore even if an add failed.
-	for _, r := range toRemove {
+	removed, err := applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
+	// Removals run before adds, so restore even if an add failed. Only a
+	// removed route can be replaced by the connected route.
+	for _, r := range removed {
 		if len(routes.ExcludeOwn([]string{r.Network}, d.localNode.RoutableNetworks)) == 0 {
 			restoreConnectedRoute(r.Network)
 		}
@@ -148,16 +149,20 @@ func getCurrentRoutes(iface string) ([]routes.Entry, error) {
 	return result, nil
 }
 
-func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) error {
+// applyRouteDiff applies the diff and returns the routes whose `ip route del` succeeded.
+func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) ([]routes.Entry, error) {
+	var removed []routes.Entry
 	for _, route := range toRemove {
 		cmd := cmdExecutor.Command("ip", "route", "del", route.Network, "via", route.Gateway, "dev", iface)
-		_ = cmd.Run()
+		if cmd.Run() == nil {
+			removed = append(removed, route)
+		}
 	}
 
 	for _, route := range toAdd {
 		cmd := cmdExecutor.Command("ip", "route", "replace", route.Network, "via", route.Gateway, "dev", iface)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to add route %s via %s: %s: %w", route.Network, route.Gateway, string(output), err)
+			return removed, fmt.Errorf("failed to add route %s via %s: %s: %w", route.Network, route.Gateway, string(output), err)
 		}
 	}
 
@@ -166,7 +171,7 @@ func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) error {
 
 	ensureWGForwardingRule(iface)
 
-	return nil
+	return removed, nil
 }
 
 func ensureWGForwardingRule(iface string) {
