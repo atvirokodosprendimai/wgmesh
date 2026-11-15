@@ -4,7 +4,7 @@
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
-**Produces:** `node.Candidate`, `node.Source`, `node.Hand`, `node.Decision`, `PeerStore.Offer`, `node.Policy` and `PeerStore.SetPolicy`
+**Produces:** `node.Candidate`, `node.Source`, `node.Hand`, `node.Decision`, `node.Verdict`, `node.Snapshot`, `PeerStore.Offer`, `node.Policy` and `PeerStore.SetPolicy`
 **Consumes:** none
 **Data dependency:** hermetic
 **Proof map:** v1
@@ -17,9 +17,9 @@
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/node/admit.go` | add | `Source`, `Hand`, `Candidate`, `Decision`, `Reason`, `Policy` (fields `Local func() (key, ip string)`, `MeshNet *net.IPNet`, `Derive func(pubKey string, nonce int) string`, `OnWarn func(rule string)`; all optional), `Decide`, `Offer`, `SetPolicy` |
+| `pkg/node/admit.go` | add | `Source`, `Hand`, `Candidate`, `Decision`, `Verdict`, `Reason`, `Snapshot`, `Policy` (fields `Local func() (key, ip string)`, `MeshNet *net.IPNet`, `Derive func(pubKey string, nonce int) string`, `OnWarn func(rule string)`; all optional), `Decide`, `Offer`, `SetPolicy` |
 | `pkg/daemon/peerstore_compat.go` | edit | aliases for `Candidate`, `Hand`, `Source`, `Decision`, `Policy` so `pkg/discovery`, which imports `pkg/daemon` and not `pkg/node`, can name them |
-| `pkg/node/store.go` | edit | the body of `Update` becomes the merge step keyed on `Hand`; `Update` forwards to `Offer` through `legacyCandidate`; an unexported `offers` counter is incremented by `Offer`; the peer-cap drop returns a named refusal |
+| `pkg/node/store.go` | edit | the body of `Update` becomes the merge step keyed on `Hand`; `Update` forwards to `Offer` through `legacyCandidate`; an unexported `offers` counter is incremented by `Offer`; the peer-cap drop moves to `Decide` in `admit.go` (reason `peer-cap`) |
 | `pkg/node/admit_test.go` | add | tests below and `BenchmarkOfferAtCap` |
 
 Selection: `Update` forwards to `Offer`, so the 58 existing test call sites (`grep -rn "peerStore.Update\|[sS]tore.Update(\|ps.Update(" --include=*_test.go . | wc -l`, 2026-11-15) and every production call until T2 run through the new code; a mutant that makes `Update` skip `Offer` turns `TestUpdateGoesThroughOffer` red (the characterisation test alone cannot tell, the stored values are the same).
@@ -54,7 +54,7 @@ n=$(go test ./pkg/node -run '^(TestOfferMatchesLegacyUpdate|TestOfferHandIsExpli
 
 | Rung | How this task shows it |
 |------|------------------------|
-| 1 — exists | the four tests |
+| 1 — exists | the five tests |
 | 2 — something selects it | `Update` calls `Offer`; the `Update`-bypass mutant turns `TestUpdateGoesThroughOffer` red |
 | 3 — the caller can discover it | exported with doc comments; T11 amends the peer store spec |
 | 4 — it is used | every production claim from T2 on |
@@ -63,6 +63,7 @@ n=$(go test ./pkg/node -run '^(TestOfferMatchesLegacyUpdate|TestOfferHandIsExpli
 - 2026-11-15 · a274161* · mutant killed · exit 1 · `pkg/node/store.go` · Update bypasses Offer: TestUpdateGoesThroughOffer must go red · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37
 - 2026-11-15 · a274161* · mutant killed · exit 1 · `pkg/node/store.go` · merge reads the method string instead of Hand: TestOfferHandIsExplicitNotSubstring must go red · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37
 - 2026-11-15 · a274161* · mutant killed · exit 1 · `pkg/node/admit.go` · peer-cap branch admits: TestOfferRefusesAtPeerCapWithReason must go red · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37
+- 2026-11-15 · 647601e* · mutant killed · exit 1 · `pkg/node/store.go` · LastSeen refresh inverted: TestOfferLastSeenFollowsHand must go red (Haiku tests-design found it uncovered) · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37
 
 ## Invariants
 
@@ -103,3 +104,5 @@ Stop and ask if any existing store test needs a changed expectation, or if `Deci
 - 2026-11-15 · a274161* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:11924
 - 2026-11-15 · a274161* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12160
 - 2026-11-15 · a274161* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12004
+- 2026-11-15 · 647601e* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12018
+- 2026-11-15 · 647601e* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12095

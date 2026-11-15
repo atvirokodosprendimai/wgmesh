@@ -3,7 +3,6 @@ package node
 import (
 	"log"
 	"net"
-	"strings"
 )
 
 // Source labels where a claim came from: lan, dht, dht-rendezvous,
@@ -33,7 +32,7 @@ type Candidate struct {
 // Method returns the discovery method string stored in DiscoveredVia and
 // EndpointMethod.
 func (c Candidate) Method() string {
-	if c.Hand == SecondHand && !strings.Contains(string(c.Source), "transitive") {
+	if c.Hand == SecondHand && !isTransitiveMethod(string(c.Source)) {
 		return string(c.Source) + "-transitive"
 	}
 	return string(c.Source)
@@ -53,8 +52,9 @@ type Reason string
 
 const ReasonPeerCap Reason = "peer-cap"
 
-// Decision is the result of Decide. Dropped names fields removed from an
-// AdmitPartial candidate; Warnings names rules that would refuse in enforce mode.
+// Decision is the result of Decide. AdmitPartial, Dropped and Warnings are
+// declared for the rules of T3 to T10 and nothing produces them yet; Dropped
+// would name fields removed from a candidate, Warnings rules that would refuse in enforce mode.
 type Decision struct {
 	Verdict  Verdict
 	Reason   Reason

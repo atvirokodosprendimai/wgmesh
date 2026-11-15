@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func legacyOffer(ps *PeerStore, info *PeerInfo, method string) Decision {
@@ -166,6 +167,52 @@ func BenchmarkOfferAtCap(b *testing.B) {
 		ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: fmt.Sprintf("key-%d", i), MeshIP: "10.0.0.1"}, Source: "dht", Hand: FirstHand})
 	}
 	c := Candidate{Info: &PeerInfo{WGPubKey: "key-500", MeshIP: "10.0.0.2"}, Source: "dht", Hand: FirstHand}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ps.Offer(c)
+	}
+}
+
+// Only a first-hand claim moves LastSeen to now; a second-hand or restored
+// claim leaves the older stamp.
+func TestOfferLastSeenFollowsHand(t *testing.T) {
+	t.Parallel()
+
+	old := time.Now().Add(-time.Hour)
+	for _, tt := range []struct {
+		hand    Hand
+		refresh bool
+	}{{FirstHand, true}, {SecondHand, false}, {Restored, false}} {
+		ps := NewPeerStore()
+		ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k", LastSeen: old}, Source: "dht", Hand: FirstHand})
+		ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k"}, Source: "dht", Hand: tt.hand})
+		got, _ := ps.Get("k")
+		if got == nil || got.LastSeen.After(old) != tt.refresh {
+			t.Errorf("hand %d: LastSeen = %v, refreshed want %v", tt.hand, got, tt.refresh)
+		}
+	}
+}
+
+// A store with a nil or an empty policy admits what the old Update admitted.
+func TestOfferAdmitsWithNilAndEmptyPolicy(t *testing.T) {
+	t.Parallel()
+
+	for _, p := range []*Policy{nil, {}} {
+		ps := NewPeerStore()
+		ps.SetPolicy(p)
+		d := ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k", MeshIP: "10.0.0.1"}, Source: "dht", Hand: FirstHand})
+		if _, ok := ps.Get("k"); d.Verdict != Admit || !ok {
+			t.Errorf("policy %+v: decision %+v, stored %v", p, d, ok)
+		}
+	}
+}
+
+func BenchmarkOfferRefusedAtCap(b *testing.B) {
+	ps := NewPeerStore()
+	for i := 0; i < DefaultMaxPeers; i++ {
+		ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: fmt.Sprintf("key-%d", i), MeshIP: "10.0.0.1"}, Source: "dht", Hand: FirstHand})
+	}
+	c := Candidate{Info: &PeerInfo{WGPubKey: "one-too-many"}, Source: "dht", Hand: FirstHand}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ps.Offer(c)

@@ -20,7 +20,7 @@ README must be regenerated.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Add `PeerStore.Offer` with an explicit hand, and pin the merged rules | done | — | `go test ./pkg/node` four named tests, then `-race` on node, daemon, discovery |
+| T1 | Add `PeerStore.Offer` with an explicit hand, and pin the merged rules | done | — | `go test ./pkg/node` five named tests, then `-race` on node, daemon, discovery |
 | T2 | Send every production claim through `Offer`, and fail the build on a direct one | pending | — | five named tests, `grep` count of direct `Update` calls is 0, then `-race` |
 | T3 | Keep a tombstone for removed peers and refuse second-hand re-adds (#854) | pending | — | eight named tests in three packages, then `-race` |
 | T4 | Put the local node into the mesh IP claim table and order claims (#856) | pending | — | seven named tests in two packages, then `-race` |
