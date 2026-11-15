@@ -1,7 +1,6 @@
 package node
 
 import (
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -85,103 +84,82 @@ func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
 	}
 }
 
-// Update adds or updates a peer in the store.
-// Merge logic: newest timestamp wins for mutable fields (endpoint, routable_networks)
+// Update adds or updates a peer in the store. It is kept for tests and
+// fixtures and reads the hand from the method string; production claims go
+// through Offer.
 func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
-	var eventKey string
-	var eventKind PeerEventKind
-
-	func() {
-		ps.mu.Lock()
-		defer ps.mu.Unlock()
-		now := time.Now()
-
-		existing, exists := ps.peers[info.WGPubKey]
-		if !exists {
-			if len(ps.peers) >= DefaultMaxPeers {
-				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
-					DefaultMaxPeers, shortKey(info.WGPubKey), discoveryMethod)
-				return
-			}
-			if info.LastSeen.IsZero() {
-				info.LastSeen = now
-			}
-			info.DiscoveredVia = []string{discoveryMethod}
-			if info.Endpoint != "" {
-				info.EndpointMethod = discoveryMethod
-			}
-			ps.peers[info.WGPubKey] = info
-			eventKey = info.WGPubKey
-			eventKind = PeerEventNew
-			return
-		}
-
-		if info.Endpoint != "" && shouldUpdateEndpoint(existing, info.Endpoint, discoveryMethod) {
-			existing.Endpoint = info.Endpoint
-			existing.EndpointMethod = discoveryMethod
-		}
-		// A transitive mention is second-hand (another member says it knows this
-		// peer), so it may fill a field the peer never announced itself but must
-		// not rewrite one it did: otherwise any member can move another member's
-		// mesh IP or routes, or flip its introducer flag, by naming it in
-		// KnownPeers. Only the peer's own announcements replace these fields.
-		transitive := isTransitiveMethod(discoveryMethod)
-		// An empty list from the peer's own announcement withdraws its routes;
-		// a cache entry or a transitive mention with no routes says nothing.
-		withdraw := len(info.RoutableNetworks) == 0 && shouldRefreshLastSeen(discoveryMethod)
-		if withdraw || (len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0)) {
-			existing.RoutableNetworks = info.RoutableNetworks
-		}
-		if info.MeshIP != "" && (!transitive || existing.MeshIP == "") {
-			existing.MeshIP = info.MeshIP
-		}
-		if info.MeshIPv6 != "" && (!transitive || existing.MeshIPv6 == "") {
-			existing.MeshIPv6 = info.MeshIPv6
-		}
-		if info.Hostname != "" {
-			existing.Hostname = info.Hostname
-		}
-		if !transitive {
-			existing.Introducer = info.Introducer
-		}
-		if info.NATType != "" {
-			existing.NATType = info.NATType
-		}
-
-		if shouldRefreshLastSeen(discoveryMethod) {
-			existing.LastSeen = now
-		} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
-			existing.LastSeen = info.LastSeen
-		}
-
-		found := false
-		for _, method := range existing.DiscoveredVia {
-			if method == discoveryMethod {
-				found = true
-				break
-			}
-		}
-		if !found {
-			existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
-		}
-
-		eventKey = info.WGPubKey
-		eventKind = PeerEventUpdated
-	}()
-
-	if eventKey != "" {
-		ps.notify(eventKey, eventKind)
-	}
+	ps.Offer(legacyCandidate(info, discoveryMethod))
 }
 
-func shouldRefreshLastSeen(discoveryMethod string) bool {
-	if discoveryMethod == "cache" {
-		return false
+// merge applies an admitted candidate to the store; the caller holds ps.mu.
+// Merge logic: newest timestamp wins for mutable fields (endpoint, routable_networks)
+func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKind) {
+	info, discoveryMethod := c.Info, c.Method()
+	now := time.Now()
+
+	existing, exists := ps.peers[info.WGPubKey]
+	if !exists {
+		if info.LastSeen.IsZero() {
+			info.LastSeen = now
+		}
+		info.DiscoveredVia = []string{discoveryMethod}
+		if info.Endpoint != "" {
+			info.EndpointMethod = discoveryMethod
+		}
+		ps.peers[info.WGPubKey] = info
+		return info.WGPubKey, PeerEventNew
 	}
-	if isTransitiveMethod(discoveryMethod) {
-		return false
+
+	if info.Endpoint != "" && shouldUpdateEndpoint(existing, info.Endpoint, discoveryMethod) {
+		existing.Endpoint = info.Endpoint
+		existing.EndpointMethod = discoveryMethod
 	}
-	return true
+	// A transitive mention is second-hand (another member says it knows this
+	// peer), so it may fill a field the peer never announced itself but must
+	// not rewrite one it did: otherwise any member can move another member's
+	// mesh IP or routes, or flip its introducer flag, by naming it in
+	// KnownPeers. Only the peer's own announcements replace these fields.
+	transitive := c.Hand == SecondHand
+	// An empty list from the peer's own announcement withdraws its routes;
+	// a cache entry or a transitive mention with no routes says nothing.
+	withdraw := len(info.RoutableNetworks) == 0 && c.Hand == FirstHand
+	if withdraw || (len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0)) {
+		existing.RoutableNetworks = info.RoutableNetworks
+	}
+	if info.MeshIP != "" && (!transitive || existing.MeshIP == "") {
+		existing.MeshIP = info.MeshIP
+	}
+	if info.MeshIPv6 != "" && (!transitive || existing.MeshIPv6 == "") {
+		existing.MeshIPv6 = info.MeshIPv6
+	}
+	if info.Hostname != "" {
+		existing.Hostname = info.Hostname
+	}
+	if !transitive {
+		existing.Introducer = info.Introducer
+	}
+	if info.NATType != "" {
+		existing.NATType = info.NATType
+	}
+
+	if c.Hand == FirstHand {
+		existing.LastSeen = now
+	} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
+		existing.LastSeen = info.LastSeen
+	}
+
+	found := false
+	for _, method := range existing.DiscoveredVia {
+		if method == discoveryMethod {
+			found = true
+			break
+		}
+	}
+	if !found {
+		existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
+	}
+
+	return info.WGPubKey, PeerEventUpdated
 }
 
 func isTransitiveMethod(discoveryMethod string) bool {

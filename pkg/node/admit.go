@@ -1,6 +1,10 @@
 package node
 
-import "net"
+import (
+	"log"
+	"net"
+	"strings"
+)
 
 // Source labels where a claim came from: lan, dht, dht-rendezvous,
 // dht-ipv6-sync, gossip, cache. It is a typed string so a new label passes
@@ -29,6 +33,9 @@ type Candidate struct {
 // Method returns the discovery method string stored in DiscoveredVia and
 // EndpointMethod.
 func (c Candidate) Method() string {
+	if c.Hand == SecondHand && !strings.Contains(string(c.Source), "transitive") {
+		return string(c.Source) + "-transitive"
+	}
 	return string(c.Source)
 }
 
@@ -70,9 +77,13 @@ type Snapshot struct {
 	Policy *Policy
 }
 
-// Decide is a pure function of a snapshot and a candidate.
+// Decide is a pure function of a snapshot and a candidate. Its one refusal
+// today is the peer cap.
 func Decide(s Snapshot, c Candidate) Decision {
-	return Decision{}
+	if !s.Known && s.Count >= DefaultMaxPeers {
+		return Decision{Verdict: Refuse, Reason: ReasonPeerCap}
+	}
+	return Decision{Verdict: Admit}
 }
 
 // SetPolicy sets the policy used by Offer; nil means no policy.
@@ -82,15 +93,43 @@ func (ps *PeerStore) SetPolicy(p *Policy) {
 	ps.policy = p
 }
 
-// Offer decides what a claim may do and applies it.
+// Offer decides what a claim may do and applies it, under the store's one lock.
 func (ps *PeerStore) Offer(c Candidate) Decision {
-	ps.mu.Lock()
-	defer ps.mu.Unlock()
-	ps.offers++
-	return Decision{}
+	var d Decision
+	var eventKey string
+	var eventKind PeerEventKind
+
+	func() {
+		ps.mu.Lock()
+		defer ps.mu.Unlock()
+		ps.offers++
+
+		_, known := ps.peers[c.Info.WGPubKey]
+		d = Decide(Snapshot{Count: len(ps.peers), Known: known, Policy: ps.policy}, c)
+		if d.Verdict == Refuse {
+			if d.Reason == ReasonPeerCap {
+				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
+					DefaultMaxPeers, shortKey(c.Info.WGPubKey), c.Method())
+			}
+			return
+		}
+		eventKey, eventKind = ps.merge(c)
+	}()
+
+	if eventKey != "" {
+		ps.notify(eventKey, eventKind)
+	}
+	return d
 }
 
 // legacyCandidate reads a method string the way Update always has.
 func legacyCandidate(info *PeerInfo, method string) Candidate {
-	return Candidate{Info: info, Source: Source(method)}
+	c := Candidate{Info: info, Source: Source(method)}
+	switch {
+	case method == "cache":
+		c.Hand = Restored
+	case isTransitiveMethod(method):
+		c.Hand = SecondHand
+	}
+	return c
 }
