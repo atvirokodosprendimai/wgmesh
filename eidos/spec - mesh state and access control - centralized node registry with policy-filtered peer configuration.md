@@ -28,8 +28,8 @@ Centralized representation of the WireGuard mesh: who is in it, what keys they h
   - Routable network access accumulates only from outbound policy direction.
 - Access control is opt-in: existing deployments without groups or policies continue to behave as full mesh.
 - **Validated before a deploy.** `Mesh.Validate` runs first in `Deploy`, before any connection, and returns findings of two classes. `-list`, `-remove` and `mesh list` do not validate.
-  - Class A is refused from release N: a character outside the safe set `[A-Za-z0-9._:/,@%+=\[\]-]` in the interface name, a public key, a public endpoint, the network, a routable network or an SSH host; a control character or a space; a leading `-`; an empty interface name; a missing or unparsable `mesh_ip`; a `null` node.
-  - Class B is a warning at N and is refused once `mesh.StrictState` is set (N+1): an interface name outside the Linux grammar, a network or routable network that `net.ParseCIDR` rejects, a public endpoint that is not `host:port` with a port from 1 to 65535, a public key that is not 44 base64 characters decoding to 32 bytes, a listen or SSH port outside 1 to 65535, a mesh IP outside `network`, two nodes with one mesh IP or one public key.
+  - A class A finding is refused from release N: a character outside the safe set `[A-Za-z0-9._:/,@%+=\[\]-]` in the interface name, a public key, a public endpoint, the network, a routable network or an SSH host; a control character or a space; a leading `-`; an empty interface name; a missing or unparsable `mesh_ip`; a `null` node.
+  - A class B finding is a warning at N and is refused once `mesh.StrictState` is set (N+1): an interface name outside the Linux grammar, a network or routable network that `net.ParseCIDR` rejects, a public endpoint that is not `host:port` with a port from 1 to 65535, a public key that is not 44 base64 characters decoding to 32 bytes, a listen or SSH port outside 1 to 65535, a mesh IP outside `network`, two nodes with one mesh IP or one public key.
 
 ## Design
 
