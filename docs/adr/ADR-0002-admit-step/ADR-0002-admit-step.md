@@ -177,7 +177,7 @@ See `tasks/README.md`. Eleven tasks in five waves (the tasks share files and run
 
 ## Rollback
 
-N is additive on the read side: `Offer` applies the same merge as `Update`, and every binding rule only counts and logs. Reverting N restores direct `Update` calls; nothing persisted changes shape except that the state file may hold a collision-resolved `MeshIP`, which the old `initLocalNode` keeps when it is inside the subnet, so a revert leaves that address in place (it was valid when written). Tombstones are memory only. A revert after N+1 returns the mesh IP rules to warn mode by flipping the variable back; no data is rewritten. `testdata/compat/admit/v1` stays in the repository, as frozen fixtures are never deleted.
+N is additive on the read side: `Offer` applies the same merge as `Update`, and every binding rule only counts and logs, with one visible exception: from N the local node takes part in collisions (#856), so a node that loses one re-derives its mesh IP and its interface address changes at runtime (T11 release note). Reverting N restores direct `Update` calls; nothing persisted changes shape except that the state file may hold a collision-resolved `MeshIP`, which the old `initLocalNode` keeps when it is inside the subnet, so a revert leaves that address in place (it was valid when written). Tombstones are memory only. A revert after N+1 returns the mesh IP rules to warn mode by flipping the variable back; no data is rewritten. `testdata/compat/admit/v1` stays in the repository, as frozen fixtures are never deleted.
 
 ## Follow-ups
 

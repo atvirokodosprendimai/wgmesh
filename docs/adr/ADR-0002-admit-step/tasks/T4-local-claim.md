@@ -17,7 +17,7 @@ A mesh IP collision between the local node and a remote peer is detected and dec
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/node/claims.go` | add | `Claim{Key, IP string}`, `Bound(claim, derive, maxNonce)`, `Winner(a, b Claim, derive, warn func(rule string))`, `ResolveClaims(local Claim, peers []*PeerInfo, derive) []Collision`; `maxNonce` is 10, the loop bound of `DeriveMeshIPWithCollisionCheck` (`pkg/daemon/collision.go:160`) |
+| `pkg/node/claims.go` | add | `Claim{Key, IP string}`, `Bound(claim, derive, maxNonce)`, `Winner(a, b Claim, derive, warn func(rule string))`, `ResolveClaims(local Claim, peers []*PeerInfo, derive) []Collision`; `maxNonce` is 10, the loop bound of `DeriveMeshIPWithCollisionCheck` (`pkg/daemon/collision.go:171`) |
 | `pkg/node/admit.go` | edit | `EnforceIPBinding` variable (false) |
 | `pkg/daemon/daemon.go` | edit | build the `Policy` (`Local` closure over `localNode`, `Derive` closure, `OnWarn`) and call `peerStore.SetPolicy` before discovery starts. `Derive(key, 0)` is the natural derivation (`crypto.DeriveMeshIP`, or `DeriveMeshIPInSubnet` with a custom subnet) and `Derive(key, n)` for n of 1 or more is `DeriveMeshIPWithNonce` (or `DeriveMeshIPInSubnetWithNonce`): the two families hash different inputs (`derive.go:155-156` against `collision.go:75-76`) |
 | `pkg/daemon/metrics.go` | edit | counter `wgmesh_admit_warnings_total{rule}` and the function `OnWarn` calls |
@@ -53,8 +53,8 @@ a=$(go test ./pkg/node -run '^(TestClaimOrderBoundBeatsUnbound|TestClaimOrderFal
 | `TestBoundAcceptsNonceOneToTen` | `pkg/node/claims_test.go` | an IP derived with nonce 1 and with nonce 10 is bound, nonce 11 is not | — | S1, S2 |
 | `TestLocalNodeLosesCollisionAgainstRemote` | `pkg/daemon/collision_test.go` | the daemon re-derives the local IP when the local key is the loser against a remote peer in the store (red today) | — | S1, S4 |
 | `TestLegacyWinnerAtReleaseN` | `pkg/daemon/collision_test.go` | with `EnforceIPBinding` false the lower key moves, and a `winner-differs` warning is counted when the bound order would choose the other | — | S1, S2, S4 |
-| `TestMixedWinnerRulesConverge` | `pkg/daemon/collision_test.go` | a legacy-order node and a bound-order node with two unbound or two bound claims both re-derive and end on different addresses | — | S1, S4 |
-| `TestMixedWinnerNeitherMovesIsNotWorse` | `pkg/daemon/collision_test.go` | old node with the lower key and an unbound address against a new node with a bound address: neither moves, which is what the legacy rule alone does, and the warning is counted | — | S1, S4 |
+| `TestMixedWinnerRulesConverge` | `pkg/daemon/collision_test.go` | an old-order node with the higher key and a bound address against a bound-order node with the lower key and an unbound address: both re-derive and end on different addresses; two claims of one class make the rules agree and only the higher key moves | — | S1, S4 |
+| `TestMixedWinnerNeitherMovesIsNotWorse` | `pkg/daemon/collision_test.go` | old node with the lower key and an unbound address against a new node with a bound address: neither moves, which is what main does today where the local node is not in the table (#856), and the old node counts one warning | — | S1, S4 |
 | `TestDaemonInstallsAdmitPolicy` | `pkg/daemon/daemon_test.go` | after daemon construction the store has a policy whose `Local` returns the local key and IP | — | S1, S4 |
 | `TestPolicyDeriveZeroIsNaturalDerivation` | `pkg/daemon/daemon_test.go` | `Derive(key, 0)` equals `crypto.DeriveMeshIP` (and the custom-subnet form), `Derive(key, 1)` equals `DeriveMeshIPWithNonce(.., 1)` | — | S1, S4 |
 | `TestAdmitWarningCounterCounts` | `pkg/daemon/metrics_test.go` | `OnWarn("winner-differs")` increments `wgmesh_admit_warnings_total{rule="winner-differs"}` | — | S1, S4 |
@@ -66,7 +66,7 @@ a=$(go test ./pkg/node -run '^(TestClaimOrderBoundBeatsUnbound|TestClaimOrderFal
 | 1 — exists | the seven tests |
 | 2 — something selects it | `reconcile` calls `CheckAndResolveCollisions`, which calls `ResolveClaims`; dropping the local claim turns `TestLocalNodeLosesCollisionAgainstRemote` red |
 | 3 — the caller can discover it | doc comments; T11 amends the daemon support spec |
-| 4 — it is used | the `[Collision]` log lines and the `winner-differs` counter registered by T6 |
+| 4 — it is used | the `[Collision]` log lines and the `winner-differs` counter registered by T4 in `RegisterMetrics` (T6 registers nothing) |
 
 ## Mutation Log
 - 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · the local claim is dropped from ResolveClaims: TestResolveClaimsIncludesLocal and TestLocalNodeLosesCollisionAgainstRemote must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837

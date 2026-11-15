@@ -39,9 +39,9 @@ README must be regenerated.
 | T1 | `Candidate`, `Hand`, `Source`, `Decision`, `Offer`, `Policy`, `SetPolicy` | T2, T4, T6 | T1 before each |
 | T2 | every production claim goes through `Offer`; `TestNoDirectPeerStoreMutation` | T3, T7, T8, T9 | T2 before each (same files: `exchange.go`, `dht.go`, `gossip.go`, `lan.go`) |
 | T3 | `Withdraw`, tombstones, `TombstoneTTL` | T11 | T3 before T11 |
-| T4 | `Claim`, `ResolveClaims`, claim order, `EnforceIPBinding` | T5, T6 | T4 before each |
+| T4 | `Claim`, `ResolveClaims`, claim order, `EnforceIPBinding`, `wgmesh_admit_warnings_total` | T5, T6 | T4 before each |
 | T5 | persisted resolved IP | T11 | T5 before T11 |
-| T6 | `EnforceRouteBinding`, compat fixtures, `wgmesh_admit_warnings_total` | T11 | T6 before T11 |
+| T6 | `EnforceRouteBinding`, compat fixtures | T11 | T6 before T11 |
 | T7 | `ResolveEndpoint`, `PeerInfo.EndpointGuessed` | T11 | T7 before T11 |
 | T8 | `crypto.FilterAnnouncement` | T11 | T8 before T11 |
 | T9 | `LocalNode.ObserveEndpoint` | T11 | T9 before T11 |
