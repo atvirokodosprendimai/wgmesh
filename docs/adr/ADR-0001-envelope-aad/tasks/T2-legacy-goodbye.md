@@ -62,6 +62,12 @@ n=$(go test ./pkg/discovery -run '^(TestLegacyGoodbyeIsIgnored|TestAADGoodbyeRem
 - 2026-11-15 · e6a1df0* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the gate refuses every GOODBYE, including AAD-bound ones · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
 - 2026-11-15 · e6a1df0* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · SendGoodbye goes back to the legacy form and graceful shutdown stops working between upgraded nodes · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
 - 2026-11-15 · e6a1df0* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · legacy opens are no longer counted · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
+- 2026-11-15 · 9899d38* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the log throttle map is no longer bounded · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
+- 2026-11-15 · 9899d38* · mutant inconclusive · exit 1 · `pkg/discovery/exchange.go` · the log throttle no longer throttles · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-15 · 9899d38* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the log throttle cooldown is zero, so every packet is logged (compiles, unlike dropping the condition) · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213
 
 ## Invariants
 
@@ -103,3 +109,7 @@ Stop and ask if the gate would also have to cover a type other than GOODBYE.
 - 2026-11-15 · e6a1df0* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:14732
 - 2026-11-15 · e6a1df0* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:8216
 - 2026-11-15 · e6a1df0* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:9362
+- 2026-11-15 · 9899d38* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:16583
+- 2026-11-15 · 9899d38* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:8831
+- 2026-11-15 · 9899d38* · exit 0 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:8683
+- 2026-11-15 · 9899d38* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:1 · test-lock-sha256:860fcc1f8718023ffaf25b029bc8ffdc038927695a40c90b4fc868235d81124e · test-lock-file:docs/adr/locks/860fcc1f8718023ffaf25b029bc8ffdc038927695a40c90b4fc868235d81124e.lock · test-lock-kind:replace
