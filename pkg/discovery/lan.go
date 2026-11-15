@@ -10,6 +10,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 const (
@@ -227,7 +228,7 @@ func (l *LANDiscovery) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *s
 		}
 
 		// Resolve endpoint from the sender's address if the announced one is 0.0.0.0
-		endpoint := resolveEndpoint(announcement.WGEndpoint, remoteAddr)
+		endpoint, guessed := resolveEndpoint(announcement.WGEndpoint, remoteAddr)
 
 		peer := &daemon.PeerInfo{
 			WGPubKey:         announcement.WGPubKey,
@@ -235,6 +236,7 @@ func (l *LANDiscovery) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *s
 			MeshIP:           announcement.MeshIP,
 			MeshIPv6:         announcement.MeshIPv6,
 			Endpoint:         endpoint,
+			EndpointGuessed:  guessed,
 			Introducer:       announcement.Introducer,
 			RoutableNetworks: announcement.RoutableNetworks,
 			NATType:          announcement.NATType,
@@ -246,20 +248,15 @@ func (l *LANDiscovery) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *s
 	}
 }
 
-// resolveEndpoint resolves the peer endpoint from the announcement and sender address
-func resolveEndpoint(advertised string, sender *net.UDPAddr) string {
-	if sender != nil && sender.IP != nil {
-		if _, port, err := net.SplitHostPort(advertised); err == nil && port != "" {
-			return net.JoinHostPort(sender.IP.String(), port)
-		}
-		return net.JoinHostPort(sender.IP.String(), fmt.Sprintf("%d", daemon.DefaultWGPort))
+// resolveEndpoint resolves the peer endpoint from the announcement and sender
+// address; LAN keeps the sender's IP over an advertised host (node.ResolveEndpoint
+// with preferSender).
+func resolveEndpoint(advertised string, sender *net.UDPAddr) (endpoint string, guessed bool) {
+	var ip net.IP
+	if sender != nil {
+		ip = sender.IP
 	}
-
-	if _, _, err := net.SplitHostPort(advertised); err == nil {
-		return advertised
-	}
-
-	return ""
+	return node.ResolveEndpoint(advertised, ip, daemon.DefaultWGPort, true)
 }
 
 // MarshalJSON implements json.Marshaler for debugging

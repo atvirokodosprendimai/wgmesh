@@ -32,7 +32,7 @@ func TestResolveEndpointPrefersLANSourceIP(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolveEndpoint(tt.advertised, tt.sender)
+			got, _ := resolveEndpoint(tt.advertised, tt.sender)
 			if got != tt.want {
 				t.Fatalf("resolveEndpoint(%q, %v) = %q, want %q", tt.advertised, tt.sender, got, tt.want)
 			}

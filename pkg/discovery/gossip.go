@@ -303,11 +303,13 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		return
 	}
 
-	endpoint := resolvePeerEndpoint(announcement.WGEndpoint, sender)
+	var endpoint string
+	var guessed bool
 	if sender == nil {
-		endpoint = normalizeKnownPeerEndpoint(announcement.WGEndpoint)
+		endpoint = filterEndpointForConfig(normalizeKnownPeerEndpoint(announcement.WGEndpoint), g.config.DisableIPv6)
+	} else {
+		endpoint, guessed = peerEndpoint(announcement.WGEndpoint, sender, g.config.DisableIPv6)
 	}
-	endpoint = filterEndpointForConfig(endpoint, g.config.DisableIPv6)
 
 	// Update the sender's info
 	peer := &daemon.PeerInfo{
@@ -316,6 +318,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		MeshIP:           announcement.MeshIP,
 		MeshIPv6:         announcement.MeshIPv6,
 		Endpoint:         endpoint,
+		EndpointGuessed:  guessed,
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
 		NATType:          announcement.NATType,

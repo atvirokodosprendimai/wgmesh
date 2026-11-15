@@ -22,7 +22,7 @@ func TestResolveEndpointKeepsAdvertisedPort(t *testing.T) {
 			{"real host keeps host and port", "198.51.100.7:51821", false, "198.51.100.7:51821"},
 			{"unspecified host takes sender IP", "0.0.0.0:51821", false, "203.0.113.1:51821"},
 			{"empty host takes sender IP", ":51821", false, "203.0.113.1:51821"},
-			{"ipv6 unspecified takes sender IP", ":::51821", false, "203.0.113.1:51821"},
+			{"ipv6 unspecified takes sender IP", "[::]:51821", false, "203.0.113.1:51821"},
 			{"preferSender keeps sender IP over a real host", "198.51.100.7:51821", true, "203.0.113.1:51821"},
 		}
 		for _, tt := range tests {

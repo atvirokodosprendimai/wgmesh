@@ -13,6 +13,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
@@ -389,12 +390,14 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 	}
 
 	// Update peer store with the sender's info
+	endpoint, guessed := peerEndpoint(announcement.WGEndpoint, remoteAddr, pe.config.DisableIPv6)
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         announcement.WGPubKey,
 		Hostname:         announcement.Hostname,
 		MeshIP:           announcement.MeshIP,
 		MeshIPv6:         announcement.MeshIPv6,
-		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
+		Endpoint:         endpoint,
+		EndpointGuessed:  guessed,
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
 		NATType:          announcement.NATType,
@@ -418,12 +421,14 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 	// IP:port looks like. Use the reflected IP combined with our WG port.
 	pe.applyObservedEndpoint(reply.ObservedEndpoint)
 
+	endpoint, guessed := peerEndpoint(reply.WGEndpoint, remoteAddr, pe.config.DisableIPv6)
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         reply.WGPubKey,
 		Hostname:         reply.Hostname,
 		MeshIP:           reply.MeshIP,
 		MeshIPv6:         reply.MeshIPv6,
-		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(reply.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
+		Endpoint:         endpoint,
+		EndpointGuessed:  guessed,
 		Introducer:       reply.Introducer,
 		RoutableNetworks: reply.RoutableNetworks,
 		NATType:          reply.NATType,
@@ -1055,24 +1060,23 @@ func (pe *PeerExchange) getPendingReplyChannel(remote string) (chan *daemon.Peer
 	return ch, ok
 }
 
-func resolvePeerEndpoint(advertised string, sender *net.UDPAddr) string {
-	if host, port, err := net.SplitHostPort(advertised); err == nil {
-		resolvedHost := host
-		if resolvedHost == "" || resolvedHost == "0.0.0.0" || resolvedHost == "::" {
-			if sender != nil && sender.IP != nil {
-				resolvedHost = sender.IP.String()
-			}
-		}
-		if resolvedHost != "" {
-			return net.JoinHostPort(resolvedHost, port)
-		}
+// resolvePeerEndpoint applies the exchange endpoint rules (node.ResolveEndpoint)
+// to a UDP sender; guessed is true when the endpoint is the sender IP with the
+// default WireGuard port and nothing advertised.
+func resolvePeerEndpoint(advertised string, sender *net.UDPAddr) (endpoint string, guessed bool) {
+	var ip net.IP
+	if sender != nil {
+		ip = sender.IP
 	}
+	return node.ResolveEndpoint(advertised, ip, daemon.DefaultWGPort, false)
+}
 
-	if sender != nil && sender.IP != nil {
-		return net.JoinHostPort(sender.IP.String(), strconv.Itoa(daemon.DefaultWGPort))
-	}
-
-	return ""
+// peerEndpoint is resolvePeerEndpoint followed by the IPv6 filter; a filtered
+// endpoint is empty and so no longer guessed.
+func peerEndpoint(advertised string, sender *net.UDPAddr, disableIPv6 bool) (endpoint string, guessed bool) {
+	endpoint, guessed = resolvePeerEndpoint(advertised, sender)
+	endpoint = filterEndpointForConfig(endpoint, disableIPv6)
+	return endpoint, guessed && endpoint != ""
 }
 
 func normalizeKnownPeerEndpoint(endpoint string) string {
