@@ -46,8 +46,10 @@ n=$(go test ./pkg/wireguard -run '^(TestSetPeerPassesPresharedKeyOnStdinNotArgv|
 | `TestRemovePeerArgs` | `pkg/wireguard/apply_test.go` | `set <iface> peer <key> remove`; a non-zero exit returns an error containing the output | — | S1 |
 | `TestGenerateKeyPairParsesGenkeyAndPubkey` | `pkg/wireguard/keys_test.go` | the fake `genkey` output is trimmed, piped to `pubkey`, and both values returned | — | S1 |
 | `TestGenerateKeyPairReportsFailure` | `pkg/wireguard/keys_test.go` | a failing `pubkey` returns an error and empty keys | — | S1 |
-| `TestGenerateWgQuickConfigRoutes` | `pkg/wireguard/persist_test.go` | without routes there is no `PostUp`/`PreDown`; with two routes each has two lines | — | S1 |
+| `TestGenerateWgQuickConfigRoutes` | `pkg/wireguard/persist_test.go` | without routes there is no route `PostUp`/`PreDown` line (the `ip_forward` `PostUp` stays); with two routes each has two lines | — | S1 |
 | `TestShellQuoteEscapesSingleQuote` | `pkg/wireguard/apply_test.go` | `a'b` becomes `'a'\''b'` | — | S1 |
+| `TestGenerateKeyPairReportsGenkeyFailure` | `pkg/wireguard/keys_test.go` | a failing `genkey` returns an error and empty keys (added after review) | — | S1 |
+| `TestGenerateWgQuickConfigPeerWithoutOptionalFields` | `pkg/wireguard/persist_test.go` | a peer with only a public key writes only that line (added after review) | — | S1 |
 
 ## Reachability
 
