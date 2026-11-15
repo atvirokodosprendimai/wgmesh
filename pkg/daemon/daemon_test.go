@@ -337,8 +337,18 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: true,
 		},
 		{
-			name:   "legacy subnet mismatch",
+			// Rotating the secret derives another /16; the persisted address is kept.
+			name:   "legacy other /16 is kept after secret rotation",
 			meshIP: "10.99.1.1",
+			cfg: &Config{
+				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+				CustomSubnet: nil,
+			},
+			want: true,
+		},
+		{
+			name:   "legacy outside 10.0.0.0/8 is rejected",
+			meshIP: "192.168.1.1",
 			cfg: &Config{
 				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
 				CustomSubnet: nil,

@@ -55,6 +55,14 @@ status: active
 3. [ ] SSH host key verification (pkg/ssh/client.go:47)
    - changes behaviour for operators: first connect to an unknown host fails
    - needs a decision: ship in this PR with a release note, or separate PR
+   - the reporter filed the same as issue #869
+4. [x] A rotated secret must not change mesh IPs (maintainer request, same day)
+   - cause: `meshIPInSubnet` compared the persisted IP with the /16 derived from the secret, so a new secret meant another /16 and the IP was re-derived (daemon.go initLocalNode)
+   - => fixed: without --mesh-subnet any persisted IPv4 in 10.0.0.0/8 stays; with --mesh-subnet it must lie inside it
+   - => tests: TestPersistedMeshIPSurvivesSecretChange (red before, green after), TestPersistedMeshIPFollowsExplicitSubnetChange, TestMeshIPInSubnet cases updated
+   - not covered by PR #831 (it keeps the secret-derived subnet check); the two touch the same function, expect a conflict
+   - left open: a NEW node joining after rotation still derives the new /16; give it `--mesh-subnet <old /16>` (wgmesh prints the subnet). Needs a decision on a persisted `mesh_subnet` in the state file.
+   - left open: there is no live rotation protocol (`rotate-secret` only prints, PR #847): all nodes must restart with the new secret together
 
 ### Phase 3 - Wire change, separate PR - status: open
 
@@ -82,3 +90,6 @@ _Plans are best-effort at planning time._
 ## Progress Log
 
 - 2611151637 plan written, branch task/security-report-1115 created from main 44ad8f4.
+- 2611151642 phase 1 actions 1-3 done: #844, #845, #849 cherry-picked with the reporter's authorship, plus the probe client cap (mutant ReadSlice->ReadBytes killed). `go test -race ./pkg/...` green.
+- 2611151643 phase 2 action 4 done: secret rotation keeps mesh IPs. `go test -race ./pkg/...` green.
+- Issues re-read at 2611151638: 36 open, #850-#875 filed by the reporter. Matches to our findings: #864 = claim 4, #869 = claim 3, #871 = compose files also put the secret on argv (new, same class as claim 1), #868 and #870 new (state validation, non-atomic state writes), #875 = follow-ups of #849, #854 and #858 touch PeerStore.Update (same place as claim 4a). No new PRs since 2611151434.

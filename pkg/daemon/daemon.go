@@ -300,9 +300,15 @@ func (d *Daemon) Shutdown() {
 	d.cancel()
 }
 
-// meshIPInSubnet returns true when the given IP string falls within the mesh
-// subnet implied by cfg. This is used to detect when a persisted mesh IP is no
-// longer valid because the operator changed --mesh-subnet.
+// meshIPInSubnet returns true when a persisted mesh IP may be kept. It is used
+// to decide whether the persisted address is still valid or must be re-derived.
+//
+// With an explicit --mesh-subnet the address must lie inside it, so changing
+// the subnet moves the node. Without one, the default /16 is derived from the
+// secret, and an address that was valid under the old secret must stay valid
+// after the secret is rotated: the operator changed the key, not the address
+// space, and peers, DNS and firewall rules refer to the old address. Any IPv4
+// address in 10.0.0.0/8 (where the default derivation lives) is kept.
 func meshIPInSubnet(meshIP string, cfg *Config) bool {
 	ip := net.ParseIP(meshIP)
 	if ip == nil {
@@ -311,13 +317,12 @@ func meshIPInSubnet(meshIP string, cfg *Config) bool {
 	if cfg.CustomSubnet != nil {
 		return cfg.CustomSubnet.Contains(ip)
 	}
-	// Legacy derivation: 10.<meshSubnet[0]>.x.y — check the /16 prefix only.
-	subnet := &net.IPNet{
-		IP:   net.IP{10, cfg.Keys.MeshSubnet[0], 0, 0},
-		Mask: net.CIDRMask(16, 32),
-	}
-	return subnet.Contains(ip)
+	return legacyMeshSpace.Contains(ip)
 }
+
+// legacyMeshSpace is the address space of the secret-derived default mesh
+// subnet (10.<byte>.0.0/16, see crypto.DeriveMeshIP).
+var legacyMeshSpace = &net.IPNet{IP: net.IP{10, 0, 0, 0}, Mask: net.CIDRMask(8, 32)}
 
 // announceableHostname returns hostname if peers will accept it in an
 // announcement (printable ASCII, at most crypto.MaxHostnameLength bytes, as
