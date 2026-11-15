@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -293,7 +295,26 @@ func TestDeployValidatesBeforeDial(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	// Every accepted connection is counted and closed at once, so a Deploy
+	// that dials fails fast instead of blocking in an SSH handshake.
+	var accepts atomic.Int32
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			accepts.Add(1)
+			c.Close()
+		}
+	}()
+	t.Cleanup(func() {
+		ln.Close()
+		wg.Wait()
+	})
 	addr := ln.Addr().(*net.TCPAddr)
 
 	m := validMesh()
@@ -302,25 +323,22 @@ func TestDeployValidatesBeforeDial(t *testing.T) {
 		n.SSHHost, n.SSHPort = "127.0.0.1", addr.Port
 	}
 
-	err = m.Deploy()
+	done := make(chan error, 1)
+	go func() { done <- m.Deploy() }()
+	select {
+	case err = <-done:
+	case <-time.After(20 * time.Second):
+		t.Fatal("Deploy did not return within 20s")
+	}
 	if err == nil {
 		t.Fatal("Deploy accepted a class A state")
 	}
 	if !strings.Contains(err.Error(), "interface_name") {
 		t.Errorf("error must list the finding: %v", err)
 	}
-
-	// A dial still sitting in the backlog is accepted here; a timeout means
-	// no connection was made.
-	if err := ln.(*net.TCPListener).SetDeadline(time.Now().Add(300 * time.Millisecond)); err != nil {
-		t.Fatal(err)
-	}
-	c, err := ln.Accept()
-	if err == nil {
-		c.Close()
-		t.Fatal("Deploy opened a connection before validating")
-	}
-	if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
-		t.Errorf("want an accept timeout, got %v", err)
+	// A dial cannot return before the server closed its connection, so the
+	// count read after Deploy returns sees every dial.
+	if n := accepts.Load(); n != 0 {
+		t.Fatalf("Deploy opened %d connection(s) before validating", n)
 	}
 }
