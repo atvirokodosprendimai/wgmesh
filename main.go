@@ -223,7 +223,7 @@ SUBCOMMANDS (decentralized mode):
 	     [--no-punching]          Disable NAT punching in service
 	     [--introducer]           Enable rendezvous introducer role in service
   uninstall-service             Remove systemd service
-  rotate-secret                 Rotate mesh secret
+  rotate-secret                 Not implemented yet (rotate manually)
 
 QUERY SUBCOMMANDS (decentralized mode):
   peers list                    List all active peers
@@ -848,58 +848,22 @@ func uninstallServiceCmd() {
 	fmt.Println("Service removed successfully!")
 }
 
-// rotateSecretCmd handles the "rotate-secret" subcommand
+// rotateSecretCmd handles the "rotate-secret" subcommand.
+// Live rotation is not implemented: nothing broadcasts or consumes a rotation
+// announcement (see crypto.GenerateRotationAnnouncement for the building
+// blocks), so the command fails instead of pretending to rotate.
 func rotateSecretCmd() {
 	fs := flag.NewFlagSet("rotate-secret", flag.ExitOnError)
-	currentSecret := fs.String("current", "", "Current mesh secret (required)")
-	newSecret := fs.String("new", "", "New mesh secret (auto-generated if empty)")
-	gracePeriod := fs.Duration("grace", 24*time.Hour, "Grace period for dual-secret mode")
+	fs.String("current", "", "Current mesh secret")
+	fs.String("new", "", "New mesh secret")
+	fs.Duration("grace", 24*time.Hour, "Grace period for dual-secret mode")
 	fs.Parse(os.Args[2:])
 
-	if *currentSecret == "" {
-		fmt.Fprintln(os.Stderr, "Error: --current is required")
-		fmt.Fprintln(os.Stderr, "Usage: wgmesh rotate-secret --current <OLD_SECRET> [--new <NEW_SECRET>] [--grace 24h]")
-		os.Exit(1)
-	}
-
-	// Generate new secret if not provided
-	if *newSecret == "" {
-		secret, err := daemon.GenerateSecret()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Failed to generate new secret: %v\n", err)
-			os.Exit(1)
-		}
-		*newSecret = secret
-	}
-
-	// Derive keys from old secret for signing
-	oldKeys, err := crypto.DeriveKeys(*currentSecret)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to derive keys from current secret: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Create rotation announcement
-	announcement, err := crypto.GenerateRotationAnnouncement(oldKeys.MembershipKey[:], *newSecret, *gracePeriod)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Failed to create rotation announcement: %v\n", err)
-		os.Exit(1)
-	}
-
-	_ = announcement // Would be broadcast via gossip in a running mesh
-
-	newURI := daemon.FormatSecretURI(*newSecret)
-
-	fmt.Println("Secret Rotation Initiated")
-	fmt.Println("=========================")
-	fmt.Printf("Grace Period: %v\n", *gracePeriod)
-	fmt.Printf("New Secret URI: %s\n", newURI)
-	fmt.Println()
-	fmt.Println("During the grace period, both secrets will be accepted.")
-	fmt.Printf("After %v, all nodes should use the new secret.\n", *gracePeriod)
-	fmt.Println()
-	fmt.Println("Share the new secret with all nodes:")
-	fmt.Printf("  wgmesh join --secret \"%s\"\n", newURI)
+	fmt.Fprintln(os.Stderr, "Error: live secret rotation is not implemented yet.")
+	fmt.Fprintln(os.Stderr, "Nodes on different secrets cannot see each other, so rotate all nodes at once:")
+	fmt.Fprintln(os.Stderr, "  1. Generate a new secret:  wgmesh init --secret")
+	fmt.Fprintln(os.Stderr, "  2. Stop every node, then restart every node with the new secret.")
+	os.Exit(1)
 }
 
 // meshCmd handles the "mesh" subcommand for centralized mesh management

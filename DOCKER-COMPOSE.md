@@ -192,7 +192,7 @@ rm -rf ./data
 
 - **Never commit** `.env` or mesh secrets to version control
 - Use `.env.example` as a template
-- Rotate secrets periodically using `wgmesh rotate-secret --current CURRENT_SECRET` (optionally with `--new` and `--grace`)
+- Rotate secrets periodically: generate a new one with `wgmesh init --secret` and restart all nodes with it at once (`wgmesh rotate-secret` is not implemented yet and exits with an error)
 - Share secrets securely (encrypted channels only)
 
 ### Container Security

@@ -61,10 +61,8 @@ Builds a `daemon.SystemdServiceConfig` and calls `daemon.InstallSystemdService(c
 Calls `daemon.UninstallSystemdService()`. No flags.
 
 #### `rotate-secret --current <OLD> [--new <NEW>] [--grace <DURATION>]`
-Derives `MembershipKey` from the current secret and creates a signed rotation announcement via `crypto.GenerateRotationAnnouncement`.
-If `--new` is omitted, generates a fresh secret automatically.
-Grace period defaults to 24h.
-**Current limitation**: the announcement is generated but not broadcast (`_ = announcement`) — the command only prints the new URI and instructions. Full rotation requires a running mesh.
+**Not implemented yet**: parses its flags, then prints the manual procedure (generate a secret with `wgmesh init --secret`, restart every node with it at once) to stderr and exits 1.
+It previously built an announcement via `crypto.GenerateRotationAnnouncement`, discarded it, and reported success; nothing broadcasts or consumes rotation announcements. The `pkg/crypto` rotation helpers remain for a future implementation.
 
 #### `test-peer --secret <SECRET> --peer <IP:PORT>`
 Diagnostic connectivity probe. Opens a UDP socket (random port if `--port 0`), sends an AES-GCM encrypted HELLO to the target, waits 10s for a REPLY, decrypts it with the gossip key, and prints the peer's public key and mesh IP on success.
@@ -107,7 +105,7 @@ Callbacks wired:
 - **Logging configured before daemon construction**: `daemon.ConfigureLogging` must be called in main, not inside library code, because the log level is an operator concern and library code shouldn't configure global state from within `New*` constructors.
 - **Blank import for discovery registration**: `pkg/discovery`'s `init()` registers the DHT factory with the daemon's discovery registry. The blank import at the binary boundary is intentional — it's the only place that should decide which backends are available.
 - **pprof via blank import**: `_ "net/http/pprof"` registers pprof handlers on the default mux; `--pprof` starts an HTTP listener. Available in production builds for live profiling without recompilation.
-- **`rotate-secret` is a preview**: the command correctly derives keys and creates a cryptographically valid rotation announcement, but distribution requires broadcasting it to the mesh. Until that wiring exists, the operator must manually restart each node with the new secret.
+- **`rotate-secret` fails loudly**: the subcommand and flags stay so scripts get a clear error instead of "unknown command", but it exits 1 until announcement broadcast and dual-secret acceptance exist. Faking success led operators to partition their mesh.
 
 ## Interactions
 
