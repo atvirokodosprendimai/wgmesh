@@ -69,6 +69,7 @@ func slotFor(iface string) *slot {
 // The staleness each caller accepts is ADR-0007 Decision 5.
 func ReadState(iface string, maxAge time.Duration) (*State, error) {
 	s := slotFor(iface)
+	// The lock spans the fork on purpose: concurrent readers of one interface share one fork; a hung wg costs each queued caller up to wgCommandTimeout.
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
