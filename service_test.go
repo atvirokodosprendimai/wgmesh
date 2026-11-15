@@ -317,13 +317,16 @@ func TestDeriveMeshIPForServiceUsesPersistedState(t *testing.T) {
 	}
 	_, custom, _ := net.ParseCIDR("192.168.50.0/24")
 
+	// Rows "no mesh_ip", "invalid mesh_ip" and the non-10/8 row cover the
+	// fallback derivation from wg_pubkey.
 	tests := []struct {
 		name   string
 		state  string
 		subnet *net.IPNet
-		want   string // "" means: must differ from the placeholder and equal derived-from-pubkey
+		want   string // "" means: derived from wg_pubkey in the custom subnet
 	}{
 		{"persisted mesh_ip kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, nil, "10.200.3.4"},
+		{"non-10/8 mesh_ip without custom subnet is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.100.7"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},
 		{"IPv4-mapped mesh_ip is normalized", `{"wg_pubkey":"PUBKEY","mesh_ip":"::ffff:10.0.0.5"}`, nil, "10.0.0.5"},
 		{"mesh_ip outside custom subnet is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, custom, ""},
 		{"mesh_ip inside custom subnet kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.50.9"}`, custom, "192.168.50.9"},
