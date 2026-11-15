@@ -1,6 +1,6 @@
 # ADR-0001: Authenticate the envelope type and refuse replays, in a staged wire rollout
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Owner:** wgmesh maintainers
 **Spec:** None — no spec stage; `eidos/spec - crypto - secret-derived keys envelope encryption membership proofs and rotation.md` and `eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md` are amended by T4
