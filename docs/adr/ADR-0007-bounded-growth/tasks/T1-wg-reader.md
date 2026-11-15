@@ -50,7 +50,7 @@ n=$(go test ./pkg/wireguard -run '^(TestReadStateParsesDumpColumns|TestReadState
 | `TestReadStateDoesNotStoreErrors` | `pkg/wireguard/state_test.go` | a failing script returns an error; the next call forks again instead of returning the error | — | S1, S3 |
 | `TestRunWGKillsChildAfterTimeout` | `pkg/wireguard/state_test.go` | with `wgCommandTimeout` 200 ms and a script that sleeps 30 s, the call returns in under 3 s with an error naming the timeout, and the child is gone | — | S1, S4 |
 | `TestReadStateKeepsSlotPerInterface` | `pkg/wireguard/state_test.go` | a snapshot of `wg0` is not returned for `wg1` | — | S1, S3 |
-| `TestLegacyReadersForwardToReadState` | `pkg/wireguard/state_test.go` | `GetLatestHandshakes`, `GetPeers` and `GetPeerTransfers` return the values the old sub-commands gave for the same dump, with one fork for the three calls inside `maxAge` of a prior `ReadState` | — | S1, S5 |
+| `TestLegacyReadersForwardToReadState` | `pkg/wireguard/state_test.go` | `GetLatestHandshakes`, `GetPeers` and `GetPeerTransfers` return the values the old sub-commands gave for the same dump, and every fork is the single `show wg0 dump` sub-command: four forks for one `ReadState` inside `maxAge` and the three readers, which ask `maxAge` 0 | — | S1, S5 |
 
 ## Reachability
 
