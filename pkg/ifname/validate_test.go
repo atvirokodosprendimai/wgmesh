@@ -163,3 +163,25 @@ func TestValidate_Darwin(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateLinuxIgnoresGOOS(t *testing.T) {
+	for _, ok := range []string{"wg0", "mesh-1"} {
+		if err := ValidateLinux(ok); err != nil {
+			t.Errorf("ValidateLinux(%q) = %v, want nil", ok, err)
+		}
+	}
+	for _, bad := range []string{"0bad", "a b", "a;b", strings.Repeat("a", 16)} {
+		if err := ValidateLinux(bad); err == nil {
+			t.Errorf("ValidateLinux(%q) = nil, want error", bad)
+		}
+	}
+}
+
+func TestValidateLinuxRejectsEmpty(t *testing.T) {
+	if err := ValidateLinux(""); err == nil {
+		t.Error("ValidateLinux(\"\") = nil, want error")
+	}
+	if err := Validate(""); err != nil {
+		t.Errorf("Validate(\"\") = %v, want nil", err)
+	}
+}

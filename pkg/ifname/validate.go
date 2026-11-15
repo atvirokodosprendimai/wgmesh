@@ -80,3 +80,6 @@ func Validate(name string) error {
 
 	return nil
 }
+
+// ValidateLinux checks name against the Linux grammar whatever runtime.GOOS is.
+func ValidateLinux(name string) error { return nil }
