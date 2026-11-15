@@ -5,7 +5,7 @@
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
 **Produces:** `Mesh.Validate`, `mesh.Finding`, `mesh.StrictState`, `TestCentralizedPackagesDoNotImportPeerStore`
-**Consumes:** `ifname.ValidateLinux` (T1); `pkg/ssh/sshtest` (T2)
+**Consumes:** `ifname.ValidateLinux` (T1)
 **Data dependency:** hermetic
 **Proof map:** v1
 
@@ -50,7 +50,7 @@ a=$(go test ./pkg/mesh -run '^(TestValidateRefusesShellMetacharacters|TestValida
 | `TestValidateRefusesMissingFields` | `pkg/mesh/validate_test.go` | an empty interface name and a node without `mesh_ip` are class A findings | — | S1, S2 |
 | `TestValidateWarnsOnFormatDeviationAtN` | `pkg/mesh/validate_test.go` | a bare-IP route, a `/33` CIDR, an interface name with a dot, a 17-character name and a port 0 are class B findings and `Deploy`'s pre-check returns no error with `StrictState` false | — | S1, S3 |
 | `TestValidateRefusesFormatDeviationWhenStrict` | `pkg/mesh/validate_test.go` | the same findings are an error with `StrictState` true (the variable is reset with `t.Cleanup`) | — | S1, S3 |
-| `TestValidateAcceptsSavedStates` | `pkg/mesh/validate_test.go` | the two saved states produce no finding at all (a hostname endpoint, an IPv6 literal endpoint `[fd00::1]:51820`, `0.0.0.0/0`, a route list, a documented placeholder-free key) | — | S1, S3 |
+| `TestValidateAcceptsSavedStates` | `pkg/mesh/validate_test.go` | the two saved states produce no finding at all (a hostname endpoint, an IPv6 literal endpoint (`[fd00::2]:51820` in the file), `0.0.0.0/0`, a route list, a documented placeholder-free key) | — | S1, S3 |
 | `TestDeployValidatesBeforeDial` | `pkg/mesh/validate_test.go` | for a class A state `Deploy` returns an error and the fake server saw zero connections | — | S1, S4 |
 | `TestCentralizedPackagesDoNotImportPeerStore` | `pkg/mesh/boundary_test.go` | no non-test file in the three packages imports `pkg/node`, `pkg/daemon` or `pkg/discovery` | — | S5 |
 
@@ -88,7 +88,7 @@ a=$(go test ./pkg/mesh -run '^(TestValidateRefusesShellMetacharacters|TestValida
 ## Risks
 
 - The class B list is a judgement about what `ip` and `wg` tolerate; it is measured against no node (not run), which is why it only warns at N.
-- Test doubles: the fake server of T2; the saved states are files, not constructed in code.
+- Test doubles: `TestDeployValidatesBeforeDial` uses a plain TCP listener and asserts that no connection was made (no SSH server needed); the saved states are files in `testdata/central/` (a `.gitignore` allow-line for `testdata/central/**/*.json` is part of this task), not constructed in code.
 
 ## Stop Condition
 
