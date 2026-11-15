@@ -153,6 +153,9 @@ After editing, run `wgmesh -deploy` to apply the changes.
 - All other nodes get routes via node1's mesh IP: `ip route add 192.168.10.0/24 via 10.99.0.1 dev wg0`
 - Routes are added to both the live routing table and the persistent config file
 - If you remove a network from `routable_networks`, it will be automatically cleaned up from all nodes on the next deploy
+- A network a node advertises itself is never routed through the mesh: HA nodes that share a subnet no longer install routes to it via each other
+- Only the exact network is matched: an own `/16` does not drop a peer `/24`
+- Upgrade note: nodes still on an older binary keep routing the shared subnet via the peer until they are upgraded
 
 ## State File Format
 
