@@ -20,6 +20,17 @@ const (
 	LANMethod           = "lan"
 )
 
+// lanPortClashWarning returns a warning when the WireGuard listen port equals
+// the fixed LAN discovery port, or "" when there is no clash. Both sockets
+// would use the same UDP port; which one fails depends on bind order.
+func lanPortClashWarning(wgListenPort int) string {
+	if wgListenPort != LANMulticastPort {
+		return ""
+	}
+	return fmt.Sprintf("WARNING: WireGuard listen port %d is reserved for LAN discovery; "+
+		"the two sockets conflict and discovery may be flaky. Choose another --listen-port (default 51820)", wgListenPort)
+}
+
 // LANDiscovery handles peer discovery via UDP multicast on the local network
 type LANDiscovery struct {
 	config    *daemon.Config
@@ -65,6 +76,10 @@ func (l *LANDiscovery) Start() error {
 
 	if l.running {
 		return fmt.Errorf("LAN discovery already running")
+	}
+
+	if w := lanPortClashWarning(l.config.WGListenPort); w != "" {
+		log.Printf("[LAN] %s", w)
 	}
 
 	// Listen on the multicast address
