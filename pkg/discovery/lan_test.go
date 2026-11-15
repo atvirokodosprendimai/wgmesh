@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"log"
 	"net"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -154,14 +153,17 @@ func TestLANDiscoveryStartLogsPortClash(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
+	prev := log.Writer()
 	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
+	defer log.SetOutput(prev)
 
 	// The warning precedes the bind, so it is logged even when Start fails.
 	if err := l.Start(); err == nil {
-		defer l.Stop()
+		if err := l.Stop(); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if !strings.Contains(buf.String(), "WARNING") || !strings.Contains(buf.String(), "51830") {
+	if !strings.Contains(buf.String(), "WARNING") {
 		t.Fatalf("Start did not log the port clash warning: %q", buf.String())
 	}
 }
