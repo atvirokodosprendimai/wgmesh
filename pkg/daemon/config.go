@@ -186,11 +186,17 @@ func normalizeRoutes(routes []string) ([]string, error) {
 
 // parseAcceptRoutes validates the operator's accept-routes list. It is the one
 // place the list is parsed, for the flag, the config and the reload file; it
-// shares the parser of advertise-routes.
+// shares the parser of advertise-routes. The single empty string is the empty
+// list (unset on the flag, clear on the reload file); a list that had entries
+// but none survived (",", " , ") is an error, because it would silently become
+// the empty list and open the node.
 func parseAcceptRoutes(routes []string) ([]string, error) {
 	out, err := normalizeRoutes(routes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid accept-routes: %w", err)
+	}
+	if len(out) == 0 && len(routes) > 0 && !(len(routes) == 1 && routes[0] == "") {
+		return nil, fmt.Errorf("invalid accept-routes: no network in %q", strings.Join(routes, ","))
 	}
 	return out, nil
 }
