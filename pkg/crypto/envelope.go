@@ -144,6 +144,7 @@ func FilterAnnouncement(a *PeerAnnouncement) error {
 	}
 	a.KnownPeers = nil
 	if err := a.Validate(); err != nil {
+		a.KnownPeers = known
 		return err
 	}
 	for _, kp := range known {
