@@ -66,6 +66,10 @@ a=$(go test ./pkg/node -run '^(TestIPClaimWarnsAtReleaseN|TestIPClaimRefusedWhen
 | 4 — it is used | the counter value is the go/no-go for N+1 and N+2 |
 
 ## Mutation Log
+- 2026-11-15 · bbd6579* · mutant killed · exit 1 · `pkg/node/binding.go` · R4/R5 act without checking that a bound claim holds the IP · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b
+- 2026-11-15 · bbd6579* · mutant killed · exit 1 · `pkg/node/binding.go` · the route check refuses supernets: TestRouteSupernetIsKept must go red · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b
+- 2026-11-15 · bbd6579* · mutant killed · exit 1 · `pkg/node/binding.go` · OnWarn is not called in warn mode: TestIPClaimWarnsAtReleaseN must go red · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b
+- 2026-11-15 · bbd6579* · mutant killed · exit 1 · `pkg/node/binding.go` · R5 also refuses a key already stored: TestRotatedNodeInStoreIsNeverRefused must go red · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b
 
 ## Invariants
 
@@ -91,3 +95,22 @@ Stop and ask if a frozen case that older releases emit would be refused in enfor
 - Signature-based binding (permanent: boundary: separate decision, see the ADR).
 
 ## Verification Log
+- 2026-11-15 · bbd6579* · exit 1 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:851 · test-lock-sha256:bcfcb034d4a9886b726651708d4c9667b60e0df232ba2729c80ac4bdc40bf14a · test-lock-file:docs/adr/locks/bcfcb034d4a9886b726651708d4c9667b60e0df232ba2729c80ac4bdc40bf14a.lock
+  ```
+  --- last 10 line(s) of stderr (of 110 after folding 110 raw)
+      --- FAIL: TestRouteInsideMeshWarnsThenDrops/drop_when_enforced (0.00s)
+  === RUN   TestRouteSupernetIsKept
+  --- PASS: TestRouteSupernetIsKept (0.00s)
+  === RUN   TestRotatedAddressAdmittedInEveryPhase
+  --- PASS: TestRotatedAddressAdmittedInEveryPhase (0.00s)
+  === RUN   TestRotatedNodeInStoreIsNeverRefused
+  --- PASS: TestRotatedNodeInStoreIsNeverRefused (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.005s
+  FAIL
+  ```
+- 2026-11-15 · bbd6579* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:4963
+- 2026-11-15 · bbd6579* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:5254
+- 2026-11-15 · bbd6579* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:5178
+- 2026-11-15 · bbd6579* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:5057
+- 2026-11-15 · bbd6579* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:3516
