@@ -69,6 +69,10 @@ a=$(go test ./pkg/node -run '^(TestTombstoneBlocksSecondHandReadd|TestFirstHandC
 | 4 — it is used | the log line `[Admit] refused tombstoned peer` (rate-limited per key) shows each suppressed resurrection |
 
 ## Mutation Log
+- 2026-11-15 · ba34965* · mutant killed · exit 1 · `pkg/node/admit.go` · R2 returns Admit: TestTombstoneBlocksSecondHandReadd must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
+- 2026-11-15 · ba34965* · mutant killed · exit 1 · `pkg/node/admit.go` · FirstHand no longer clears the tombstone: TestFirstHandClearsTombstone must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
+- 2026-11-15 · ba34965* · mutant killed · exit 1 · `pkg/node/store.go` · CleanupStale stops tombstoning: TestCleanupStaleLeavesTombstone must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
+- 2026-11-15 · ba34965* · mutant killed · exit 1 · `pkg/node/store.go` · TombstoneTTL is 0: TestTombstoneTTLIsFiveMinutes and the expiry test must go red · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a
 
 ## Invariants
 
@@ -91,3 +95,22 @@ Stop and ask if clearing on first-hand would let a replayed first-hand packet (A
 - Changing when a peer is considered dead (permanent: boundary: liveness group).
 
 ## Verification Log
+- 2026-11-15 · ba34965* · exit 1 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:696 · test-lock-sha256:c2b2b24cbf1bbe3bc4b3eaac7c9c317df978ed439648e2f8ab5e3420b352328e · test-lock-file:docs/adr/locks/c2b2b24cbf1bbe3bc4b3eaac7c9c317df978ed439648e2f8ab5e3420b352328e.lock
+  ```
+  --- last 10 line(s) of stderr (of 43 after folding 43 raw)
+      admit_test.go:343: the newest withdrawal: decision = {Verdict:0 Reason: Dropped:[] Warnings:[]}, want Refuse tombstoned
+  --- FAIL: TestTombstoneSetIsBounded (0.00s)
+  === NAME  TestTombstoneBlocksSecondHandReadd
+      admit_test.go:255: hand 1: refused offer left an entry: &{WGPubKey:k Hostname: MeshIP: MeshIPv6: Endpoint: Introducer:true RoutableNetworks:[] LastSeen:2026-11-15 20:47:37.212490864 +0200 EET m=+0.031991869 DiscoveredVia:[dht-transitive] Latency:<nil> NATType: EndpointMethod: HeardFirstHand:false}
+      admit_test.go:253: hand 2: decision = {Verdict:0 Reason: Dropped:[] Warnings:[]}, want Refuse tombstoned
+      admit_test.go:255: hand 2: refused offer left an entry: &{WGPubKey:k Hostname: MeshIP: MeshIPv6: Endpoint: Introducer:true RoutableNetworks:[] LastSeen:2026-11-15 20:47:37.212490864 +0200 EET m=+0.031991869 DiscoveredVia:[dht-transitive dht] Latency:<nil> NATType: EndpointMethod: HeardFirstHand:false}
+  --- FAIL: TestTombstoneBlocksSecondHandReadd (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.035s
+  FAIL
+  ```
+- 2026-11-15 · ba34965* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:12439
+- 2026-11-15 · ba34965* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:15220
+- 2026-11-15 · ba34965* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:14741
+- 2026-11-15 · ba34965* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:14156
+- 2026-11-15 · ba34965* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:9776
