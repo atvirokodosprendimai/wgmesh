@@ -11,6 +11,7 @@ import (
 	"net"
 	"strconv"
 	"time"
+	"unicode/utf8"
 )
 
 const (
@@ -203,11 +204,10 @@ type Envelope struct {
 // is bound to the GCM tag (ADR-0001).
 const envelopeAADVersion = 2
 
-// sealWithAAD makes SealEnvelope seal in the AAD-bound form. It is false in the
-// release that introduces the form (readers first), and a later release flips
-// it. acceptLegacyAAD lets OpenEnvelopeRaw open envelopes sealed without
-// additional data; a still later release turns it off. Both are also the
-// seams the tests use.
+// sealWithAAD makes SealEnvelope seal in the AAD-bound form, and acceptLegacyAAD
+// lets OpenEnvelopeRaw open envelopes sealed without additional data. They are
+// the two switches of the staged rollout in docs/adr/ADR-0001-envelope-aad, and
+// the seams the tests use; nothing in production code sets them.
 var (
 	sealWithAAD     = false
 	acceptLegacyAAD = true
@@ -233,6 +233,12 @@ func SealEnvelopeAAD(messageType string, payload interface{}, gossipKey [32]byte
 }
 
 func sealEnvelope(messageType string, payload interface{}, gossipKey [32]byte, withAAD bool) ([]byte, error) {
+	// The message type travels as JSON, which replaces invalid UTF-8, so the
+	// receiver would rebuild different additional data and the tag would fail.
+	if withAAD && !utf8.ValidString(messageType) {
+		return nil, fmt.Errorf("message type is not valid UTF-8")
+	}
+
 	// Serialize payload to JSON
 	plaintext, err := json.Marshal(payload)
 	if err != nil {
@@ -329,18 +335,21 @@ func OpenEnvelopeRaw(data []byte, gossipKey [32]byte) (*Envelope, []byte, error)
 	switch envelope.V {
 	case 0:
 		if !acceptLegacyAAD {
-			return nil, nil, fmt.Errorf("envelope without type authentication refused")
+			return nil, nil, fmt.Errorf("envelope without type authentication refused: its sender must be upgraded to a release that seals the message type")
 		}
 		envelope.LegacyAAD = true
 	case envelopeAADVersion:
 		aad = envelopeAAD(envelope.MessageType)
 	default:
-		return nil, nil, fmt.Errorf("unsupported envelope version: %d", envelope.V)
+		return nil, nil, fmt.Errorf("unsupported envelope version %d: this node reads 0 and %d; upgrade it if the sender is newer", envelope.V, envelopeAADVersion)
 	}
 
 	// Decrypt
 	plaintext, err := gcm.Open(nil, envelope.Nonce, envelope.Ciphertext, aad)
 	if err != nil {
+		if envelope.V == envelopeAADVersion {
+			return nil, nil, fmt.Errorf("decryption failed (wrong key, or the message type was changed after sealing): %w", err)
+		}
 		return nil, nil, fmt.Errorf("decryption failed (wrong key?): %w", err)
 	}
 

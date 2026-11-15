@@ -2,6 +2,7 @@ package crypto
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -112,11 +113,10 @@ func TestAADEnvelopeCannotBeDowngraded(t *testing.T) {
 		t.Fatal(err)
 	}
 	cases := map[string]func(map[string]any){
-		"v removed":   func(m map[string]any) { delete(m, "v") },
-		"v set to 0":  func(m map[string]any) { m["v"] = 0 },
-		"v set to 1":  func(m map[string]any) { m["v"] = 1 },
-		"v set to 3":  func(m map[string]any) { m["v"] = 3 },
-		"v set to -2": func(m map[string]any) { m["v"] = -2 },
+		"v removed":    func(m map[string]any) { delete(m, "v") },
+		"v set to 0":   func(m map[string]any) { m["v"] = 0 },
+		"type removed": func(m map[string]any) { delete(m, "type") },
+		"type emptied": func(m map[string]any) { m["type"] = "" },
 	}
 	for name, edit := range cases {
 		if _, _, err := OpenEnvelopeRaw(editEnvelope(t, sealed, edit), keys.GossipKey); err == nil {
@@ -172,5 +172,83 @@ func TestLegacyEnvelopeRefusedWhenNotAccepted(t *testing.T) {
 	}
 	if _, _, err := OpenEnvelopeRaw(bound, keys.GossipKey); err != nil {
 		t.Errorf("AAD envelope refused: %v", err)
+	}
+}
+
+// sealWithAAD is the switch release N+1 flips; with it set SealEnvelope must
+// produce the bound form, and with it unset (the default) the legacy form.
+func TestSealEnvelopeFollowsTheSealWithAADSwitch(t *testing.T) {
+	keys, err := DeriveKeys(envelopeFixtureSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer setTestNow(time.Unix(1800000000, 0))()
+
+	open := func() *Envelope {
+		sealed, err := SealEnvelope(MessageTypeAnnounce, aadTestPayload(), keys.GossipKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		env, _, err := OpenEnvelopeRaw(sealed, keys.GossipKey)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return env
+	}
+	if env := open(); !env.LegacyAAD || env.V != 0 {
+		t.Errorf("default SealEnvelope: LegacyAAD=%v V=%d, want legacy", env.LegacyAAD, env.V)
+	}
+	old := sealWithAAD
+	sealWithAAD = true
+	defer func() { sealWithAAD = old }()
+	if env := open(); env.LegacyAAD || env.V != envelopeAADVersion {
+		t.Errorf("SealEnvelope with sealWithAAD: LegacyAAD=%v V=%d, want bound", env.LegacyAAD, env.V)
+	}
+}
+
+// The type travels as JSON, which would replace invalid UTF-8 and make the
+// receiver rebuild different additional data; sealing refuses it up front.
+func TestSealEnvelopeAADRefusesInvalidUTF8Type(t *testing.T) {
+	keys, err := DeriveKeys(envelopeFixtureSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := SealEnvelopeAAD("bad\xfftype", aadTestPayload(), keys.GossipKey); err == nil {
+		t.Error("SealEnvelopeAAD accepted a message type that is not valid UTF-8")
+	}
+}
+
+// An operator reading the log has to be told what to do, not just that
+// decryption failed.
+func TestEnvelopeRefusalsNameTheCause(t *testing.T) {
+	keys, err := DeriveKeys(envelopeFixtureSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer setTestNow(time.Unix(1800000000, 0))()
+
+	bound, err := SealEnvelopeAAD(MessageTypeHello, aadTestPayload(), keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retyped := editEnvelope(t, bound, func(m map[string]any) { m["type"] = MessageTypeGoodbye })
+	if _, _, err := OpenEnvelopeRaw(retyped, keys.GossipKey); err == nil || !strings.Contains(err.Error(), "message type was changed") {
+		t.Errorf("retyped AAD envelope: error %v does not name the changed type", err)
+	}
+
+	future := editEnvelope(t, bound, func(m map[string]any) { m["v"] = 9 })
+	if _, _, err := OpenEnvelopeRaw(future, keys.GossipKey); err == nil || !strings.Contains(err.Error(), "upgrade") {
+		t.Errorf("unknown version: error %v does not say to upgrade", err)
+	}
+
+	legacy, err := SealEnvelope(MessageTypeHello, aadTestPayload(), keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := acceptLegacyAAD
+	acceptLegacyAAD = false
+	defer func() { acceptLegacyAAD = old }()
+	if _, _, err := OpenEnvelopeRaw(legacy, keys.GossipKey); err == nil || !strings.Contains(err.Error(), "upgraded") {
+		t.Errorf("refused legacy envelope: error %v does not say the sender must be upgraded", err)
 	}
 }

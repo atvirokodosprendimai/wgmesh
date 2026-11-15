@@ -277,11 +277,7 @@ func regenEnvelopeFixtures(t *testing.T) {
 		WGEndpoint: "127.0.0.1:51820",
 		Timestamp:  1800000000,
 	}
-	seal := SealEnvelope
-	if EnvelopeCapabilityVersion >= 2 {
-		seal = SealEnvelopeAAD
-	}
-	envelope, err := seal(MessageTypeAnnounce, payload, keys.GossipKey)
+	envelope, err := SealEnvelopeAAD(MessageTypeAnnounce, payload, keys.GossipKey)
 	if err != nil {
 		t.Fatalf("seal fixture envelope: %v", err)
 	}
