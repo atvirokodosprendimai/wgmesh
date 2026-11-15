@@ -346,47 +346,70 @@ func splitWords(cmd string) (words []string, syntax string, ok bool) {
 	return words, syn.String(), !inQuote
 }
 
-// TestHostileStateCommandsAreOneWordEach deploys a state whose interface
-// name, public key, routable network and endpoint each end in `; touch /x`
-// and checks every command the node received: no shell syntax (a `;`) and no
-// word of its own for the injected text, and each hostile value present as
-// part of one word.
+// TestHostileStateCommandsAreOneWordEach drives the remote builders with an
+// interface name, public key, routable network and endpoint that each end in
+// `; touch /x` and checks every command the node received: no shell syntax (a
+// `;`) and no word of its own for the injected text, and each hostile value
+// present as part of one word. Quoting is the second layer; validation is the
+// first, so the last step checks that Deploy refuses the same state with a
+// class A message before it sends any command.
 func TestHostileStateCommandsAreOneWordEach(t *testing.T) {
 	const marker = "; touch /x"
-	hostile := fixture{
-		iface:         "wg0" + marker,
-		alphaKey:      "ALPHAKEY" + marker,
-		alphaNets:     []string{"10.0.0.0/8" + marker},
-		bravoEndpoint: "198.51.100.1:51820" + marker,
-	}
+	iface := "wg0" + marker
+	key := "ALPHAKEY" + marker
+	route := "10.0.0.0/8" + marker
+	endpoint := "198.51.100.1:51820" + marker
 	values := map[string]string{
-		"interface name": hostile.iface,
-		"public key":     hostile.alphaKey,
-		"route":          hostile.alphaNets[0],
-		"endpoint":       hostile.bravoEndpoint,
+		"interface name": iface,
+		"public key":     key,
+		"route":          route,
+		"endpoint":       endpoint,
+	}
+
+	srv := sshtest.Start(t, map[string]sshtest.Reply{})
+	client, err := ssh.NewClient(srv.Host, srv.Port)
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	peer := wireguard.Peer{PublicKey: key, Endpoint: endpoint, AllowedIPs: []string{route}, PersistentKeepalive: 25}
+	diff := &wireguard.ConfigDiff{
+		RemovedPeers:  []string{key},
+		AddedPeers:    map[string]wireguard.Peer{key: peer},
+		ModifiedPeers: map[string]wireguard.Peer{key: peer},
+	}
+	full := &wireguard.FullConfig{
+		Interface: wireguard.WGInterface{PrivateKey: "PRIVATEKEY", Address: "10.99.0.5/16", ListenPort: 51820},
+		Peers:     []wireguard.WGPeer{{PublicKey: key, Endpoint: endpoint, AllowedIPs: []string{route}}},
+	}
+	routes := []ssh.RouteEntry{{Network: route, Gateway: "10.99.0.1"}, {Network: route}}
+	// The builders may fail on a hostile value; only what they sent matters.
+	_ = wireguard.ApplyDiff(client, iface, diff)
+	_ = wireguard.UpdatePersistentConfig(client, iface, full, routes, diff)
+	_, _ = wireguard.GetCurrentConfig(client, iface)
+	_ = ssh.ApplyRouteDiff(client, iface, routes, routes)
+	client.Close()
+
+	cmds := srv.Commands()
+	if len(cmds) == 0 {
+		t.Fatal("the builders sent no command")
 	}
 	seen := map[string]bool{}
-
-	for _, fresh := range []bool{true, false} {
-		for _, ns := range deploy(t, hostile, nodeReplies(fresh, "203.0.113.5")) {
-			for _, cmd := range ns.srv.Commands() {
-				words, syntax, ok := splitWords(cmd)
-				if !ok {
-					t.Errorf("fresh=%v %s: unbalanced quote in %q", fresh, ns.name, cmd)
-					continue
-				}
-				if strings.Contains(syntax, ";") {
-					t.Errorf("fresh=%v %s: `;` outside quotes in %q", fresh, ns.name, cmd)
-				}
-				for _, w := range words {
-					if w == "touch" || w == "/x" {
-						t.Errorf("fresh=%v %s: injected word %q in %q", fresh, ns.name, w, cmd)
-					}
-					for name, v := range values {
-						if strings.Contains(w, v) {
-							seen[name] = true
-						}
-					}
+	for _, cmd := range cmds {
+		words, syntax, ok := splitWords(cmd)
+		if !ok {
+			t.Errorf("unbalanced quote in %q", cmd)
+			continue
+		}
+		if strings.Contains(syntax, ";") {
+			t.Errorf("`;` outside quotes in %q", cmd)
+		}
+		for _, w := range words {
+			if w == "touch" || w == "/x" {
+				t.Errorf("injected word %q in %q", w, cmd)
+			}
+			for name, v := range values {
+				if strings.Contains(w, v) {
+					seen[name] = true
 				}
 			}
 		}
@@ -395,5 +418,37 @@ func TestHostileStateCommandsAreOneWordEach(t *testing.T) {
 		if !seen[name] {
 			t.Errorf("no command carries the hostile %s inside one word", name)
 		}
+	}
+
+	// First layer: Deploy refuses the same state, class A, before any command.
+	alpha := sshtest.Start(t, nodeReplies(true, "203.0.113.5"))
+	bravo := sshtest.Start(t, nodeReplies(true, "203.0.113.5"))
+	m := &mesh.Mesh{
+		InterfaceName: iface, Network: "10.99.0.0/16", ListenPort: 51820, LocalHostname: "controller",
+		Nodes: map[string]*mesh.Node{
+			"alpha": {
+				Hostname: "alpha", MeshIP: net.ParseIP("10.99.0.1"), PublicKey: key,
+				PrivateKey: "ALPHAPRIVATEKEYALPHAPRIVATEKEYALPHAPRIVATE0=",
+				SSHHost:    alpha.Host, SSHPort: alpha.Port, ListenPort: 51820,
+				RoutableNetworks: []string{route},
+			},
+			"bravo": {
+				Hostname: "bravo", MeshIP: net.ParseIP("10.99.0.2"),
+				PublicKey:  "BRAVOPUBLICKEYBRAVOPUBLICKEYBRAVOPUBLICKEY0=",
+				PrivateKey: "BRAVOPRIVATEKEYBRAVOPRIVATEKEYBRAVOPRIVATE0=",
+				SSHHost:    bravo.Host, SSHPort: bravo.Port, ListenPort: 51820,
+				PublicEndpoint: endpoint,
+			},
+		},
+	}
+	err = m.Deploy()
+	if err == nil {
+		t.Fatal("Deploy accepted a hostile state")
+	}
+	if !strings.Contains(err.Error(), "(class A)") {
+		t.Errorf("want a class A refusal, got %v", err)
+	}
+	if n := len(alpha.Commands()) + len(bravo.Commands()); n != 0 {
+		t.Errorf("Deploy sent %d command(s) before refusing", n)
 	}
 }
