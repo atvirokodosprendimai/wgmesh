@@ -1,6 +1,8 @@
 package discovery
 
 import (
+	"bytes"
+	"encoding/base64"
 	"net"
 	"testing"
 	"time"
@@ -217,4 +219,56 @@ func TestNewMeshGossipWithExchangeSetsExchange(t *testing.T) {
 	if gossip.conn != nil {
 		t.Error("expected conn to be nil when using exchange mode")
 	}
+}
+
+func TestMeshGossipRestartAfterStop(t *testing.T) {
+	cfg := newTestConfig(t)
+	cfg.Keys.GossipPort = 0
+	store := daemon.NewPeerStore()
+	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}
+	g, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := g.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.Start(); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	defer g.Stop()
+
+	select {
+	case <-g.stopCh:
+		t.Fatal("stopCh is closed after restart: loops exit at once")
+	case <-time.After(1500 * time.Millisecond):
+	}
+
+	remoteKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32))
+	// The restarted listener must still receive and apply a message.
+	ann := crypto.CreateAnnouncement(remoteKey, "10.0.0.2", "192.168.1.10:51820", false, nil, nil, "remote", "", "")
+	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, ann, cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn, err := net.DialUDP("udp", nil, &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: int(g.port)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, ok := store.Get(remoteKey); ok {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("restarted gossip did not process a message")
 }
