@@ -65,6 +65,11 @@ a=$(go test ./pkg/node -run '^(TestResolveEndpointKeepsAdvertisedPort|TestResolv
 | 4 — it is used | `daemon.status` peers show an empty endpoint instead of a wrong one until an advertisement arrives |
 
 ## Mutation Log
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · getKnownPeers stops skipping a guessed endpoint: TestGuessedEndpointNotAnnounced must go red · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the exchange path falls back to the sender UDP port · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/node/store.go` · the merge forgets the guessed flag · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/node/endpoint.go` · ResolveEndpoint does not mark the sender+fallback endpoint as guessed · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/discovery/lan.go` · LAN takes the advertised host instead of the sender IP · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
 
 ## Invariants
 
@@ -87,3 +92,23 @@ Stop and ask if a source needs the guessed endpoint to establish the first WireG
 - The local node's own endpoint (T9).
 
 ## Verification Log
+- 2026-11-15 · dacefb2* · exit 1 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:976 · test-lock-sha256:8a4ab011b1ad2b641e9da438746c9beb4d2747a60df5655e7119a3b4718ba262 · test-lock-file:docs/adr/locks/8a4ab011b1ad2b641e9da438746c9beb4d2747a60df5655e7119a3b4718ba262.lock
+  ```
+  --- last 10 line(s) of stderr (of 34 after folding 35 raw)
+      endpoint_test.go:44: preferSender=true: ResolveEndpoint("") = "203.0.113.1:51820", false; want 203.0.113.1:51820, true
+  --- FAIL: TestResolveEndpointMarksGuess (0.00s)
+  === CONT  TestResolveEndpointKeepsAdvertisedPort
+      endpoint_test.go:31: preferSender keeps sender IP over a real host: ResolveEndpoint("198.51.100.7:51821") = "198.51.100.7:51821", false; want "203.0.113.1:51821", false  (x2)
+  --- FAIL: TestResolveEndpointKeepsAdvertisedPort (0.00s)
+  === CONT  TestEmptyFirstHandEndpointKeepsKnown
+  --- PASS: TestEmptyFirstHandEndpointKeepsKnown (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.004s
+  FAIL
+  ```
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:11164
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:15612
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:12498
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:12534
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:12500
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:7919
