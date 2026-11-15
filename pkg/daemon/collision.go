@@ -135,7 +135,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			// Persist it so a restart and `service add` keep the address (#830);
 			// a failed save keeps the in-memory address.
 			if err := saveLocalNode(d.stateFile, d.localNode); err != nil {
-				log.Printf("[Collision] Warning: failed to save resolved mesh IP: %v", err)
+				log.Printf("[Collision] Warning: could not persist resolved mesh IP %s to %s; after a restart this node re-derives its natural IP: check write access to that directory: %v", newIP, d.stateFile, err)
 			}
 
 			// Reconfigure WireGuard with new IP using correct prefix length
