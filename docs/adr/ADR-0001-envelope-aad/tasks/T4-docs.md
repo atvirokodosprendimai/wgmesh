@@ -71,3 +71,17 @@ Stop and ask if T1 to T3 changed a name this task documents.
 - Documenting N+1 and N+2 as done (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-15 · 1f3c4a0* · exit 1 · `set -o pipefail …` · acceptance-sha256:407840be96a0ed192bfc7b4e370262d8b752101c7286a9416bf8a58bba6ea08b · ms:1036 · test-lock-sha256:67e6c78adfe4b3b1406f36490fa1229396c291b7c196a6eec1d5a58d93cfa6da · test-lock-file:docs/adr/locks/67e6c78adfe4b3b1406f36490fa1229396c291b7c196a6eec1d5a58d93cfa6da.lock
+  ```
+  --- last 10 line(s) of stderr (of 12 after folding 12 raw)
+      spec_aad_test.go:40: eidos/spec - crypto - secret-derived keys envelope encryption membership proofs and rotation.md does not mention "LegacyAAD"
+      spec_aad_test.go:40: eidos/spec - crypto - secret-derived keys envelope encryption membership proofs and rotation.md does not mention "EnvelopeCapabilityVersion"
+      spec_aad_test.go:40: eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md does not mention "nonce cache"
+      spec_aad_test.go:40: eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md does not mention "LegacyAAD"
+      spec_aad_test.go:40: eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md does not mention "SealEnvelopeAAD"
+      spec_aad_test.go:35: docs/envelope-rollout.md: open ../../docs/envelope-rollout.md: no such file or directory
+  --- FAIL: TestSpecNamesAADRollout (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/crypto	0.003s
+  FAIL
+  ```

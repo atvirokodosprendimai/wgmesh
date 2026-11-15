@@ -1,0 +1,2 @@
+check@2	absent
+body	pkg/crypto/spec_aad_test.go	TestSpecNamesAADRollout	c813bdf1f91a4cc4b30d3f9607e576a64ce48a6d9cb41902f2cd59255d11bcda
