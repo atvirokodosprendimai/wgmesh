@@ -63,16 +63,36 @@ func TestUpdateDirectOverwritesFirstHandFields(t *testing.T) {
 	}
 }
 
-// A transitive mention may still fill what was never announced first-hand.
+// A transitive mention may still fill what was never announced first-hand:
+// mesh IPs and routes.
 func TestUpdateTransitiveFillsMissingFields(t *testing.T) {
 	t.Parallel()
 
 	ps := NewPeerStore()
 	ps.Update(&PeerInfo{WGPubKey: "k"}, "dht")
-	ps.Update(&PeerInfo{WGPubKey: "k", MeshIP: "10.3.3.3", MeshIPv6: "fd00::33"}, "gossip-transitive")
+	ps.Update(&PeerInfo{WGPubKey: "k", MeshIP: "10.3.3.3", MeshIPv6: "fd00::33", RoutableNetworks: []string{"10.7.0.0/16"}}, "gossip-transitive")
 
 	got, _ := ps.Get("k")
 	if got.MeshIP != "10.3.3.3" || got.MeshIPv6 != "fd00::33" {
 		t.Errorf("transitive did not fill empty fields: %s / %s", got.MeshIP, got.MeshIPv6)
+	}
+	if !reflect.DeepEqual(got.RoutableNetworks, []string{"10.7.0.0/16"}) {
+		t.Errorf("transitive did not fill empty routes: %v", got.RoutableNetworks)
+	}
+}
+
+// A non-empty first-hand announcement replaces the previous routes.
+func TestUpdateDirectNonEmptyRoutesReplace(t *testing.T) {
+	t.Parallel()
+
+	for _, method := range []string{"dht", "gossip"} {
+		ps := NewPeerStore()
+		ps.Update(&PeerInfo{WGPubKey: "k", RoutableNetworks: []string{"10.5.0.0/16"}}, "lan")
+		ps.Update(&PeerInfo{WGPubKey: "k", RoutableNetworks: []string{"10.6.0.0/16"}}, method)
+
+		got, _ := ps.Get("k")
+		if !reflect.DeepEqual(got.RoutableNetworks, []string{"10.6.0.0/16"}) {
+			t.Errorf("%s: routes not replaced: %v", method, got.RoutableNetworks)
+		}
 	}
 }

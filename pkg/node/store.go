@@ -53,6 +53,9 @@ func (ps *PeerStore) Subscribe() <-chan PeerEvent {
 	return ch
 }
 
+// Unsubscribe removes ch. The channel is not closed: notify sends after
+// releasing the lock, so a close could race with a send and panic. The caller
+// must stop reading it; a range over it never ends after Unsubscribe.
 func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -60,7 +63,6 @@ func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
 	for i, sub := range ps.subscribers {
 		if sub == ch {
 			ps.subscribers = append(ps.subscribers[:i], ps.subscribers[i+1:]...)
-			close(sub)
 			return
 		}
 	}
@@ -122,7 +124,10 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 		// mesh IP or routes, or flip its introducer flag, by naming it in
 		// KnownPeers. Only the peer's own announcements replace these fields.
 		transitive := isTransitiveMethod(discoveryMethod)
-		if len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0) {
+		// An empty list from the peer's own announcement withdraws its routes;
+		// a cache entry or a transitive mention with no routes says nothing.
+		withdraw := len(info.RoutableNetworks) == 0 && shouldRefreshLastSeen(discoveryMethod)
+		if withdraw || (len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0)) {
 			existing.RoutableNetworks = info.RoutableNetworks
 		}
 		if info.MeshIP != "" && (!transitive || existing.MeshIP == "") {
