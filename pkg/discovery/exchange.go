@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
 	"net"
 	"strconv"
 	"sync"
@@ -223,6 +224,10 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Invalid HELLO payload from %s: %v", remoteAddr.String(), err)
 			return
 		}
+		if err := validateExchangeAnnouncement(&announcement); err != nil {
+			log.Printf("[Exchange] Dropping invalid HELLO from %s: %v", remoteAddr.String(), err)
+			return
+		}
 		pe.handleHello(&announcement, remoteAddr)
 	case crypto.MessageTypeReply:
 		var reply crypto.PeerAnnouncement
@@ -230,11 +235,19 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Invalid REPLY payload from %s: %v", remoteAddr.String(), err)
 			return
 		}
+		if err := validateExchangeAnnouncement(&reply); err != nil {
+			log.Printf("[Exchange] Dropping invalid REPLY from %s: %v", remoteAddr.String(), err)
+			return
+		}
 		pe.handleReply(&reply, remoteAddr)
 	case crypto.MessageTypeAnnounce:
 		var announcement crypto.PeerAnnouncement
 		if err := json.Unmarshal(plaintext, &announcement); err != nil {
 			log.Printf("[Exchange] Invalid ANNOUNCE payload from %s: %v", remoteAddr.String(), err)
+			return
+		}
+		if err := validateExchangeAnnouncement(&announcement); err != nil {
+			log.Printf("[Exchange] Dropping invalid ANNOUNCE from %s: %v", remoteAddr.String(), err)
 			return
 		}
 		pe.mu.RLock()
@@ -285,6 +298,31 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	default:
 		log.Printf("[Exchange] Unknown message type: %s", envelope.MessageType)
 	}
+}
+
+// validateExchangeAnnouncement applies the same checks as crypto.OpenEnvelope
+// (used by LAN and gossip) to HELLO/REPLY/ANNOUNCE payloads, which arrive via
+// OpenEnvelopeRaw. The sender's own fields must be valid or the message is
+// rejected. Invalid KnownPeers are filtered out individually instead, so one
+// bad transitive entry relayed by an otherwise valid peer (e.g. an older node
+// that stored it before this check existed) does not hide that peer.
+func validateExchangeAnnouncement(a *crypto.PeerAnnouncement) error {
+	known := a.KnownPeers
+	if len(known) > crypto.MaxKnownPeers {
+		return fmt.Errorf("KnownPeers: too many entries (%d, max %d)", len(known), crypto.MaxKnownPeers)
+	}
+	a.KnownPeers = nil
+	if err := a.Validate(); err != nil {
+		return err
+	}
+	for _, kp := range known {
+		if err := kp.Validate(); err != nil {
+			slog.Debug("[Exchange] dropping invalid known peer", "error", err)
+			continue
+		}
+		a.KnownPeers = append(a.KnownPeers, kp)
+	}
+	return nil
 }
 
 // handleHello responds to a peer's HELLO message

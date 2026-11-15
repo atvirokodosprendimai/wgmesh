@@ -117,12 +117,17 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		}
 	}
 
+	advertiseRoutes, err := normalizeRoutes(opts.AdvertiseRoutes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid advertise-routes: %w", err)
+	}
+
 	return &Config{
 		Secret:          secret,
 		Keys:            keys,
 		InterfaceName:   ifaceName,
 		WGListenPort:    listenPort,
-		AdvertiseRoutes: opts.AdvertiseRoutes,
+		AdvertiseRoutes: advertiseRoutes,
 		LogLevel:        logLevel,
 		Privacy:         opts.Privacy,
 		Gossip:          opts.Gossip,
@@ -133,6 +138,42 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		DisablePunching: opts.DisablePunching,
 		CustomSubnet:    customSubnet,
 	}, nil
+}
+
+// normalizeRoutes trims and validates advertised routes. Empty entries are
+// dropped, each entry must be a CIDR (a bare IP is rejected), host bits are
+// cleared (192.168.1.10/24 -> 192.168.1.0/24, with a warning) and duplicates
+// are removed. Peers drop announcements carrying invalid CIDRs, so a bad entry
+// must fail here rather than make this node silently invisible.
+func normalizeRoutes(routes []string) ([]string, error) {
+	if routes == nil {
+		return nil, nil
+	}
+	out := make([]string, 0, len(routes))
+	seen := make(map[string]struct{}, len(routes))
+	for _, r := range routes {
+		r = strings.TrimSpace(r)
+		if r == "" {
+			continue
+		}
+		_, ipnet, err := net.ParseCIDR(r)
+		if err != nil {
+			return nil, fmt.Errorf("%q is not a CIDR (expected e.g. 192.168.1.0/24 or 10.0.0.5/32)", r)
+		}
+		canonical := ipnet.String()
+		if canonical != r {
+			log.Printf("WARNING: advertise route %q normalized to %q", r, canonical)
+		}
+		if _, dup := seen[canonical]; dup {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		out = append(out, canonical)
+	}
+	if len(out) > crypto.MaxRoutableNetworks {
+		return nil, fmt.Errorf("too many routes (%d, max %d)", len(out), crypto.MaxRoutableNetworks)
+	}
+	return out, nil
 }
 
 // PrefixLen returns the prefix length for the mesh subnet.
@@ -175,8 +216,10 @@ func ReloadConfigPath(ifaceName string) string {
 }
 
 // LoadReloadFile parses a reload config file and returns a DaemonOpts with
-// only the reloadable fields populated.  Missing or malformed keys are
-// silently skipped so that a partial file is still useful.
+// only the reloadable fields populated.  Missing or malformed lines and
+// unknown keys are silently skipped so that a partial file is still useful,
+// but an advertise-routes value with an invalid CIDR fails the whole load so
+// the caller keeps the current configuration.
 func LoadReloadFile(path string) (DaemonOpts, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -199,18 +242,11 @@ func LoadReloadFile(path string) (DaemonOpts, error) {
 		val = strings.TrimSpace(val)
 		switch key {
 		case "advertise-routes":
-			if val == "" {
-				opts.AdvertiseRoutes = []string{}
-			} else {
-				parts := strings.Split(val, ",")
-				routes := make([]string, 0, len(parts))
-				for _, p := range parts {
-					if r := strings.TrimSpace(p); r != "" {
-						routes = append(routes, r)
-					}
-				}
-				opts.AdvertiseRoutes = routes
+			routes, err := normalizeRoutes(strings.Split(val, ","))
+			if err != nil {
+				return DaemonOpts{}, fmt.Errorf("invalid advertise-routes: %w", err)
 			}
+			opts.AdvertiseRoutes = routes
 		case "log-level":
 			opts.LogLevel = val
 		}
