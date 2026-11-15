@@ -43,8 +43,6 @@ type Finding struct {
 // [A-Za-z0-9._:/,@%+=\[\]-]: what a shell or a wg-quick file gives no meaning
 // to in the six text fields. Brackets are in it so an IPv6 literal endpoint
 // passes, although ssh.Quote still quotes them.
-// no meaning to in the values of the six text fields. Brackets are in it so
-// an IPv6 literal endpoint passes, although ssh.Quote still quotes them.
 func safeChar(r rune) bool {
 	switch {
 	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
@@ -107,6 +105,11 @@ func meshNetworkRule(v string) string {
 	return cidrRule(v)
 }
 
+// validPort reports whether p is a TCP/UDP port number Deploy can use.
+func validPort(p int) bool {
+	return p >= 1 && p <= 65535
+}
+
 func endpointRule(v string) string {
 	if v == "" {
 		return ""
@@ -115,14 +118,15 @@ func endpointRule(v string) string {
 	if err != nil || host == "" {
 		return "not-host-port"
 	}
-	if p, err := strconv.Atoi(port); err != nil || p < 1 || p > 65535 {
+	p, err := strconv.Atoi(port)
+	if err != nil || strings.Trim(port, "0123456789") != "" || !validPort(p) {
 		return "port-out-of-range"
 	}
 	return ""
 }
 
 func publicKeyRule(v string) string {
-	if raw, err := base64.StdEncoding.DecodeString(v); err != nil || len(v) != 44 || len(raw) != 32 {
+	if raw, err := base64.StdEncoding.Strict().DecodeString(v); err != nil || len(v) != 44 || len(raw) != 32 {
 		return "not-44-base64"
 	}
 	return ""
@@ -144,7 +148,7 @@ func (m *Mesh) Validate() []Finding {
 		}
 	}
 	port := func(node, field string, p int) {
-		if p < 1 || p > 65535 {
+		if !validPort(p) {
 			fs = append(fs, Finding{Node: node, Field: field, Value: strconv.Itoa(p), Rule: "port-out-of-range", Class: ClassB})
 		}
 	}
@@ -170,6 +174,10 @@ func (m *Mesh) Validate() []Finding {
 	seenKey := map[string]bool{}
 	for _, name := range names {
 		n := m.Nodes[name]
+		if n == nil {
+			fs = append(fs, Finding{Node: name, Field: "node", Rule: "null-node", Class: ClassA})
+			continue
+		}
 		text(name, "public_key", n.PublicKey, publicKeyRule)
 		text(name, "public_endpoint", n.PublicEndpoint, endpointRule)
 		text(name, "ssh_host", n.SSHHost, func(string) string { return "" })
@@ -223,10 +231,11 @@ func (m *Mesh) validateForDeploy(out io.Writer) error {
 			refused = append(refused, "  "+f.String())
 			continue
 		}
-		fmt.Fprintf(out, "Warning: state: %s (refused once StrictState is set)\n", f)
+		fmt.Fprintf(out, "Warning: state: %s (will be refused once StrictState is set in a later release)\n", f)
 	}
 	if len(refused) > 0 {
-		return fmt.Errorf("state validation failed, %d finding(s), nothing was deployed:\n%s",
+		return fmt.Errorf("state validation failed, %d finding(s):\n%s\n"+
+			"fix the named fields in the mesh state file (see docs/centralized-mode.md); nothing was deployed",
 			len(refused), strings.Join(refused, "\n"))
 	}
 	return nil

@@ -3,12 +3,13 @@ package mesh
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 	"testing"
+	"time"
 )
 
 const (
@@ -42,13 +43,15 @@ func loadFixture(t *testing.T, name string) *Mesh {
 		t.Fatalf("read fixture: %v", err)
 	}
 	var m Mesh
-	if err := json.Unmarshal(data, &m); err != nil {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&m); err != nil {
 		t.Fatalf("parse fixture %s: %v", name, err)
 	}
 	return &m
 }
 
-// select returns the findings for one node and field.
+// selectFindings returns the findings for one node and field.
 func selectFindings(fs []Finding, node, field string) []Finding {
 	var out []Finding
 	for _, f := range fs {
@@ -69,7 +72,8 @@ func classOf(fs []Finding, c Class) []Finding {
 	return out
 }
 
-// mutations sets one field of validMesh to a value and names the field and
+// fieldSetters sets one text field of validMesh to a value; node and field
+// name the finding it must produce.
 // node of the finding it must produce.
 var fieldSetters = []struct {
 	node, field string
@@ -84,33 +88,53 @@ var fieldSetters = []struct {
 }
 
 func TestValidateRefusesShellMetacharacters(t *testing.T) {
-	values := map[string]string{
-		"semicolon":          "; id",
-		"command subst":      "$(id)",
-		"backtick":           "`id`",
-		"pipe":               "a|b",
-		"quote":              "a'b",
-		"space":              "a b",
-		"newline":            "a\nb",
-		"tab":                "a\tb",
-		"nul":                "a\x00b",
-		"del":                "a\x7fb",
-		"non-ASCII":          "aéb",
-		"leading dash":       "-oProxyCommand=id",
-		"leading dash alone": "-",
+	// Every value maps to the rule that must fire first. Each shell
+	// metacharacter has a value without a space, so the space rule cannot
+	// hide a character missing from the refused set.
+	values := []struct{ value, rule string }{
+		{";id", "unsafe-character"},
+		{"a;b", "unsafe-character"},
+		{"a&b", "unsafe-character"},
+		{"a|b", "unsafe-character"},
+		{"a>b", "unsafe-character"},
+		{"a<b", "unsafe-character"},
+		{"a$b", "unsafe-character"},
+		{"$(id)", "unsafe-character"},
+		{"a(b", "unsafe-character"},
+		{"a)b", "unsafe-character"},
+		{"a*b", "unsafe-character"},
+		{"a?b", "unsafe-character"},
+		{"a\\b", "unsafe-character"},
+		{"a\"b", "unsafe-character"},
+		{"a'b", "unsafe-character"},
+		{"a`b", "unsafe-character"},
+		{"`id`", "unsafe-character"},
+		{"a!b", "unsafe-character"},
+		{"a#b", "unsafe-character"},
+		{"a~b", "unsafe-character"},
+		{"a{b", "unsafe-character"},
+		{"a}b", "unsafe-character"},
+		{"aéb", "unsafe-character"},
+		{"; id", "space"},
+		{"a b", "space"},
+		{"a\nb", "control-character"},
+		{"a\tb", "control-character"},
+		{"a\x00b", "control-character"},
+		{"a\x7fb", "control-character"},
+		{"-oProxyCommand=id", "leading-dash"},
+		{"-", "leading-dash"},
 	}
 	for _, fs := range fieldSetters {
-		for vname, v := range values {
-			t.Run(fs.field+"/"+vname, func(t *testing.T) {
+		for _, tc := range values {
+			t.Run(fmt.Sprintf("%s/%q", fs.field, tc.value), func(t *testing.T) {
 				m := validMesh()
-				fs.set(m, v)
+				fs.set(m, tc.value)
 				got := selectFindings(m.Validate(), fs.node, fs.field)
-				a := classOf(got, ClassA)
-				if len(a) == 0 {
-					t.Fatalf("no class A finding for %q in %s of node %q; all findings: %+v", v, fs.field, fs.node, m.Validate())
+				if len(got) == 0 {
+					t.Fatalf("no finding for %q in %s of node %q", tc.value, fs.field, fs.node)
 				}
-				if a[0].Rule == "" || a[0].Value != v {
-					t.Errorf("finding must name a rule and carry the value: %+v", a[0])
+				if got[0].Class != ClassA || got[0].Rule != tc.rule || got[0].Value != tc.value {
+					t.Errorf("want class A rule %s carrying the value, got %+v", tc.rule, got[0])
 				}
 			})
 		}
@@ -132,6 +156,16 @@ func TestValidateRefusesMissingFields(t *testing.T) {
 	if len(classOf(fs, ClassA)) != 2 {
 		t.Errorf("want exactly two class A findings, got %+v", fs)
 	}
+
+	// A null node is a finding, not a panic.
+	t.Run("null node", func(t *testing.T) {
+		m := validMesh()
+		m.Nodes["bravo"] = nil
+		got := selectFindings(m.Validate(), "bravo", "node")
+		if len(got) != 1 || got[0].Class != ClassA || got[0].Rule != "null-node" {
+			t.Errorf("want one class A null-node finding, got %+v", m.Validate())
+		}
+	})
 }
 
 // formatDeviations are values that parse wrongly but hold only safe-set
@@ -154,6 +188,11 @@ var formatDeviations = []struct {
 	{"mesh IP outside the network", "alpha", "mesh_ip", func(m *Mesh) { m.Nodes["alpha"].MeshIP = net.ParseIP("172.16.0.1") }},
 	{"duplicate mesh IP", "bravo", "mesh_ip", func(m *Mesh) { m.Nodes["bravo"].MeshIP = net.ParseIP("10.99.0.1") }},
 	{"duplicate public key", "bravo", "public_key", func(m *Mesh) { m.Nodes["bravo"].PublicKey = keyAlpha }},
+	{"endpoint port with a plus sign", "alpha", "public_endpoint", func(m *Mesh) { m.Nodes["alpha"].PublicEndpoint = "alpha.example.net:+80" }},
+	{"non-canonical trailing bits in key", "alpha", "public_key", func(m *Mesh) { m.Nodes["alpha"].PublicKey = keyAlpha[:42] + "B=" }},
+	{"docs placeholder key", "alpha", "public_key", func(m *Mesh) { m.Nodes["alpha"].PublicKey = "base64-encoded-public-key" }},
+	{"mesh listen port 0", "", "listen_port", func(m *Mesh) { m.ListenPort = 0 }},
+	{"empty public key", "alpha", "public_key", func(m *Mesh) { m.Nodes["alpha"].PublicKey = "" }},
 }
 
 func TestValidateWarnsOnFormatDeviationAtN(t *testing.T) {
@@ -219,20 +258,6 @@ func TestValidateAcceptsSavedStates(t *testing.T) {
 		})
 	}
 
-	// The placeholders of docs/centralized-mode.md are not 44 base64
-	// characters: only class B findings on public_key, nothing refused.
-	t.Run("docs placeholders", func(t *testing.T) {
-		m := loadFixture(t, "state-docs-example.json")
-		m.Nodes["node1"].PublicKey = "base64-encoded-public-key"
-		fs := m.Validate()
-		if len(fs) != 1 || fs[0].Class != ClassB || fs[0].Field != "public_key" || fs[0].Node != "node1" {
-			t.Fatalf("want one class B public_key finding, got %+v", fs)
-		}
-		if err := m.validateForDeploy(&bytes.Buffer{}); err != nil {
-			t.Errorf("docs placeholders refused at N: %v", err)
-		}
-	})
-
 	// An IPv6 literal endpoint and the default route are safe-set values.
 	t.Run("ipv6 endpoint", func(t *testing.T) {
 		m := validMesh()
@@ -242,26 +267,32 @@ func TestValidateAcceptsSavedStates(t *testing.T) {
 			t.Errorf("findings: %+v", fs)
 		}
 	})
+
+	// Fields that may be empty give no finding: no network (Deploy then uses
+	// a /16) and no ssh_host.
+	t.Run("empty network", func(t *testing.T) {
+		m := validMesh()
+		m.Network = ""
+		if fs := m.Validate(); len(fs) != 0 {
+			t.Errorf("findings: %+v", fs)
+		}
+	})
+	t.Run("empty ssh_host", func(t *testing.T) {
+		m := validMesh()
+		m.Nodes["alpha"].SSHHost = ""
+		if fs := m.Validate(); len(fs) != 0 {
+			t.Errorf("findings: %+v", fs)
+		}
+	})
 }
 
-// Deploy must refuse a class A state before it opens a connection: the
-// listener counts every accepted connection.
+// Deploy must refuse a class A state before it opens a connection: after it
+// returns, the listener must have nothing to accept.
 func TestDeployValidatesBeforeDial(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	var conns atomic.Int32
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			conns.Add(1)
-			c.Close()
-		}
-	}()
 	t.Cleanup(func() { ln.Close() })
 	addr := ln.Addr().(*net.TCPAddr)
 
@@ -278,7 +309,18 @@ func TestDeployValidatesBeforeDial(t *testing.T) {
 	if !strings.Contains(err.Error(), "interface_name") {
 		t.Errorf("error must list the finding: %v", err)
 	}
-	if n := conns.Load(); n != 0 {
-		t.Errorf("Deploy opened %d connection(s) before validating", n)
+
+	// A dial still sitting in the backlog is accepted here; a timeout means
+	// no connection was made.
+	if err := ln.(*net.TCPListener).SetDeadline(time.Now().Add(300 * time.Millisecond)); err != nil {
+		t.Fatal(err)
+	}
+	c, err := ln.Accept()
+	if err == nil {
+		c.Close()
+		t.Fatal("Deploy opened a connection before validating")
+	}
+	if ne, ok := err.(net.Error); !ok || !ne.Timeout() {
+		t.Errorf("want an accept timeout, got %v", err)
 	}
 }
