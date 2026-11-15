@@ -326,10 +326,24 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 	toRemove = append(toRemove, stale...)
 	err = ssh.ApplyRouteDiff(client, m.InterfaceName, toAdd, toRemove)
 	// Removals run before adds, so restore even if an add failed.
-	for _, route := range stale {
+	restoreOwnConnectedRoutes(client, toRemove, node.RoutableNetworks)
+	return err
+}
+
+// restoreOwnConnectedRoutes restores the connected route once for every
+// distinct network of removed that is one of the node's own networks, whatever
+// the route's gateway: before PR #879 an HA node also carried
+// `<own network> via <other node> dev <mesh interface>`, which replaced the
+// connected route and is gone once removed.
+func restoreOwnConnectedRoutes(client *ssh.Client, removed []ssh.RouteEntry, ownNetworks []string) {
+	seen := make(map[string]bool, len(removed))
+	for _, route := range removed {
+		if seen[route.Network] || len(netroutes.ExcludeOwn([]string{route.Network}, ownNetworks)) != 0 {
+			continue
+		}
+		seen[route.Network] = true
 		ssh.RestoreConnectedRoute(client, route.Network)
 	}
-	return err
 }
 
 // ownNetworkRoutes returns the gateway-less mesh-interface routes to a node's
