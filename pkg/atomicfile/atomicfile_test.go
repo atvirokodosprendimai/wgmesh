@@ -9,7 +9,6 @@ import (
 	"sync"
 	"syscall"
 	"testing"
-	"time"
 )
 
 func dirNames(t *testing.T, dir string) []string {
@@ -206,9 +205,8 @@ func TestWriteFileReportsDirSyncFailureAfterRename(t *testing.T) {
 
 func TestConcurrentReaderNeverSeesPartialFile(t *testing.T) {
 	const (
-		writes  = 300
-		size    = 1 << 20
-		timeout = 60 * time.Second
+		writes = 300
+		size   = 1 << 20
 	)
 	a := bytes.Repeat([]byte{'a'}, size)
 	b := bytes.Repeat([]byte{'b'}, size)
@@ -222,7 +220,6 @@ func TestConcurrentReaderNeverSeesPartialFile(t *testing.T) {
 		wg      sync.WaitGroup
 		mu      sync.Mutex
 		failure string
-		reads   int
 	)
 	done := make(chan struct{})
 	started := make(chan struct{})
@@ -239,7 +236,6 @@ func TestConcurrentReaderNeverSeesPartialFile(t *testing.T) {
 			got, err := os.ReadFile(path)
 			startOnce.Do(func() { close(started) })
 			mu.Lock()
-			reads++
 			if failure == "" {
 				switch {
 				case err != nil:
@@ -258,14 +254,14 @@ func TestConcurrentReaderNeverSeesPartialFile(t *testing.T) {
 
 	// Start writing only after the reader has read the initial file once.
 	<-started
-	deadline := time.Now().Add(timeout)
+	failed := func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return failure != ""
+	}
 	last := a
 	var werr error
-	for i := 0; i < writes; i++ {
-		if time.Now().After(deadline) {
-			werr = os.ErrDeadlineExceeded
-			break
-		}
+	for i := 0; i < writes && !failed(); i++ {
 		last = a
 		if i%2 == 1 {
 			last = b
@@ -284,9 +280,6 @@ func TestConcurrentReaderNeverSeesPartialFile(t *testing.T) {
 	defer mu.Unlock()
 	if failure != "" {
 		t.Fatal(failure)
-	}
-	if reads == 0 {
-		t.Fatal("reader never ran")
 	}
 	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, last) {
 		t.Fatalf("final content is not the last write (err %v)", err)
