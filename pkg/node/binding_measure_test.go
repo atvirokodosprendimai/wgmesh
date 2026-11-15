@@ -1,14 +1,13 @@
 package node
 
 import (
+	"crypto/ecdh"
 	"crypto/rand"
 	"encoding/base64"
 	"os"
 	"sort"
 	"testing"
 	"time"
-
-	"golang.org/x/crypto/curve25519"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
@@ -30,15 +29,11 @@ func TestMeasureBindingGrinding(t *testing.T) {
 	)
 	subnet := [2]byte{42, 7}
 	newPub := func() string {
-		var priv [32]byte
-		if _, err := rand.Read(priv[:]); err != nil {
-			t.Fatal(err)
-		}
-		pub, err := curve25519.X25519(priv[:], curve25519.Basepoint)
+		priv, err := ecdh.X25519().GenerateKey(rand.Reader)
 		if err != nil {
 			t.Fatal(err)
 		}
-		return base64.StdEncoding.EncodeToString(pub)
+		return base64.StdEncoding.EncodeToString(priv.PublicKey().Bytes())
 	}
 
 	start := time.Now()

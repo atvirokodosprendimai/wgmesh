@@ -49,9 +49,14 @@ func verdictName(v Verdict) string {
 	return map[Verdict]string{Admit: "admit", AdmitPartial: "admit-partial", Refuse: "refuse"}[v]
 }
 
+// sameList compares two lists, a nil list and an empty one being equal.
+func sameList(a, b []string) bool {
+	return (len(a) == 0 && len(b) == 0) || reflect.DeepEqual(a, b)
+}
+
 // playCompat builds the case's store and offers its candidate; the warnings
 // are those of the offer alone.
-func playCompat(t *testing.T, f compatFile, c compatCase, ps *PeerStore, warned *[]string) (Decision, *PeerInfo) {
+func playCompat(t *testing.T, c compatCase, ps *PeerStore, warned *[]string) (Decision, *PeerInfo) {
 	t.Helper()
 	*warned = nil
 	d := ps.Offer(Candidate{
@@ -113,10 +118,10 @@ func TestAdmitCompatFixtures(t *testing.T) {
 				}
 				setSwitches(t, ph.ip, ph.route)
 				ps, warned := compatStore(t, f, c)
-				d, got := playCompat(t, f, c, ps, warned)
+				d, got := playCompat(t, c, ps, warned)
 				if ph.then {
 					EnforceRouteBinding = true
-					d, got = playCompat(t, f, c, ps, warned)
+					d, got = playCompat(t, c, ps, warned)
 				}
 
 				if v := verdictName(d.Verdict); v != want.Verdict || string(d.Reason) != want.Reason {
@@ -125,10 +130,10 @@ func TestAdmitCompatFixtures(t *testing.T) {
 				if (got != nil) != want.Stored {
 					t.Fatalf("offered key stored = %v, want %v", got != nil, want.Stored)
 				}
-				if got != nil && !(len(got.RoutableNetworks) == 0 && len(want.Routes) == 0) && !reflect.DeepEqual(got.RoutableNetworks, want.Routes) {
+				if got != nil && !sameList(got.RoutableNetworks, want.Routes) {
 					t.Errorf("stored routes = %v, want %v", got.RoutableNetworks, want.Routes)
 				}
-				if !(len(*warned) == 0 && len(want.Warnings) == 0) && !reflect.DeepEqual(*warned, want.Warnings) {
+				if !sameList(*warned, want.Warnings) {
 					t.Errorf("warnings = %v, want %v", *warned, want.Warnings)
 				}
 				var keys []string

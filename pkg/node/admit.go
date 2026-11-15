@@ -56,9 +56,9 @@ const (
 	ReasonIPHeld     Reason = "ip-held-by-bound"
 )
 
-// Decision is the result of Decide. AdmitPartial, Dropped and Warnings are
-// declared for the rules of T3 to T10 and nothing produces them yet; Dropped
-// would name fields removed from a candidate, Warnings rules that would refuse in enforce mode.
+// Decision is the result of Decide. Dropped names the route entries removed
+// from the candidate (Verdict AdmitPartial); Warnings names the rules that
+// would act once enforced and were only counted (Verdict Admit).
 type Decision struct {
 	Verdict  Verdict
 	Reason   Reason
@@ -66,10 +66,13 @@ type Decision struct {
 	Warnings []string
 }
 
-// EnforceIPBinding switches the claim order of R4 (a bound claim beats an
-// unbound one, then the lower key). It is false until the binding is enforced
-// (release N+1, ADR-0002 decision 4): the lower key decides and each case the
-// bound order would decide differently is a warning.
+// EnforceIPBinding switches the refusal of R5: a first-hand claim from a key not
+// yet stored, whose claim is unbound, for an address a bound claim of another
+// member holds, is refused (ReasonIPHeld). It is false until release N+1
+// (ADR-0002 decision 4); until then each such claim is a warning and is admitted.
+// The order between two claims for one address (a bound claim beats an unbound
+// one, then the lower key) is R4 and lives in Winner and ResolveClaims, which
+// read the same switch.
 var EnforceIPBinding = false
 
 // Policy is what the daemon lends the store. All fields are optional.

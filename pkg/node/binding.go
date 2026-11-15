@@ -68,10 +68,11 @@ func routeRule(s Snapshot, key, route string) string {
 	return ""
 }
 
-// bindClaim applies R4/R5 to a candidate that passed the refusals. In warn
-// mode (both switches false) it only counts: the decision is Admit and each
-// case enforcement would act on is a warning; an enforced rule acts and does
-// not warn.
+// bindClaim applies R5 and the route rule to a candidate that passed the
+// refusals; R4 (the claim order) is not decided here, Winner and ResolveClaims
+// reuse Bound for it. In warn mode (both switches false) it only counts: the
+// decision is Admit and each case enforcement would act on is a warning; an
+// enforced rule acts and does not warn.
 func bindClaim(s Snapshot, c Candidate) Decision {
 	d := Decision{Verdict: Admit}
 	p, info := s.Policy, c.Info
@@ -88,7 +89,7 @@ func bindClaim(s Snapshot, c Candidate) Decision {
 		if EnforceIPBinding {
 			return Decision{Verdict: Refuse, Reason: ReasonIPHeld}
 		}
-		warn("ip-held-by-bound")
+		warn(string(ReasonIPHeld))
 	}
 
 	for _, r := range info.RoutableNetworks {
