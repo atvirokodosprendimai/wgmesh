@@ -66,6 +66,14 @@ n=$(go test ./pkg/wireguard -run '^(TestReadStateParsesDumpColumns|TestReadState
 - 2026-11-15 · 1905e4b* · mutant killed · exit 1 · `pkg/wireguard/state.go` · a failed fork is stored: TestReadStateDoesNotStoreErrors must go red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
 - 2026-11-15 · 1905e4b* · mutant killed · exit 1 · `pkg/wireguard/state.go` · no deadline on the child: TestRunWGKillsChildAfterTimeout must go red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
 - 2026-11-15 · 1905e4b* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · a legacy reader forks on its own: TestLegacyReadersForwardToReadState must go red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · a07e465* · mutant killed · exit 1 · `pkg/wireguard/state.go` · maxAge ignored: TestReadStateReusesResultInsideMaxAge red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · a07e465* · mutant killed · exit 1 · `pkg/wireguard/state.go` · failed fork stored: TestReadStateDoesNotStoreErrors red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · a07e465* · mutant killed · exit 1 · `pkg/wireguard/state.go` · no deadline: TestRunWGKillsChildAfterTimeout red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · a07e465* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · legacy reader forks directly: TestLegacyReadersForwardToReadState red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · a07e465* · mutant killed · exit 1 · `pkg/wireguard/state.go` · stored result never expires: TestReadStateReforksPastMaxAge red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · a07e465* · mutant killed · exit 1 · `pkg/wireguard/state.go` · grandchild holds the pipes past the deadline: TestRunWGKillsChildAfterTimeout red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · a07e465* · mutant killed · exit 1 · `pkg/wireguard/state.go` · wrong column: TestReadStateParsesDumpColumns red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · a07e465* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · GetPeers swallows the read error: TestLegacyReadersPropagateErrors red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
 
 ## Invariants
 
@@ -109,3 +117,13 @@ Stop and ask if `wg show <iface> dump` differs between the `wg` builds the proje
 - 2026-11-15 · 1905e4b* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:15516
 - 2026-11-15 · 1905e4b* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:13981
 - 2026-11-15 · 1905e4b* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:10910
+- 2026-11-15 · a07e465* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:1 · test-lock-sha256:90ec0126972f43ebb949d4d9f687827178ecddae3814b394adcdc6a459ec21f2 · test-lock-file:docs/adr/locks/90ec0126972f43ebb949d4d9f687827178ecddae3814b394adcdc6a459ec21f2.lock · test-lock-kind:replace
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:13084
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:11922
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:13002
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:19376
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:18042
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:17091
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:16785
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:16017
+- 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:11019
