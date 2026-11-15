@@ -119,10 +119,11 @@ func (ps *PeerStore) Offer(c Candidate) Decision {
 				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
 					DefaultMaxPeers, shortKey(key), c.Method())
 			}
+			// Log once per tombstone: a mention flood must not become a log flood.
 			if t := ps.tombstones[key]; d.Reason == ReasonTombstoned && !t.logged {
 				t.logged = true
 				ps.tombstones[key] = t
-				log.Printf("[Admit] refused tombstoned peer %s... via %s (withdrawn: %s)", shortKey(key), c.Method(), t.cause)
+				log.Printf("[Admit] refused tombstoned peer %s... via %s (withdrawn: %s); until TombstoneTTL passes or the peer speaks first", shortKey(key), c.Method(), t.cause)
 			}
 			return
 		}

@@ -30,7 +30,9 @@ type PeerEvent struct {
 	Kind   PeerEventKind
 }
 
-// tombstone records when and why a key was withdrawn.
+// tombstone records when and why a key was withdrawn. logged throttles the
+// refusal log to one line per tombstone, so a flood of mentions cannot flood
+// the log.
 type tombstone struct {
 	at     time.Time
 	cause  string

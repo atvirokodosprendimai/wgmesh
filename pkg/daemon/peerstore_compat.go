@@ -19,6 +19,7 @@ const (
 	PeerRemoveTimeout = node.PeerRemoveTimeout
 	PeerEventBufSize  = node.PeerEventBufSize
 	DefaultMaxPeers   = node.DefaultMaxPeers
+	TombstoneTTL      = node.TombstoneTTL
 	PeerEventNew      = node.PeerEventNew
 	PeerEventUpdated  = node.PeerEventUpdated
 

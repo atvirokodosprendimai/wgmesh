@@ -1397,7 +1397,7 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
 	}
-	log.Printf("[Health] Evicting unresponsive peer %s... from active pool", shortKey(peer.WGPubKey))
+	log.Printf("[Health] Evicting unresponsive peer %s... from active pool; hidden from mentions for %s unless it speaks first", shortKey(peer.WGPubKey), TombstoneTTL)
 	d.markTemporarilyOffline(peer.WGPubKey)
 	d.peerStore.Withdraw(peer.WGPubKey, "evicted")
 	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {

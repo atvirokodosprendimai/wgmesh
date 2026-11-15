@@ -119,6 +119,9 @@ func TestGoodbyeLeavesTombstone(t *testing.T) {
 // nonce cache, so a captured HELLO replayed inside the age window is a
 // first-hand offer and clears the tombstone. The test records that the peer
 // returns; a nonce-aware rule would turn it around.
+// It pins a KNOWN LIMIT accepted by M 2026-11-15 (BACKLOG row 'ADR-0002 T3
+// known limit'). When ADR-0001's per-HELLO sequence lands this assertion must
+// flip and the BACKLOG row be closed.
 func TestReplayedHelloAfterGoodbyeResurrectsPeer(t *testing.T) {
 	t.Parallel()
 	victim := aadKey(5)
@@ -140,7 +143,7 @@ func TestReplayedHelloAfterGoodbyeResurrectsPeer(t *testing.T) {
 
 	pe.handleMessage(hello, aadRemote)
 	if _, ok := store.Get(victim); !ok {
-		t.Error("the replayed HELLO did not bring the peer back: the stop condition does not hold")
+		t.Error("the replayed HELLO was refused: the known limit in docs/adr/BACKLOG.md is closed, delete this test and its row")
 	}
 }
 
