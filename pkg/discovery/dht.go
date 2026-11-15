@@ -1065,7 +1065,8 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 				log.Printf("[NAT] Punch succeeded: %s (%s)", shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
 			}
 			d.setControlEndpoint(peerInfo.WGPubKey, endpoint)
-			d.admitPunchReply(peerInfo, DHTMethod)
+			// The label is the NAT-path marker daemon.go:720 reads to prefer relay; the hand, not the label, carries trust.
+			d.admitPunchReply(peerInfo, DHTMethod+"-transitive")
 			d.recordRendezvousAttempt(target.WGPubKey, true)
 		}
 	}(targetControlEndpoint, peer)
