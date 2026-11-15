@@ -1343,6 +1343,25 @@ func shouldTreatPeerAsStale(handshakeTS int64, prevTransferTotal, currentTransfe
 	return currentTransferTotal <= prevTransferTotal
 }
 
+// reconnectAllowedCSV builds the allowed-ips list for a forced reconnect of
+// peer, leaving out the local node's own networks.
+func reconnectAllowedCSV(peer *PeerInfo, ownNetworks []string) string {
+	allowed := make(map[string]struct{})
+	if peer.MeshIP != "" {
+		allowed[peer.MeshIP+"/32"] = struct{}{}
+	}
+	if peer.MeshIPv6 != "" {
+		allowed[peer.MeshIPv6+"/128"] = struct{}{}
+	}
+	for _, route := range routes.ExcludeOwn(peer.RoutableNetworks, ownNetworks) {
+		r := strings.TrimSpace(route)
+		if r != "" {
+			allowed[r] = struct{}{}
+		}
+	}
+	return strings.Join(mapKeysSorted(allowed), ",")
+}
+
 func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
@@ -1352,20 +1371,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	allowed := make(map[string]struct{})
-	if peer.MeshIP != "" {
-		allowed[peer.MeshIP+"/32"] = struct{}{}
-	}
-	if peer.MeshIPv6 != "" {
-		allowed[peer.MeshIPv6+"/128"] = struct{}{}
-	}
-	for _, route := range routes.ExcludeOwn(peer.RoutableNetworks, d.localNode.RoutableNetworks) {
-		r := strings.TrimSpace(route)
-		if r != "" {
-			allowed[r] = struct{}{}
-		}
-	}
-	allowedCSV := strings.Join(mapKeysSorted(allowed), ",")
+	allowedCSV := reconnectAllowedCSV(peer, d.localNode.RoutableNetworks)
 	if allowedCSV == "" {
 		return
 	}

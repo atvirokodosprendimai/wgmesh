@@ -117,9 +117,6 @@ func canonicalNetwork(network string) string {
 // never route a network it advertises itself through the mesh, so a peer's
 // advertisement of the same network (HA) is dropped on this node.
 func ExcludeOwn(networks, own []string) []string {
-	if len(own) == 0 {
-		return networks
-	}
 	ownSet := make(map[string]struct{}, len(own))
 	for _, n := range own {
 		ownSet[canonicalNetwork(n)] = struct{}{}

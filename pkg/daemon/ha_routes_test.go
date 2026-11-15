@@ -62,3 +62,44 @@ func TestSharedSubnetNeverRoutedThroughMesh(t *testing.T) {
 		}
 	})
 }
+
+// The relay branch must not put the shared subnet under the relay's AllowedIPs.
+func TestSharedSubnetNotRelayedThroughMesh(t *testing.T) {
+	const shared = "192.168.10.0/24"
+	const disjoint = "192.168.20.0/24"
+
+	d := makeRelayTestDaemon()
+	d.config.ForceRelay = true
+	d.localNode.RoutableNetworks = []string{shared}
+	relay := &PeerInfo{
+		WGPubKey: "relay1", MeshIP: "10.0.0.10", Endpoint: "1.2.3.4:51820",
+		Introducer: true, LastSeen: time.Now(),
+	}
+	target := &PeerInfo{
+		WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(),
+		RoutableNetworks: []string{shared, disjoint},
+	}
+
+	desired, relayRoutes, _ := d.buildDesiredPeerConfigsWithHandshakes([]*PeerInfo{relay, target}, nil)
+	if relayRoutes["peer1"] != "relay1" {
+		t.Fatalf("relay branch not taken: relayRoutes = %v", relayRoutes)
+	}
+	allowed := desired["relay1"].allowed
+	if _, ok := allowed[shared]; ok {
+		t.Errorf("shared subnet in relay AllowedIPs: %v", allowed)
+	}
+	if _, ok := allowed[disjoint]; !ok {
+		t.Errorf("disjoint network missing from relay AllowedIPs: %v", allowed)
+	}
+}
+
+func TestReconnectAllowedCSVExcludesOwnNetworks(t *testing.T) {
+	peer := &PeerInfo{
+		WGPubKey: "peer1", MeshIP: "10.0.0.20",
+		RoutableNetworks: []string{"192.168.10.0/24", "192.168.20.0/24"},
+	}
+	got := reconnectAllowedCSV(peer, []string{"192.168.10.0/24"})
+	if want := "10.0.0.20/32,192.168.20.0/24"; got != want {
+		t.Errorf("reconnectAllowedCSV() = %q, want %q", got, want)
+	}
+}
