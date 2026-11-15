@@ -483,9 +483,8 @@ func (pe *PeerExchange) applyObservedEndpoint(observed string) {
 	}
 
 	newEndpoint := net.JoinHostPort(ip.String(), wgPort)
-	if newEndpoint != currentEP {
+	if pe.localNode.ObserveEndpoint(daemon.EndpointReflection, newEndpoint) {
 		log.Printf("[Exchange] Peer reflected our address: %s (was %s)", newEndpoint, currentEP)
-		pe.localNode.SetEndpoint(newEndpoint)
 	}
 }
 
