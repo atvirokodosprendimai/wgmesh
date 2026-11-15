@@ -81,3 +81,17 @@ Stop and ask if the gate would also have to cover a type other than GOODBYE.
 - Refusing legacy envelopes altogether (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-15 · e44ce98* · exit 1 · `set -o pipefail …` · acceptance-sha256:834959bb173789d22d14bf83cdfccd3040b6269697dbf3e87e20197e0afb7213 · ms:1346 · test-lock-sha256:dc75ca16741647272b085b0a2c3615e4e52263c3c7a169fb3e8349973846a9db · test-lock-file:docs/adr/locks/dc75ca16741647272b085b0a2c3615e4e52263c3c7a169fb3e8349973846a9db.lock
+  ```
+  --- last 10 line(s) of stderr (of 45 after folding 48 raw)
+  2026/11/15 17:25:49 [Exchange] Received valid HELLO from 198.51.100.7:51821
+  2026/11/15 17:25:49 [Exchange] Dropping invalid HELLO from 198.51.100.7:51821: MeshIP: empty IP
+  2026/11/15 17:25:49 [Exchange] Received valid REPLY from 198.51.100.7:51821
+  2026/11/15 17:25:49 [Exchange] Dropping invalid REPLY from 198.51.100.7:51821: MeshIP: empty IP
+  2026/11/15 17:25:49 [Exchange] Received valid ANNOUNCE from 198.51.100.7:51821
+  2026/11/15 17:25:49 [Exchange] Dropping invalid ANNOUNCE from 198.51.100.7:51821: MeshIP: empty IP
+  --- PASS: TestLegacyGoodbyeRetypedAsHelloIsRejected (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery	0.010s
+  FAIL
+  ```

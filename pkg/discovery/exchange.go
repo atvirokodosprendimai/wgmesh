@@ -205,6 +205,10 @@ func (pe *PeerExchange) listenLoop() {
 	}
 }
 
+// LegacyEnvelopeOpens returns how many received envelopes were sealed without
+// type authentication. STUB for ADR-0001 T2 step S1 (red run); implemented in S2.
+func (pe *PeerExchange) LegacyEnvelopeOpens() uint64 { return 0 }
+
 // handleMessage processes an incoming peer exchange message
 func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	// Try to decrypt the message
