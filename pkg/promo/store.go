@@ -121,7 +121,7 @@ func (s *Store) save() error {
 		return fmt.Errorf("marshal promo store: %w", err)
 	}
 
-	// Write atomically (atomicfile: temp file, fsync, rename, directory fsync)
+	// Write atomically: see atomicfile.WriteFile.
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create directory: %w", err)
