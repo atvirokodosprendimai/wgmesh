@@ -1,9 +1,9 @@
 package atomicfile
 
 // Words: a state file is replaced by atomicfile.WriteFile and by nothing else.
-// These tests parse every production .go file of the module and fail when a
-// file has more os.WriteFile / ioutil.WriteFile calls than the table below
-// allows, or when os.Rename appears outside this package's atomicfile.go.
+// These tests parse every production .go file of the module and fail when the
+// number of os.WriteFile / ioutil.WriteFile calls in a file differs from the
+// table below, or when os.Rename appears outside this package's atomicfile.go.
 //
 // Why: the private temp-and-rename copies never fsynced and shared one fixed
 // ".tmp" name (issue #870 class). One helper plus a guard that fails on a new
@@ -15,7 +15,11 @@ package atomicfile
 //   - a call through an alias import (import o "os"; o.WriteFile) is not seen,
 //     and neither is a call made through a function value (w := os.WriteFile;
 //     w(...)): only the selector expression is counted;
-//   - identifiers named os and ioutil are matched by name, not by import.
+//   - identifiers named os and ioutil are matched by name, not by import;
+//   - os.Create, os.OpenFile (with O_TRUNC) and syscall.Rename are not counted
+//     either;
+//   - the module root comes from `go list -m -f {{.Dir}}`, which prints one
+//     line per module under a go.work file: the guard assumes no go.work.
 //
 // Invariant: the module root comes from `go list -m -f {{.Dir}}`, never from a
 // typed path.
@@ -33,13 +37,13 @@ import (
 )
 
 // allowedWriteFile is the table of production files that may call
-// os.WriteFile or ioutil.WriteFile, with the exact count (2026-11-15, after
-// T2). A file not in the table must have 0. Add a row only with a reason.
+// os.WriteFile or ioutil.WriteFile, with the exact count. A file not in the
+// table must have 0. Add a row only with a reason.
 var allowedWriteFile = map[string]int{
 	"main.go":                1, // --output report, not state read again
 	"pkg/pilot/report.go":    1, // report output
 	"pkg/pilot/config.go":    1, // pilot config template
-	"pkg/daemon/systemd.go":  2, // unit and secret files (BACKLOG)
+	"pkg/daemon/systemd.go":  2, // secret.env and unit at install time; BACKLOG: install-service writing secret.env and the unit atomically (re-running repairs a short file)
 	"cmd/status-gen/main.go": 1, // generated STATUS.md
 }
 
@@ -137,10 +141,13 @@ func TestNoInPlaceStateWrite(t *testing.T) {
 	for _, f := range names {
 		got := found[f]["os.WriteFile"] + found[f]["ioutil.WriteFile"]
 		allowed := allowedWriteFile[f]
-		if got != allowed {
+		if got > allowed {
 			t.Errorf("%s: found %d os.WriteFile/ioutil.WriteFile calls, allowed %d; "+
-				"a state file must be written with atomicfile.WriteFile; "+
-				"if this call is not state, add or change a justified row in allowedWriteFile",
+				"add a justified row to allowedWriteFile or use atomicfile.WriteFile",
+				f, got, allowed)
+		} else if got < allowed {
+			t.Errorf("%s: found %d os.WriteFile/ioutil.WriteFile calls, allowed %d; "+
+				"the table row is stale: lower or remove it",
 				f, got, allowed)
 		}
 	}
