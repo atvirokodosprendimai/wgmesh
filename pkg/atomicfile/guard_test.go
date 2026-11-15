@@ -29,6 +29,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -77,8 +78,18 @@ func countCalls(t *testing.T, root string, names ...string) map[string]map[strin
 		}
 		if d.IsDir() {
 			switch d.Name() {
-			case "vendor", "testdata", ".git":
+			case "vendor", "testdata":
 				return filepath.SkipDir
+			}
+			if path != root {
+				// A hidden directory (.git, .worktrees, .claude) or a nested
+				// module holds files that are not this module's.
+				if strings.HasPrefix(d.Name(), ".") {
+					return filepath.SkipDir
+				}
+				if _, err := os.Stat(filepath.Join(path, "go.mod")); err == nil {
+					return filepath.SkipDir
+				}
 			}
 			return nil
 		}
@@ -171,5 +182,34 @@ func TestNoPrivateRenameCopy(t *testing.T) {
 	if found[allowedRename]["os.Rename"] != 1 {
 		t.Errorf("%s: found %d os.Rename calls, allowed 1 (the helper's own commit step)",
 			allowedRename, found[allowedRename]["os.Rename"])
+	}
+}
+
+// TestGuardSkipsHiddenAndNestedModuleDirs: a call in a hidden directory or in
+// a nested module is not this module's and is not counted; a normal directory
+// is.
+func TestGuardSkipsHiddenAndNestedModuleDirs(t *testing.T) {
+	root := t.TempDir()
+	const src = "package x\n\nimport \"os\"\n\nfunc f() { _ = os.WriteFile(\"a\", nil, 0o600) }\n"
+	files := map[string]string{
+		"normal/a.go":       src,
+		".worktrees/w/a.go": src,
+		".claude/a.go":      src,
+		"nested/go.mod":     "module example.com/nested\n",
+		"nested/a.go":       src,
+		"nested/sub/a.go":   src,
+	}
+	for rel, body := range files {
+		p := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	found := countCalls(t, root, "os.WriteFile")
+	if len(found) != 1 || found["normal/a.go"]["os.WriteFile"] != 1 {
+		t.Errorf("countCalls = %v, want only normal/a.go with 1 call", found)
 	}
 }
