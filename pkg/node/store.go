@@ -365,7 +365,7 @@ func (ps *PeerStore) CleanupStale() []string {
 	defer ps.mu.Unlock()
 
 	var removed []string
-	now := time.Now()
+	now := ps.now()
 	for pubKey, peer := range ps.peers {
 		if now.Sub(peer.LastSeen) > PeerRemoveTimeout {
 			delete(ps.peers, pubKey)

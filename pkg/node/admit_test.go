@@ -314,8 +314,8 @@ func TestTombstoneTTLIsFiveMinutes(t *testing.T) {
 func TestCleanupStaleLeavesTombstone(t *testing.T) {
 	t.Parallel()
 
-	ps := NewPeerStore()
-	old := time.Now().Add(-PeerRemoveTimeout - time.Minute)
+	ps, now := clockedStore(0)
+	old := now.Add(-PeerRemoveTimeout - time.Minute)
 	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "heard", LastSeen: old}, Source: "dht", Hand: FirstHand})
 	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "mentioned", LastSeen: old}, Source: "dht", Hand: SecondHand})
 	if removed := ps.CleanupStale(); len(removed) != 2 {
