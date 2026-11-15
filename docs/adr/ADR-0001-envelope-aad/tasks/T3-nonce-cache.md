@@ -59,6 +59,10 @@ n=$(go test ./pkg/discovery -run '^(TestNonceCacheRejectsRepeat|TestNonceCacheEx
 | 4 — it is used | nothing measures drops yet |
 
 ## Mutation Log
+- 2026-11-15 · 0d3baff* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · handleMessage no longer drops a replayed datagram · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
+- 2026-11-15 · 0d3baff* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · HELLO retransmits are dropped by the cache, so the NAT punch cannot recover a lost reply · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
+- 2026-11-15 · 0d3baff* · mutant killed · exit 1 · `pkg/discovery/replay_cache.go` · the nonce cache is no longer bounded by its capacity · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
+- 2026-11-15 · 0d3baff* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the cache forgets a nonce before a future-dated packet goes stale · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
 
 ## Invariants
 
@@ -98,3 +102,7 @@ Stop and ask if the send-site audit in S1 finds a second site that resends ident
   FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery	0.010s
   FAIL
   ```
+- 2026-11-15 · 0d3baff* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:9469
+- 2026-11-15 · 0d3baff* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:10506
+- 2026-11-15 · 0d3baff* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:8124
+- 2026-11-15 · 0d3baff* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:8969
