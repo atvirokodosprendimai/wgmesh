@@ -3,6 +3,8 @@ package daemon
 import (
 	"testing"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 func TestShouldTreatPeerAsStale(t *testing.T) {
@@ -46,7 +48,7 @@ func TestEvictionLeavesTombstone(t *testing.T) {
 	}
 
 	dec := d.peerStore.Offer(Candidate{Info: &PeerInfo{WGPubKey: "victim", Introducer: true}, Source: "dht", Hand: SecondHand})
-	if dec.Reason != "tombstoned" {
+	if dec.Reason != node.ReasonTombstoned {
 		t.Errorf("second-hand offer after eviction: %+v, want reason tombstoned", dec)
 	}
 	if got, ok := d.peerStore.Get("victim"); ok {

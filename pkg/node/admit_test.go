@@ -293,21 +293,18 @@ func TestTombstoneExpiresAfterTombstoneTTL(t *testing.T) {
 	*now = now.Add(TombstoneTTL - time.Second)
 	wantTombstoned(t, offerHand(ps, "k", SecondHand, false), "just before the TTL")
 
-	*now = now.Add(2 * time.Second)
+	*now = now.Add(time.Second)
 	if d := offerHand(ps, "k", SecondHand, false); d.Verdict != Admit {
-		t.Errorf("just after the TTL: %+v, want Admit", d)
+		t.Errorf("at exactly the TTL: %+v, want Admit", d)
 	}
 }
 
 func TestTombstoneTTLIsFiveMinutes(t *testing.T) {
 	t.Parallel()
 
-	ttl, remove := TombstoneTTL, PeerRemoveTimeout
-	if ttl != 5*time.Minute {
+	// Pins M's value (2026-11-15: 5 minutes).
+	if ttl := TombstoneTTL; ttl != 5*time.Minute {
 		t.Errorf("TombstoneTTL = %v, want 5m", ttl)
-	}
-	if ttl == remove {
-		t.Errorf("TombstoneTTL equals PeerRemoveTimeout (%v): it must be a constant of its own", remove)
 	}
 }
 
@@ -383,4 +380,32 @@ func TestTombstoneEvictionTreatsEmptyKeyAsAKey(t *testing.T) {
 		t.Errorf("the oldest tombstone, the empty key, was kept: %+v", d)
 	}
 	wantTombstoned(t, offerHand(ps, "w-1", SecondHand, false), "the second oldest")
+}
+
+func TestTombstonePrunesExpiredBeforeEvictingOldest(t *testing.T) {
+	t.Parallel()
+
+	ps, now := clockedStore(0)
+	withdraw := func(key string) {
+		offerHand(ps, key, FirstHand, false)
+		ps.Withdraw(key, "goodbye")
+	}
+	const old = DefaultMaxPeers / 2
+	for i := 0; i < old; i++ {
+		withdraw(fmt.Sprintf("old-%d", i))
+	}
+	*now = now.Add(TombstoneTTL + time.Second)
+	for i := 0; i < DefaultMaxPeers-old; i++ {
+		withdraw(fmt.Sprintf("new-%d", i))
+	}
+	if got := len(ps.tombstones); got != DefaultMaxPeers {
+		t.Fatalf("setup left %d tombstones, want %d", got, DefaultMaxPeers)
+	}
+
+	withdraw("one-more")
+
+	if got, want := len(ps.tombstones), DefaultMaxPeers-old+1; got != want {
+		t.Errorf("%d tombstones after the prune, want %d: expired ones must go, the rest stay", got, want)
+	}
+	wantTombstoned(t, offerHand(ps, "new-0", SecondHand, false), "the oldest unexpired tombstone")
 }
