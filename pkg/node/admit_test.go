@@ -334,7 +334,9 @@ func TestTombstoneSetIsBounded(t *testing.T) {
 	const n = 2000
 	ps, _ := clockedStore(time.Millisecond)
 	for i := 0; i < n; i++ {
-		ps.Withdraw(fmt.Sprintf("w-%d", i), "goodbye")
+		key := fmt.Sprintf("w-%d", i)
+		offerHand(ps, key, FirstHand, false)
+		ps.Withdraw(key, "goodbye")
 	}
 
 	if got := len(ps.tombstones); got != DefaultMaxPeers {
@@ -344,4 +346,20 @@ func TestTombstoneSetIsBounded(t *testing.T) {
 	if d := offerHand(ps, "w-0", SecondHand, false); d.Verdict != Admit {
 		t.Errorf("the oldest tombstone was kept: %+v", d)
 	}
+}
+
+func TestWithdrawOfUnknownKeyLeavesNoTombstone(t *testing.T) {
+	t.Parallel()
+
+	ps, _ := clockedStore(time.Millisecond)
+	offerHand(ps, "victim", FirstHand, false)
+	ps.Withdraw("victim", "goodbye")
+	for i := 0; i < 2*DefaultMaxPeers; i++ {
+		ps.Withdraw(fmt.Sprintf("junk-%d", i), "goodbye")
+	}
+
+	if got := len(ps.tombstones); got != 1 {
+		t.Errorf("junk withdrawals left %d tombstones, want 1", got)
+	}
+	wantTombstoned(t, offerHand(ps, "victim", SecondHand, false), "the real victim after a junk flood")
 }

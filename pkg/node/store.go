@@ -309,10 +309,14 @@ func (ps *PeerStore) Remove(pubKey string) {
 
 // Withdraw removes a peer and, for TombstoneTTL, refuses second-hand and
 // restored claims for its key; the peer's own first-hand claim clears that.
-// cause says why (goodbye, evicted, stale) and is kept for the refusal log.
+// A key that is not in the store leaves no tombstone. cause says why (goodbye,
+// evicted, stale) and is kept for the refusal log.
 func (ps *PeerStore) Withdraw(pubKey, cause string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	if _, ok := ps.peers[pubKey]; !ok {
+		return
+	}
 	delete(ps.peers, pubKey)
 	ps.tombstone(pubKey, cause)
 }
