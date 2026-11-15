@@ -38,7 +38,7 @@ Selection: the guard is a test, run by `go test ./...`; it is the selector. Dele
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/atomicfile -run '^(TestNoInPlaceStateWrite|TestNoPrivateRenameCopy)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 2 ] && go test -race ./pkg/mesh ./pkg/promo . -count=1
+n=$(go test ./pkg/atomicfile -run '^(TestNoInPlaceStateWrite|TestNoPrivateRenameCopy|TestGuardSkipsHiddenAndNestedModuleDirs)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 3 ] && go test -race ./pkg/mesh ./pkg/promo . -count=1
 ```
 
 ## Tests
@@ -47,6 +47,9 @@ n=$(go test ./pkg/atomicfile -run '^(TestNoInPlaceStateWrite|TestNoPrivateRename
 |-----------|------|----------|--------|-------|
 | `TestNoInPlaceStateWrite` | `pkg/atomicfile/guard_test.go` | the per-file `os.WriteFile` counts equal the table; a file not in the table has none | — | S1, S2, S3 |
 | `TestNoPrivateRenameCopy` | `pkg/atomicfile/guard_test.go` | `os.Rename` appears in production code only in `pkg/atomicfile/atomicfile.go` | — | S1, S2 |
+| `TestGuardSkipsHiddenAndNestedModuleDirs` | `pkg/atomicfile/guard_test.go` | `countCalls` over a temp tree skips a hidden directory and a nested module, and counts a normal directory | — | S1 |
+| `TestSaveServicesLeavesOnlyTheFile` | `pkg/mesh/services_atomic_test.go` | after two saves the directory holds exactly the one file (the existing test checks only the old `.tmp` name, which no longer exists) | — | S2 |
+| `TestPromoSaveLeavesOnlyTheStoreFile` | `pkg/promo/store_atomic_test.go` | the same for the promo store | — | S2 |
 
 ## Reachability
 
@@ -69,7 +72,8 @@ n=$(go test ./pkg/atomicfile -run '^(TestNoInPlaceStateWrite|TestNoPrivateRename
 
 ## Risks
 
-- The table holds line-free counts, so an unrelated edit that adds an allowed call elsewhere in an allowed file passes; the doc comment says so.
+- The table holds line-free counts: an added call fails (the count differs from the row), but swapping one allowed call for a state writer in the same file passes. The guard does not count `os.Create`, `os.OpenFile` with `O_TRUNC` or `syscall.Rename`, and assumes no `go.work` file (`go list -m` prints one line per module there). The doc comment says so.
+- Behaviour taken on (panel 2026-11-15, not covered by a test): `atomicfile.WriteFile` can return an error after the rename when only the directory fsync fails; `pkg/promo` rolls its memory back on any save error, so after such an error memory and disk differ until restart, and `service` exits 1 after the change is committed. Question for M in the report. The existing tests `services_test.go` and `store_test.go` look for the old `.tmp` name and now assert nothing about leftovers (the invariant forbids editing them); the two new tests above cover it. Read-modify-write of the services and referral files without a lock is the lost-update class of the parent Out of Scope (deferred: docs/adr/BACKLOG.md).
 - Test doubles: none; the guard parses real files.
 
 ## Stop Condition
