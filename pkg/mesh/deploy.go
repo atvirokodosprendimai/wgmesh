@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"slices"
+	"strings"
 
 	netroutes "github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
@@ -64,6 +65,16 @@ func (m *Mesh) Deploy() error {
 			continue
 		}
 		fmt.Printf("  ✓ Deployed successfully\n\n")
+	}
+
+	var warned []string
+	for _, r := range results {
+		for _, w := range r.Warnings {
+			warned = append(warned, fmt.Sprintf("  %s: %s", r.Hostname, w))
+		}
+	}
+	if len(warned) > 0 {
+		fmt.Printf("Warnings:\n%s\n", strings.Join(warned, "\n"))
 	}
 
 	return deployResult(results)
@@ -125,10 +136,10 @@ func (m *Mesh) deployNode(hostname string, node *Node) NodeResult {
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", m.InterfaceName)
 	if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {
 		if PersistFailureFatal {
-			return fail(PhasePersist, fmt.Errorf("failed to update config file: %w", err))
+			return fail(PhasePersist, fmt.Errorf("failed to update config file %s: %w", configPath, err))
 		}
-		fmt.Printf("  Warning: failed to update config file: %v\n", err)
-		result.Warnings = append(result.Warnings, fmt.Sprintf("failed to update config file: %v", err))
+		fmt.Printf("  Warning: failed to update config file %s: %v\n", configPath, err)
+		result.Warnings = append(result.Warnings, fmt.Sprintf("failed to update config file %s: %v", configPath, err))
 	}
 
 	return result

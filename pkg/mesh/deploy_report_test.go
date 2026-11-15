@@ -155,6 +155,10 @@ func TestDeployContinuesPastUnreachableNode(t *testing.T) {
 	err, _ := deployCapturing(t, m)
 
 	wantFailure(t, err, "a", PhaseDetect)
+	var opErr *net.OpError
+	if !errors.As(err, &opErr) {
+		t.Errorf("errors.As does not reach the dial error of node a: %v", err)
+	}
 	for name, srv := range map[string]*sshtest.Server{"b": b, "c": c} {
 		conf, ok := writtenConfig(srv)
 		if !ok {
@@ -329,8 +333,12 @@ func TestPersistWriteFailureIsAWarningAtN(t *testing.T) {
 	if n := writeAttempts(a); n != 1 {
 		t.Fatalf("config file writes attempted = %d, want 1", n)
 	}
-	if n := strings.Count(out, "Warning: failed to update config file"); n != 1 {
-		t.Errorf("warnings printed = %d, want 1:\n%s", n, out)
+	const path = "/etc/wireguard/wg0.conf"
+	if n := strings.Count(out, "Warning: failed to update config file "+path+": "); n != 1 {
+		t.Errorf("inline warnings printed = %d, want 1:\n%s", n, out)
+	}
+	if !strings.Contains(out, "Warnings:\n  a: failed to update config file "+path+": ") {
+		t.Errorf("no Warnings block naming host a and the path:\n%s", out)
 	}
 }
 
@@ -343,6 +351,9 @@ func TestPersistWriteFailureFailsWhenFatal(t *testing.T) {
 	err, _ := deployCapturing(t, m)
 
 	wantFailure(t, err, "a", PhasePersist)
+	if err != nil && !strings.Contains(err.Error(), "failed to update config file /etc/wireguard/wg0.conf: ") {
+		t.Errorf("error does not name the config path:\n%v", err)
+	}
 }
 
 func TestDeployRenderErrorIsAPersistFailureAndLeavesTheNodeUntouched(t *testing.T) {

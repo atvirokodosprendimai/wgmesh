@@ -55,6 +55,18 @@ func (e *DeployError) Error() string {
 		len(failed), len(e.Results), strings.Join(failed, "\n"), list)
 }
 
+// Unwrap returns the error of every failed node, so errors.Is and errors.As
+// reach the cause of a node's failure.
+func (e *DeployError) Unwrap() []error {
+	var errs []error
+	for _, r := range e.Results {
+		if r.Err != nil {
+			errs = append(errs, r.Err)
+		}
+	}
+	return errs
+}
+
 // oneLine keeps an error text on one line of the report.
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
