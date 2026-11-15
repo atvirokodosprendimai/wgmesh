@@ -62,6 +62,21 @@ n=$(go test ./pkg/atomicfile -run '^(TestWriteFileReplacesWhole|TestWriteFileKee
 - 2026-11-15 · f644f14* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · the directory Sync is skipped: TestWriteFileSyncsFileThenDirectory must go red · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785
 - 2026-11-15 · f644f14* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · data goes to path instead of the temp file: the replace and sync-order tests must go red · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785
 - 2026-11-15 · f644f14* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · temp file is not removed on failure: TestWriteFileKeepsOldFileWhenRenameFails and TestWriteFileLeavesNoTempFile must go red · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785
+- 2026-11-15 · 322c63f* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · file Sync skipped: sync-order test must go red · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
+- 2026-11-15 · 322c63f* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · dir Sync skipped: sync-order test must go red · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
+- 2026-11-15 · 322c63f* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · data written to path: replace and sync-order tests must go red · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
+- 2026-11-15 · 322c63f* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · temp not removed: rename-failure and no-temp tests must go red · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
+- 2026-11-15 · 322c63f* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · Chmod dropped: TestWriteFileReplacesWhole must go red on mode 0640 · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
+- 2026-11-15 · 322c63f* · mutant inconclusive · exit 1 · `pkg/atomicfile/atomicfile.go` · dir sync errors swallowed: TestWriteFileReportsDirSyncFailureAfterRename must go red · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-15 · 322c63f* · mutant inconclusive · exit 1 · `pkg/atomicfile/atomicfile.go` · unsupported dir sync returned as error: TestWriteFileIgnoresUnsupportedDirSync must go red · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-15 · 322c63f* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · dir sync errors swallowed: TestWriteFileReportsDirSyncFailureAfterRename must go red · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
+- 2026-11-15 · 322c63f* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · EINVAL no longer ignored: TestWriteFileIgnoresUnsupportedDirSync must go red · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748
 
 ## Invariants
 
@@ -105,3 +120,14 @@ Stop and ask if the temp file cannot be created in the target's directory on a s
 - 2026-11-15 · f644f14* · exit 0 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:7652
 - 2026-11-15 · f644f14* · exit 0 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:8307
 - 2026-11-15 · f644f14* · exit 0 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:5571
+- 2026-11-15 · 322c63f* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:11 · test-lock-sha256:25081dff5f969bb52e7bb489e4908568c3372851a2144842c29595a44f0937b2 · test-lock-file:docs/adr/locks/25081dff5f969bb52e7bb489e4908568c3372851a2144842c29595a44f0937b2.lock · test-lock-kind:replace
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:5702
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:11426
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:9293
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:7155
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:5960
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:4902
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:8036
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:10986
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:4651
+- 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:5212
