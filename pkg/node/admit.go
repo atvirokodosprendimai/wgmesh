@@ -81,6 +81,9 @@ type Policy struct {
 	MeshNet *net.IPNet
 	Derive  func(pubKey string, nonce int) string
 	OnWarn  func(rule string)
+	// AcceptRoutes is the operator's list of approved non-mesh networks (R9);
+	// nil or an empty result approves every network.
+	AcceptRoutes func() []*net.IPNet
 }
 
 // Snapshot is what Decide reads: no I/O, no clock.

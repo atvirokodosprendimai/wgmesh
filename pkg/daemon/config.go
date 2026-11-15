@@ -46,6 +46,7 @@ type DaemonOpts struct {
 	InterfaceName       string
 	WGListenPort        int
 	AdvertiseRoutes     []string
+	AcceptRoutes        []string
 	LogLevel            string
 	Privacy             bool
 	Gossip              bool

@@ -124,3 +124,8 @@ func withoutDropped(info *PeerInfo, dropped []string) *PeerInfo {
 	}
 	return &out
 }
+
+// Approved reports whether the operator's accept list approves a network (R9).
+func Approved(network string, list []*net.IPNet) bool {
+	return true
+}

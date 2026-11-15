@@ -271,3 +271,150 @@ func TestRotatedNodeInStoreIsNeverRefused(t *testing.T) {
 		t.Error("the rotated node left the store")
 	}
 }
+
+// acceptStore is bindingStore with an accept list (R9).
+func acceptStore(t *testing.T, list ...string) (*PeerStore, *[]string) {
+	t.Helper()
+	ps, warned := bindingStore(t)
+	var nets []*net.IPNet
+	for _, s := range list {
+		nets = append(nets, mustCIDR(t, s))
+	}
+	ps.Policy().AcceptRoutes = func() []*net.IPNet { return nets }
+	return ps, warned
+}
+
+func TestAcceptRoutesEmptyIsOpen(t *testing.T) {
+	setSwitches(t, false, true)
+	for _, list := range [][]*net.IPNet{nil, {}} {
+		for _, n := range []string{"0.0.0.0/0", "::/0", "192.168.5.0/24", "10.0.0.0/8"} {
+			if !Approved(n, list) {
+				t.Errorf("Approved(%s, %v) = false, want true for an empty list", n, list)
+			}
+		}
+	}
+	ps, warned := acceptStore(t)
+	d := ps.Offer(firstHand("adv", "10.42.1.1", "0.0.0.0/0", "192.168.5.0/24", "::/0"))
+	if d.Verdict != Admit || len(d.Dropped) != 0 || len(d.Warnings) != 0 || len(*warned) != 0 {
+		t.Errorf("decision = %+v, warnings %v: want a plain Admit with an unset list", d, *warned)
+	}
+}
+
+func TestAcceptRoutesContainmentApproves(t *testing.T) {
+	list := []*net.IPNet{mustCIDR(t, "192.168.0.0/16")}
+	for _, tc := range []struct {
+		network string
+		list    []*net.IPNet
+		want    bool
+	}{
+		{"192.168.5.0/24", list, true},
+		{"192.168.0.0/16", list, true},
+		{"192.168.0.0/15", list, false},
+		{"192.168.5.0/24", []*net.IPNet{mustCIDR(t, "10.0.0.0/8")}, false},
+		{"192.168.5.0/24", []*net.IPNet{mustCIDR(t, "10.0.0.0/8"), mustCIDR(t, "192.168.5.0/24")}, true},
+		{"::ffff:192.168.5.0/120", list, false},
+		{"fd00::/64", list, false},
+		{"not-a-cidr", list, false},
+	} {
+		if got := Approved(tc.network, tc.list); got != tc.want {
+			t.Errorf("Approved(%s, %v) = %v, want %v", tc.network, tc.list, got, tc.want)
+		}
+	}
+}
+
+func TestDefaultRouteNeedsSlashZeroEntry(t *testing.T) {
+	lists := map[string][]*net.IPNet{
+		"v4 /0":  {mustCIDR(t, "0.0.0.0/0")},
+		"v6 /0":  {mustCIDR(t, "::/0")},
+		"others": {mustCIDR(t, "10.0.0.0/8"), mustCIDR(t, "192.168.0.0/16"), mustCIDR(t, "fd00::/8")},
+	}
+	for _, tc := range []struct {
+		list, network string
+		want          bool
+	}{
+		{"v4 /0", "0.0.0.0/0", true},
+		{"v4 /0", "::/0", false},
+		{"v4 /0", "10.0.0.0/8", true},
+		{"v4 /0", "fd00::/8", false},
+		{"v6 /0", "::/0", true},
+		{"v6 /0", "0.0.0.0/0", false},
+		{"v6 /0", "fd00::/8", true},
+		{"v6 /0", "10.0.0.0/8", false},
+		{"others", "0.0.0.0/0", false},
+		{"others", "::/0", false},
+	} {
+		if got := Approved(tc.network, lists[tc.list]); got != tc.want {
+			t.Errorf("Approved(%s, %s) = %v, want %v", tc.network, tc.list, got, tc.want)
+		}
+	}
+}
+
+func TestHAAdvertisersBothApproved(t *testing.T) {
+	setSwitches(t, false, true)
+	ps, warned := acceptStore(t, "192.168.0.0/16")
+	for _, key := range []string{"ha1", "ha2"} {
+		d := ps.Offer(firstHand(key, "10.42.1."+key[2:], "192.168.5.0/24"))
+		if d.Verdict != Admit || len(d.Dropped) != 0 {
+			t.Fatalf("%s: decision = %+v, want a plain Admit although the other member advertises the same network", key, d)
+		}
+		if got, _ := ps.Get(key); got == nil || !reflect.DeepEqual(got.RoutableNetworks, []string{"192.168.5.0/24"}) {
+			t.Errorf("%s: stored routes = %+v, want the shared network kept", key, got)
+		}
+	}
+	if len(*warned) != 0 {
+		t.Errorf("warnings = %v, want none", *warned)
+	}
+}
+
+func TestRouteNotApprovedWarnsThenDrops(t *testing.T) {
+	routes := []string{"192.168.5.0/24", "172.16.0.0/12", "10.1.0.0/16"}
+
+	t.Run("warn at N", func(t *testing.T) {
+		setSwitches(t, false, false)
+		ps, warned := acceptStore(t, "192.168.0.0/16")
+		d := ps.Offer(firstHand("adv", "10.42.1.1", routes...))
+		if d.Verdict != Admit || len(d.Dropped) != 0 {
+			t.Fatalf("decision = %+v, want a plain Admit at release N", d)
+		}
+		if got, _ := ps.Get("adv"); got == nil || !reflect.DeepEqual(got.RoutableNetworks, routes) {
+			t.Errorf("stored routes = %+v, want all of %v", got, routes)
+		}
+		if want := []string{"route-not-approved", "route-not-approved"}; !reflect.DeepEqual(*warned, want) {
+			t.Errorf("warnings = %v, want %v", *warned, want)
+		}
+	})
+
+	t.Run("drop when enforced", func(t *testing.T) {
+		setSwitches(t, false, true)
+		ps, warned := acceptStore(t, "192.168.0.0/16")
+		c := firstHand("adv", "10.42.1.1", routes...)
+		d := ps.Offer(c)
+		if d.Verdict != AdmitPartial || !reflect.DeepEqual(d.Dropped, routes[1:]) {
+			t.Fatalf("decision = %+v, want AdmitPartial dropping %v", d, routes[1:])
+		}
+		if got, _ := ps.Get("adv"); got == nil || !reflect.DeepEqual(got.RoutableNetworks, routes[:1]) {
+			t.Errorf("stored routes = %+v, want only %v", got, routes[:1])
+		}
+		if !reflect.DeepEqual(c.Info.RoutableNetworks, routes) {
+			t.Errorf("the caller's candidate was modified: %v", c.Info.RoutableNetworks)
+		}
+		if len(*warned) != 0 {
+			t.Errorf("an enforced drop also warned: %v", *warned)
+		}
+	})
+
+	t.Run("restored is judged and second-hand is not", func(t *testing.T) {
+		setSwitches(t, false, true)
+		ps, _ := acceptStore(t, "192.168.0.0/16")
+		r := firstHand("cached", "10.42.1.2", routes...)
+		r.Hand, r.Source = Restored, "cache"
+		if d := ps.Offer(r); d.Verdict != AdmitPartial || !reflect.DeepEqual(d.Dropped, routes[1:]) {
+			t.Errorf("restored: decision = %+v, want AdmitPartial dropping %v", d, routes[1:])
+		}
+		s := firstHand("mentioned", "10.42.1.3", routes...)
+		s.Hand, s.Source = SecondHand, "gossip"
+		if d := ps.Offer(s); d.Verdict != Admit || len(d.Dropped) != 0 {
+			t.Errorf("second-hand: decision = %+v, want it untouched", d)
+		}
+	})
+}

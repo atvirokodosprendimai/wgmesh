@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"testing"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 // --- LoadReloadFile tests ---
@@ -292,4 +294,41 @@ func newMinimalDaemon(t *testing.T) *Daemon {
 		lastAppliedPeerConfigs: make(map[string]string),
 	}
 	return d
+}
+
+// TestAcceptRoutesReloadApplies: the reload file sets accept-routes and a later
+// offer is judged by the new list; an empty value opens the node again.
+func TestAcceptRoutesReloadApplies(t *testing.T) {
+	old := node.EnforceRouteBinding
+	node.EnforceRouteBinding = true
+	t.Cleanup(func() { node.EnforceRouteBinding = old })
+
+	d := newMinimalDaemon(t)
+	d.peerStore.SetPolicy(d.admitPolicy())
+	offer := func(key string) Decision {
+		return d.peerStore.Offer(Candidate{
+			Info:   &PeerInfo{WGPubKey: key, MeshIP: "10.99.1.1", RoutableNetworks: []string{"192.168.5.0/24", "172.16.0.0/12"}},
+			Source: "dht",
+			Hand:   FirstHand,
+		})
+	}
+	reload := func(content string) {
+		opts, err := LoadReloadFile(writeTempReload(t, content))
+		if err != nil {
+			t.Fatalf("LoadReloadFile: %v", err)
+		}
+		d.reloadConfig(opts)
+	}
+
+	if dec := offer("before"); dec.Verdict != node.Admit || len(dec.Dropped) != 0 {
+		t.Fatalf("with no list: decision = %+v, want a plain Admit", dec)
+	}
+	reload("accept-routes=192.168.0.0/16\n")
+	if dec := offer("during"); dec.Verdict != node.AdmitPartial || !reflect.DeepEqual(dec.Dropped, []string{"172.16.0.0/12"}) {
+		t.Fatalf("with the list: decision = %+v, want 172.16.0.0/12 dropped", dec)
+	}
+	reload("accept-routes=\n")
+	if dec := offer("after"); dec.Verdict != node.Admit || len(dec.Dropped) != 0 {
+		t.Fatalf("after clearing the list: decision = %+v, want a plain Admit", dec)
+	}
 }
