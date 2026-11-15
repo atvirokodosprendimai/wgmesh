@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -175,5 +176,57 @@ func TestGenerateSecret(t *testing.T) {
 	}
 	if secret == secret2 {
 		t.Error("GenerateSecret() returned identical secrets on two consecutive calls")
+	}
+}
+
+func TestNormalizeRoutes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name    string
+		in      []string
+		want    []string
+		wantErr bool
+	}{
+		{"nil stays nil", nil, nil, false},
+		{"valid", []string{"10.0.0.0/8", "192.168.1.0/24"}, []string{"10.0.0.0/8", "192.168.1.0/24"}, false},
+		{"whitespace trimmed", []string{" 10.0.0.0/8 "}, []string{"10.0.0.0/8"}, false},
+		{"host bits canonicalised", []string{"192.168.1.10/24"}, []string{"192.168.1.0/24"}, false},
+		{"host route kept", []string{"10.0.0.5/32"}, []string{"10.0.0.5/32"}, false},
+		{"empty and trailing comma dropped", []string{"10.0.0.0/8", "", " "}, []string{"10.0.0.0/8"}, false},
+		{"only empty", []string{""}, []string{}, false},
+		{"duplicates removed", []string{"10.0.0.0/8", "10.1.2.3/8", "10.0.0.0/8"}, []string{"10.0.0.0/8"}, false},
+		{"ipv6", []string{"fd00:1::5/64", "2001:db8::/32"}, []string{"fd00:1::/64", "2001:db8::/32"}, false},
+		{"bare ipv4 rejected", []string{"192.168.1.0"}, nil, true},
+		{"bare ipv6 rejected", []string{"fd00::1"}, nil, true},
+		{"garbage rejected", []string{"10.0.0.0/8", "bogus"}, nil, true},
+		{"bad prefix rejected", []string{"10.0.0.0/33"}, nil, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := normalizeRoutes(tt.in)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("normalizeRoutes(%q) err = %v, wantErr %v", tt.in, err, tt.wantErr)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("normalizeRoutes(%q) = %#v, want %#v", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewConfigAdvertiseRoutes(t *testing.T) {
+	t.Parallel()
+	cfg, err := NewConfig(DaemonOpts{Secret: testConfigSecret, AdvertiseRoutes: []string{"192.168.1.10/24", ""}})
+	if err != nil {
+		t.Fatalf("NewConfig failed: %v", err)
+	}
+	if want := []string{"192.168.1.0/24"}; !reflect.DeepEqual(cfg.AdvertiseRoutes, want) {
+		t.Errorf("AdvertiseRoutes = %v, want %v", cfg.AdvertiseRoutes, want)
+	}
+
+	_, err = NewConfig(DaemonOpts{Secret: testConfigSecret, AdvertiseRoutes: []string{"192.168.1.0"}})
+	if err == nil || !strings.Contains(err.Error(), "advertise-routes") {
+		t.Fatalf("NewConfig with bare IP route: err = %v, want advertise-routes error", err)
 	}
 }

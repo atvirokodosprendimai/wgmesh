@@ -319,12 +319,29 @@ func meshIPInSubnet(meshIP string, cfg *Config) bool {
 	return subnet.Contains(ip)
 }
 
+// announceableHostname returns hostname if peers will accept it in an
+// announcement (printable ASCII, at most crypto.MaxHostnameLength bytes, as
+// checked by PeerAnnouncement.Validate); otherwise it logs and returns "" so
+// the node is announced without a hostname instead of being dropped.
+func announceableHostname(hostname string) string {
+	valid := len(hostname) <= crypto.MaxHostnameLength
+	for i := 0; valid && i < len(hostname); i++ {
+		valid = hostname[i] >= 32 && hostname[i] <= 126
+	}
+	if !valid {
+		log.Printf("Warning: hostname %q is not printable ASCII or is too long; announcing without a hostname", hostname)
+		return ""
+	}
+	return hostname
+}
+
 // initLocalNode loads or creates the local WireGuard node
 func (d *Daemon) initLocalNode() error {
 	hostname, hostErr := os.Hostname()
 	if hostErr != nil {
 		hostname = ""
 	}
+	hostname = announceableHostname(hostname)
 
 	// Try to load existing key from state file
 	stateFile := fmt.Sprintf("/var/lib/wgmesh/%s.json", d.config.InterfaceName)
@@ -752,6 +769,8 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		}
 	}
 
+	// One failing peer must not block the rest: keep going, report the first error.
+	var firstErr error
 	for pubKey, cfg := range desired {
 		if cfg.peer.Endpoint == "" {
 			continue
@@ -781,11 +800,15 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 			d.appliedMu.Lock()
 			delete(d.lastAppliedPeerConfigs, pubKey)
 			d.appliedMu.Unlock()
-			return fmt.Errorf("failed to configure peer %s: %w", shortKey(pubKey), err)
+			if firstErr == nil {
+				firstErr = fmt.Errorf("failed to configure peer %s: %w", shortKey(pubKey), err)
+			} else {
+				log.Printf("Failed to configure peer %s: %v", shortKey(pubKey), err)
+			}
 		}
 	}
 
-	return nil
+	return firstErr
 }
 
 func mapKeysSorted(m map[string]struct{}) []string {

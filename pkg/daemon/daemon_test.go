@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -390,5 +391,22 @@ func TestMeshIPInSubnet(t *testing.T) {
 				t.Errorf("meshIPInSubnet(%q) = %v, want %v", tt.meshIP, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAnnounceableHostname(t *testing.T) {
+	t.Parallel()
+	tests := []struct{ in, want string }{
+		{"node-1.example.com", "node-1.example.com"},
+		{"", ""},
+		{"müller-pc", ""},
+		{"tab\there", ""},
+		{strings.Repeat("a", crypto.MaxHostnameLength), strings.Repeat("a", crypto.MaxHostnameLength)},
+		{strings.Repeat("a", crypto.MaxHostnameLength+1), ""},
+	}
+	for _, tt := range tests {
+		if got := announceableHostname(tt.in); got != tt.want {
+			t.Errorf("announceableHostname(%q) = %q, want %q", tt.in, got, tt.want)
+		}
 	}
 }
