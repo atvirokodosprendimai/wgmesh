@@ -33,6 +33,7 @@ type LANDiscovery struct {
 	mu      sync.RWMutex
 	running bool
 	stopCh  chan struct{}
+	wg      *sync.WaitGroup
 }
 
 // NewLANDiscovery creates a new LAN multicast discovery instance
@@ -78,10 +79,13 @@ func (l *LANDiscovery) Start() error {
 
 	l.conn = conn
 	l.running = true
+	l.stopCh = make(chan struct{})
+	l.wg = &sync.WaitGroup{}
+	l.wg.Add(2)
 
 	// Start listener and announcer
-	go l.listenLoop()
-	go l.announceLoop()
+	go l.listenLoop(l.stopCh, conn, l.wg)
+	go l.announceLoop(l.stopCh, l.wg)
 
 	log.Printf("[LAN] Multicast discovery started on %s", l.multicastAddr.String())
 	return nil
@@ -90,9 +94,8 @@ func (l *LANDiscovery) Start() error {
 // Stop stops LAN multicast discovery
 func (l *LANDiscovery) Stop() error {
 	l.mu.Lock()
-	defer l.mu.Unlock()
-
 	if !l.running {
+		l.mu.Unlock()
 		return nil
 	}
 
@@ -102,13 +105,19 @@ func (l *LANDiscovery) Stop() error {
 	if l.conn != nil {
 		l.conn.Close()
 	}
+	wg := l.wg
+	l.mu.Unlock()
+
+	// Wait outside the lock: listenLoop takes l.mu.RLock on read errors.
+	wg.Wait()
 
 	log.Printf("[LAN] Multicast discovery stopped")
 	return nil
 }
 
 // announceLoop periodically sends multicast announcements
-func (l *LANDiscovery) announceLoop() {
+func (l *LANDiscovery) announceLoop(stopCh chan struct{}, wg *sync.WaitGroup) {
+	defer wg.Done()
 	// Initial announce immediately
 	l.announce()
 
@@ -117,7 +126,7 @@ func (l *LANDiscovery) announceLoop() {
 
 	for {
 		select {
-		case <-l.stopCh:
+		case <-stopCh:
 			return
 		case <-ticker.C:
 			l.announce()
@@ -160,18 +169,19 @@ func (l *LANDiscovery) announce() {
 }
 
 // listenLoop listens for multicast announcements
-func (l *LANDiscovery) listenLoop() {
+func (l *LANDiscovery) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *sync.WaitGroup) {
+	defer wg.Done()
 	buf := make([]byte, LANMaxMessageSize)
 
 	for {
 		select {
-		case <-l.stopCh:
+		case <-stopCh:
 			return
 		default:
 		}
 
-		l.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		n, remoteAddr, err := l.conn.ReadFromUDP(buf)
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		n, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
