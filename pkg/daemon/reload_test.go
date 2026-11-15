@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -330,5 +331,23 @@ func TestAcceptRoutesReloadApplies(t *testing.T) {
 	reload("accept-routes=\n")
 	if dec := offer("after"); dec.Verdict != node.Admit || len(dec.Dropped) != 0 {
 		t.Fatalf("after clearing the list: decision = %+v, want a plain Admit", dec)
+	}
+}
+
+func TestLoadReloadFile_AcceptRoutes(t *testing.T) {
+	t.Parallel()
+	for _, bad := range []string{"accept-routes=10.0.0.5/8,bogus\n", "accept-routes=,\n", "accept-routes= ,  \n"} {
+		if _, err := LoadReloadFile(writeTempReload(t, bad)); err == nil || !strings.Contains(err.Error(), "invalid accept-routes") {
+			t.Errorf("LoadReloadFile(%q) err = %v, want an invalid accept-routes error", bad, err)
+		}
+	}
+	// an empty value clears the list: non-nil and empty, unlike an absent key
+	opts, err := LoadReloadFile(writeTempReload(t, "accept-routes=\n"))
+	if err != nil || opts.AcceptRoutes == nil || len(opts.AcceptRoutes) != 0 {
+		t.Errorf("accept-routes= : AcceptRoutes = %#v, err = %v, want non-nil empty", opts.AcceptRoutes, err)
+	}
+	opts, err = LoadReloadFile(writeTempReload(t, "log-level=debug\n"))
+	if err != nil || opts.AcceptRoutes != nil {
+		t.Errorf("absent key: AcceptRoutes = %#v, err = %v, want nil", opts.AcceptRoutes, err)
 	}
 }
