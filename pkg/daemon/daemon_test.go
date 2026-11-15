@@ -1,10 +1,12 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
 	"net"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -418,5 +420,45 @@ func TestAnnounceableHostname(t *testing.T) {
 		if got := announceableHostname(tt.in); got != tt.want {
 			t.Errorf("announceableHostname(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestSetupWireGuardContinuesWhenIPv6Disabled(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("setupWireGuard address handling is Linux-specific")
+	}
+
+	var upCalled bool
+	mock := &MockCommandExecutor{
+		commandFunc: func(name string, args ...string) Command {
+			cmdline := name + " " + strings.Join(args, " ")
+			return &MockCommand{
+				combinedOutputFunc: func() ([]byte, error) {
+					if strings.HasPrefix(cmdline, "ip addr add fd") {
+						return []byte("Error: ipv6: IPv6 is disabled on this device."), errors.New("exit status 2")
+					}
+					if strings.HasSuffix(cmdline, " up") {
+						upCalled = true
+					}
+					return nil, nil
+				},
+			}
+		},
+	}
+
+	d := &Daemon{
+		config:    &Config{InterfaceName: "wgmesh-test-nonexistent", WGListenPort: 0},
+		localNode: &LocalNode{MeshIP: "10.99.0.1", MeshIPv6: "fd00::1"},
+	}
+	withMockExecutor(t, mock, func() {
+		if err := d.setupWireGuard(); err != nil {
+			t.Fatalf("setupWireGuard() error = %v, want nil", err)
+		}
+	})
+	if d.localNode.MeshIPv6 != "" {
+		t.Errorf("MeshIPv6 = %q, want cleared", d.localNode.MeshIPv6)
+	}
+	if !upCalled {
+		t.Error("interface was not brought up")
 	}
 }
