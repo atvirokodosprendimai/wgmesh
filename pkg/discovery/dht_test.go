@@ -408,3 +408,67 @@ func TestPunchReplyIsFirstHand(t *testing.T) {
 		})
 	}
 }
+
+// TestExchangeWithAddressStoresCallersMethod drives the real exchangeWithAddress
+// against a real PeerExchange server on loopback and checks that the stored
+// peer carries the method the caller passed. The client's PeerExchange keeps
+// its own scratch store, so its own handling of the reply does not stand in
+// for the store under test.
+func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-exchange-with-address-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serverKey := aadKey(2)
+	serverNode := &daemon.LocalNode{WGPubKey: serverKey, MeshIP: "10.0.0.2"}
+	serverNode.SetEndpoint("203.0.113.42:51820")
+	server := NewPeerExchange(cfg, serverNode, daemon.NewPeerStore())
+	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.conn = serverConn
+	go server.listenLoop()
+	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
+	serverAddr := serverConn.LocalAddr().String()
+
+	for _, method := range []string{DHTMethod, DHTMethod + "-ipv6-sync"} {
+		t.Run(method, func(t *testing.T) {
+			clientNode := &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}
+			store := daemon.NewPeerStore()
+			d, err := NewDHTDiscovery(context.Background(), cfg, clientNode, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := NewPeerExchange(cfg, clientNode, daemon.NewPeerStore())
+			clientConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.conn = clientConn
+			go client.listenLoop()
+			t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
+			d.exchange = client
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				d.exchangeWithAddress(serverAddr, method)
+			}()
+			select {
+			case <-done:
+			case <-time.After(2 * ExchangeTimeout):
+				t.Fatal("exchangeWithAddress did not return")
+			}
+
+			got, ok := store.Get(serverKey)
+			if !ok {
+				t.Fatal("expected the server peer in the store")
+			}
+			if got.EndpointMethod != method {
+				t.Errorf("EndpointMethod = %q, want %q", got.EndpointMethod, method)
+			}
+		})
+	}
+}
