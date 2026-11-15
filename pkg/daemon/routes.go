@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"log"
+	"net"
 	"runtime"
 	"strings"
 
@@ -50,7 +51,47 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 	}
 
 	toAdd, toRemove := routes.CalculateDiff(current, desired)
-	return applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
+	removed, err := applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
+	// Removals run before adds, so restore even if an add failed. Only a
+	// removed route can be replaced by the connected route.
+	for _, r := range removed {
+		if len(routes.ExcludeOwn([]string{r.Network}, d.localNode.RoutableNetworks)) == 0 {
+			restoreConnectedRoute(r.Network)
+		}
+	}
+	return err
+}
+
+// restoreConnectedRoute re-adds the kernel connected route for an own network
+// whose `<network> via <peer> dev <mesh iface>` route was just removed: older
+// daemons installed that route with `ip route replace`, overwriting it.
+// Best effort; without a local address in network there is nothing to restore.
+func restoreConnectedRoute(network string) {
+	_, ipnet, err := net.ParseCIDR(network)
+	if err != nil {
+		return
+	}
+	family := "-4"
+	if ipnet.IP.To4() == nil {
+		family = "-6"
+	}
+	out, err := cmdExecutor.Command("ip", family, "-o", "addr", "show", "to", ipnet.String()).Output()
+	const hint = "if it was reachable other than via the mesh interface, restore that route manually"
+	if err != nil {
+		log.Printf("Warning: could not query local addresses in %s: %v; %s", ipnet, err, hint)
+		return
+	}
+	iface, src, ok := routes.ParseLocalAddr(string(out), ipnet)
+	if !ok {
+		log.Printf("Warning: no local address in %s; %s", ipnet, hint)
+		return
+	}
+	args := strings.Fields(routes.ConnectedRouteCmd(ipnet, iface, src))
+	if out, err := cmdExecutor.Command(args[0], args[1:]...).CombinedOutput(); err != nil && !strings.Contains(string(out), "File exists") {
+		log.Printf("Failed to restore connected route %s dev %s: %s: %v", ipnet, iface, strings.TrimSpace(string(out)), err)
+		return
+	}
+	log.Printf("Restored connected route: %s dev %s", ipnet, iface)
 }
 
 func (d *Daemon) currentRelayRoutesSnapshot() map[string]string {
@@ -111,16 +152,20 @@ func getCurrentRoutes(iface string) ([]routes.Entry, error) {
 	return result, nil
 }
 
-func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) error {
+// applyRouteDiff applies the diff and returns the routes whose `ip route del` succeeded.
+func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) ([]routes.Entry, error) {
+	var removed []routes.Entry
 	for _, route := range toRemove {
 		cmd := cmdExecutor.Command("ip", "route", "del", route.Network, "via", route.Gateway, "dev", iface)
-		_ = cmd.Run()
+		if cmd.Run() == nil {
+			removed = append(removed, route)
+		}
 	}
 
 	for _, route := range toAdd {
 		cmd := cmdExecutor.Command("ip", "route", "replace", route.Network, "via", route.Gateway, "dev", iface)
 		if output, err := cmd.CombinedOutput(); err != nil {
-			return fmt.Errorf("failed to add route %s via %s: %s: %w", route.Network, route.Gateway, string(output), err)
+			return removed, fmt.Errorf("failed to add route %s via %s: %s: %w", route.Network, route.Gateway, string(output), err)
 		}
 	}
 
@@ -129,7 +174,7 @@ func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) error {
 
 	ensureWGForwardingRule(iface)
 
-	return nil
+	return removed, nil
 }
 
 func ensureWGForwardingRule(iface string) {

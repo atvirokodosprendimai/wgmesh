@@ -7,6 +7,7 @@ package routes
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 )
 
@@ -104,9 +105,14 @@ func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 }
 
 // canonicalNetwork returns the canonical CIDR form of network (a bare host
-// becomes /32 or /128), or the trimmed input when it does not parse.
+// becomes /32 or /128, the kernel's "default" becomes 0.0.0.0/0), or the
+// normalized input when it does not parse. The kernel prints "default" for
+// both families, so only the IPv4 default is mapped.
 func canonicalNetwork(network string) string {
 	network = NormalizeNetwork(strings.TrimSpace(network))
+	if network == "default" {
+		return "0.0.0.0/0"
+	}
 	if _, ipnet, err := net.ParseCIDR(network); err == nil {
 		return ipnet.String()
 	}
@@ -115,7 +121,9 @@ func canonicalNetwork(network string) string {
 
 // ExcludeOwn returns the entries of networks that are not in own. A node must
 // never route a network it advertises itself through the mesh, so a peer's
-// advertisement of the same network (HA) is dropped on this node.
+// advertisement of the same network (HA) is dropped on this node. This holds
+// for the default route too: two HA exit nodes both advertising 0.0.0.0/0 each
+// drop the other's default route.
 func ExcludeOwn(networks, own []string) []string {
 	ownSet := make(map[string]struct{}, len(own))
 	for _, n := range own {
@@ -128,4 +136,33 @@ func ExcludeOwn(networks, own []string) []string {
 		}
 	}
 	return out
+}
+
+var ifaceNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
+
+// ParseLocalAddr returns the interface and address of the first line of
+// `ip -o addr show to <network>` output whose address prefix is exactly network.
+func ParseLocalAddr(output string, network *net.IPNet) (iface, src string, ok bool) {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || (fields[2] != "inet" && fields[2] != "inet6") {
+			continue
+		}
+		name, _, _ := strings.Cut(fields[1], "@")
+		ip, addrNet, err := net.ParseCIDR(fields[3])
+		if err != nil || !ifaceNameRe.MatchString(name) || addrNet.String() != network.String() {
+			continue
+		}
+		return name, ip.String(), true
+	}
+	return "", "", false
+}
+
+// ConnectedRouteCmd builds the command that recreates the route the kernel adds
+// for an address. IPv6 connected routes carry metric 256 and no src.
+func ConnectedRouteCmd(network *net.IPNet, iface, src string) string {
+	if network.IP.To4() == nil {
+		return fmt.Sprintf("ip -6 route add %s dev %s proto kernel metric 256", network, iface)
+	}
+	return fmt.Sprintf("ip route add %s dev %s proto kernel scope link src %s", network, iface, src)
 }

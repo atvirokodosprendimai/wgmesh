@@ -101,13 +101,18 @@ func TestDeploymentConfigUnderLock(t *testing.T) {
 func TestOwnNetworkRoutes(t *testing.T) {
 	t.Parallel()
 
-	own := []string{"192.168.10.0/24"}
+	own := []string{"192.168.10.0/24", "0.0.0.0/0"}
 	tests := []struct {
 		name    string
 		current []ssh.RouteEntry
 		want    []ssh.RouteEntry
 	}{
 		{name: "no routes"},
+		{
+			name:    "stale kernel default route on an exit node",
+			current: []ssh.RouteEntry{{Network: "default"}},
+			want:    []ssh.RouteEntry{{Network: "default"}},
+		},
 		{
 			name:    "stale own network on mesh interface",
 			current: []ssh.RouteEntry{{Network: "192.168.10.0/24"}},
