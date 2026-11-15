@@ -415,10 +415,9 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 			if !d.config.DisableIPv6 {
 				// Prefer IPv6 if available
 				if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
-					if ipv6Endpoint != d.localNode.GetEndpoint() {
+					if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
 						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
 					}
-					d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint)
 					d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
 					continue
 				}
