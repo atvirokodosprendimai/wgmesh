@@ -128,6 +128,28 @@ func (n *LocalNode) SetEndpoint(ep string) {
 	n.wgEndpoint = ep
 }
 
+// EndpointSource names where an endpoint observation came from.
+type EndpointSource string
+
+const (
+	// EndpointInterface is a global IPv6 address read from a local interface.
+	EndpointInterface EndpointSource = "interface"
+	// EndpointReflection is the address a peer reflected back to us.
+	EndpointReflection EndpointSource = "reflection"
+	// EndpointSTUN is the answer of a STUN server.
+	EndpointSTUN EndpointSource = "stun"
+)
+
+// ObserveEndpoint applies an observed endpoint and reports whether the
+// announced endpoint changed.
+func (n *LocalNode) ObserveEndpoint(source EndpointSource, endpoint string) bool {
+	n.endpointMu.Lock()
+	defer n.endpointMu.Unlock()
+	changed := n.wgEndpoint != endpoint
+	n.wgEndpoint = endpoint
+	return changed
+}
+
 // DiscoveryLayer is the interface for discovery implementations
 type DiscoveryLayer interface {
 	Start() error
