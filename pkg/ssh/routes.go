@@ -3,7 +3,6 @@ package ssh
 import (
 	"fmt"
 	"net"
-	"regexp"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
@@ -53,8 +52,6 @@ func GetCurrentRoutes(client *Client, iface string) ([]RouteEntry, error) {
 	return result, nil
 }
 
-var ifaceNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
-
 // RestoreConnectedRoute re-adds the kernel connected route for network after a
 // stale `<network> dev <mesh iface>` route was removed. Older deploys installed
 // that route with `ip route replace`, which overwrote the connected route.
@@ -74,14 +71,14 @@ func RestoreConnectedRoute(client *Client, network string) {
 	output, runErr := client.Run(fmt.Sprintf("ip %s -o addr show to %s", family, ipnet))
 	iface, src, ok := "", "", false
 	if runErr == nil {
-		iface, src, ok = parseLocalAddr(output, ipnet)
+		iface, src, ok = routes.ParseLocalAddr(output, ipnet)
 	}
 	if !ok {
 		fmt.Println(localAddrWarning(ipnet, runErr))
 		return
 	}
 
-	output, err = client.Run(connectedRouteCmd(ipnet, iface, src))
+	output, err = client.Run(routes.ConnectedRouteCmd(ipnet, iface, src))
 	if err != nil && !strings.Contains(output, "File exists") {
 		fmt.Printf("    Warning: failed to restore connected route %s dev %s: %v %s\n", ipnet, iface, err, strings.TrimSpace(output))
 		return
@@ -98,33 +95,6 @@ func localAddrWarning(network *net.IPNet, runErr error) string {
 		return fmt.Sprintf("    Warning: could not query local addresses in %s: %v; %s", network, runErr, hint)
 	}
 	return fmt.Sprintf("    Warning: no local address in %s; %s", network, hint)
-}
-
-// parseLocalAddr returns the interface and address of the first line of
-// `ip -o addr show to <network>` output whose address prefix is exactly network.
-func parseLocalAddr(output string, network *net.IPNet) (iface, src string, ok bool) {
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 4 || (fields[2] != "inet" && fields[2] != "inet6") {
-			continue
-		}
-		name, _, _ := strings.Cut(fields[1], "@")
-		ip, addrNet, err := net.ParseCIDR(fields[3])
-		if err != nil || !ifaceNameRe.MatchString(name) || addrNet.String() != network.String() {
-			continue
-		}
-		return name, ip.String(), true
-	}
-	return "", "", false
-}
-
-// connectedRouteCmd builds the command that recreates the route the kernel adds
-// for an address. IPv6 connected routes carry metric 256 and no src.
-func connectedRouteCmd(network *net.IPNet, iface, src string) string {
-	if network.IP.To4() == nil {
-		return fmt.Sprintf("ip -6 route add %s dev %s proto kernel metric 256", network, iface)
-	}
-	return fmt.Sprintf("ip route add %s dev %s proto kernel scope link src %s", network, iface, src)
 }
 
 // CalculateRouteDiff delegates to routes.CalculateDiff.

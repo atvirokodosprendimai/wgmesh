@@ -7,6 +7,7 @@ package routes
 import (
 	"fmt"
 	"net"
+	"regexp"
 	"strings"
 )
 
@@ -133,4 +134,33 @@ func ExcludeOwn(networks, own []string) []string {
 		}
 	}
 	return out
+}
+
+var ifaceNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
+
+// ParseLocalAddr returns the interface and address of the first line of
+// `ip -o addr show to <network>` output whose address prefix is exactly network.
+func ParseLocalAddr(output string, network *net.IPNet) (iface, src string, ok bool) {
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || (fields[2] != "inet" && fields[2] != "inet6") {
+			continue
+		}
+		name, _, _ := strings.Cut(fields[1], "@")
+		ip, addrNet, err := net.ParseCIDR(fields[3])
+		if err != nil || !ifaceNameRe.MatchString(name) || addrNet.String() != network.String() {
+			continue
+		}
+		return name, ip.String(), true
+	}
+	return "", "", false
+}
+
+// ConnectedRouteCmd builds the command that recreates the route the kernel adds
+// for an address. IPv6 connected routes carry metric 256 and no src.
+func ConnectedRouteCmd(network *net.IPNet, iface, src string) string {
+	if network.IP.To4() == nil {
+		return fmt.Sprintf("ip -6 route add %s dev %s proto kernel metric 256", network, iface)
+	}
+	return fmt.Sprintf("ip route add %s dev %s proto kernel scope link src %s", network, iface, src)
 }
