@@ -94,7 +94,8 @@ func (kp *KnownPeer) Validate() error {
 }
 
 // Validate checks all fields of a PeerAnnouncement for correctness.
-// Called from FilterAnnouncement after deserialization.
+// Called from FilterAnnouncement after deserialization. Its KnownPeers checks
+// serve direct callers: FilterAnnouncement sets KnownPeers aside before it calls this.
 func (pa *PeerAnnouncement) Validate() error {
 	if err := validateWGPubKey(pa.WGPubKey); err != nil {
 		return fmt.Errorf("WGPubKey: %w", err)
@@ -327,7 +328,6 @@ func OpenEnvelope(data []byte, gossipKey [32]byte) (*Envelope, *PeerAnnouncement
 		return nil, nil, fmt.Errorf("failed to unmarshal announcement: %w", err)
 	}
 
-	// Validate the sender strictly, drop invalid KnownPeers entries
 	if err := FilterAnnouncement(&announcement); err != nil {
 		return nil, nil, fmt.Errorf("invalid announcement: %w", err)
 	}
