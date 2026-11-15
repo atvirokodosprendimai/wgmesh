@@ -157,3 +157,4 @@ Stop and ask if a source needs the guessed endpoint to establish the first WireG
 - 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:23360
 - 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:22279
 - 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:12729
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:7568

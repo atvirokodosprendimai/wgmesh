@@ -151,3 +151,5 @@ Stop and ask if reading `reconcile` shows that a peer's default route is install
 - 2026-11-15 · 1d170e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:30aa3e5d966d6b92f32928f5edcd76e04b189f1c9b16f94d1b6bbf5fb3d9c9f9 · ms:8200
 - 2026-11-15 · 1d170e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:30aa3e5d966d6b92f32928f5edcd76e04b189f1c9b16f94d1b6bbf5fb3d9c9f9 · ms:9097
 - 2026-11-15 · 1d170e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:30aa3e5d966d6b92f32928f5edcd76e04b189f1c9b16f94d1b6bbf5fb3d9c9f9 · ms:7176
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:30aa3e5d966d6b92f32928f5edcd76e04b189f1c9b16f94d1b6bbf5fb3d9c9f9 · ms:4692
+- 2026-11-16 · 51e018f* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:30aa3e5d966d6b92f32928f5edcd76e04b189f1c9b16f94d1b6bbf5fb3d9c9f9 · ms:1 · test-lock-sha256:21de1d04bed6d52ab7ccc8f43cc8450528414ebc69e347b12653b63e995a7003 · test-lock-file:docs/adr/locks/21de1d04bed6d52ab7ccc8f43cc8450528414ebc69e347b12653b63e995a7003.lock · test-lock-kind:replace

@@ -109,3 +109,4 @@ Stop and ask if `deriveMeshIPForService` stops honouring a persisted address, or
 - 2026-11-15 · 4d65d36* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6389
 - 2026-11-15 · 4d65d36* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6966
 - 2026-11-15 · 4d65d36* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:4108
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:4277

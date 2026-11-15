@@ -54,6 +54,7 @@ Binding has no new wire bytes, so it ties an address to a key and the secret, no
 ## `accept-routes`: the networks this node approves
 
 - Set it with `--accept-routes 10.1.0.0/16,192.168.5.0/24` on `join` and `install-service`, or with a line `accept-routes=...` in the reload file (the same file as `advertise-routes`, signalled with SIGHUP).
+- Entries are parsed like `advertise-routes` entries (`NormalizeRoutes`): a bare IP is a `/32` or `/128` host route, host bits are cleared with a logged warning, duplicates are dropped.
 - **Unset or empty means open, as today.** A node with no list approves every network and nothing is counted. That stays true after N+2: no deny by default; an operator opts in by setting a list.
 - A network is approved when it equals one entry or lies inside one. Approval is by network only, never by the advertising member, so several members may advertise one approved network (HA gateways for one subnet keep working, each is approved). An entry such as `10.0.0.5/24` is stored as `10.0.0.0/24` and logs the same normalisation warning as `advertise-routes` (the text says "advertise route"; known wording limit).
 - A default route stays advertisable. With a list set, `0.0.0.0/0` and `::/0` are approved only by an entry that is itself a `/0`: `10.0.0.0/8` does not cover them. Two HA exit nodes still each drop the other's default route through `routes.ExcludeOwn`, which is unchanged.

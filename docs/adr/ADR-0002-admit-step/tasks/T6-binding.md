@@ -136,3 +136,4 @@ Stop and ask if a frozen case that older releases emit would be refused in enfor
 - 2026-11-15 · 6206e06* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:4879
 - 2026-11-15 · 6206e06* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:3692
 - 2026-11-15 · 6206e06* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:5223
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:79b3563d600fbf57d5ba0192535a9efd3ed0a3089290c81450c624e672cf4e4b · ms:3431

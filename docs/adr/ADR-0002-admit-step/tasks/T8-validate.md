@@ -123,3 +123,4 @@ Stop and ask if `OpenEnvelope` has a caller that relies on the whole-message rej
 - 2026-11-15 · bf9a229* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:19076
 - 2026-11-15 · bf9a229* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:16545
 - 2026-11-15 · bf9a229* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:16947
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:0bc8bdb6b78549e183b5ff2f9ebe31ffb413c5c117ebab64ddf10f88f38d3396 · ms:9370

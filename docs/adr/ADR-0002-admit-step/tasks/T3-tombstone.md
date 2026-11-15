@@ -124,3 +124,4 @@ Stop and ask if clearing on first-hand would let a replayed first-hand packet (A
 - 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:15649
 - 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:14238
 - 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:10390
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:10039

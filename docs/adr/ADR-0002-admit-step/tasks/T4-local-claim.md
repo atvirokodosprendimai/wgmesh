@@ -120,3 +120,4 @@ Stop and ask if the daemon cannot build a local claim without a lock the daemon 
 - 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6977
 - 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6996
 - 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:5019
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:4567

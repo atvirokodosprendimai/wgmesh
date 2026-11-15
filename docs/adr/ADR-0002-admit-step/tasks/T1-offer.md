@@ -106,3 +106,4 @@ Stop and ask if any existing store test needs a changed expectation, or if `Deci
 - 2026-11-15 · a274161* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12004
 - 2026-11-15 · 647601e* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12018
 - 2026-11-15 · 647601e* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12095
+- 2026-11-16 · 51e018f · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:7240

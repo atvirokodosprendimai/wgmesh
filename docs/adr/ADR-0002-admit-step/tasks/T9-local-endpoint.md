@@ -122,3 +122,4 @@ Stop and ask if a test mesh shows that reflection is wrong more often than STUN 
 - 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:11190
 - 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:10703
 - 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:7193
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:6805
