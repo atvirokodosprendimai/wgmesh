@@ -76,7 +76,7 @@ Stop and ask if ADR-0002 T8 or T9 changed the signature of `handleReply`, or if 
 
 ## Out of Scope
 
-- A request id on the wire (permanent: boundary: a wire change; Open Question 5, option c).
+- A request id on the wire (permanent: boundary: a wire change; M5, option c).
 - Retry and backoff policy of the callers in `dht.go` (permanent: boundary: owned by the discovery liveness group).
 
 ## Verification Log

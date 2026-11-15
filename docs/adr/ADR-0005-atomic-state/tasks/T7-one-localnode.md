@@ -11,24 +11,25 @@
 
 ## Goal
 
-`pkg/node` and `pkg/daemon` define the local node once; a method or field added to `node.LocalNode` (ADR-0002 T9's `ObserveEndpoint`, this record's accessors) is on the value that `initLocalNode`, discovery and the tests use.
+`pkg/node` and `pkg/daemon` define the local node once, in `pkg/node/types.go`: the daemon's struct, with the `ObserveEndpoint` and pending-state fields that ADR-0002 T9 put on it, replaces the unused `node.LocalNode`, and `daemon.LocalNode` is an alias, so this record's accessors (T8) are on the value that `initLocalNode`, discovery and the tests use.
 
 ## Affected Files
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/peerstore_compat.go` | edit | `type LocalNode = node.LocalNode`, beside the `PeerInfo` and `PeerStore` aliases |
-| `pkg/daemon/daemon.go` | edit | delete the struct and its `GetEndpoint` and `SetEndpoint` methods (`:99-128`); the doc comment moves to the alias |
+| `pkg/node/types.go` | edit | replace the unused `LocalNode` (`:32-60`) by the daemon's struct and methods as they stand after ADR-0002 T9: `GetEndpoint`, `SetEndpoint`, `ObserveEndpoint`, `EndpointSource` and its constants, the pending-STUN fields, all under the one `endpointMu` |
+| `pkg/daemon/peerstore_compat.go` | edit | `type LocalNode = node.LocalNode`, beside the `PeerInfo` and `PeerStore` aliases; the `EndpointSource` constants are re-exported there if `dht.go` and `exchange.go` name them as `daemon.X` |
+| `pkg/daemon/daemon.go` | edit | delete the struct, its methods and the `EndpointSource` declarations (`:99-128` plus what ADR-0002 T9 added); the doc comment moves to the alias |
 | `pkg/daemon/localnode_alias_test.go` | add | the identity test |
 
-Selection: `grep -rn "LocalNode{" --include=*.go . | grep -v _test.go` lists the construction sites (`daemon.go:422`); all keep compiling because both structs have the same fields (read on 2026-11-15: `pkg/node/types.go:34-46`, `pkg/daemon/daemon.go:102-114`).
+Selection: `grep -rn "LocalNode{" --include=*.go . | grep -v _test.go` lists the construction sites (`daemon.go:422`); all keep compiling because the structs have the same fields except what ADR-0002 T9 adds (read on 2026-11-15: `pkg/node/types.go:34-46`, `pkg/daemon/daemon.go:102-114`).
 
-Ordering note: runs **before** ADR-0002 T9, which adds `ObserveEndpoint` to `pkg/node/types.go` (Open Question 4); if T9 has already landed, run it now and amend ADR-0002 T9's note that its method was on an unused type.
+Ordering note: runs **after** ADR-0002 T9 (M4; ADR-0002 decision 10: `ObserveEndpoint` lives on `daemon.LocalNode` and the type merge is this record's work). T9 lands its tests in `pkg/node/local_endpoint_test.go` against `daemon.LocalNode`; after this move they sit beside the type, and they must pass unchanged.
 
 ## Ordered Steps
 
 1. [S1] Add `TestLocalNodeIsOneType` (`reflect.TypeOf(daemon.LocalNode{}) == reflect.TypeOf(node.LocalNode{})`) and run it red. Run `grep -rn "endpointMu\|wgEndpoint" --include=*.go . | grep -v "pkg/node/types.go\|pkg/daemon/daemon.go"` (2026-11-15: no output, so no test names the unexported fields, which package `daemon` tests could do today and could not after the alias).
-2. [S2] Add the alias and delete the duplicate; `go build ./... && go vet ./...`.
+2. [S2] Move the struct and its methods into `pkg/node/types.go` (the unused struct is deleted), add the alias and delete the duplicate; `go build ./... && go vet ./...`; the tests ADR-0002 T9 added must pass unchanged. [proof: acceptance]
 3. [S3] Run the mutants with `adr-verify --mutant`: the alias line removed and the struct restored. [proof: mutation]
 
 ## Acceptance
@@ -51,7 +52,7 @@ n=$(go test ./pkg/daemon -run '^TestLocalNodeIsOneType$' -count=1 -v 2>&1 | tee 
 | 1 — exists | the test |
 | 2 — something selects it | the alias is the type every caller names |
 | 3 — the caller can discover it | the alias comment in `peerstore_compat.go` |
-| 4 — it is used | T8, ADR-0002 T9 |
+| 4 — it is used | T8; ADR-0002 T9's `ObserveEndpoint` after the move |
 
 ## Mutation Log
 
@@ -67,7 +68,7 @@ n=$(go test ./pkg/daemon -run '^TestLocalNodeIsOneType$' -count=1 -v 2>&1 | tee 
 
 ## Stop Condition
 
-Stop and ask if the two structs have diverged (a field present in one only) when the task starts.
+Stop and ask if ADR-0002 T9 is not merged (there is nothing to move yet), if the two structs differ in a field other than what T9 added, or if the moved code names a symbol that only `pkg/daemon` defines (`pkg/node` may not import it).
 
 ## Out of Scope
 

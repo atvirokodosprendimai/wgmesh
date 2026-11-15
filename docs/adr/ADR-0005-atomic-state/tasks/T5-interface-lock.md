@@ -20,7 +20,7 @@ A second `wgmesh join` for an interface that a running daemon holds exits 1 with
 | `pkg/flock/flock.go` | add | build tag `unix`; `TryLock` opens or creates the file (0600), `syscall.Flock(fd, LOCK_EX\|LOCK_NB)`; on success truncates and writes the pid, returns a `release` that unlocks and closes; on `EWOULDBLOCK` reads the pid line and returns it as `holder`; the lock is dropped by the kernel when the process dies |
 | `pkg/flock/flock_test.go` | add | tests below |
 | `pkg/daemon/helpers.go` | edit | `InterfaceLockPath(iface)` returns `filepath.Join(localNodeStateDir, iface+".lock")` so the one state directory stays in the daemon package |
-| `main.go` | edit | `acquireInterfaceLock(iface string) (func(), error)` makes the directory (0700), calls `TryLock`, and builds the message of Open Question 2; `joinCmd` calls it once the interface name is known and before `daemon.NewDaemon` (`:422`) and `createRPCServer` (`:459`), and defers the release; failure prints to stderr and `os.Exit(1)` as the neighbouring error paths do |
+| `main.go` | edit | `acquireInterfaceLock(iface string) (func(), error)` makes the directory (0700), calls `TryLock`, and builds the message of M2; `joinCmd` calls it once the interface name is known and before `daemon.NewDaemon` (`:422`) and `createRPCServer` (`:459`), and defers the release; failure prints to stderr and `os.Exit(1)` as the neighbouring error paths do |
 | `main_lock_test.go` | add | the order and message tests |
 
 Selection: `joinCmd` is the only caller of `NewDaemon` (`grep -rn "NewDaemon(" --include=*.go . | grep -v _test.go` lists `main.go:422`); `TestJoinTakesLockBeforeDaemonAndSocket` fails when that call is removed or moved after `NewDaemon`.

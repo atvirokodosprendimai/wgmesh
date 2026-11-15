@@ -30,7 +30,7 @@ The list of sites is the output of the two greps in the parent audit (2026-11-15
 
 Selection: with the fields unexported the compiler selects every site; the guard test is the second selector for a reintroduced exported field.
 
-Ordering note: follows ADR-0002 T9 (it edits `dht.go`, `exchange.go` and `pkg/node/types.go`) and ADR-0002 T4 and T5 (`collision.go`, `daemon.go`).
+Ordering note: follows ADR-0002 T9, T7 of this record (which moves the type, with `ObserveEndpoint`, into `pkg/node/types.go`) and ADR-0002 T4 and T5 (`collision.go`, `daemon.go`); ADR-0002 T9 also edits `dht.go` and `exchange.go`.
 
 ## Ordered Steps
 

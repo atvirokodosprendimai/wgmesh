@@ -59,7 +59,7 @@ n=$(go test ./pkg/rpc -run '^(TestNewServerRefusesOwnedSocket|TestNewServerLeave
 ## Invariants
 
 - One daemon on a host behaves exactly as before: the stale-socket removal, the 0600 socket mode and `GetSocketPath` are unchanged.
-- The lock file is `<socket-path>.lock`; the socket path default is unchanged (Open Question 3, option c is not taken).
+- The lock file is `<socket-path>.lock`; the socket path default is unchanged (M3, option c is not taken).
 - `pkg/rpc` imports `pkg/flock` and nothing from `pkg/daemon`.
 
 ## Risks
@@ -75,6 +75,6 @@ Stop and ask if `NewServer` gains a second caller that treats an error as fatal.
 ## Out of Scope
 
 - The interface lock (T5).
-- A per-interface default socket path (permanent: boundary: it would change what `wgmesh peers` finds; Open Question 3).
+- A per-interface default socket path (permanent: boundary: it would change what `wgmesh peers` finds; M3).
 
 ## Verification Log

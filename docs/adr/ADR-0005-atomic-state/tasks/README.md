@@ -42,14 +42,14 @@ README must be regenerated.
 | T4 | `ErrStateMissing`, `ErrStateCorrupt`, `RefuseCorruptState` | T11 | T4 before T11 |
 | T5 | `flock.TryLock`, `daemon.InterfaceLockPath` | T6 | T5 before T6 |
 | T6 | socket lock in `rpc.NewServer` | T11 | T6 before T11 |
-| T7 | `daemon.LocalNode` alias of `node.LocalNode` | T8 | T7 before T8 and before ADR-0002 T9 |
+| T7 | `daemon.LocalNode` moves to `pkg/node` and becomes an alias | T8 | T7 before T8; T7 after ADR-0002 T9 |
 | T8 | `LocalNode` accessors, `Snapshot()` | T9, T11 | T8 before T9 (same file, `exchange.go`) |
 | T9 | `registerReply` | T10, T11 | T9 before T10 (same file) |
 | T10 | restart-safe `listenLoop`, `DHTDiscovery.beginRun` | T11 | T10 before T11 |
 
 ## Ordering against ADR-0002
 
-ADR-0002 runs first on `task/adr-0002-exec` (T1 to T11). T1, T2, T3 of this record touch no hunk ADR-0002 edits (`helpers.go`, `mesh.go`, `account.go`, `services.go`, `promo/store.go`, `main.go:321` and `:1583`, `cache.go:90`). T4 follows ADR-0002 T5 (`initLocalNode`). T5 follows ADR-0002 T10 (`main.go`). T7 runs before ADR-0002 T9. T8, T9 and T10 follow ADR-0002 T9 (`exchange.go`, `dht.go`, `pkg/node/types.go`). T11 is last.
+ADR-0002 runs first on `task/adr-0002-exec` (T1 to T11). T1, T2, T3 of this record touch no hunk ADR-0002 edits (`helpers.go`, `mesh.go`, `account.go`, `services.go`, `promo/store.go`, `main.go:321` and `:1583`, `cache.go:90`). T4 follows ADR-0002 T5 (`initLocalNode`). T5 follows ADR-0002 T10 (`main.go`). T7 runs after ADR-0002 T9 (it moves the type that T9 extended). T8, T9 and T10 follow ADR-0002 T9 (`exchange.go`, `dht.go`, `pkg/node/types.go`). T11 is last.
 
 ## Notes
 
