@@ -11,7 +11,7 @@ README must be regenerated.
 | Wave | Tasks | Depends-on |
 |------|-------|------------|
 | 1 | T1 | none |
-| 2 | T2, T3, T5, T6, T7 | the last task of ADR-0002 merged (T2, T3, T5, T6), T1 (T3, T7) |
+| 2 | T2, T3, T5, T6, T7, T8 | the last task of ADR-0002 merged (T2, T3, T5, T6, T8), T1 (T3, T7) |
 | 3 | T4 | T2, T3 |
 
 ## Task Index
@@ -25,6 +25,7 @@ README must be regenerated.
 | T5 | Replace the deprecated `Announce` with `AnnounceTraversal` (#836) | pending | — | three named tests, no `.Announce(` left in `dht.go`, `go vet`, then `-race` |
 | T6 | Print usage for an unknown command and honour `--version` only before the subcommand (#873) | pending | — | four named `TestScript` cases, then `-race` |
 | T7 | First tests of the `wg` wrappers through the fake-binary seam (#833) | pending | — | seven named tests in `pkg/wireguard`, then `-race` |
+| T8 | One join-secret lookup for `join`, `status`, `qr`, `install-service` and `wgmesh service` (#891) | pending | — | four helper tests and four `TestScript` cases, then `-race` |
 
 ## Contract Coupling
 

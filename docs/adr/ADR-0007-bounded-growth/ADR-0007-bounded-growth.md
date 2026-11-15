@@ -95,7 +95,7 @@ Of the 19 maps, 15 are bounded today, each in its own way: replaced on every rec
 
    Steady state: one fork per 5-second reconcile tick, 12 a minute instead of 90 (computed from the call sites, not measured; T3 measures).
 6. **A deadline on every `wg` call made through `pkg/wireguard`**: one unexported helper `runWG(stdin io.Reader, args ...string)` replaces the seven `exec.Command` sites and takes an optional stdin (`SetPeer` passes the preshared key on `/dev/stdin`, `apply.go:149`) (`apply.go` 5, `keys.go` 2) and runs `exec.CommandContext` with `wgCommandTimeout = 10 * time.Second` (Decision 2); on expiry the child is killed and the error names the sub-command and the timeout. `cmdExecutor` is not changed.
-7. **The small items, as tasks in this record because they share files with the class tasks** (`dht.go`, `daemon.go`, `main.go`): T5 migrates the three `Announce` calls (#836); T6 prints usage for an unknown first word and honours `--version` only before the subcommand (#873 items 1 and 2, Decision 4); T7 adds the first tests of the `wg` wrappers through the T1 seam (#833, no target). Items 3 to 6 of #873, the rest of #833, #837, #827 and PR #831 are dispositions, not work (Out of Scope).
+7. **The small items, as tasks in this record because they share files with the class tasks** (`dht.go`, `daemon.go`, `main.go`): T5 migrates the three `Announce` calls (#836); T6 prints usage for an unknown first word and honours `--version` only before the subcommand (#873 items 1 and 2, Decision 4); T7 adds the first tests of the `wg` wrappers through the T1 seam (#833, no target); T8 reads the join secret for `status`, `qr`, `install-service` and `wgmesh service` the way `join` does, flag then `WGMESH_SECRET` then `WGMESH_SECRET_FILE` (#891, added 2026-11-15 after the draft; it shares `main.go` with T6). Items 3 to 6 of #873, the rest of #833, #837, #827 and PR #831 are dispositions, not work (Out of Scope).
 
 **Staging.** None of these changes a wire byte, a persisted file, or a flag. The two-release rule is not applied because there is no old reader to keep working: a dedup map that forgets after 60 seconds, a store sweep, and a snapshot read are internal; the 10-second child deadline changes behaviour only for a call that would otherwise never return; the cap acts above 8192 distinct addresses in a minute. T6 changes an exit code for input that is an error today (usage and 2 instead of a failed state load and 1). Each is reverted by reverting its commit. What would make this decision fail: (a) a new long-lived map without a row, caught by the guard test; (b) a sweep that deletes an entry a caller still needs, caught by the window test and the store-sweep test; (c) a stale snapshot changing a probe or health decision, caught by T2's decision tests with a handshake that crosses the threshold between two reads; (d) a hung `wg` blocking a loop, caught by T1's deadline test.
 
@@ -125,6 +125,7 @@ Of the 19 maps, 15 are bounded today, each in its own way: replaced on every rec
 | `sweepPeerKeyed`, `sweepTemporaryOffline` | new methods, no new goroutine | `dht.go`, `daemon.go` | `checkStaleHandshakes`, `staleCleanupLoop` |
 | `TestEveryMapFieldHasABound` | new guard | `pkg/daemon/bounded_guard_test.go` | the build |
 | `wgmesh <unknown>` and bare `wgmesh` | usage on stderr, exit 2 (T6) | `main.go` | operators, scripts that relied on legacy mode with no flag |
+| join-secret lookup (`WGMESH_SECRET`, `WGMESH_SECRET_FILE`) | `status`, `qr`, `install-service`, `wgmesh service` read it as `join` does (T8); no new flag or variable | `main.go`, `service.go` | operators on a packaged host |
 | Wire, announcement JSON, state files, flags, config | None — no change | — | — |
 
 ## Inter-task Contracts
@@ -138,7 +139,7 @@ Of the 19 maps, 15 are bounded today, each in its own way: replaced on every rec
 
 ## Implementation
 
-See `tasks/README.md`. Seven tasks in four waves: T1 the `wg` reader, deadline and test seam (`pkg/wireguard` only, can start before ADR-0002 lands); T2 bound the three DHT maps; T3 move the callers to the snapshot; T4 `temporaryOffline` sweep and the guard test; T5 `AnnounceTraversal` (#836); T6 CLI usage and `--version` (#873); T7 first tests of the `wg` wrappers (#833). T2 to T6 edit files that ADR-0002's T2 to T10 edit (`dht.go`, `exchange.go`, `daemon.go`, `main.go`) and start after ADR-0002's T11.
+See `tasks/README.md`. Eight tasks in four waves: T1 the `wg` reader, deadline and test seam (`pkg/wireguard` only, can start before ADR-0002 lands); T2 bound the three DHT maps; T3 move the callers to the snapshot; T4 `temporaryOffline` sweep and the guard test; T5 `AnnounceTraversal` (#836); T6 CLI usage and `--version` (#873); T7 first tests of the `wg` wrappers (#833); T8 one join-secret lookup (#891). T2 to T6 and T8 edit files that ADR-0002's T2 to T10 edit (`dht.go`, `exchange.go`, `daemon.go`, `main.go`) and start after ADR-0002's T11.
 
 ## Consequences
 
