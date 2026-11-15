@@ -14,7 +14,7 @@
 
 M answered the six questions of the first draft on 2026-11-15. Recorded here, dated, in M's words.
 
-1. **Binding without new wire bytes** (M 2026-11-15: "Taip, be naujų wire baitų"). Readers verify the binding themselves (derive the IP from the sender's key and try nonces 0 to 10). Derivation binds an IP to a key and the secret, not to the owner of the key: the default derivation uses two hash bytes (`pkg/crypto/derive.go:160-161`), so a member who holds the secret can generate key pairs until one derives to a victim's address (about 65 thousand tries for the default subnet, divided by the 11 nonces that count as bound, so about 6 thousand; not measured, T6 measures it once). The limit is documented, not closed.
+1. **Binding without new wire bytes** (M 2026-11-15: "Taip, be naujų wire baitų"). Readers verify the binding themselves (derive the IP from the sender's key and try nonces 0 to 10). Derivation binds an IP to a key and the secret, not to the owner of the key: the default derivation uses two hash bytes (`pkg/crypto/derive.go:160-161`), so a member who holds the secret can generate key pairs until one derives to a victim's address (about 65 thousand tries for the default subnet at nonce 0, divided by the 11 nonces that count as bound, so about 6 thousand; amended 2026-11-15 (T6, T11): measured for nonce 0 only, 20 trials, mean 61004 key pairs, median 51345, min 4232, max 173042, on host mars (Intel Core i5-9300H, 4 cores), see `testdata/compat/admit/v1/README.md`; the division by the 11 nonces is not measured). The limit is documented, not closed.
 2. **Tombstone lifetime is 5 minutes** (M 2026-11-15: "5 min (kaip issue)"), a separate constant `TombstoneTTL` with its own test, not `PeerRemoveTimeout`. Consequence stated in Consequences: other nodes hold a stale entry until `PeerRemoveTimeout` (10 minutes, `pkg/node/store.go:12-13`), so one more resurrection by mention is possible in the second five minutes.
 3. **Winner order** (M 2026-11-15: "Susietas pirmas, tada mažesnis raktas"): a bound claim first, then the lower public key; a collision loser keeps its resolved address (persist the IP).
 4. **Staging** (M 2026-11-15: "Taip: N+1 IP, N+2 maršrutai"): N warns, N+1 enforces the IP rules, N+2 enforces the route rules.
@@ -80,9 +80,9 @@ Left out on purpose: `main.go:573` prints a reply and writes nothing (the join d
 | R2 tombstone | #854 | a key withdrawn by GOODBYE, health eviction or stale cleanup refuses `SecondHand` and `Restored` offers for `TombstoneTTL` (5 minutes); a `FirstHand` offer clears it |
 | R3 local claim | #856 | the node's own `(key, mesh IP)` is a member of the IP claim table; a candidate that claims the local IP is a collision decided by the same order as any other pair |
 | R4 claim order | #864, #856 | on one IP: a bound claim (IP equals the IP derived from that claim's own key, nonce 0 to 10) beats an unbound one; equal classes fall to the lower public key, which is what every observer computes |
-| R5 binding | #864 | a first-hand claim from a key not yet in the store, for an IP held by a bound claim of another key, is refused (a key already stored is only ordered by R4, never refused, so a rotated node that is known stays known); a route entry equal to or inside the mesh network, or inside another member's mesh IP, is dropped from the candidate; supernets such as `0.0.0.0/0` are allowed because WireGuard matches AllowedIPs by longest prefix |
+| R5 binding | #864 | a first-hand claim from a key not yet in the store, for an IP held by a bound claim of another key, is refused (amended 2026-11-15, T11: only when the claimant's own claim is unbound) (a key already stored is only ordered by R4, never refused, so a rotated node that is known stays known); a route entry equal to or inside the mesh network, or equal to another member's mesh IP, is dropped from the candidate (amended 2026-11-15, T11: "inside another member's mesh IP" means a host route EQUAL to that mesh IP); supernets such as `0.0.0.0/0` are allowed because WireGuard matches AllowedIPs by longest prefix |
 | R6 endpoint | #839 | an empty first-hand endpoint never clears a known one (pinned); an endpoint guessed from the sender address with the default port is stored at the lowest rank, replaced by any advertisement, and never re-announced in `KnownPeers`; no endpoint is built from the sender's port |
-| R7 local endpoint | #828 | the node's own endpoint changes only when a peer reflection says so, or when STUN gives the same new value three times in a row; alternating observations do not flip it |
+| R7 local endpoint | #828 | the node's own endpoint changes only when a peer reflection says so, when an interface (global IPv6) address is found, or when STUN gives the same new value three times in a row; alternating STUN observations do not flip it (amended 2026-11-15, T11: the `interface` source was missing from this row; ADR-0004 M5, confirmed by M 2026-11-15 22:46, will add a `stun-resume` source that applies the first STUN after a wake at once) |
 | R9 route approval | #864 | a non-mesh network in a first-hand or restored candidate is dropped from it when the receiving node has an `accept-routes` list and the network is not equal to or inside one entry; an unset list approves everything; approval is by network, never by advertiser |
 | R8 one validation | #875 | sender fields are strict, invalid `KnownPeers` entries are dropped one by one on every path; the "valid" log line follows validation |
 
@@ -121,6 +121,7 @@ What would make this decision fail: (a) a source that calls `Update` or `Remove`
 | `accept-routes` (config field, `--accept-routes` flag, reload file), `Policy.AcceptRoutes` | new, receiver-side only; unset means open | `pkg/daemon/config.go`, `main.go` | `Decide` (R9) |
 | `LocalNode.ObserveEndpoint(source, endpoint)` | new; the 7 observation `SetEndpoint` calls move to it | `pkg/daemon` | `dht.go`, `exchange.go` |
 | Local node state file | the collision-resolved mesh IP is written | `pkg/daemon` | `initLocalNode`, `service add` |
+| `daemon.ResolveCollision(loser *PeerInfo, ...)`, the `applyInterfaceAddress` seam, `PeerStore.Policy()` | added or changed by T4 (listed 2026-11-15, T11): `ResolveCollision` takes the loser instead of a `CollisionInfo`, `applyInterfaceAddress` is the variable the collision tests replace, `Policy()` returns the policy set by `SetPolicy` | `pkg/daemon`, `pkg/node` | `CheckAndResolveCollisions`, the collision tests |
 | `crypto.OpenEnvelope` | invalid `KnownPeers` entries are dropped, the message is kept | `pkg/crypto` | LAN, gossip, registry, `main.go` |
 | `testdata/compat/admit/v1/cases.json` | new frozen fixture | T6 | `TestAdmitCompatFixtures` |
 | Envelope bytes, announcement JSON | None — no field is added | — | — |
@@ -132,7 +133,7 @@ What would make this decision fail: (a) a source that calls `Update` or `Remove`
 | `Candidate`, `Hand`, `Source`, `Decision`, `Offer`, `Policy`, `SetPolicy`, aliases in `peerstore_compat.go` | T1 | T2, T4, T6, T7 | No: `Update` forwards to `Offer` |
 | every production claim goes through `Offer`; the guard test | T2 | T3, T7, T8, T9 | No |
 | `Withdraw`, tombstones | T3 | T11 | No: additive |
-| `Claim`, `ResolveClaims`, claim order, `EnforceIPBinding`, the daemon-built `Policy` (local claim, derive closure, `OnWarn`) and `wgmesh_admit_warnings_total` | T4 | T5, T6 | No: `DetectCollisions` gains the local node |
+| `Claim`, `ResolveClaims`, claim order, `EnforceIPBinding`, the daemon-built `Policy` (local claim, derive closure, `OnWarn`) and `wgmesh_admit_warnings_total` | T4 | T5, T6 | No for the wire and the state file; Go importers see the new signatures `DetectCollisions(ps, local)` and `ResolveCollision(loser, ...)` (2026-11-15, T11) |
 | persisted resolved IP | T5 | T11 | No: the state file already has the field |
 | `EnforceRouteBinding`, compat fixtures | T6 | T11 | No: both false at N |
 | `ResolveEndpoint`, guessed-endpoint rank | T7 | T11 | No |
@@ -183,3 +184,8 @@ N is additive on the read side: `Offer` applies the same merge as `Update`, and 
 
 - [ ] N+1: set `EnforceIPBinding = true`, with a release note and the warning counter read as the go/no-go (deferred: docs/adr/BACKLOG.md)
 - [ ] N+2: set `EnforceRouteBinding = true`, with a release note (deferred: docs/adr/BACKLOG.md)
+
+## Amendments
+
+- 2026-11-15 (T11): decision 1 now carries the measured grinding number (nonce 0 only); Rule R5 is read as "a host route equal to a member's mesh IP" and its IP refusal needs a claimant whose own claim is unbound; Rule R7 lists the `interface` source and notes the planned `stun-resume` source of ADR-0004 M5 (M confirmed 2026-11-15 22:46). The text of each is changed in place and marked.
+- 2026-11-15 (T11): Go importers see two signature changes, `DetectCollisions(ps, local)` and `ResolveCollision(loser, ...)`; "Breaking? No" below means no wire and no persisted-format change.
