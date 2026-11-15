@@ -120,16 +120,13 @@ func (d *Daemon) CheckAndResolveCollisions() {
 
 		// If we are the loser, re-derive our IP
 		if loser.WGPubKey == local.Key {
-			var newIP string
-			if d.config.CustomSubnet != nil {
-				ip, err := crypto.DeriveMeshIPInSubnetWithNonce(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
-				if err != nil {
-					log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet: %v — keeping current IP", err)
-					continue
-				}
-				newIP = ip
-			} else {
-				newIP = DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret, 1)
+			if d.localNode.MeshIP != collision.MeshIP {
+				continue // already moved by an earlier collision of this pass
+			}
+			newIP := d.moverIP()
+			if newIP == "" {
+				log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet — keeping current IP")
+				continue
 			}
 			log.Printf("[Collision] We lost collision, re-deriving mesh IP: %s -> %s", d.localNode.MeshIP, newIP)
 			d.localNode.MeshIP = newIP
@@ -146,6 +143,37 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 		}
 	}
+}
+
+// moverNonces is how many collision nonces a mover tries: 1 to moverNonces.
+const moverNonces = 10
+
+// moverIP is the address the local node moves to after it lost a collision:
+// the first nonce of 1 to moverNonces whose address no other member claims
+// (the local node's current address counts as claimed). When every one is
+// claimed it is the nonce-1 address. It is "" when the custom subnet is unusable.
+func (d *Daemon) moverIP() string {
+	claimed := map[string]bool{d.localNode.MeshIP: true}
+	for _, p := range d.peerStore.GetAll() {
+		if p.WGPubKey != d.localNode.WGPubKey {
+			claimed[p.MeshIP] = true
+		}
+	}
+	first := ""
+	for nonce := 1; nonce <= moverNonces; nonce++ {
+		ip := d.deriveMeshIP(d.localNode.WGPubKey, nonce)
+		if ip == "" {
+			return ""
+		}
+		if !claimed[ip] {
+			return ip
+		}
+		if nonce == 1 {
+			first = ip
+		}
+	}
+	log.Printf("[Collision] Every nonce address of %s is claimed, keeping the nonce-1 address %s", safeKeyPrefix(d.localNode.WGPubKey), first)
+	return first
 }
 
 // safeKeyPrefix safely returns a prefix of a key for logging

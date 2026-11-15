@@ -333,3 +333,24 @@ func TestCheckAndResolveCollisionsToleratesNoLocalNode(t *testing.T) {
 		t.Errorf("addresses set with no local node: %v", *set)
 	}
 }
+
+// A third member holds the nonce-1 address: the mover takes the nonce-2 one and
+// the next check finds no collision.
+func TestLocalMoverSkipsClaimedNonceAddress(t *testing.T) {
+	enforceIPBinding(t, false)
+	set := recordAddresses(t)
+
+	d := collisionDaemon(t, "zzz-local", "10.42.1.1")
+	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "10.42.1.1"}, "test")
+	d.peerStore.Update(&PeerInfo{WGPubKey: "mmm-third", MeshIP: nonceOne(d)}, "test")
+
+	d.CheckAndResolveCollisions()
+	want := DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, "zzz-local", collisionSecret, 2)
+	if d.localNode.MeshIP != want {
+		t.Errorf("local IP = %s, want the nonce-2 address %s", d.localNode.MeshIP, want)
+	}
+	d.CheckAndResolveCollisions()
+	if d.localNode.MeshIP != want || len(*set) != 1 {
+		t.Errorf("the next check moved again: IP %s, addresses set %v", d.localNode.MeshIP, *set)
+	}
+}
