@@ -92,8 +92,15 @@ func bindClaim(s Snapshot, c Candidate) Decision {
 		warn(string(ReasonIPHeld))
 	}
 
+	var accept []*net.IPNet
+	if p.AcceptRoutes != nil {
+		accept = p.AcceptRoutes()
+	}
 	for _, r := range info.RoutableNetworks {
 		rule := routeRule(s, info.WGPubKey, r)
+		if rule == "" && c.Hand != SecondHand && !Approved(r, accept) {
+			rule = "route-not-approved"
+		}
 		switch {
 		case rule == "":
 		case EnforceRouteBinding:
@@ -125,7 +132,24 @@ func withoutDropped(info *PeerInfo, dropped []string) *PeerInfo {
 	return &out
 }
 
-// Approved reports whether the operator's accept list approves a network (R9).
+// Approved reports whether the operator's accept list approves a network (R9):
+// an empty list approves everything; otherwise the network must be equal to or
+// inside one entry of the same address family (a /0 entry approves everything of
+// its family and nothing of the other). A network that does not parse is not
+// approved by a non-empty list. Approval is by network only, never by advertiser.
 func Approved(network string, list []*net.IPNet) bool {
-	return true
+	if len(list) == 0 {
+		return true
+	}
+	_, n, err := net.ParseCIDR(network)
+	if err != nil {
+		return false
+	}
+	ones, _ := n.Mask.Size()
+	for _, e := range list {
+		if eOnes, _ := e.Mask.Size(); len(e.Mask) == len(n.Mask) && eOnes <= ones && e.Contains(n.IP) {
+			return true
+		}
+	}
+	return false
 }
