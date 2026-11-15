@@ -63,6 +63,17 @@ a=$(go test ./pkg/mesh -run '^(TestDeployContinuesPastUnreachableNode|TestDeploy
 | 4 — it is used | every `wgmesh -deploy` with more than one node |
 
 ## Mutation Log
+- 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · the run stops at the first failed node: TestDeployContinuesPastUnreachableNode must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
+- 2026-11-16 · ff66005* · mutant inconclusive · exit 1 · `pkg/mesh/deploy.go` · a node that failed detect goes to deployNode again: TestDeployDoesNotRedialAFailedDetect must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · map order in the apply loop: TestDeployVisitsNodesInSortedOrder must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
+- 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · the fatal switch does nothing: TestPersistWriteFailureFailsWhenFatal must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
+- 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/report.go` · the phase is not in the text: TestDeployReportsEveryFailureWithPhase must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
+- 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · failures are swallowed: the continue and report tests must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
+- 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a render refusal is ignored: the render-error test must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
+- 2026-11-16 · ff66005* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a node that failed detect goes to deployNode again: TestDeployDoesNotRedialAFailedDetect must go red · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3
 
 ## Invariants
 
@@ -88,3 +99,26 @@ Stop and ask if a failure in one node's apply can corrupt the config of a node p
 - Setting `PersistFailureFatal` (deferred: docs/adr/BACKLOG.md, the N+2 row written by T6).
 
 ## Verification Log
+- 2026-11-16 · ff66005* · exit 1 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:889 · test-lock-sha256:ddf76022fe94b938e67f0ed4d71f1d55c10dbc90d4bf8cda394707a124958ec4 · test-lock-file:docs/adr/locks/ddf76022fe94b938e67f0ed4d71f1d55c10dbc90d4bf8cda394707a124958ec4.lock
+  ```
+  --- last 10 line(s) of stderr (of 42 after folding 42 raw)
+  === CONT  TestDeploymentConfigUnderLock/mesh_access_only
+  === CONT  TestDeploymentConfigUnderLock/groups_without_policies
+  --- PASS: TestDeploymentConfigUnderLock (0.00s)
+      --- PASS: TestDeploymentConfigUnderLock/full_mesh (0.00s)
+      --- PASS: TestDeploymentConfigUnderLock/mesh_access_only (0.00s)
+      --- PASS: TestDeploymentConfigUnderLock/routed_access (0.00s)
+      --- PASS: TestDeploymentConfigUnderLock/groups_without_policies (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/mesh	0.081s
+  FAIL
+  ```
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11232
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11406
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11977
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:13802
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11649
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11426
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11826
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:9069
+- 2026-11-16 · ff66005* · exit 0 · `set -o pipefail …` · acceptance-sha256:b0df103fe45e6ef448fa2a37ab7d50cad593e4349a58696e738f57e18b1e82d3 · ms:11238
