@@ -324,6 +324,7 @@ func TestDeriveMeshIPForServiceUsesPersistedState(t *testing.T) {
 		want   string // "" means: must differ from the placeholder and equal derived-from-pubkey
 	}{
 		{"persisted mesh_ip kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, nil, "10.200.3.4"},
+		{"IPv4-mapped mesh_ip is normalized", `{"wg_pubkey":"PUBKEY","mesh_ip":"::ffff:10.0.0.5"}`, nil, "10.0.0.5"},
 		{"mesh_ip outside custom subnet is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, custom, ""},
 		{"mesh_ip inside custom subnet kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.50.9"}`, custom, "192.168.50.9"},
 		{"no mesh_ip derives from wg_pubkey", `{"wg_pubkey":"PUBKEY"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},

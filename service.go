@@ -469,9 +469,9 @@ func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubne
 			// address (any 10.0.0.0/8 without a custom subnet), so registration
 			// must report that address, not a re-derived one (issue #827).
 			if persisted := net.ParseIP(nodeState.MeshIP); persisted != nil {
-				if customSubnet != nil && customSubnet.Contains(persisted) ||
-					customSubnet == nil && persistedMeshSpace.Contains(persisted) {
-					return nodeState.MeshIP
+				if (customSubnet != nil && customSubnet.Contains(persisted)) ||
+					(customSubnet == nil && persistedMeshSpace.Contains(persisted)) {
+					return persisted.String()
 				}
 			}
 			if customSubnet != nil {
