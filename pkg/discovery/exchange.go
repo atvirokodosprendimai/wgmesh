@@ -365,9 +365,8 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	}
 }
 
-// validateExchangeAnnouncement is crypto.FilterAnnouncement, the validation
-// path shared with OpenEnvelope (LAN, gossip, registry), applied to
-// HELLO/REPLY/ANNOUNCE payloads that arrive via OpenEnvelopeRaw.
+// validateExchangeAnnouncement exists because a locked test calls it by this
+// name; the validation itself is crypto.FilterAnnouncement.
 func validateExchangeAnnouncement(a *crypto.PeerAnnouncement) error {
 	return crypto.FilterAnnouncement(a)
 }
