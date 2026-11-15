@@ -20,7 +20,7 @@ README must be regenerated.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Add `atomicfile.WriteFile`, the one commit step for state files | pending | — | five named tests, then `-race` |
+| T1 | Add `atomicfile.WriteFile`, the one commit step for state files | done | — | five named tests, then `-race` |
 | T2 | Write the four in-place state files through `atomicfile` (#870) | pending | — | five named tests in three packages, `os.WriteFile` count at most 10, then `-race` |
 | T3 | Replace the four private temp-and-rename copies and fail the build on a new one | pending | — | two guard tests, then `-race` on mesh, promo and the root package |
 | T4 | A corrupt identity file is not treated as absent (#870) | pending | — | five named tests, then `-race` |

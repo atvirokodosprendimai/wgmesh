@@ -55,6 +55,10 @@ n=$(go test ./pkg/atomicfile -run '^(TestWriteFileReplacesWhole|TestWriteFileKee
 | 4 — it is used | T2, T3 |
 
 ## Mutation Log
+- 2026-11-15 · f644f14* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · the file Sync is skipped: TestWriteFileSyncsFileThenDirectory must go red · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785
+- 2026-11-15 · f644f14* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · the directory Sync is skipped: TestWriteFileSyncsFileThenDirectory must go red · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785
+- 2026-11-15 · f644f14* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · data goes to path instead of the temp file: the replace and sync-order tests must go red · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785
+- 2026-11-15 · f644f14* · mutant killed · exit 1 · `pkg/atomicfile/atomicfile.go` · temp file is not removed on failure: TestWriteFileKeepsOldFileWhenRenameFails and TestWriteFileLeavesNoTempFile must go red · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785
 
 ## Invariants
 
@@ -78,3 +82,22 @@ Stop and ask if the temp file cannot be created in the target's directory on a s
 - Locking between two writers of one file (permanent: boundary: the writers named in this record are single-process; a lost update is a different class, see the parent Out of Scope).
 
 ## Verification Log
+- 2026-11-15 · f644f14* · exit 1 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:2924 · test-lock-sha256:353ab41cc6f80ad1ae4bb439901634d6d6e7bcfa5ac88f27a3c18feca976a721 · test-lock-file:docs/adr/locks/353ab41cc6f80ad1ae4bb439901634d6d6e7bcfa5ac88f27a3c18feca976a721.lock
+  ```
+  --- last 10 line(s) of stderr (of 18 after folding 18 raw)
+  --- FAIL: TestWriteFileLeavesNoTempFile (0.00s)
+  === RUN   TestWriteFileSyncsFileThenDirectory
+      atomicfile_test.go:133: sync order = [], want [file dir]
+  --- FAIL: TestWriteFileSyncsFileThenDirectory (0.00s)
+  === RUN   TestConcurrentReaderNeverSeesPartialFile
+      atomicfile_test.go:222: final content is not the last write (err <nil>)
+  --- FAIL: TestConcurrentReaderNeverSeesPartialFile (0.01s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile	0.018s
+  FAIL
+  ```
+- 2026-11-15 · f644f14* · exit 0 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:5131
+- 2026-11-15 · f644f14* · exit 0 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:7746
+- 2026-11-15 · f644f14* · exit 0 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:7652
+- 2026-11-15 · f644f14* · exit 0 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:8307
+- 2026-11-15 · f644f14* · exit 0 · `set -o pipefail …` · acceptance-sha256:3e2fd6f99beb42d347858072e560ab4caa34a76eed8db4674ae38dad357e3785 · ms:5571
