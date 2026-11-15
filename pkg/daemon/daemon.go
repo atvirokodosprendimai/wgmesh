@@ -400,7 +400,8 @@ func (d *Daemon) initLocalNode() error {
 	hostname = announceableHostname(hostname)
 
 	// Try to load existing key from state file
-	stateFile := filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
+	d.stateFile = filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
+	stateFile := d.stateFile
 	node, err := loadLocalNode(stateFile)
 	if err == nil && node != nil {
 		d.localNode = node

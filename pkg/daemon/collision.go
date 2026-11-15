@@ -101,7 +101,9 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 	)
 }
 
-// CheckAndResolveCollisions checks for collisions and resolves them
+// CheckAndResolveCollisions checks for collisions and resolves them. When the
+// local node loses and moves to a nonce-derived address, the address is written
+// to the local node state file, so it survives a restart (#830).
 func (d *Daemon) CheckAndResolveCollisions() {
 	var local node.Claim
 	if d.localNode != nil {
@@ -130,6 +132,11 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 			log.Printf("[Collision] We lost collision, re-deriving mesh IP: %s -> %s", d.localNode.MeshIP, newIP)
 			d.localNode.MeshIP = newIP
+			// Persist it so a restart and `service add` keep the address (#830);
+			// a failed save keeps the in-memory address.
+			if err := saveLocalNode(d.stateFile, d.localNode); err != nil {
+				log.Printf("[Collision] Warning: failed to save resolved mesh IP: %v", err)
+			}
 
 			// Reconfigure WireGuard with new IP using correct prefix length
 			if err := applyInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, d.config.PrefixLen())); err != nil {
