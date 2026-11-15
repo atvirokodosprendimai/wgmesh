@@ -27,7 +27,7 @@ Selection: the check sits in `handleMessage` between the legacy gate (T2) and di
 ## Ordered Steps
 
 1. [S1] Add the five tests and run them red, against a compiling stub of `nonceCache`.
-2. [S2] Re-run the send-site audit and record the result in this task: `grep -n "WriteToUDP" pkg/discovery/exchange.go`. As of 2026-11-15 it lists 6 sites and only `exchange.go:527` (the HELLO retry loop) writes the same sealed bytes more than once. If a second looping site exists, stop (see Stop Condition). [proof: acceptance]
+2. [S2] Re-run the send-site audit and record the result in this task: `grep -n "WriteToUDP" pkg/discovery/exchange.go`. As of 2026-11-15 it lists 6 sites and only the `sendHello` closure in `ExchangeWithPeer` (the HELLO retry loop) writes the same sealed bytes more than once. If a second looping site exists, stop (see Stop Condition). [proof: acceptance]
 3. [S3] Implement `nonceCache`: `Seen(nonce [12]byte) bool` records the nonce and returns whether it was already present; an entry is ignored and removed once older than the TTL; at the cap the oldest entry is evicted. One mutex, injectable `now`.
 4. [S4] Give `PeerExchange` a `nonceCache` (TTL = 2 × `crypto.MaxMessageAge`, cap 65536 as a named constant). In `handleMessage`, for every type except HELLO, drop the datagram when `Seen` returns true, logging at debug level. Record the nonce only after the envelope opened successfully, never before.
 5. [S5] Run the mutants: remove the check in `handleMessage`; remove the HELLO exemption; remove the eviction; shorten the TTL to `MaxMessageAge`. [proof: mutation]
@@ -63,6 +63,10 @@ n=$(go test ./pkg/discovery -run '^(TestNonceCacheRejectsRepeat|TestNonceCacheEx
 - 2026-11-15 · 0d3baff* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · HELLO retransmits are dropped by the cache, so the NAT punch cannot recover a lost reply · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
 - 2026-11-15 · 0d3baff* · mutant killed · exit 1 · `pkg/discovery/replay_cache.go` · the nonce cache is no longer bounded by its capacity · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
 - 2026-11-15 · 0d3baff* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the cache forgets a nonce before a future-dated packet goes stale · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
+- 2026-11-15 · 98b9b28* · mutant killed · exit 1 · `pkg/discovery/replay_cache.go` · an entry is forgotten at exactly the TTL, one instant before a future-dated replay is stale · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
+- 2026-11-15 · 98b9b28* · mutant killed · exit 1 · `pkg/discovery/replay_cache.go` · a retyped legacy packet uses up the nonce of the real packet · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
+- 2026-11-15 · 98b9b28* · mutant killed · exit 1 · `pkg/discovery/replay_cache.go` · the FIFO slice grows without bound as entries expire · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
+- 2026-11-15 · 98b9b28* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · dropped replays are no longer counted · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8
 
 ## Invariants
 
@@ -106,3 +110,8 @@ Stop and ask if the send-site audit in S1 finds a second site that resends ident
 - 2026-11-15 · 0d3baff* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:10506
 - 2026-11-15 · 0d3baff* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:8124
 - 2026-11-15 · 0d3baff* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:8969
+- 2026-11-15 · 98b9b28* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:8695
+- 2026-11-15 · 98b9b28* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:9774
+- 2026-11-15 · 98b9b28* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:9282
+- 2026-11-15 · 98b9b28* · exit 0 · `set -o pipefail …` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:8269
+- 2026-11-15 · 98b9b28* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:632bf2b1ddfc177e708eaaaa2aadcff28f7ee2b305d6ab9e3762a32e823fb3f8 · ms:1 · test-lock-sha256:817de3934fb5cff8d0cabd8fcc2011ab450aa97c7cae6a3d04dab923b80bbe86 · test-lock-file:docs/adr/locks/817de3934fb5cff8d0cabd8fcc2011ab450aa97c7cae6a3d04dab923b80bbe86.lock · test-lock-kind:replace

@@ -21,7 +21,7 @@ README must be regenerated.
 |----|-------|--------|--------|------------|
 | T1 | Bind the envelope type to the GCM tag, keep legacy envelopes opening | done | — | `go test ./pkg/crypto` four named tests, then `-race` |
 | T2 | Legacy GOODBYE gate, AAD `SendGoodbye`, legacy counter | done | — | `go test ./pkg/discovery` five named tests, then `-race` |
-| T3 | Drop a non-HELLO datagram whose nonce was seen inside the acceptance window | pending | — | `go test ./pkg/discovery` five named tests, then `-race` |
+| T3 | Drop a non-HELLO datagram whose nonce was seen inside the acceptance window | done | — | `go test ./pkg/discovery` five named tests, then `-race` |
 | T4 | Amend the crypto and exchange specs and the operator notes | pending | — | `go test ./pkg/crypto -run TestSpecNamesAADRollout` |
 
 ## Contract Coupling
