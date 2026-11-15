@@ -1,6 +1,6 @@
 # ADR-0003: Add one observe, diff, apply step between the desired kernel state and the kernel
 
-**Status:** Proposed
+**Status:** Accepted
 **Date:** 2026-11-15
 **Owner:** wgmesh maintainers
 **Spec:** None — no spec stage; `eidos/spec - daemon reconciliation - peer config sync with relay routing fallback.md` and `eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md` are amended by T9
