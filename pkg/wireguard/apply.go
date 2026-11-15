@@ -3,6 +3,7 @@ package wireguard
 import (
 	"encoding/base64"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 
@@ -132,8 +133,7 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error {
 	// Build wg set command
 	args := []string{"set", iface, "peer", pubKey}
-	var stdin strings.Reader
-	hasStdin := false
+	var stdin io.Reader
 
 	// Add PSK if non-zero
 	// NOTE: /dev/stdin is Linux/macOS only; Windows would need a named pipe or temp file.
@@ -141,8 +141,7 @@ func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) er
 	if psk != zeroKey {
 		pskB64 := base64.StdEncoding.EncodeToString(psk[:])
 		args = append(args, "preshared-key", "/dev/stdin")
-		stdin = *strings.NewReader(pskB64 + "\n")
-		hasStdin = true
+		stdin = strings.NewReader(pskB64 + "\n")
 	}
 
 	if endpoint != "" {
@@ -156,12 +155,8 @@ func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) er
 	// Add persistent keepalive for NAT traversal
 	args = append(args, "persistent-keepalive", "25")
 
-	cmd := exec.Command(wgPath, args...)
-	if hasStdin {
-		cmd.Stdin = &stdin
-	}
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("wg set failed: %s: %w", string(output), err)
+	if stdout, stderr, err := runWG(stdin, args...); err != nil {
+		return fmt.Errorf("wg set failed: %s: %w", string(append(stdout, stderr...)), err)
 	}
 
 	return nil
@@ -169,27 +164,23 @@ func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) er
 
 // RemovePeer removes a peer from the local WireGuard interface
 func RemovePeer(iface, pubKey string) error {
-	cmd := exec.Command(wgPath, "set", iface, "peer", pubKey, "remove")
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("wg set peer remove failed: %s: %w", string(output), err)
+	if stdout, stderr, err := runWG(nil, "set", iface, "peer", pubKey, "remove"); err != nil {
+		return fmt.Errorf("wg set peer remove failed: %s: %w", string(append(stdout, stderr...)), err)
 	}
 	return nil
 }
 
-// GetPeers returns the list of peers on the local WireGuard interface
+// GetPeers returns the list of peers on the local WireGuard interface.
+// It reads through ReadState(iface, 0).
 func GetPeers(iface string) ([]WGPeer, error) {
-	cmd := exec.Command(wgPath, "show", iface, "peers")
-	output, err := cmd.Output()
+	st, err := ReadState(iface, 0)
 	if err != nil {
-		return nil, fmt.Errorf("wg show peers failed: %w", err)
+		return nil, err
 	}
 
 	var peers []WGPeer
-	for _, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line != "" {
-			peers = append(peers, WGPeer{PublicKey: line})
-		}
+	for _, p := range st.Peers {
+		peers = append(peers, WGPeer{PublicKey: p.PublicKey})
 	}
 
 	return peers, nil
@@ -197,27 +188,16 @@ func GetPeers(iface string) ([]WGPeer, error) {
 
 // GetLatestHandshakes returns the most recent handshake time for each WG peer.
 // Returns a map of public key → Unix timestamp (0 means no handshake yet).
+// It reads through ReadState(iface, 0).
 func GetLatestHandshakes(iface string) (map[string]int64, error) {
-	cmd := exec.Command(wgPath, "show", iface, "latest-handshakes")
-	output, err := cmd.Output()
+	st, err := ReadState(iface, 0)
 	if err != nil {
-		return nil, fmt.Errorf("wg show latest-handshakes failed: %w", err)
+		return nil, err
 	}
 
-	result := make(map[string]int64)
-	for _, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Format: <pubkey>\t<unix_timestamp>
-		parts := strings.SplitN(line, "\t", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		var ts int64
-		fmt.Sscanf(parts[1], "%d", &ts)
-		result[parts[0]] = ts
+	result := make(map[string]int64, len(st.Peers))
+	for _, p := range st.Peers {
+		result[p.PublicKey] = p.LatestHandshake
 	}
 
 	return result, nil
@@ -225,27 +205,16 @@ func GetLatestHandshakes(iface string) (map[string]int64, error) {
 
 // GetPeerTransfers returns per-peer transfer counters from WireGuard.
 // Map key is peer public key and values are cumulative rx/tx bytes.
+// It reads through ReadState(iface, 0).
 func GetPeerTransfers(iface string) (map[string]PeerTransfer, error) {
-	cmd := exec.Command(wgPath, "show", iface, "transfer")
-	output, err := cmd.Output()
+	st, err := ReadState(iface, 0)
 	if err != nil {
-		return nil, fmt.Errorf("wg show transfer failed: %w", err)
+		return nil, err
 	}
 
-	result := make(map[string]PeerTransfer)
-	for _, line := range strings.Split(string(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) != 3 {
-			continue
-		}
-		var rx, tx uint64
-		fmt.Sscanf(parts[1], "%d", &rx)
-		fmt.Sscanf(parts[2], "%d", &tx)
-		result[parts[0]] = PeerTransfer{RxBytes: rx, TxBytes: tx}
+	result := make(map[string]PeerTransfer, len(st.Peers))
+	for _, p := range st.Peers {
+		result[p.PublicKey] = PeerTransfer{RxBytes: p.RxBytes, TxBytes: p.TxBytes}
 	}
 
 	return result, nil
