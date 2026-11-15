@@ -18,7 +18,7 @@ The three writes at `deploy.go:139-147` become one table-tested function: an end
 | File | Change | Why |
 |------|--------|-----|
 | `pkg/mesh/endpoint.go` | add | `resolveEndpoint(node *Node, allPrivate bool, publicIP string, probed bool) endpointDecision` with `Endpoint`, `BehindNAT`, `Reason`; `isPrivateHost(host string) bool` (`net.ParseIP` then `IsPrivate`; a DNS name or loopback is not private); the endpoint is built with `net.JoinHostPort` |
-| `pkg/mesh/deploy.go` | edit | `detectEndpoints` computes `allPrivate` once over the non-failed nodes, skips `ssh.DetectPublicIP` for a private SSH host, calls `resolveEndpoint` for every node including the local one, and prints the `Reason` |
+| `pkg/mesh/deploy.go` | edit | `detectEndpoints` computes `allPrivate` once over every node of the state (a node that failed to dial still counts: the classification needs no connection), skips `ssh.DetectPublicIP` for a private SSH host, calls `resolveEndpoint` for every node including the local one, and prints the `Reason` |
 | `pkg/mesh/endpoint_test.go` | add | tests below |
 
 Selection: `detectEndpoints` calls `resolveEndpoint`; reverting the call restores the old writes and turns `TestAllLANMeshRendersEndpoints` red.
@@ -27,7 +27,7 @@ Selection: `detectEndpoints` calls `resolveEndpoint`; reverting the call restore
 
 1. [S1] Add the tests with a stub `resolveEndpoint` that reproduces today's rule; run red (the all-private rows and the probe-skip test fail on assertions).
 2. [S2] Implement `isPrivateHost` and `resolveEndpoint` in the order of the ADR's Decision item 4; for the local node there is no probe and `publicIP` is empty.
-3. [S3] Wire it into `detectEndpoints`; a node that failed in `detect` (T4) is excluded from `allPrivate` and keeps whatever endpoint the state holds.
+3. [S3] Wire it into `detectEndpoints`; a node that failed in `detect` (T4) still counts in `allPrivate` (the rule is a function of the state alone) and keeps whatever endpoint the state holds. An endpoint that `detectEndpoints` itself wrote is not read as operator-written by a later call in the same process.
 4. [S4] Render the config for two private nodes and assert both peers carry an `Endpoint` (`TestAllLANMeshRendersEndpoints`).
 5. [S5] Run the mutants with `adr-verify --mutant`: `allPrivate` ignored; the operator-set endpoint is overwritten; the probe is not skipped; `"%s:%d"` replaces `JoinHostPort`; a DNS name is classed private. [proof: mutation]
 
@@ -35,7 +35,7 @@ Selection: `detectEndpoints` calls `resolveEndpoint`; reverting the call restore
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassification|TestDetectEndpointsSkipsProbeForPrivateHost|TestAllLANMeshRendersEndpoints|TestMixedMeshKeepsTodaysRule)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 5 ] \
+a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassification|TestDetectEndpointsSkipsProbeForPrivateHost|TestAllLANMeshRendersEndpoints|TestMixedMeshKeepsTodaysRule)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -eq 5 ] \
  && go build ./... && go vet ./... && go test -race ./pkg/mesh -count=1
 ```
 
