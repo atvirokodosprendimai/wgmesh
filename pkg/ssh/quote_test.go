@@ -16,6 +16,10 @@ var hostileValues = []string{
 	"a|b",
 	"a&b",
 	">x",
+	"[fd00::1]:51820",
+	"*",
+	"?",
+	"[x]",
 	"",
 }
 
@@ -26,7 +30,6 @@ func TestQuoteLeavesSafeValuesUnchanged(t *testing.T) {
 		"wg0",
 		"10.99.0.2/32",
 		"192.168.1.10:51820",
-		"[fd00::1]:51820",
 		"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQ=",
 		"0.0.0.0/0",
 	} {
