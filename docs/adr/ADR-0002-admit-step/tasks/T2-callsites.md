@@ -61,6 +61,18 @@ n=$(go test ./pkg/node ./pkg/discovery ./pkg/daemon -run '^(TestNoDirectPeerStor
 | 4 — it is used | all ten production claims |
 
 ## Mutation Log
+- 2026-11-15 · 56b3aa8* · mutant killed · exit 1 · `pkg/discovery/lan.go` · one converted site back to Update: guard and grep fence must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
+- 2026-11-15 · 56b3aa8* · mutant survived · exit 0 · `pkg/node/admit_guard_test.go` · guard loses SetPeerDirectly: a guard test with a SetPeerDirectly bait must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-15 · 56b3aa8* · mutant killed · exit 1 · `pkg/discovery/dht.go` · admitPunchReply passes SecondHand: TestPunchReplyIsFirstHand must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
+- 2026-11-15 · 56b3aa8* · mutant survived · exit 0 · `pkg/discovery/dht.go` · :1129 loses its caller's method: dht-ipv6-sync subtest must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-15 · dad3239* · mutant killed · exit 1 · `pkg/node/admit_guard_test.go` · guard loses SetPeerDirectly: TestGuardFlagsEveryMutatingMethod must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
+- 2026-11-15 · dad3239* · mutant killed · exit 1 · `pkg/discovery/dht.go` · :1129 loses its caller's method: TestExchangeWithAddressStoresCallersMethod must go red · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1
 
 ## Invariants
 
@@ -83,3 +95,25 @@ Stop and ask if a site needs a hand that is neither first, second nor restored, 
 - Any change to what a source parses or validates (T7, T8).
 
 ## Verification Log
+- 2026-11-15 · 56b3aa8* · exit 1 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:1772 · test-lock-sha256:ad1f372f33fa1aa7da02640407cfd573ea9769075c999f7275d2c890ddda9b59 · test-lock-file:docs/adr/locks/ad1f372f33fa1aa7da02640407cfd573ea9769075c999f7275d2c890ddda9b59.lock
+  ```
+  --- last 10 line(s) of stderr (of 43 after folding 44 raw)
+  2026/11/15 20:19:59 [WARN] Secret does not use wgmesh:// format — it may have low entropy. Use 'wgmesh init --secret' to generate a cryptographically strong secret.
+  --- PASS: TestGossipTransitiveOffersSecondHand (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery	0.009s
+  === RUN   TestCacheRestoreOffersRestored
+  2026/11/15 20:19:59 [Cache] Restored 1 peers from cache
+  --- PASS: TestCacheRestoreOffersRestored (0.00s)
+  PASS
+  ok  	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.010s
+  FAIL
+  ```
+- 2026-11-15 · 56b3aa8* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:16978
+- 2026-11-15 · 56b3aa8* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:13912
+- 2026-11-15 · 56b3aa8* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:13061
+- 2026-11-15 · 56b3aa8* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:14263
+- 2026-11-15 · dad3239* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:1 · test-lock-sha256:2af4a8d60ef3a29e68fa65e1301aa8c03dc599447f74e04b729374b3d6cf8ba4 · test-lock-file:docs/adr/locks/2af4a8d60ef3a29e68fa65e1301aa8c03dc599447f74e04b729374b3d6cf8ba4.lock · test-lock-kind:replace
+- 2026-11-15 · dad3239* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:14936
+- 2026-11-15 · dad3239* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:13711
+- 2026-11-15 · dad3239* · exit 0 · `set -o pipefail …` · acceptance-sha256:28c1222a1f7402915aeab617458091a3dbeb44cbad14766a83bdd9e9f453a9c1 · ms:10408
