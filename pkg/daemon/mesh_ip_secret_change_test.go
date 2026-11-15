@@ -64,9 +64,10 @@ func TestPersistedMeshIPFollowsExplicitSubnetChange(t *testing.T) {
 	}
 }
 
-// TestRestartKeepsResolvedIP: a node that lost a collision restarts, finds
-// the other peer gone, and keeps the address it moved to (#830). It must not
-// run in parallel: it points localNodeStateDir at a temp directory.
+// TestRestartKeepsResolvedIP: a node that lost a collision restarts and keeps
+// the address it moved to (#830). initLocalNode reads the state file, not the
+// PeerStore. It must not run in parallel: it points localNodeStateDir at a
+// temp directory.
 func TestRestartKeepsResolvedIP(t *testing.T) {
 	enforceIPBinding(t, false)
 	recordAddresses(t)
@@ -91,6 +92,9 @@ func TestRestartKeepsResolvedIP(t *testing.T) {
 	restarted := &Daemon{config: d.config}
 	if err := restarted.initLocalNode(); err != nil {
 		t.Fatalf("initLocalNode: %v", err)
+	}
+	if wantFile := filepath.Join(localNodeStateDir, restarted.config.InterfaceName+".json"); restarted.stateFile != wantFile {
+		t.Errorf("stateFile = %q, want %q", restarted.stateFile, wantFile)
 	}
 	if restarted.localNode.MeshIP != want {
 		t.Errorf("after restart the IP is %s, want the resolved address %s", restarted.localNode.MeshIP, want)
