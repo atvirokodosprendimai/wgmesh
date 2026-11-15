@@ -54,8 +54,8 @@ func (ps *PeerStore) Subscribe() <-chan PeerEvent {
 }
 
 // Unsubscribe removes ch. The channel is not closed: notify sends after
-// releasing the lock, so a close could race with a send and panic. Receivers
-// stop on their own context instead.
+// releasing the lock, so a close could race with a send and panic. The caller
+// must stop reading it; a range over it never ends after Unsubscribe.
 func (ps *PeerStore) Unsubscribe(ch <-chan PeerEvent) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
