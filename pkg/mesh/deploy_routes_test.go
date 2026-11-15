@@ -77,7 +77,9 @@ func TestSyncRoutesRestoresConnectedRouteForGatewayedOwnNetwork(t *testing.T) {
 }
 
 func TestSyncRoutesRestoresGatewaylessOwnNetworkOnce(t *testing.T) {
-	cmds := syncWithRoutes(t, "10.1.0.0/24 scope link\n")
+	// One network twice in toRemove: the stale gateway-less route and the
+	// gatewayed one from the diff.
+	cmds := syncWithRoutes(t, "10.1.0.0/24 scope link\n10.1.0.0/24 via 10.99.0.3 dev wg0\n")
 
 	if got := countPrefix(cmds, addrQuery); got != 1 {
 		t.Errorf("address queries = %d, want 1, in %q", got, cmds)
