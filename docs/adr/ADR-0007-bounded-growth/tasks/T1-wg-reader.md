@@ -62,6 +62,10 @@ n=$(go test ./pkg/wireguard -run '^(TestReadStateParsesDumpColumns|TestReadState
 | 4 — it is used | T3 moves the daemon and discovery callers |
 
 ## Mutation Log
+- 2026-11-15 · 1905e4b* · mutant killed · exit 1 · `pkg/wireguard/state.go` · maxAge ignored, every call forks: TestReadStateReusesResultInsideMaxAge must go red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · 1905e4b* · mutant killed · exit 1 · `pkg/wireguard/state.go` · a failed fork is stored: TestReadStateDoesNotStoreErrors must go red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · 1905e4b* · mutant killed · exit 1 · `pkg/wireguard/state.go` · no deadline on the child: TestRunWGKillsChildAfterTimeout must go red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
+- 2026-11-15 · 1905e4b* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · a legacy reader forks on its own: TestLegacyReadersForwardToReadState must go red · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1
 
 ## Invariants
 
@@ -86,3 +90,22 @@ Stop and ask if `wg show <iface> dump` differs between the `wg` builds the proje
 - Replacing the binary with a netlink client (permanent: boundary: a new dependency on the key-handling path).
 
 ## Verification Log
+- 2026-11-15 · 1905e4b* · exit 1 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:2848 · test-lock-sha256:dadcdebf81ad6bf17f44e3662adf3eefe6f8661f6f5bbafbdbcdfb5f30d3e318 · test-lock-file:docs/adr/locks/dadcdebf81ad6bf17f44e3662adf3eefe6f8661f6f5bbafbdbcdfb5f30d3e318.lock
+  ```
+  --- last 10 line(s) of stderr (of 27 after folding 27 raw)
+  --- FAIL: TestReadStateKeepsSlotPerInterface (0.00s)
+  === RUN   TestLegacyReadersForwardToReadState
+      state_test.go:219: handshakes = map[PRIV:0 keyA:0 keyB:0]
+      state_test.go:222: peers = [{PublicKey:PRIV	PUB	51820	off Endpoint: AllowedIPs:[] PersistentKeepalive:0} {PublicKey:keyA	(none)	203.0.113.5:51820	10.0.0.2/32	1700000000	111	222	25 Endpoint: AllowedIPs:[] PersistentKeepalive:0} {PublicKey:keyB	(none)	(none)	10.0.0.3/32	0	0	0	off Endpoint: AllowedIPs:[] PersistentKeepalive:0}]
+      state_test.go:225: transfers = map[PRIV:{0 51820} keyA:{0 203} keyB:{0 0}]
+      state_test.go:231: forks = 3, want 4: ["show wg0 latest-handshakes" "show wg0 peers" "show wg0 transfer"]
+  --- FAIL: TestLegacyReadersForwardToReadState (0.07s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/wireguard	0.106s
+  FAIL
+  ```
+- 2026-11-15 · 1905e4b* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:21341
+- 2026-11-15 · 1905e4b* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:18135
+- 2026-11-15 · 1905e4b* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:15516
+- 2026-11-15 · 1905e4b* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:13981
+- 2026-11-15 · 1905e4b* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:10910
