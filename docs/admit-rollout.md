@@ -8,7 +8,7 @@ Every claim a node hears about a peer (its public key, mesh IP, routes, endpoint
 
 | Release | What the node does | Switches |
 |---|---|---|
-| N (the first with this change) | counts every case an enforced rule would act on (`wgmesh_admit_warnings_total{rule}`) and applies the claim as before; the other rules below act at once | `node.EnforceIPBinding = false`, `node.EnforceRouteBinding = false` |
+| N (the first with this change) | counts every case an enforced rule would act on (`wgmesh_admit_warnings_total{rule}`) and applies the claim as before; the other rules below act at once; the local-collision re-address (below) is not behind a switch and happens from N | `node.EnforceIPBinding = false`, `node.EnforceRouteBinding = false` |
 | N+1 | the bound claim wins an IP collision; a first-hand claim from a new key for an address another key holds by derivation is refused | `EnforceIPBinding = true` |
 | N+2 | route entries inside the mesh network or equal to a member's mesh IP are dropped; with an `accept-routes` list, networks it does not approve are dropped | `EnforceRouteBinding = true` |
 
@@ -16,7 +16,7 @@ Both switches are `false` in release N and nothing in production sets them. Flip
 
 ## Release note for N
 
-- **A node that loses a mesh IP collision changes its interface address while running.** Until now the local node never took part in a collision with a remote peer, so the "we lost" branch could not run. From N it does: a collision with the local node is decided by the same order as any other pair (in N the lower public key wins), and the loser re-derives its mesh IP and sets the new address on its WireGuard interface at runtime. The first free address of nonce 1 to 10 is taken. Expect this only on a mesh where two members derived the same address.
+- **A node that loses a mesh IP collision changes its interface address while running.** Until now the local node never took part in a collision with a remote peer, so the "we lost" branch could not run. From N it does: a collision with the local node is decided by the same order as any other pair (in N the lower public key wins), and the loser re-derives its mesh IP and sets the new address on its WireGuard interface at runtime. The first free address of nonce 1 to 10 is taken. This is not behind a switch: it happens from N. Expect it only on a mesh where two members derived the same address.
 - **The resolved address survives a restart.** The IP is written to the state file (`/var/lib/wgmesh/<interface>.json`), the IP and not the nonce. `wgmesh service add` reads the state file `wg0.json` only: on another interface name it does not see the resolved address (known limit).
 - **A withdrawn peer is not brought back by a mention for 5 minutes.** A GOODBYE or a health eviction of a stored peer leaves a tombstone for 5 minutes, and so does stale cleanup, but only of a peer that was heard first-hand (`TombstoneTTL`). Mentions in other peers' lists and cache entries are refused meanwhile; the peer's own first-hand packet clears the tombstone at once. Limits: the tombstone is in memory, so a restart forgets it; other nodes keep their stale entry until their 10-minute remove timeout, so one more resurrection by mention is possible in the second five minutes; a replayed or new first-hand HELLO after a GOODBYE re-admits the peer (BACKLOG).
 - **A guessed endpoint ranks below everything.** A peer that advertises no usable endpoint gets the sender's IP with the default WireGuard port (an advertisement with an empty port counts as nothing). That guess ranks below the peer cache, is replaced by the first advertisement, is not announced in `KnownPeers` and is not written to the peer cache. `wgmesh peers list` and `daemon.status` show a guess like any endpoint (BACKLOG: an `endpoint_guessed` field). In a mixed fleet a node from before this release still announces its guesses, so a wrong address keeps spreading until every node runs this release.
@@ -24,9 +24,14 @@ Both switches are `false` in release N and nothing in production sets them. Flip
 - **The local endpoint changes more slowly on STUN alone.** `LocalNode.ObserveEndpoint` applies a STUN answer that differs from a usable endpoint only on the third identical observation in a row (about two minutes after the first differing answer at the 60 s refresh: the third identical answer). A peer reflection and an interface (global IPv6) address apply at once and discard the pending STUN count; any source applies at once while the endpoint is empty or `0.0.0.0`; a reflected unspecified address is ignored. Reflection against reflection is not damped (second half of issue #828, BACKLOG). ADR-0004 M5 is planned to add a `stun-resume` source that applies the first STUN after a wake at once.
 - **`--accept-routes`** is new (see below) and does nothing unless set.
 
+## Upgrading a mixed fleet
+
+- Upgrade every node to N before anything else. A node from before N never moves after losing a mesh IP collision: only N code runs the "we lost" branch, and for a remote loser an N node only logs the address it expects.
+- Flip a switch only when every node runs the release before it. An N+1 node refuses a claim that an N node admits, so the two disagree about who owns an address; the same holds for routes with N+2.
+
 ## Reading `wgmesh_admit_warnings_total{rule}` as the go/no-go
 
-The counter needs `--metrics` (see the README, Metrics). It counts each time an offer or a collision comparison meets a case an enforced rule would act on, so a case that stands is counted again on every announcement and every collision pass, and once per observing node. Read it as zero or not zero, not as a rate. A series other than `winner-differs` appears when its first case is counted; no series means zero. Look at every node, not at one.
+The counter needs `--metrics` (see the README, Metrics): enable it on every node and check that each one answers before you read a zero. It counts each time an offer or a collision comparison meets a case an enforced rule would act on, so a case that stands is counted again on every announcement and every collision pass, and once per observing node. Read it as zero or not zero, not as a rate. Only `winner-differs` is created at start; every other series is absent until its first case is counted, so write an alert as `sum by (rule) (wgmesh_admit_warnings_total) or vector(0)`. Counters reset when a node restarts, so the gate is "zero since process start on every node": look at every node, not at one.
 
 | Rule | A count means | Gate |
 |---|---|---|
