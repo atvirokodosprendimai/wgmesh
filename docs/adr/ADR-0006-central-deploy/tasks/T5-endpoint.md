@@ -59,6 +59,12 @@ a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassific
 | 4 — it is used | every `wgmesh -deploy` |
 
 ## Mutation Log
+- 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · an all-private mesh gets no endpoints: TestAllLANMeshRendersEndpoints must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
+- 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · public_endpoint no longer wins: the operator-wins row must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
+- 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a private host is probed again: TestDetectEndpointsSkipsProbeForPrivateHost must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
+- 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · an IPv6 SSH host is not bracketed: the IPv6 row must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
+- 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · a DNS name is classed private: TestPrivateHostClassification must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
+- 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · rule (c) removed: the public-IP-equals-host row must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
 
 ## Invariants
 
@@ -83,3 +89,24 @@ Stop and ask if a test shows the local node must not receive an endpoint, or if 
 - The daemon's STUN and endpoint rules (permanent: boundary: ADR-0002 owns them).
 
 ## Verification Log
+- 2026-11-16 · 0563b3e* · exit 1 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:1086 · test-lock-sha256:fd1d4c1fb93a75a77bb36d5f84041b5207328c7617f160d9375f8d73baa3dc0d · test-lock-file:docs/adr/locks/fd1d4c1fb93a75a77bb36d5f84041b5207328c7617f160d9375f8d73baa3dc0d.lock
+  ```
+  --- last 10 line(s) of stderr (of 108 after folding 108 raw)
+            Restarting wg-quick@wg0 service
+            ✓ Deployed successfully
+
+  --- FAIL: TestAllLANMeshRendersEndpoints (0.01s)
+  === RUN   TestMixedMeshKeepsTodaysRule
+      endpoint_test.go:203: the private host was probed: ["hostname" "hostname -f" "curl -s -4 --max-time 5 ifconfig.me || curl -s -4 --max-time 5 icanhazip.com || true" "which wg" "wg show wg0 dump 2>/dev/null || true" "cat > /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf" "systemctl enable wg-quick@wg0" "systemctl restart wg-quick@wg0"]
+  --- FAIL: TestMixedMeshKeepsTodaysRule (0.01s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/mesh	0.043s
+  FAIL
+  ```
+- 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:11947
+- 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:11536
+- 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:12586
+- 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:11529
+- 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:11499
+- 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:11185
+- 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:9308

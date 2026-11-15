@@ -24,7 +24,7 @@ README must be regenerated.
 | T2 | Send every remote command through `ssh.Cmd`, render wg-quick safely, and fail the build on a raw one | done | — | six named tests in two packages, build, vet, then `-race` |
 | T3 | Validate the loaded state before the first connection (#868) | done | — | seven named tests, build, vet, then `-race` |
 | T4 | Record a result per node and continue past a failed one (#865) | done | — | eight named tests, build, vet, then `-race` |
-| T5 | Decide a node's endpoint in one pure function, and skip the probe for private hosts (#866) | pending | — | five named tests, build, vet, then `-race` |
+| T5 | Decide a node's endpoint in one pure function, and skip the probe for private hosts (#866) | done | — | five named tests, build, vet, then `-race` |
 | T6 | Amend the specs, write the release note and the backlog rows | pending | — | `go test ./pkg/mesh -run TestSpecNamesCentralized`, note exists, `adr-debt` reports no unreceipted row |
 
 ## Contract Coupling
