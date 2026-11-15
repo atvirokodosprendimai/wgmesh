@@ -56,6 +56,8 @@ n=$(go test ./pkg/daemon . -run '^(TestCollisionLoserPersistsResolvedIP|TestRest
 | 4 — it is used | the state file on a node that lost a collision |
 
 ## Mutation Log
+- 2026-11-15 · d7d842c* · mutant killed · exit 1 · `pkg/daemon/collision.go` · the save call is removed: TestCollisionLoserPersistsResolvedIP must go red · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722
+- 2026-11-15 · d7d842c* · mutant killed · exit 1 · `pkg/daemon/collision.go` · the save writes the pre-collision IP: TestCollisionLoserPersistsResolvedIP and TestRestartKeepsResolvedIP must go red · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722
 
 ## Invariants
 
@@ -78,3 +80,20 @@ Stop and ask if `deriveMeshIPForService` stops honouring a persisted address, or
 - Atomic state file writes (permanent: boundary: #870, another group).
 
 ## Verification Log
+- 2026-11-15 · d7d842c* · exit 1 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:1909 · test-lock-sha256:a0752af384665f014f2d1addd44231df8e434438b051f808817cd1fed9c9aa4e · test-lock-file:docs/adr/locks/a0752af384665f014f2d1addd44231df8e434438b051f808817cd1fed9c9aa4e.lock
+  ```
+  --- last 10 line(s) of stderr (of 17 after folding 17 raw)
+  2026/11/15 21:56:52 [Collision] We lost collision, re-deriving mesh IP: 10.42.1.1 -> 10.170.106.187
+      mesh_ip_secret_change_test.go:96: after restart the IP is 10.42.1.1, want the resolved address 10.170.106.187
+  --- FAIL: TestRestartKeepsResolvedIP (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.007s
+  === RUN   TestServiceAddReadsResolvedIP
+  --- PASS: TestServiceAddReadsResolvedIP (0.00s)
+  PASS
+  ok  	github.com/atvirokodosprendimai/wgmesh	0.006s
+  FAIL
+  ```
+- 2026-11-15 · d7d842c* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6389
+- 2026-11-15 · d7d842c* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:4142
+- 2026-11-15 · d7d842c* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6460
