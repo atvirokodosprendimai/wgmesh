@@ -77,6 +77,18 @@ a=$(go test ./pkg/mesh -run '^(TestValidateRefusesShellMetacharacters|TestValida
 - 2026-11-15 · ae4ddb3* · mutant killed · exit 1 · `pkg/mesh/mesh.go` · pkg/mesh imports pkg/node: TestCentralizedPackagesDoNotImportPeerStore must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
 - 2026-11-15 · ae4ddb3* · mutant killed · exit 1 · `pkg/mesh/validate.go` · a leading dash is accepted: the leading-dash case must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
 - 2026-11-15 · ae4ddb3* · mutant killed · exit 1 · `pkg/mesh/validate.go` · an empty interface name only warns: TestValidateRefusesMissingFields must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-15 · a36b501* · mutant killed · exit 1 · `pkg/mesh/validate.go` · no class A findings from text values: the metacharacter test must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · a36b501* · mutant killed · exit 1 · `pkg/mesh/validate.go` · the safe set admits a semicolon: TestValidateRefusesShellMetacharacters (;id, a;b) must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · a36b501* · mutant killed · exit 1 · `pkg/mesh/validate.go` · class B is refused at N: the warn-at-N test must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/validate.go` · no class A findings from text values: the metacharacter test must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/validate.go` · the safe set admits a semicolon: TestValidateRefusesShellMetacharacters (;id, a;b) must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/validate.go` · class B is refused at N: the warn-at-N test must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · Deploy stops refusing: TestDeployValidatesBeforeDial must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/mesh.go` · pkg/mesh imports pkg/node: TestCentralizedPackagesDoNotImportPeerStore must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/validate.go` · a leading dash is accepted: the leading-dash case must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/validate.go` · an empty interface name only warns: TestValidateRefusesMissingFields must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/validate.go` · non-canonical key accepted: the strict-base64 row must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
+- 2026-11-16 · e299b83* · mutant killed · exit 1 · `pkg/mesh/validate.go` · a null node only warns: the null-node subtest must go red · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554
 
 ## Invariants
 
@@ -123,3 +135,18 @@ Stop and ask if either saved state produces a class A finding (the safe set refu
 - 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8603
 - 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:10002
 - 2026-11-15 · ae4ddb3* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:5614
+- 2026-11-15 · a36b501* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:0 · test-lock-sha256:dfb5b8af7a67bb4da62e9d968290bbc2d9eacc80721c48ab8344e6d9c09476b3 · test-lock-file:docs/adr/locks/dfb5b8af7a67bb4da62e9d968290bbc2d9eacc80721c48ab8344e6d9c09476b3.lock · test-lock-kind:replace
+- 2026-11-15 · a36b501* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:9102
+- 2026-11-16 · a36b501* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8971
+- 2026-11-16 · a36b501* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8752
+- 2026-11-16 · e299b83* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:0 · test-lock-sha256:0fa643fe8c29520428c7d848e101f607bb7bbc209a49d363bf30d8a235e2f32c · test-lock-file:docs/adr/locks/0fa643fe8c29520428c7d848e101f607bb7bbc209a49d363bf30d8a235e2f32c.lock · test-lock-kind:replace
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:9049
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8446
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8929
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:9963
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:9135
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8997
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8228
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8464
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:10155
+- 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:6340
