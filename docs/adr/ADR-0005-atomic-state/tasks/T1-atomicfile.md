@@ -32,7 +32,7 @@ Selection: nothing selects it until T2 and T3 call it; reachability is shown the
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/atomicfile -run '^(TestWriteFileReplacesWhole|TestWriteFileKeepsOldFileWhenRenameFails|TestWriteFileLeavesNoTempFile|TestWriteFileSyncsFileThenDirectory|TestConcurrentReaderNeverSeesPartialFile)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 5 ] && go test -race ./pkg/atomicfile -count=1
+n=$(go test ./pkg/atomicfile -run '^(TestWriteFileReplacesWhole|TestWriteFileKeepsOldFileWhenRenameFails|TestWriteFileLeavesNoTempFile|TestWriteFileSyncsFileThenDirectory|TestConcurrentReaderNeverSeesPartialFile|TestWriteFileKeepsOldFileWhenSyncFails|TestWriteFileIgnoresUnsupportedDirSync|TestWriteFileReportsDirSyncFailureAfterRename)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 8 ] && go test -race ./pkg/atomicfile -count=1
 ```
 
 ## Tests
@@ -44,6 +44,9 @@ n=$(go test ./pkg/atomicfile -run '^(TestWriteFileReplacesWhole|TestWriteFileKee
 | `TestWriteFileLeavesNoTempFile` | `pkg/atomicfile/atomicfile_test.go` | after success and after failure the directory holds only the target | — | S1, S2 |
 | `TestWriteFileSyncsFileThenDirectory` | `pkg/atomicfile/atomicfile_test.go` | the `syncFile` seam is called before the rename and the `syncDir` seam after it (recorded order) | — | S1, S2 |
 | `TestConcurrentReaderNeverSeesPartialFile` | `pkg/atomicfile/atomicfile_test.go` | 300 alternating 1 MiB writes of two contents while a reader loops: every read equals one of the two whole contents | — | S1, S2 |
+| `TestWriteFileKeepsOldFileWhenSyncFails` | `pkg/atomicfile/atomicfile_test.go` | the `syncFile` seam returns EIO on an existing path: the error is returned, the old content is intact and no temp file is left | — | S1, S2 |
+| `TestWriteFileIgnoresUnsupportedDirSync` | `pkg/atomicfile/atomicfile_test.go` | the `syncDir` seam returns EINVAL, then ENOTSUP: `WriteFile` returns nil and the new content is in place | — | S1, S2 |
+| `TestWriteFileReportsDirSyncFailureAfterRename` | `pkg/atomicfile/atomicfile_test.go` | the `syncDir` seam returns EIO: the error is returned, the new content is already at `path` and no temp file is left | — | S1, S2 |
 
 ## Reachability
 
@@ -71,6 +74,7 @@ n=$(go test ./pkg/atomicfile -run '^(TestWriteFileReplacesWhole|TestWriteFileKee
 - A directory `Sync` unsupported by the filesystem returns `EINVAL` or `ENOTSUP`; both are ignored, other errors are returned. Not tested on NFS or FUSE.
 - The reader test is probabilistic against a truncating writer; the mutant run records how many of 5 runs it turned red.
 - Test doubles: the two seams; the rest uses a temp directory.
+- Differences from `os.WriteFile`, stated in the package doc (panel 2026-11-15): `perm` is applied exactly, not filtered by umask; a symlink at `path` is replaced by a regular file; the new file has the process's owner and group; the directory must be writable. An error from the directory sync arrives after the rename, so the data is committed. A crash between create and rename leaves a `<name>.tmp-*` file that nothing sweeps.
 
 ## Stop Condition
 
