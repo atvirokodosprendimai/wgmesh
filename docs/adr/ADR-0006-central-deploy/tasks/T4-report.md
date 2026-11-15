@@ -27,7 +27,7 @@
 
 1. [S1] Add the tests with a stub that keeps the old early return; run red: `TestDeployContinuesPastUnreachableNode` fails because the second node is never configured. Nodes come from `sshtest` servers; the unreachable node is a closed local port (no timeout wait).
 2. [S2] Add `report.go` and `deployNode`; keep the lock discipline of PR #842: `Deploy` holds `m.mu` for the loop and `deployNode` calls only the helpers that require it held (`generateConfigForNode`, `collectAllRoutesForNode`), never `collectRoutesForNode` or a method that locks.
-3. [S3] Sort the hostnames; make `detectEndpoints` record a `connect`-phase failure and `continue`; skip such a node in the apply loop.
+3. [S3] Sort the hostnames; make `detectEndpoints` record a `detect`-phase failure (a dial failure there) and `continue`; a dial failure in the apply loop (a local node, which detect skips) is a `connect`-phase failure; skip such a node in the apply loop.
 4. [S4] Make the persist failure a warning at N and fatal under `PersistFailureFatal`.
 5. [S5] Run the whole of `go test -race ./pkg/mesh` including `TestDeploymentConfigUnderLock`; record the exit line in the commit message. [proof: acceptance]
 6. [S6] Run the mutants with `adr-verify --mutant`: the loop returns on the first failure; a failed `detect` node is dialled again; the hostnames are not sorted; `PersistFailureFatal` is ignored; `DeployError` omits the phase. [proof: mutation]
@@ -36,7 +36,7 @@
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/mesh -run '^(TestDeployContinuesPastUnreachableNode|TestDeployReportsEveryFailureWithPhase|TestDeployAllReachableReturnsNil|TestDeployVisitsNodesInSortedOrder|TestDeployDoesNotRedialAFailedDetect|TestPersistWriteFailureIsAWarningAtN|TestPersistWriteFailureFailsWhenFatal|TestDeploymentConfigUnderLock)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 8 ] \
+a=$(go test ./pkg/mesh -run '^(TestDeployContinuesPastUnreachableNode|TestDeployReportsEveryFailureWithPhase|TestDeployAllReachableReturnsNil|TestDeployVisitsNodesInSortedOrder|TestDeployDoesNotRedialAFailedDetect|TestPersistWriteFailureIsAWarningAtN|TestPersistWriteFailureFailsWhenFatal|TestDeployRenderErrorIsAPersistFailureAndLeavesTheNodeUntouched|TestDeploymentConfigUnderLock)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -eq 9 ] \
  && go build ./... && go vet ./... && go test -race ./pkg/mesh -count=1
 ```
 
@@ -47,11 +47,12 @@ a=$(go test ./pkg/mesh -run '^(TestDeployContinuesPastUnreachableNode|TestDeploy
 | `TestDeployContinuesPastUnreachableNode` | `pkg/mesh/deploy_report_test.go` | with nodes `a` (closed port), `b` and `c` (servers) `b` and `c` receive their config and the error names `a` | — | S1, S2, S3 |
 | `TestDeployReportsEveryFailureWithPhase` | `pkg/mesh/deploy_report_test.go` | two failing nodes (one `connect`, one `apply` through a scripted server failure) are both in the error text with their phase, once each | — | S1, S2 |
 | `TestDeployAllReachableReturnsNil` | `pkg/mesh/deploy_report_test.go` | three servers, no failure: `Deploy` returns nil | — | S1, S2 |
-| `TestDeployVisitsNodesInSortedOrder` | `pkg/mesh/deploy_report_test.go` | the order in which servers receive their first command is the sorted hostname order, over 20 runs | — | S1, S3 |
+| `TestDeployVisitsNodesInSortedOrder` | `pkg/mesh/deploy_report_test.go` | the printed detect and deploy lines of both loops are in the sorted hostname order (sshtest records no arrival times) | — | S1, S3 |
 | `TestDeployDoesNotRedialAFailedDetect` | `pkg/mesh/deploy_report_test.go` | a node that fails in `detect` is accepted by a counting listener exactly once | — | S1, S3 |
-| `TestPersistWriteFailureIsAWarningAtN` | `pkg/mesh/deploy_report_test.go` | a server that fails the config file write leaves the node `ok` with one warning and `Deploy` returns nil | — | S1, S4 |
+| `TestPersistWriteFailureIsAWarningAtN` | `pkg/mesh/deploy_report_test.go` | a server that fails the config file write prints one warning (and a `Warnings:` block) and `Deploy` returns nil, the config file written once as the last step of the node | — | S1, S4 |
 | `TestPersistWriteFailureFailsWhenFatal` | `pkg/mesh/deploy_report_test.go` | the same with `PersistFailureFatal` returns an error with phase `persist` (reset with `t.Cleanup`) | — | S1, S4 |
 | `TestDeploymentConfigUnderLock` | `pkg/mesh/deploy_test.go` | the PR #842 test still passes (exists today; this task must not break it) | — | S5 |
+| `TestDeployRenderErrorIsAPersistFailureAndLeavesTheNodeUntouched` | `pkg/mesh/deploy_report_test.go` | a state whose wg-quick text cannot be rendered (a newline in a route gateway) fails that node in phase `persist` before any command is sent to it, and the other nodes are still configured | — | S1, S2 |
 
 ## Reachability
 
