@@ -48,10 +48,12 @@ func TestSaveSecretFileIsAtomic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	var names []string
 	for _, e := range entries {
-		if strings.Contains(e.Name(), ".tmp-") {
-			t.Errorf("temp file left behind: %s", e.Name())
-		}
+		names = append(names, e.Name())
+	}
+	if len(names) != 1 || names[0] != filepath.Base(path) {
+		t.Errorf("directory holds %q; want only %q", names, filepath.Base(path))
 	}
 }
 

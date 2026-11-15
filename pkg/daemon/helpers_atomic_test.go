@@ -101,16 +101,34 @@ func readWhileSaving(t *testing.T, path string, writes int, save func(i int) err
 	}
 }
 
-func noTempFiles(t *testing.T, dir string) {
+// onlyEntries fails the test unless dir holds exactly the want names: a leftover
+// temp file is caught whatever its name, so the check does not depend on the
+// temp-name prefix.
+func onlyEntries(t *testing.T, dir string, want ...string) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	wanted := map[string]bool{}
+	for _, w := range want {
+		wanted[w] = true
+	}
+	var unexpected []string
+	seen := map[string]bool{}
 	for _, e := range entries {
-		if strings.Contains(e.Name(), ".tmp-") {
-			t.Errorf("temp file left behind: %s", e.Name())
+		seen[e.Name()] = true
+		if !wanted[e.Name()] {
+			unexpected = append(unexpected, e.Name())
 		}
+	}
+	for _, w := range want {
+		if !seen[w] {
+			t.Errorf("expected entry %q is missing from %s", w, dir)
+		}
+	}
+	if len(unexpected) > 0 {
+		t.Errorf("unexpected entries in %s: %q; want only %q", dir, unexpected, want)
 	}
 }
 
@@ -160,7 +178,7 @@ func TestSaveLocalNodeIsAtomic(t *testing.T) {
 		t.Errorf("private key %q after saves", got.WGPrivateKey)
 	}
 	requireMode0600(t, path)
-	noTempFiles(t, filepath.Dir(path))
+	onlyEntries(t, filepath.Dir(path), filepath.Base(path))
 }
 
 func TestSaveLocalNodeKeepsOldFileWhenWriteFails(t *testing.T) {
@@ -195,7 +213,7 @@ func TestSaveLocalNodeKeepsOldFileWhenWriteFails(t *testing.T) {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	noTempFiles(t, dir)
+	onlyEntries(t, dir, filepath.Base(path))
 }
 
 // peerStoreOf returns a store with n peers whose hostnames are padded with
@@ -256,5 +274,5 @@ func TestSavePeerCacheIsAtomic(t *testing.T) {
 		t.Errorf("loaded %d peers, want %d", len(c.Peers), peers)
 	}
 	requireMode0600(t, path)
-	noTempFiles(t, dir)
+	onlyEntries(t, dir, filepath.Base(path))
 }
