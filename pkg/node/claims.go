@@ -5,9 +5,10 @@ import (
 	"strings"
 )
 
-// maxNonce is the loop bound of DeriveMeshIPWithCollisionCheck: an address
-// derived with a nonce of 0 to maxNonce from its own key is bound to that key.
-const maxNonce = 10
+// MaxNonce is the highest collision nonce a member derives with: a mover
+// tries nonces 1 to MaxNonce (daemon.moverIP), and an address derived with a
+// nonce of 0 to MaxNonce from its own key is bound to that key.
+const MaxNonce = 10
 
 // Claim is one member's claim on a mesh IP: the key that holds it and the
 // address. The local node is a member like any other.
@@ -44,7 +45,7 @@ func Winner(a, b Claim, derive func(key string, nonce int) string, warn func(rul
 	if strings.Compare(b.Key, a.Key) < 0 {
 		lower, higher = b, a
 	}
-	boundFirst := Bound(higher, derive, maxNonce) && !Bound(lower, derive, maxNonce)
+	boundFirst := Bound(higher, derive, MaxNonce) && !Bound(lower, derive, MaxNonce)
 	if EnforceIPBinding {
 		if boundFirst {
 			return higher, lower

@@ -142,20 +142,20 @@ func TestResolveClaimsIncludesLocal(t *testing.T) {
 func TestBoundAcceptsNonceOneToTen(t *testing.T) {
 	const key = "kkk"
 	for nonce := 0; nonce <= 10; nonce++ {
-		if !Bound(Claim{Key: key, IP: fakeDerive(key, nonce)}, fakeDerive, maxNonce) {
+		if !Bound(Claim{Key: key, IP: fakeDerive(key, nonce)}, fakeDerive, MaxNonce) {
 			t.Errorf("an address derived with nonce %d is not bound", nonce)
 		}
 	}
-	if Bound(Claim{Key: key, IP: fakeDerive(key, 11)}, fakeDerive, maxNonce) {
+	if Bound(Claim{Key: key, IP: fakeDerive(key, 11)}, fakeDerive, MaxNonce) {
 		t.Error("an address derived with nonce 11 is bound")
 	}
-	if Bound(Claim{Key: key, IP: fakeDerive("other", 0)}, fakeDerive, maxNonce) {
+	if Bound(Claim{Key: key, IP: fakeDerive("other", 0)}, fakeDerive, MaxNonce) {
 		t.Error("an address derived from another key is bound")
 	}
-	if Bound(Claim{Key: key, IP: fakeDerive(key, 0)}, nil, maxNonce) {
+	if Bound(Claim{Key: key, IP: fakeDerive(key, 0)}, nil, MaxNonce) {
 		t.Error("a nil derive bound a claim")
 	}
-	if Bound(Claim{Key: key, IP: ""}, func(string, int) string { return "" }, maxNonce) {
+	if Bound(Claim{Key: key, IP: ""}, func(string, int) string { return "" }, MaxNonce) {
 		t.Error("an empty address is bound to a derivation that gives an empty address")
 	}
 }

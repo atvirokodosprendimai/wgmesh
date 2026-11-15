@@ -145,11 +145,8 @@ func (d *Daemon) CheckAndResolveCollisions() {
 	}
 }
 
-// moverNonces is how many collision nonces a mover tries: 1 to moverNonces.
-const moverNonces = 10
-
 // moverIP is the address the local node moves to after it lost a collision:
-// the first nonce of 1 to moverNonces whose address no other member claims
+// the first nonce of 1 to node.MaxNonce whose address no other member claims
 // (the local node's current address counts as claimed). When every one is
 // claimed it is the nonce-1 address. It is "" when the custom subnet is unusable.
 func (d *Daemon) moverIP() string {
@@ -160,7 +157,7 @@ func (d *Daemon) moverIP() string {
 		}
 	}
 	first := ""
-	for nonce := 1; nonce <= moverNonces; nonce++ {
+	for nonce := 1; nonce <= node.MaxNonce; nonce++ {
 		ip := d.deriveMeshIP(d.localNode.WGPubKey, nonce)
 		if ip == "" {
 			return ""
@@ -200,7 +197,7 @@ func DeriveMeshIPWithCollisionCheck(meshSubnet [2]byte, wgPubKey, secret string,
 	}
 
 	// Check for collision
-	for nonce := 1; nonce <= 10; nonce++ {
+	for nonce := 1; nonce <= node.MaxNonce; nonce++ {
 		if owner, exists := existingIPs[ip]; !exists || owner == wgPubKey {
 			return ip
 		}
