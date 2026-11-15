@@ -108,6 +108,17 @@ func TestPersistedMeshIPStableAcrossOptionChanges(t *testing.T) {
 func TestPersistedMeshIPKeptInsideCustomSubnet(t *testing.T) {
 	p := defaultPersisted(t)
 	p.MeshIP = "192.168.100.7"
+	cfg, err := NewConfig(DaemonOpts{Secret: testConfigSecret, MeshSubnet: "192.168.100.0/24"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	derived, err := crypto.DeriveMeshIPInSubnet(cfg.CustomSubnet, p.WGPubKey, testConfigSecret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if derived == p.MeshIP {
+		t.Fatal("test setup: derived IP equals the persisted one")
+	}
 
 	node, disk := startWithPersisted(t, p, DaemonOpts{MeshSubnet: "192.168.100.0/24"})
 	if node.MeshIP != p.MeshIP || disk.MeshIP != p.MeshIP {
