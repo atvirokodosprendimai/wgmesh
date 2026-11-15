@@ -137,3 +137,16 @@ func TestPersistedMeshIPOutsideCustomSubnetIsRederived(t *testing.T) {
 		t.Errorf("MeshIP memory=%q disk=%q, want re-derived %q", node.MeshIP, disk.MeshIP, want)
 	}
 }
+
+// TestPersistedMeshIPKeptWhenCustomSubnetDropped: a node that joined with
+// --mesh-subnet and is restarted without the flag must keep its address.
+func TestPersistedMeshIPKeptWhenCustomSubnetDropped(t *testing.T) {
+	p := defaultPersisted(t)
+	p.MeshIP = "192.168.100.7"
+
+	node, disk := startWithPersisted(t, p, DaemonOpts{})
+	if node.MeshIP != p.MeshIP || disk.MeshIP != p.MeshIP {
+		t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.MeshIP, disk.MeshIP, p.MeshIP)
+	}
+}
+
