@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"net"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 func TestPolicyMeshNet(t *testing.T) {
@@ -28,6 +30,31 @@ func TestPolicyMeshNet(t *testing.T) {
 	}
 	if got := d.peerStore.Policy().MeshNet.String(); got != "192.168.100.0/24" {
 		t.Errorf("custom MeshNet = %s, want 192.168.100.0/24", got)
+	}
+}
+ 
+// A hand-built subnet with host bits set still names its network.
+func TestPolicyMeshNetNormalisesHostBits(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.CustomSubnet = &net.IPNet{IP: net.IPv4(192, 168, 100, 7).To4(), Mask: net.CIDRMask(24, 32)}
+	d, err := NewDaemon(cfg)
+	if err != nil {
+		t.Fatalf("NewDaemon: %v", err)
+	}
+	var warned []string
+	p := *d.peerStore.Policy()
+	p.OnWarn = func(rule string) { warned = append(warned, rule) }
+	d.peerStore.SetPolicy(&p)
+
+	d.peerStore.Offer(node.Candidate{
+		Info:   &node.PeerInfo{WGPubKey: "adv", MeshIP: "192.168.100.9", RoutableNetworks: []string{"192.168.100.0/24"}},
+		Source: "dht", Hand: node.FirstHand,
+	})
+	if want := []string{"route-inside-mesh"}; !reflect.DeepEqual(warned, want) {
+		t.Errorf("warnings = %v, want %v (MeshNet = %s)", warned, want, p.MeshNet)
+	}
+	if got := p.MeshNet.String(); got != "192.168.100.0/24" {
+		t.Errorf("MeshNet = %s, want the network 192.168.100.0/24 without the host bits", got)
 	}
 }
 
