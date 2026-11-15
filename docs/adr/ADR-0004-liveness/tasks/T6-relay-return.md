@@ -77,7 +77,7 @@ a=$(go test ./pkg/daemon -run '^(TestBuildDesiredKeepsRelayedPeerProbeOnly|TestP
 ## Risks
 
 - `wg set ... allowed-ips ""` may not clear on macOS userspace WireGuard; S1 decides, and the fall-back is remove-then-add of the peer, which loses its handshake time once.
-- A keepalive and handshake attempt to every relayed peer every 25 seconds (Open Question 2).
+- A keepalive and handshake attempt to every relayed peer every 25 seconds (accepted in M2).
 - `applyDesiredPeerConfigs` and `wireguard.SetPeer` are in the apply-step group's area (ADR-0003 draft); this task starts after whichever of the two lands first and is rebased on it.
 
 ## Stop Condition
@@ -87,6 +87,6 @@ Stop and ask if S1 shows that an empty AllowedIPs list still lets WireGuard acce
 ## Out of Scope
 
 - The choice of relay (`selectRelayForPeer`) and the relay candidate rules other than the age term (T2).
-- A probe window instead of a permanent probe-only entry (Open Question 2, option B; permanent: boundary: not chosen unless M picks it).
+- A probe window instead of a permanent probe-only entry (M2, the rejected option; permanent: boundary: M chose the permanent probe-only entry).
 
 ## Verification Log

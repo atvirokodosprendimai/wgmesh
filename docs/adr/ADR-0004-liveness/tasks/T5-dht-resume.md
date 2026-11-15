@@ -72,11 +72,11 @@ a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResume
 ## Risks
 
 - Applying a STUN result at once after a wake can publish a wrong endpoint if the network is not up yet; the next ticker pass and any peer reflection correct it (ADR-0002 R7 rank order).
-- The `stun-resume` case is an amendment of ADR-0002's R7 and needs M's answer to Open Question 5 first.
+- The `stun-resume` case is an amendment of ADR-0002's R7 and is decided in M5; M confirms it when accepting this ADR, and T5 does not start before that.
 
 ## Stop Condition
 
-Stop and ask if ADR-0002 T9 shipped `ObserveEndpoint` with no source parameter that can carry `stun-resume`, or if Open Question 5 is answered "obey R7".
+Stop and ask if ADR-0002 T9 shipped `ObserveEndpoint` with no source parameter that can carry `stun-resume`, or if M declines the R7 amendment when accepting this ADR (M5).
 
 ## Out of Scope
 

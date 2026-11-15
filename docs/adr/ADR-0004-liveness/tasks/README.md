@@ -41,7 +41,7 @@ README must be regenerated.
 
 ## Notes
 
-- Based on `origin/main` `b8b83f3`. Not started until ADR-0002 T3 is merged; T3 of this record also waits for ADR-0002 T2, T5 for ADR-0002 T9 and Open Question 5; T6 is rebased on the apply-step ADR (ADR-0003 draft) if that lands first. Each commit message names the ADR-0002 commit it was built on.
+- Based on `origin/main` `b8b83f3`. Not started until ADR-0002 T3 is merged; T3 of this record also waits for ADR-0002 T2, T5 for ADR-0002 T9 and for Ms confirmation of the R7 amendment (M5); T6 is rebased on the apply-step ADR (ADR-0003 draft) if that lands first. Each commit message names the ADR-0002 commit it was built on.
 - Go tests run on the laptop with `-race` for the packages each fence names; the whole gate is `go build ./... && go vet ./... && go test -race ./...`.
 - The waves show dependencies, not safe parallelism: `store.go` is edited by T1 and T3, `daemon.go` by T2, T4 and T6, `dht.go` by T2 and T5. Run the tasks one after another in the order T1 to T7 on one branch.
 - Each code task is reviewed per commit under the repository's code-review flow before the next starts.

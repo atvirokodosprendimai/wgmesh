@@ -72,8 +72,8 @@ a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestR
 
 ## Risks
 
-- A false positive (a long pause or an NTP step forward) causes one reconcile, one announce and a 60-second grace; accepted (Open Question 3).
-- A real peer death during the sleep is noticed 60 seconds later than it could be; accepted (Open Question 6).
+- A false positive (a long pause or an NTP step forward) causes one reconcile, one announce and a 60-second grace; accepted (M3).
+- A real peer death during the sleep is noticed 60 seconds later than it could be; accepted (M6).
 - `daemon.go` conflicts with ADR-0002 T3 (`evictPeerFromPool`) and T4; see Ordering.
 
 ## Stop Condition
