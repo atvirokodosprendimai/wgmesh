@@ -93,14 +93,16 @@ func bindClaim(s Snapshot, c Candidate) Decision {
 	}
 
 	// R9 judges only first-hand and restored routes; read the list (a lock on
-	// the daemon's config) only when there is something to judge.
+	// the daemon's config) only when there is something to judge. A second-hand
+	// candidate gets no list, so R9 does not judge it (Approved with an empty
+	// list approves everything): this is the one place that skips it.
 	var accept []*net.IPNet
 	if c.Hand != SecondHand && len(info.RoutableNetworks) > 0 && p.AcceptRoutes != nil {
 		accept = p.AcceptRoutes()
 	}
 	for _, r := range info.RoutableNetworks {
 		rule := routeRule(s, info.WGPubKey, r)
-		if rule == "" && c.Hand != SecondHand && !unparsable(r) && !Approved(r, accept) {
+		if rule == "" && !unparsable(r) && !Approved(r, accept) {
 			rule = "route-not-approved"
 		}
 		switch {
