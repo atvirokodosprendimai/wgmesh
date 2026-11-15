@@ -122,6 +122,38 @@ func TestIPClaimRefusalIsLoggedOnce(t *testing.T) {
 	}
 }
 
+// R5 refuses only a first-hand new key whose claim is unbound for an address a
+// bound claim of another member holds.
+func TestIPClaimNeverRefusedWithoutHeldBoundAddress(t *testing.T) {
+	setSwitches(t, true, true)
+
+	t.Run("empty mesh IP", func(t *testing.T) {
+		ps, warned := bindingStore(t)
+		ps.SetPeerDirectly("victim", &PeerInfo{WGPubKey: "victim", MeshIP: fakeDerive("victim", 0)})
+		if d := ps.Offer(firstHand("noip", "")); d.Verdict != Admit {
+			t.Errorf("empty MeshIP: %+v, want Admit", d)
+		}
+		if len(*warned) != 0 {
+			t.Errorf("empty MeshIP warned %v", *warned)
+		}
+	})
+
+	t.Run("bound claimant on a bound holder", func(t *testing.T) {
+		// Two keys whose natural derivation collides: both claims are bound,
+		// the order between them belongs to R4, not to R5.
+		const shared = "10.42.5.5"
+		ps := NewPeerStore()
+		ps.SetPolicy(&Policy{Derive: func(string, int) string { return shared }})
+		ps.SetPeerDirectly("holder", &PeerInfo{WGPubKey: "holder", MeshIP: shared})
+		if d := ps.Offer(firstHand("claimant", shared)); d.Verdict != Admit {
+			t.Errorf("bound claimant on a bound holder: %+v, want Admit", d)
+		}
+		if _, ok := ps.Get("claimant"); !ok {
+			t.Error("the claimant was not stored")
+		}
+	})
+}
+
 func TestRouteInsideMeshWarnsThenDrops(t *testing.T) {
 	routes := []string{"10.42.7.0/24", "172.16.5.5/32", "192.168.9.0/24"}
 
@@ -164,7 +196,8 @@ func TestRouteInsideMeshWarnsThenDrops(t *testing.T) {
 }
 
 func TestRouteSupernetIsKept(t *testing.T) {
-	routes := []string{"0.0.0.0/0", "::/0", "10.0.0.0/8"}
+	// 10.42.0.0/15 starts inside the mesh network (10.42.0.0/16) but is shorter: a supernet.
+	routes := []string{"0.0.0.0/0", "::/0", "10.0.0.0/8", "10.42.0.0/15"}
 	for _, sw := range [][2]bool{{false, false}, {true, true}} {
 		setSwitches(t, sw[0], sw[1])
 		ps, warned := bindingStore(t)

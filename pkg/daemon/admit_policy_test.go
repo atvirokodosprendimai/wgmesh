@@ -32,7 +32,7 @@ func TestPolicyMeshNet(t *testing.T) {
 		t.Errorf("custom MeshNet = %s, want 192.168.100.0/24", got)
 	}
 }
- 
+
 // A hand-built subnet with host bits set still names its network.
 func TestPolicyMeshNetNormalisesHostBits(t *testing.T) {
 	cfg := testConfig(t)
@@ -76,6 +76,7 @@ func TestAdmitFixtureMatchesDerivation(t *testing.T) {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		t.Fatal(err)
 	}
+	checked := 0
 	for name, sn := range f.Subnets {
 		cfg := &Config{Secret: f.Secret, InterfaceName: "wg-test", Keys: &crypto.DerivedKeys{MeshSubnet: sn.MeshSubnetBytes}}
 		if name == "custom" {
@@ -90,10 +91,15 @@ func TestAdmitFixtureMatchesDerivation(t *testing.T) {
 		}
 		for key, perSubnet := range f.Keys {
 			for nonce, want := range perSubnet[name] {
+				checked++
 				if got := d.deriveMeshIP(key, nonce); got != want {
 					t.Errorf("subnet %s key %s nonce %d: derives %s, fixture says %s", name, key, nonce, got, want)
 				}
 			}
 		}
+	}
+	// 9 keys, 2 subnets, 2 nonces each: a fixture that stops being read must fail.
+	if checked < 36 {
+		t.Fatalf("checked %d recorded addresses, want at least 36", checked)
 	}
 }

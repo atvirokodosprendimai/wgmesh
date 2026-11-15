@@ -95,6 +95,19 @@
       }
     },
     {
+      "name": "hijack-of-nonce-address",
+      "why": "key-nonce is stored on the address it derives with nonce 1 (bound at a nonce above 0); key-thief claims that address: counted at N, refused once the IP switch is on",
+      "subnet": "default", "hijack": true,
+      "store": [{"key": "key-nonce", "ip": "10.42.209.133"}],
+      "offer": {"key": "key-thief", "ip": "10.42.209.133", "routes": []},
+      "expect": {
+        "warn": {"verdict": "admit", "stored": true, "routes": [], "warnings": ["ip-held-by-bound"], "stored_after": ["key-nonce", "key-thief"]},
+        "ip": {"verdict": "refuse", "reason": "ip-held-by-bound", "stored": false, "warnings": [], "stored_after": ["key-nonce"]},
+        "both": {"verdict": "refuse", "reason": "ip-held-by-bound", "stored": false, "warnings": [], "stored_after": ["key-nonce"]},
+        "ip-then-both": {"verdict": "refuse", "reason": "ip-held-by-bound", "stored": false, "warnings": [], "stored_after": ["key-nonce"]}
+      }
+    },
+    {
       "name": "rotated-node-in-store",
       "why": "key-rot is stored on an address that is the natural address of the newcomer key-nat; the rotated node stays admitted and stored in every phase",
       "subnet": "default", "never_refused": true,
