@@ -302,29 +302,26 @@ func (d *Daemon) Shutdown() {
 	d.cancel()
 }
 
-// meshIPInSubnet returns true when a persisted mesh IP may be kept. It is used
-// to decide whether the persisted address is still valid or must be re-derived.
+// MeshIPKept returns true when a persisted mesh IP may be kept. It is the one
+// rule for the daemon and for service registration.
 //
 // With an explicit --mesh-subnet the address must lie inside it, so changing
-// the subnet moves the node. Without one, the default /16 is derived from the
-// secret, and an address that was valid under the old secret must stay valid
-// after the secret is rotated: the operator changed the key, not the address
-// space, and peers, DNS and firewall rules refer to the old address. Any IPv4
-// address in 10.0.0.0/8 (where the default derivation lives) is kept.
-func meshIPInSubnet(meshIP string, cfg *Config) bool {
+// the subnet moves the node. Without one the persisted address came from this
+// node's own earlier derivation (default /16 from a secret, possibly an older
+// secret, or a --mesh-subnet used on an earlier run) and stays authoritative:
+// the operator changed an option, not the address, and peers, DNS and firewall
+// rules refer to it (issue #827). Any valid IPv4 address is kept.
+func MeshIPKept(meshIP string, customSubnet *net.IPNet) bool {
 	ip := net.ParseIP(meshIP)
-	if ip == nil {
+	if ip == nil || ip.To4() == nil {
 		return false
 	}
-	if cfg.CustomSubnet != nil {
-		return cfg.CustomSubnet.Contains(ip)
-	}
-	return legacyMeshSpace.Contains(ip)
+	return customSubnet == nil || customSubnet.Contains(ip)
 }
 
-// legacyMeshSpace is the address space of the secret-derived default mesh
-// subnet (10.<byte>.0.0/16, see crypto.DeriveMeshIP).
-var legacyMeshSpace = &net.IPNet{IP: net.IP{10, 0, 0, 0}, Mask: net.CIDRMask(8, 32)}
+func meshIPInSubnet(meshIP string, cfg *Config) bool {
+	return MeshIPKept(meshIP, cfg.CustomSubnet)
+}
 
 // announceableHostname returns hostname if peers will accept it in an
 // announcement (printable ASCII, at most crypto.MaxHostnameLength bytes, as

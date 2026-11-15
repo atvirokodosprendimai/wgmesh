@@ -149,4 +149,3 @@ func TestPersistedMeshIPKeptWhenCustomSubnetDropped(t *testing.T) {
 		t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.MeshIP, disk.MeshIP, p.MeshIP)
 	}
 }
-

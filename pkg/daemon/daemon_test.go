@@ -349,15 +349,6 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: true,
 		},
 		{
-			name:   "legacy outside 10.0.0.0/8 is rejected",
-			meshIP: "192.168.1.1",
-			cfg: &Config{
-				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
-				CustomSubnet: nil,
-			},
-			want: false,
-		},
-		{
 			name:   "custom subnet match",
 			meshIP: "192.168.100.55",
 			cfg: &Config{
@@ -374,6 +365,14 @@ func TestMeshIPInSubnet(t *testing.T) {
 				CustomSubnet: customNet,
 			},
 			want: false,
+		},
+		{
+			name:   "no custom subnet keeps an IP outside 10.0.0.0/8",
+			meshIP: "192.168.100.7",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: true,
 		},
 		{
 			name:   "invalid IP",
