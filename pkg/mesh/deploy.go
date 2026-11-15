@@ -2,8 +2,10 @@ package mesh
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"os"
+	"slices"
 
 	netroutes "github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
@@ -42,18 +44,20 @@ func (m *Mesh) Deploy() error {
 		fmt.Println("Access control configuration valid.")
 	}
 
-	if err := m.detectEndpoints(); err != nil {
-		return fmt.Errorf("failed to detect endpoints: %w", err)
-	}
+	// A node that cannot be reached is recorded, not dialled again below.
+	detectFailures := m.detectEndpoints()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	results := make([]NodeResult, 0, len(m.Nodes))
-	for hostname, node := range m.Nodes {
+	for _, hostname := range slices.Sorted(maps.Keys(m.Nodes)) {
 		fmt.Printf("Deploying to %s...\n", hostname)
 
-		result := m.deployNode(hostname, node)
+		result := NodeResult{Hostname: hostname, Phase: PhaseDetect, Err: detectFailures[hostname]}
+		if result.Err == nil {
+			result = m.deployNode(hostname, m.Nodes[hostname])
+		}
 		results = append(results, result)
 		if result.Err != nil {
 			fmt.Printf("  ✗ Failed in %s: %v\n\n", result.Phase, result.Err)
@@ -127,11 +131,15 @@ func (m *Mesh) deployNode(hostname string, node *Node) NodeResult {
 	return result
 }
 
-func (m *Mesh) detectEndpoints() error {
+// detectEndpoints probes every node that is not local and returns the nodes it
+// could not connect to, by hostname. The nodes are visited in sorted order.
+func (m *Mesh) detectEndpoints() map[string]error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for hostname, node := range m.Nodes {
+	failures := map[string]error{}
+	for _, hostname := range slices.Sorted(maps.Keys(m.Nodes)) {
+		node := m.Nodes[hostname]
 		if node.IsLocal {
 			// For local node, get hostname directly
 			if node.ActualHostname == "" {
@@ -144,7 +152,8 @@ func (m *Mesh) detectEndpoints() error {
 
 		client, err := ssh.NewClient(node.SSHHost, node.SSHPort)
 		if err != nil {
-			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
+			failures[hostname] = err
+			continue
 		}
 
 		// Collect hostname and FQDN
@@ -177,7 +186,7 @@ func (m *Mesh) detectEndpoints() error {
 		}
 	}
 
-	return nil
+	return failures
 }
 
 func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
