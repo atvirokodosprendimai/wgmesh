@@ -1,0 +1,83 @@
+# Task ADR-0007-T7: First tests of the `wg` wrappers through the fake-binary seam (#833, no target)
+
+**Depends-on:** T1
+**Covers:** none — no spec
+**Estimated scope:** M (multi-file)
+**Owner:** unassigned
+**Produces:** none
+**Consumes:** `wireguard.SetWGPath`, `runWG` (T1)
+**Data dependency:** hermetic
+**Proof map:** v1
+
+## Goal
+
+`SetPeer`, `RemovePeer`, `GenerateKeyPair`, `GenerateWgQuickConfig` and `shellQuote` have tests that can fail, and `pkg/wireguard` coverage is read before and after without a target.
+
+## Affected Files
+
+| File | Change | Why |
+|------|--------|-----|
+| `pkg/wireguard/apply_test.go` | add | `SetPeer` and `RemovePeer` arguments, the preshared key on stdin, `shellQuote` |
+| `pkg/wireguard/keys_test.go` | add | `GenerateKeyPair` with a fake `genkey` and `pubkey`, and a failing one |
+| `pkg/wireguard/persist_test.go` | add | `GenerateWgQuickConfig` with and without routes |
+
+Selection: tests only; they run in `go test ./pkg/wireguard`.
+
+## Ordered Steps
+
+1. [S1] Add the seven tests; they test behaviour that exists after T1, so the count guard in the fence is what is red until they are written; for each test, break the line it pins by hand once and see it fail, and delete a test that does not. Run `go test -cover ./pkg/wireguard` and record the percentage, the date and the commit in the commit message (20.4% on 2026-11-15 at `b8b83f3` before T1).
+2. [S2] [proof: acceptance] Fix only what a test shows to be wrong, one commit per finding; no refactor.
+3. [S3] [proof: human: a person reads the coverage percentage before and after and records both] Run `go test -cover ./pkg/wireguard` again and record the number; no minimum is asserted.
+4. [S4] Run the mutants with `adr-verify --mutant`: the preshared key moved from stdin to argv; `persistent-keepalive` dropped from `SetPeer`; `shellQuote` returning its input; `GenerateKeyPair` ignoring a `pubkey` failure. [proof: mutation]
+
+## Acceptance
+
+```bash
+set -o pipefail
+n=$(go test ./pkg/wireguard -run '^(TestSetPeerPassesPresharedKeyOnStdinNotArgv|TestSetPeerArgsOrder|TestRemovePeerArgs|TestGenerateKeyPairParsesGenkeyAndPubkey|TestGenerateKeyPairReportsFailure|TestGenerateWgQuickConfigRoutes|TestShellQuoteEscapesSingleQuote)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 7 ] && go test -race ./pkg/wireguard -count=1
+```
+
+## Tests
+
+| Test name | File | Verifies | Covers | Steps |
+|-----------|------|----------|--------|-------|
+| `TestSetPeerPassesPresharedKeyOnStdinNotArgv` | `pkg/wireguard/apply_test.go` | a non-zero key appears on the fake `wg`'s stdin and nowhere in its argument list | — | S1 |
+| `TestSetPeerArgsOrder` | `pkg/wireguard/apply_test.go` | `set <iface> peer <key> [endpoint ..] [allowed-ips ..] persistent-keepalive 25`, with empty endpoint and allowed IPs omitted | — | S1 |
+| `TestRemovePeerArgs` | `pkg/wireguard/apply_test.go` | `set <iface> peer <key> remove`; a non-zero exit returns an error containing the output | — | S1 |
+| `TestGenerateKeyPairParsesGenkeyAndPubkey` | `pkg/wireguard/keys_test.go` | the fake `genkey` output is trimmed, piped to `pubkey`, and both values returned | — | S1 |
+| `TestGenerateKeyPairReportsFailure` | `pkg/wireguard/keys_test.go` | a failing `pubkey` returns an error and empty keys | — | S1 |
+| `TestGenerateWgQuickConfigRoutes` | `pkg/wireguard/persist_test.go` | without routes there is no `PostUp`/`PreDown`; with two routes each has two lines | — | S1 |
+| `TestShellQuoteEscapesSingleQuote` | `pkg/wireguard/apply_test.go` | `a'b` becomes `'a'\''b'` | — | S1 |
+
+## Reachability
+
+| Rung | How this task shows it |
+|------|------------------------|
+| 1 — exists | the seven tests |
+| 2 — something selects it | `go test ./...` in CI |
+| 3 — the caller can discover it | not applicable: tests only |
+| 4 — it is used | not applicable: tests only |
+
+## Mutation Log
+
+## Invariants
+
+- No production file changes except a fix a test proves necessary.
+- The preshared key never appears in an argument list (the property the first test pins, `apply.go:149-152`).
+- No coverage target is asserted anywhere (Open Question 7 of ADR-0007).
+
+## Risks
+
+- The tests depend on a POSIX `sh`; the project releases for Linux and Darwin only.
+- Coverage may rise less than expected because `ApplyFullConfiguration`, `ApplyPersistentConfig`, `UpdatePersistentConfig` and `RemovePersistentConfig` need an SSH client (`pkg/ssh/client.go` has no test file) and stay out.
+
+## Stop Condition
+
+Stop and ask if a test shows a defect in `SetPeer` or `GenerateKeyPair` that changes behaviour operators rely on.
+
+## Out of Scope
+
+- A coverage target or a CI floor, and tests for `pkg/discovery`, `pkg/ssh`, `cmd/analytics-dashboard` (deferred: docs/adr/BACKLOG.md).
+- The SSH-driven functions of `apply.go` and `persist.go` (deferred: docs/adr/BACKLOG.md).
+
+## Verification Log
