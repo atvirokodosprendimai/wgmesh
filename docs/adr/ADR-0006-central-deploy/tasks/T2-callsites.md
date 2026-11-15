@@ -61,7 +61,7 @@ a=$(go test ./pkg/ssh -run '^(TestNoUnquotedRemoteCommand|TestHostileStateComman
 | `TestRemoteGuardJudgesShapes` | `pkg/ssh/remote_guard_test.go` | a table of source snippets pins the guard: it fails on a `Sprintf`, a variable, a concatenation with a variable, a `Cmd` with a built name or no arguments, a leading `Quote`, `strconv.Quote`, a function result and a same-named method of another type, and passes constants, `Cmd`, `Cmd` plus a constant suffix and `"cat > " + Quote(p)` | — | S2 |
 | `TestSSHTestHostKeyIsVerified` | `pkg/ssh/remote_e2e_test.go` | the client accepts the `sshtest` key through the temp `known_hosts` and refuses a different key | — | S1, S2 |
 | `TestIPv6EndpointIsQuotedOnWgSet` | `pkg/ssh/remote_e2e_test.go` | an IPv6 endpoint `[2001:db8::1]:51820` reaches `wg set` as one single-quoted word (brackets are glob characters; the golden holds no bracket) | — | S3 |
-| `TestWgQuickRouteWithoutGatewayHasNoVia` | `pkg/wireguard/persist_test.go` | a route without gateway renders `PostUp = ip route add 10.9.0.0/24 dev %i || true` and the matching `PreDown`, with no `via` and no `''` (the old text was the broken `via  dev`, hidden by `|| true`; deploy never passes such a route) | — | S3 |
+| `TestWgQuickRouteWithoutGatewayHasNoVia` | `pkg/wireguard/persist_test.go` | a route without gateway renders `PostUp = ip route add 10.9.0.0/24 dev %i` (plus the shell fallback) and the matching `PreDown`, with no `via` and no `''` (the old text was the broken `via  dev`, hidden by the shell fallback; deploy never passes such a route) | — | S3 |
 
 ## Reachability
 
@@ -80,6 +80,14 @@ a=$(go test ./pkg/ssh -run '^(TestNoUnquotedRemoteCommand|TestHostileStateComman
 - 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/ssh/client.go` · WriteFile path unquoted: guard and TestHostileStateCommandsAreOneWordEach must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
 - 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/ssh/routes.go` · route commands lose via: golden and e2e must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
 - 2026-11-15 · 2e07fdd* · mutant killed · exit 1 · `pkg/wireguard/config.go` · wg set unquoted for PSK peers: guard must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 79222e5* · mutant killed · exit 1 · `pkg/ssh/routes.go` · GetCurrentRoutes raw Sprintf: TestNoUnquotedRemoteCommand must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 79222e5* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · rm -f concatenates configPath: TestNoUnquotedRemoteCommand must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 79222e5* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · PostUp route unquoted: TestWgQuickQuotesRouteValues must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 79222e5* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · newline and CR no longer refused: TestWgQuickRefusesControlCharacters must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 79222e5* · mutant killed · exit 1 · `pkg/ssh/client.go` · WriteFile path unquoted: guard and TestHostileStateCommandsAreOneWordEach must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 79222e5* · mutant killed · exit 1 · `pkg/ssh/routes.go` · route commands lose via: golden and e2e must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 79222e5* · mutant killed · exit 1 · `pkg/wireguard/config.go` · wg set unquoted for PSK peers: guard must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
+- 2026-11-15 · 79222e5* · mutant killed · exit 1 · `pkg/ssh/routes.go` · an empty gateway prints via '': TestWgQuickRouteWithoutGatewayHasNoVia must go red · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
 
 ## Invariants
 
@@ -130,3 +138,14 @@ Stop and ask if the golden differs after S3 for a valid value (the safe set is w
 - 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:10320
 - 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:11082
 - 2026-11-15 · 2e07fdd* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:8000
+- 2026-11-15 · 79222e5* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:0 · test-lock-sha256:81fffd91ecf23bc747deef41ddce07582635a5d92bf550e1cb350fd0ce7557dd · test-lock-file:docs/adr/locks/81fffd91ecf23bc747deef41ddce07582635a5d92bf550e1cb350fd0ce7557dd.lock · test-lock-kind:replace
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:10554
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:10730
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:10966
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:11512
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:13739
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:11480
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:12078
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:13030
+- 2026-11-15 · 79222e5* · exit 0 · `set -o pipefail …` · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8 · ms:7703
+- 2026-11-15 · human-observed · observed: class grep Sprintf builders 29 to 1 (the /tmp/wg-key path, a quoted argument), cmd += appends 7 to 0, go list -deps of the binary shows no sshtest; the guard test is the gate · acceptance-sha256:e53ecfdd1fcaba33c83f43761fd97b674f9c96d7dc009ee8ba4f2ea93ed263b8
