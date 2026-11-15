@@ -103,7 +103,11 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 
 // CheckAndResolveCollisions checks for collisions and resolves them
 func (d *Daemon) CheckAndResolveCollisions() {
-	collisions := DetectCollisions(d.peerStore, node.Claim{Key: d.localNode.WGPubKey, IP: d.localNode.MeshIP})
+	var local node.Claim
+	if d.localNode != nil {
+		local = node.Claim{Key: d.localNode.WGPubKey, IP: d.localNode.MeshIP}
+	}
+	collisions := DetectCollisions(d.peerStore, local)
 	if len(collisions) == 0 {
 		return
 	}
@@ -115,7 +119,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			collision.MeshIP, safeKeyPrefix(winner.WGPubKey), safeKeyPrefix(loser.WGPubKey))
 
 		// If we are the loser, re-derive our IP
-		if loser.WGPubKey == d.localNode.WGPubKey {
+		if loser.WGPubKey == local.Key {
 			var newIP string
 			if d.config.CustomSubnet != nil {
 				ip, err := crypto.DeriveMeshIPInSubnetWithNonce(d.config.CustomSubnet, d.localNode.WGPubKey, d.config.Secret, 1)

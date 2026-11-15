@@ -324,3 +324,12 @@ func TestMixedWinnerNeitherMovesIsNotWorse(t *testing.T) {
 		t.Errorf("winner-differs counted %v, want 1 (the old node's)", got)
 	}
 }
+
+func TestCheckAndResolveCollisionsToleratesNoLocalNode(t *testing.T) {
+	set := recordAddresses(t)
+	d := &Daemon{peerStore: NewPeerStore()}
+	d.CheckAndResolveCollisions()
+	if len(*set) != 0 {
+		t.Errorf("addresses set with no local node: %v", *set)
+	}
+}
