@@ -28,8 +28,11 @@ func EnsureWireGuardInstalled(client *Client) error {
 	return nil
 }
 
+// detectPublicIPCommand asks two services for the node's public IPv4; curl is bounded so a node without egress fails fast.
+const detectPublicIPCommand = "curl -s -4 --max-time 5 ifconfig.me || curl -s -4 --max-time 5 icanhazip.com || true"
+
 func DetectPublicIP(client *Client) (string, error) {
-	output, err := client.Run("curl -s -4 ifconfig.me || curl -s -4 icanhazip.com || true")
+	output, err := client.Run(detectPublicIPCommand)
 	if err != nil {
 		return "", err
 	}
