@@ -150,4 +150,5 @@ func RecordNATTraversalSuccess(method string) {
 
 // RecordAdmitWarning counts one case where an admit rule would act once enforced.
 func RecordAdmitWarning(rule string) {
+	admitWarnings.WithLabelValues(rule).Inc()
 }

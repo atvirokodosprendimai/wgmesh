@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	node "github.com/atvirokodosprendimai/wgmesh/pkg/node"
@@ -23,45 +22,52 @@ type CollisionInfo struct {
 // collision tests can record what the daemon would set.
 var applyInterfaceAddress = setInterfaceAddress
 
+// DetectCollisions lists the mesh IPs claimed by more than one member: the
+// peers in the store and the local node (local). The order of the claims
+// follows the store's policy.
 func DetectCollisions(ps *node.PeerStore, local node.Claim) []CollisionInfo {
-	peers := ps.GetAll()
+	derive, _ := policyFuncs(ps)
 
-	ipMap := make(map[string]*node.PeerInfo)
 	var collisions []CollisionInfo
-
-	for _, peer := range peers {
-		if peer.MeshIP == "" {
-			continue
-		}
-
-		if existing, ok := ipMap[peer.MeshIP]; ok {
-			if existing.WGPubKey != peer.WGPubKey {
-				collisions = append(collisions, CollisionInfo{
-					MeshIP: peer.MeshIP,
-					Peer1:  existing,
-					Peer2:  peer,
-				})
-			}
-		} else {
-			ipMap[peer.MeshIP] = peer
-		}
+	for _, c := range node.ResolveClaims(local, ps.GetAll(), derive) {
+		collisions = append(collisions, CollisionInfo{
+			MeshIP: c.IP,
+			Peer1:  &node.PeerInfo{WGPubKey: c.A.Key, MeshIP: c.A.IP},
+			Peer2:  &node.PeerInfo{WGPubKey: c.B.Key, MeshIP: c.B.IP},
+		})
 	}
-
 	return collisions
+}
+
+// policyFuncs returns the derive and warn functions of the store's policy,
+// both nil when it has none.
+func policyFuncs(ps *node.PeerStore) (derive func(pubKey string, nonce int) string, warn func(rule string)) {
+	if p := ps.Policy(); p != nil {
+		return p.Derive, p.OnWarn
+	}
+	return nil, nil
 }
 
 // DeterministicWinner returns the peer that wins a collision (lower pubkey wins)
 func DeterministicWinner(peer1, peer2 *node.PeerInfo) (*node.PeerInfo, *node.PeerInfo) {
-	if strings.Compare(peer1.WGPubKey, peer2.WGPubKey) < 0 {
+	return orderPeers(peer1, peer2, nil, nil)
+}
+
+// orderPeers returns the winner and the loser of a collision by node.Winner.
+func orderPeers(peer1, peer2 *node.PeerInfo, derive func(pubKey string, nonce int) string, warn func(rule string)) (*node.PeerInfo, *node.PeerInfo) {
+	w, _ := node.Winner(
+		node.Claim{Key: peer1.WGPubKey, IP: peer1.MeshIP},
+		node.Claim{Key: peer2.WGPubKey, IP: peer2.MeshIP},
+		derive, warn)
+	if w.Key == peer1.WGPubKey {
 		return peer1, peer2
 	}
 	return peer2, peer1
 }
 
-// ResolveCollision resolves a mesh IP collision by re-deriving the loser's IP with a nonce.
+// ResolveCollision returns the address the loser of a mesh IP collision re-derives with a nonce.
 // If customSubnet is non-nil, uses subnet-aware derivation; otherwise uses legacy derivation.
-func ResolveCollision(collision CollisionInfo, meshSubnet [2]byte, secret string, customSubnet *net.IPNet) string {
-	_, loser := DeterministicWinner(collision.Peer1, collision.Peer2)
+func ResolveCollision(loser *node.PeerInfo, meshSubnet [2]byte, secret string, customSubnet *net.IPNet) string {
 
 	if customSubnet != nil {
 		ip, err := crypto.DeriveMeshIPInSubnetWithNonce(customSubnet, loser.WGPubKey, secret, 1)
@@ -102,8 +108,9 @@ func (d *Daemon) CheckAndResolveCollisions() {
 		return
 	}
 
+	derive, warn := policyFuncs(d.peerStore)
 	for _, collision := range collisions {
-		winner, loser := DeterministicWinner(collision.Peer1, collision.Peer2)
+		winner, loser := orderPeers(collision.Peer1, collision.Peer2, derive, warn)
 		log.Printf("[Collision] Mesh IP collision detected: %s claimed by %s and %s",
 			collision.MeshIP, safeKeyPrefix(winner.WGPubKey), safeKeyPrefix(loser.WGPubKey))
 
@@ -129,7 +136,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 		} else {
 			// The loser is a remote peer - update our expectation of their IP
-			newIP := ResolveCollision(collision, d.config.Keys.MeshSubnet, d.config.Secret, d.config.CustomSubnet)
+			newIP := ResolveCollision(loser, d.config.Keys.MeshSubnet, d.config.Secret, d.config.CustomSubnet)
 			if newIP != "" {
 				log.Printf("[Collision] Remote peer %s should re-derive to %s", safeKeyPrefix(loser.WGPubKey), newIP)
 			}

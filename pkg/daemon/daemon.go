@@ -202,7 +202,48 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		cancel:                 cancel,
 	}
 
+	d.peerStore.SetPolicy(d.admitPolicy())
+
 	return d, nil
+}
+
+// admitPolicy is what the daemon lends the peer store: the local claim, read
+// when a decision is made, the derivation of a key's mesh IP, and the warning counter.
+func (d *Daemon) admitPolicy() *Policy {
+	return &Policy{
+		Local: func() (key, ip string) {
+			if d.localNode == nil {
+				return "", ""
+			}
+			return d.localNode.WGPubKey, d.localNode.MeshIP
+		},
+		Derive: d.deriveMeshIP,
+		OnWarn: RecordAdmitWarning,
+	}
+}
+
+// deriveMeshIP is the address a key derives for a nonce: 0 is the natural
+// derivation, 1 and up the collision-nonce one (a different hash input, see
+// DeriveMeshIPWithNonce). It returns "" when the custom subnet is unusable.
+func (d *Daemon) deriveMeshIP(pubKey string, nonce int) string {
+	secret, subnet := d.config.Secret, d.config.CustomSubnet
+	if subnet != nil {
+		var ip string
+		var err error
+		if nonce == 0 {
+			ip, err = crypto.DeriveMeshIPInSubnet(subnet, pubKey, secret)
+		} else {
+			ip, err = crypto.DeriveMeshIPInSubnetWithNonce(subnet, pubKey, secret, nonce)
+		}
+		if err != nil {
+			return ""
+		}
+		return ip
+	}
+	if nonce == 0 {
+		return crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, pubKey, secret)
+	}
+	return DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, pubKey, secret, nonce)
 }
 
 // SetDHTDiscovery sets the DHT discovery layer
