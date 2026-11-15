@@ -345,7 +345,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Rejected GOODBYE with future timestamp from %s", remoteAddr.String())
 			return
 		}
-		pe.peerStore.Remove(bye.WGPubKey)
+		pe.peerStore.Withdraw(bye.WGPubKey, "goodbye")
 		name := bye.WGPubKey
 		if len(name) > 8 {
 			name = name[:8] + "..."

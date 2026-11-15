@@ -1399,7 +1399,7 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	}
 	log.Printf("[Health] Evicting unresponsive peer %s... from active pool", shortKey(peer.WGPubKey))
 	d.markTemporarilyOffline(peer.WGPubKey)
-	d.peerStore.Remove(peer.WGPubKey)
+	d.peerStore.Withdraw(peer.WGPubKey, "evicted")
 	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
 		log.Printf("[Health] Failed to remove evicted peer %s... from WireGuard: %v", shortKey(peer.WGPubKey), err)
 	}
