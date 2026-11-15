@@ -23,11 +23,11 @@ import (
 // advertised gives an empty endpoint.
 func ResolveEndpoint(advertised string, sender net.IP, fallbackPort int, preferSender bool) (endpoint string, guessed bool) {
 	host, port, err := net.SplitHostPort(advertised)
-	advertisedOK := err == nil
+	advertisedOK := err == nil && port != "" // an advertisement with no port is unusable in both modes
 
 	if preferSender {
 		if sender != nil {
-			if advertisedOK && port != "" {
+			if advertisedOK {
 				return net.JoinHostPort(sender.String(), port), false
 			}
 			return net.JoinHostPort(sender.String(), strconv.Itoa(fallbackPort)), true

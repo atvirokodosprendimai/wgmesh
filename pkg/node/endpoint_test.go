@@ -77,3 +77,33 @@ func TestNoEndpointFromSenderPort(t *testing.T) {
 		}
 	}
 }
+
+// An advertised endpoint with no port is unusable in both modes: the sender IP
+// with the fallback port is a guess, and with no sender there is no endpoint.
+func TestResolveEndpointEmptyPortIsUnusable(t *testing.T) {
+	t.Parallel()
+
+	sender := net.ParseIP("203.0.113.1")
+	tests := []struct {
+		name         string
+		advertised   string
+		sender       net.IP
+		preferSender bool
+		want         string
+		wantGuessed  bool
+	}{
+		{"host without port", "198.51.100.7:", sender, false, "203.0.113.1:51820", true},
+		{"colon only", ":", sender, false, "203.0.113.1:51820", true},
+		{"host without port, LAN", "198.51.100.7:", sender, true, "203.0.113.1:51820", true},
+		{"colon only, LAN", ":", sender, true, "203.0.113.1:51820", true},
+		{"host without port, no sender", "198.51.100.7:", nil, false, "", false},
+		{"colon only, no sender", ":", nil, false, "", false},
+		{"host without port, no sender, LAN", "198.51.100.7:", nil, true, "", false},
+	}
+	for _, tt := range tests {
+		got, guessed := ResolveEndpoint(tt.advertised, tt.sender, 51820, tt.preferSender)
+		if got != tt.want || guessed != tt.wantGuessed {
+			t.Errorf("%s: ResolveEndpoint(%q) = %q, %v; want %q, %v", tt.name, tt.advertised, got, guessed, tt.want, tt.wantGuessed)
+		}
+	}
+}
