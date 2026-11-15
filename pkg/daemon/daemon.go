@@ -346,6 +346,7 @@ func announceableHostname(hostname string) string {
 
 // localNodeStateDir holds the persisted local node state; a variable so tests
 // can point initLocalNode at a temp directory.
+// Tests that override it must not run in parallel.
 var localNodeStateDir = "/var/lib/wgmesh"
 
 // initLocalNode loads or creates the local WireGuard node
