@@ -118,6 +118,7 @@ func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKin
 		if info.Endpoint != "" {
 			info.EndpointMethod = discoveryMethod
 		}
+		info.HeardFirstHand = c.Hand == FirstHand
 		ps.peers[info.WGPubKey] = info
 		return info.WGPubKey, PeerEventNew
 	}
@@ -156,6 +157,7 @@ func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKin
 
 	if c.Hand == FirstHand {
 		existing.LastSeen = now
+		existing.HeardFirstHand = true
 	} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
 		existing.LastSeen = info.LastSeen
 	}
@@ -307,8 +309,44 @@ func (ps *PeerStore) Remove(pubKey string) {
 
 // Withdraw removes a peer and, for TombstoneTTL, refuses second-hand and
 // restored claims for its key; the peer's own first-hand claim clears that.
+// cause says why (goodbye, evicted, stale) and is kept for the refusal log.
 func (ps *PeerStore) Withdraw(pubKey, cause string) {
-	ps.Remove(pubKey)
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	delete(ps.peers, pubKey)
+	ps.tombstone(pubKey, cause)
+}
+
+// tombstone records a withdrawn key; the caller holds ps.mu. The set never
+// holds more than DefaultMaxPeers keys: at the cap it drops the expired
+// entries, then the oldest.
+func (ps *PeerStore) tombstone(pubKey, cause string) {
+	now := ps.now()
+	if _, ok := ps.tombstones[pubKey]; !ok && len(ps.tombstones) >= DefaultMaxPeers {
+		var oldest string
+		for key, t := range ps.tombstones {
+			if now.Sub(t.at) >= TombstoneTTL {
+				delete(ps.tombstones, key)
+			} else if oldest == "" || t.at.Before(ps.tombstones[oldest].at) {
+				oldest = key
+			}
+		}
+		if len(ps.tombstones) >= DefaultMaxPeers {
+			delete(ps.tombstones, oldest)
+		}
+	}
+	ps.tombstones[pubKey] = tombstone{at: now, cause: cause}
+}
+
+// isTombstoned reports whether pubKey was withdrawn less than TombstoneTTL
+// ago and drops an expired entry; the caller holds ps.mu.
+func (ps *PeerStore) isTombstoned(pubKey string) bool {
+	t, ok := ps.tombstones[pubKey]
+	if ok && ps.now().Sub(t.at) >= TombstoneTTL {
+		delete(ps.tombstones, pubKey)
+		return false
+	}
+	return ok
 }
 
 // CleanupStale removes peers that haven't been seen for too long.
@@ -321,6 +359,9 @@ func (ps *PeerStore) CleanupStale() []string {
 	for pubKey, peer := range ps.peers {
 		if now.Sub(peer.LastSeen) > PeerRemoveTimeout {
 			delete(ps.peers, pubKey)
+			if peer.HeardFirstHand {
+				ps.tombstone(pubKey, "stale")
+			}
 			removed = append(removed, pubKey)
 		}
 	}
