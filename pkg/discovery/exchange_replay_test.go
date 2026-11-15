@@ -63,10 +63,46 @@ func TestHelloRetransmitIsNotDropped(t *testing.T) {
 func TestExchangeNonceCacheCoversFutureDatedPackets(t *testing.T) {
 	t.Parallel()
 	pe, _, _ := newAADExchange(t, "wgmesh-test-replay-ttl-1", aadKey(9), "")
-	if pe.nonces.ttl < 2*crypto.MaxMessageAge {
+	if pe.nonces.ttl != 2*crypto.MaxMessageAge {
 		t.Errorf("nonce cache ttl %v is shorter than 2 x MaxMessageAge (%v)", pe.nonces.ttl, 2*crypto.MaxMessageAge)
 	}
 	if pe.nonces.capacity != nonceCacheCapacity {
 		t.Errorf("nonce cache capacity %d, want %d", pe.nonces.capacity, nonceCacheCapacity)
+	}
+}
+
+// Legacy envelopes do not authenticate their type. A copy of a captured packet
+// re-sent under another type must not use up the nonce of the real packet.
+func TestRetypedLegacyPacketDoesNotPoisonTheCache(t *testing.T) {
+	t.Parallel()
+	pe, _, cfg := newAADExchange(t, "wgmesh-test-replay-poison-1", aadKey(9), "")
+	var calls atomic.Int32
+	pe.SetAnnounceHandler(func(*crypto.PeerAnnouncement, *net.UDPAddr) { calls.Add(1) })
+
+	original, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcementFor(aadKey(2)), cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe.handleMessage(retype(t, original, crypto.MessageTypeReply), aadRemote)
+	pe.handleMessage(original, aadRemote)
+
+	if got := calls.Load(); got != 1 {
+		t.Errorf("the real ANNOUNCE reached the handler %d times after a retyped copy, want 1", got)
+	}
+}
+
+func TestReplayedDatagramsAreCounted(t *testing.T) {
+	t.Parallel()
+	pe, _, cfg := newAADExchange(t, "wgmesh-test-replay-count-1", aadKey(9), "")
+	sealed, err := crypto.SealEnvelopeAAD(crypto.MessageTypeAnnounce, announcementFor(aadKey(2)), cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe.handleMessage(sealed, aadRemote)
+	pe.handleMessage(sealed, aadRemote)
+	pe.handleMessage(sealed, aadRemote)
+
+	if got := pe.ReplayedDatagrams(); got != 2 {
+		t.Errorf("ReplayedDatagrams() = %d, want 2", got)
 	}
 }

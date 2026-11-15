@@ -102,6 +102,9 @@ type PeerExchange struct {
 	// (ADR-0001), per packet and not per sender. It measures old traffic once
 	// writers seal with additional data; until then it counts most traffic.
 	legacyOpens atomic.Uint64
+
+	// replayDrops counts datagrams dropped by the nonce cache.
+	replayDrops atomic.Uint64
 }
 
 // NewPeerExchange creates a new peer exchange handler
@@ -117,7 +120,7 @@ func NewPeerExchange(config *daemon.Config, localNode *daemon.LocalNode, peerSto
 		activePunches:      make(map[string]time.Time),
 		rendezvousStarts:   make(map[string]time.Time),
 		lastPacketLog:      make(map[string]time.Time),
-		nonces:             newNonceCache(2*crypto.MaxMessageAge, nonceCacheCapacity, time.Now),
+		nonces:             newNonceCache(nonceCacheTTL, nonceCacheCapacity, wallClock),
 	}
 }
 
@@ -252,8 +255,11 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	if envelope.MessageType != crypto.MessageTypeHello {
 		var nonce [12]byte
 		copy(nonce[:], envelope.Nonce)
-		if pe.nonces.Seen(nonce) {
-			slog.Debug("[Exchange] dropped replayed datagram", "type", envelope.MessageType, "from", remoteAddr.String())
+		if pe.nonces.Seen(nonce, envelope.MessageType) {
+			pe.replayDrops.Add(1)
+			if pe.allowLog("replayed "+envelope.MessageType, remoteAddr) {
+				log.Printf("[Exchange] Dropped replayed %s from %s", envelope.MessageType, remoteAddr.String())
+			}
 			return
 		}
 	}
