@@ -354,3 +354,31 @@ func TestLocalMoverSkipsClaimedNonceAddress(t *testing.T) {
 		t.Errorf("the next check moved again: IP %s, addresses set %v", d.localNode.MeshIP, *set)
 	}
 }
+
+func TestLocalNodeLosesWithCustomSubnet(t *testing.T) {
+	enforceIPBinding(t, false)
+	set := recordAddresses(t)
+	_, subnet, _ := net.ParseCIDR("192.168.100.0/24")
+
+	cfg := testConfig(t)
+	cfg.Secret = collisionSecret
+	cfg.CustomSubnet = subnet
+	d, err := NewDaemon(cfg)
+	if err != nil {
+		t.Fatalf("NewDaemon: %v", err)
+	}
+	d.localNode = &LocalNode{WGPubKey: "zzz-local", MeshIP: "192.168.100.7"}
+	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "192.168.100.7"}, "test")
+	d.CheckAndResolveCollisions()
+
+	want, err := crypto.DeriveMeshIPInSubnetWithNonce(subnet, "zzz-local", collisionSecret, 1)
+	if err != nil {
+		t.Fatalf("derive: %v", err)
+	}
+	if d.localNode.MeshIP != want || !subnet.Contains(net.ParseIP(want)) {
+		t.Errorf("local IP = %s, want %s inside %s", d.localNode.MeshIP, want, subnet)
+	}
+	if wantSet := fmt.Sprintf("%s/%d", want, d.config.PrefixLen()); len(*set) != 1 || (*set)[0] != wantSet {
+		t.Errorf("addresses set = %v, want [%s]", *set, wantSet)
+	}
+}
