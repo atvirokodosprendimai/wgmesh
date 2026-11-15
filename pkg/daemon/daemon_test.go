@@ -375,6 +375,14 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: true,
 		},
 		{
+			name:   "IPv6 address is not a mesh IPv4",
+			meshIP: "fd00::1",
+			cfg: &Config{
+				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
+			},
+			want: false,
+		},
+		{
 			name:   "invalid IP",
 			meshIP: "not-an-ip",
 			cfg: &Config{
