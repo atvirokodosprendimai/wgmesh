@@ -418,3 +418,18 @@ func TestRouteNotApprovedWarnsThenDrops(t *testing.T) {
 		}
 	})
 }
+
+// An unparsable route entry is validation's to refuse; R9 neither judges nor
+// warns about it, and the entry is kept like the other route rules keep it.
+func TestRouteNotApprovedSkipsUnparsableEntry(t *testing.T) {
+	setSwitches(t, false, true)
+	ps, warned := acceptStore(t, "192.168.0.0/16")
+	routes := []string{"garbage", "192.168.5.0/24"}
+	d := ps.Offer(firstHand("adv", "10.42.1.1", routes...))
+	if d.Verdict != Admit || len(d.Dropped) != 0 || len(d.Warnings) != 0 || len(*warned) != 0 {
+		t.Fatalf("decision = %+v, warnings %v: want a plain Admit, the garbage entry unjudged", d, *warned)
+	}
+	if got, _ := ps.Get("adv"); got == nil || !reflect.DeepEqual(got.RoutableNetworks, routes) {
+		t.Errorf("stored routes = %+v, want all of %v", got, routes)
+	}
+}
