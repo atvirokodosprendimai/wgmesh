@@ -37,6 +37,11 @@ type tombstone struct {
 	logged bool
 }
 
+// expired reports whether the tombstone is TombstoneTTL old or older at now.
+func (t tombstone) expired(now time.Time) bool {
+	return now.Sub(t.at) >= TombstoneTTL
+}
+
 // PeerStore is a thread-safe store for discovered peers.
 type PeerStore struct {
 	mu          sync.RWMutex
@@ -330,7 +335,7 @@ func (ps *PeerStore) tombstone(pubKey, cause string) {
 		var oldest string
 		found := false
 		for key, t := range ps.tombstones {
-			if now.Sub(t.at) >= TombstoneTTL {
+			if t.expired(now) {
 				delete(ps.tombstones, key)
 			} else if !found || t.at.Before(ps.tombstones[oldest].at) {
 				oldest, found = key, true
@@ -347,7 +352,7 @@ func (ps *PeerStore) tombstone(pubKey, cause string) {
 // ago and drops an expired entry; the caller holds ps.mu.
 func (ps *PeerStore) isTombstoned(pubKey string) bool {
 	t, ok := ps.tombstones[pubKey]
-	if ok && ps.now().Sub(t.at) >= TombstoneTTL {
+	if ok && t.expired(ps.now()) {
 		delete(ps.tombstones, pubKey)
 		return false
 	}
