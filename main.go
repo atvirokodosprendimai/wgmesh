@@ -1586,13 +1586,8 @@ func saveReferralState(rs referralState) error {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create referral state dir %s: %w", dir, err)
 	}
-	tmp := referralCodePath() + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return fmt.Errorf("write referral state %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, referralCodePath()); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("commit referral state %s: %w", referralCodePath(), err)
+	if err := atomicfile.WriteFile(referralCodePath(), data, 0600); err != nil {
+		return fmt.Errorf("write referral state %s: %w", referralCodePath(), err)
 	}
 	return nil
 }
