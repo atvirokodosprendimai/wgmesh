@@ -23,7 +23,7 @@ Decision record: [ADR-0001](adr/ADR-0001-envelope-aad/ADR-0001-envelope-aad.md).
 |---|---|
 | peer exchange | log line "Received non-wgmesh packet ... possibly DHT or wrong secret" |
 | LAN and gossip | the packet is dropped without a log line |
-| join (`wgmesh join`) | "wrong secret?" |
+| join (`wgmesh join`) | "Failed to decrypt (wrong secret?)" |
 
 If you see these after upgrading some nodes, upgrade the rest; the secret is not the problem.
 
@@ -31,7 +31,7 @@ If you see these after upgrading some nodes, upgrade the rest; the secret is not
 
 - `LegacyEnvelopeOpens` counts envelopes received in the old form, per packet and not per sender. At N it counts nearly all traffic (every writer except GOODBYE is old). From N+1 on it counts only traffic from nodes older than N+1, so it is the number to watch before deploying N+2.
 - `ReplayedDatagrams` counts datagrams dropped as replays.
-- Neither counter is exposed in `wgmesh status` yet; both are in the daemon's exchange object and logged through the packet-log throttle.
+- Neither counter is exposed in `wgmesh status` yet. They live on the exchange object, and each legacy open and each dropped replay is also logged, at most once per 30 seconds per kind and source.
 
 ## Rollback
 

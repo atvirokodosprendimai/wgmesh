@@ -52,6 +52,9 @@ n=$(go test ./pkg/crypto -run '^TestSpecNamesAADRollout$' -count=1 -v 2>&1 | tee
 | 4 — it is used | nothing measures this yet |
 
 ## Mutation Log
+- 2026-11-15 · 21b174a* · mutant killed · exit 1 · `eidos/spec - crypto - secret-derived keys envelope encryption membership proofs and rotation.md` · the crypto spec stops naming SealEnvelopeAAD · acceptance-sha256:407840be96a0ed192bfc7b4e370262d8b752101c7286a9416bf8a58bba6ea08b
+- 2026-11-15 · 21b174a* · mutant killed · exit 1 · `eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md` · the exchange spec stops naming the nonce cache · acceptance-sha256:407840be96a0ed192bfc7b4e370262d8b752101c7286a9416bf8a58bba6ea08b
+- 2026-11-15 · 21b174a* · mutant killed · exit 1 · `docs/envelope-rollout.md` · the operator note stops naming ReplayedDatagrams · acceptance-sha256:407840be96a0ed192bfc7b4e370262d8b752101c7286a9416bf8a58bba6ea08b
 
 ## Invariants
 
@@ -85,3 +88,6 @@ Stop and ask if T1 to T3 changed a name this task documents.
   FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/crypto	0.003s
   FAIL
   ```
+- 2026-11-15 · 21b174a* · exit 0 · `set -o pipefail …` · acceptance-sha256:407840be96a0ed192bfc7b4e370262d8b752101c7286a9416bf8a58bba6ea08b · ms:1759
+- 2026-11-15 · 21b174a* · exit 0 · `set -o pipefail …` · acceptance-sha256:407840be96a0ed192bfc7b4e370262d8b752101c7286a9416bf8a58bba6ea08b · ms:1382
+- 2026-11-15 · 21b174a* · exit 0 · `set -o pipefail …` · acceptance-sha256:407840be96a0ed192bfc7b4e370262d8b752101c7286a9416bf8a58bba6ea08b · ms:1872
