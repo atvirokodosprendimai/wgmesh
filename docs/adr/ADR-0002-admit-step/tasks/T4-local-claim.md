@@ -72,6 +72,9 @@ a=$(go test ./pkg/node -run '^(TestClaimOrderBoundBeatsUnbound|TestClaimOrderFal
 - 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · the local claim is dropped from ResolveClaims: TestResolveClaimsIncludesLocal and TestLocalNodeLosesCollisionAgainstRemote must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
 - 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · Winner ignores EnforceIPBinding: TestClaimOrderBoundBeatsUnbound must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
 - 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · Bound tries only nonce 0: TestBoundAcceptsNonceOneToTen must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 97cd984* · mutant killed · exit 1 · `pkg/node/claims.go` · round 2: the local claim is dropped from ResolveClaims · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 97cd984* · mutant killed · exit 1 · `pkg/node/claims.go` · round 2: Winner ignores EnforceIPBinding · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 97cd984* · mutant killed · exit 1 · `pkg/node/claims.go` · round 2: Bound tries only nonce 0 · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
 
 ## Invariants
 
@@ -112,3 +115,8 @@ Stop and ask if the daemon cannot build a local claim without a lock the daemon 
 - 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:9592
 - 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:8206
 - 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:5663
+- 2026-11-15 · 97cd984* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:0 · test-lock-sha256:d693381a04b89e7873b51f80903f911a6beb2359a0ad8c652a9604db0b38e37b · test-lock-file:docs/adr/locks/d693381a04b89e7873b51f80903f911a6beb2359a0ad8c652a9604db0b38e37b.lock · test-lock-kind:replace
+- 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6804
+- 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6977
+- 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6996
+- 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:5019
