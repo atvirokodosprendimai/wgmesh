@@ -143,7 +143,8 @@ func serviceAddCmd() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet, *stateDir)
+	// The daemon always persists its identity in defaultStateDir, not --state-dir.
+	meshIP := deriveMeshIPForService(keys, resolvedSecret, customSubnet, defaultStateDir)
 
 	// Create site via Lighthouse
 	client := lighthouse.NewClient(lighthouseURL, acct.APIKey)
