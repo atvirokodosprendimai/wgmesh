@@ -4,7 +4,7 @@
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
-**Produces:** every remote command built with `ssh.Cmd`; `GenerateWgQuickConfig` returning `(string, error)`; `pkg/ssh/sshtest`; `TestNoUnquotedRemoteCommand`
+**Produces:** every remote command built with `ssh.Cmd`; `GenerateWgQuickConfig` returning `(string, error)`; `pkg/ssh/sshtest`; `ssh.RouteArgs`; `TestNoUnquotedRemoteCommand`
 **Consumes:** `ssh.Quote`, `ssh.Cmd` (T1)
 **Data dependency:** hermetic
 **Proof map:** v1
@@ -18,8 +18,8 @@ The 29 command builders and 7 appends of the class audit send their values quote
 | File | Change | Why |
 |------|--------|-----|
 | `pkg/ssh/client.go` | edit | `WriteFile` builds `cat > <path> && chmod <mode> <path>` with `Cmd`-style quoting of the path |
-| `pkg/ssh/routes.go` | edit | `GetCurrentRoutes`, `RestoreConnectedRoute`, `ApplyRouteDiff` (`:18`, `:74`, `:122`, `:125`, `:145`, `:148`) |
-| `pkg/ssh/wireguard.go` | edit | `UpdateRoutingTable`, `UpdateRoutingTableWithGateways` (unreachable, `:80`, `:100`) |
+| `pkg/ssh/routes.go` | edit | `GetCurrentRoutes`, `RestoreConnectedRoute`, `ApplyRouteDiff` (`:18`, `:74`, `:122`, `:125`, `:145`, `:148`); also adds the exported helper `RouteArgs(verb, network, gateway, iface) []string` (the `ip route <verb>` arguments, `via` only for a non-empty gateway) used by `routes.go`, `wireguard.go`, `persist.go` and `deploy.go` |
+| `pkg/ssh/wireguard.go` | edit | `UpdateRoutingTable`, `UpdateRoutingTableWithGateways` (unreachable, `:80`, `:100`) and `EnsureWireGuardInstalled` (its command slice becomes three constants so the guard can resolve each argument) |
 | `pkg/wireguard/config.go` | edit | `GetCurrentConfig`, `ApplyDiff`, `addOrUpdatePeer` (`:50`, `:196`, `:220-239`) |
 | `pkg/wireguard/persist.go` | edit | `GenerateWgQuickConfig` returns an error and quotes route values with `ssh.Quote`; `systemctl`, `rm` lines; its two callers here (`:71`, `:102`) |
 | `pkg/wireguard/apply.go` | edit | `shellQuote` is deleted and `ApplyFullConfiguration` (unreachable) uses `Cmd` |
@@ -52,7 +52,7 @@ a=$(go test ./pkg/ssh -run '^(TestNoUnquotedRemoteCommand|TestHostileStateComman
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestNoUnquotedRemoteCommand` | `pkg/ssh/remote_guard_test.go` | no non-test file in the three packages passes a non-constant that is not a `Cmd` call (a constant suffix may be appended) to `Run`, `RunQuiet`, `RunWithStdin` or `WriteFile`; the doc comment states the limit (receiver and call shape) | — | S1, S2, S3 |
+| `TestNoUnquotedRemoteCommand` | `pkg/ssh/remote_guard_test.go` | no non-test file in the three packages passes a non-constant that is not a `Cmd` call (a constant suffix may be appended) to `Run`, `RunQuiet`, `RunWithStdin` or `Start` (the call inside `WriteFile`, which quotes its own path; the pass-through methods of `Client` are exempt); the doc comment states the limit (receiver and call shape) | — | S1, S2, S3 |
 | `TestHostileStateCommandsAreOneWordEach` | `pkg/ssh/remote_e2e_test.go` | with an interface name, endpoint, key and route each containing `; touch /x`, every command the server records keeps the hostile text inside one quoted word (a small quote-aware splitter in the test) | — | S1, S2, S3 |
 | `TestRecordedCommandsMatchGolden` | `pkg/ssh/remote_e2e_test.go` | the commands for the valid fixture equal `commands-valid.golden` byte for byte | — | S1, S3 |
 | `TestWgQuickRefusesControlCharacters` | `pkg/wireguard/persist_test.go` | a newline, carriage return or NUL in the address, key, endpoint, allowed IP or route returns an error naming the field | — | S1, S3 |
