@@ -23,6 +23,7 @@ An endpoint built from the sender's address and a guessed port is stored below e
 | `pkg/discovery/exchange.go` | edit | `resolvePeerEndpoint` (`:1058`) calls `ResolveEndpoint` with `daemon.DefaultWGPort`; `getKnownPeers` (`:1140`) skips the endpoint of a guessed peer |
 | `pkg/discovery/lan.go` | edit | `resolveEndpoint` (`:235`) calls it with `preferSender` true (LAN keeps the sender's IP on purpose) |
 | `pkg/discovery/gossip.go` | edit | `:306-310` uses it |
+| `pkg/discovery/gossip.go` (standalone announce), `pkg/daemon/cache.go` | edit | added after review: a guessed endpoint is neither announced by the standalone gossip builder nor persisted by `SavePeerCache` (it would come back as a rank-cache advertisement, the #839 failure) |
 | `pkg/node/endpoint_test.go`, `pkg/discovery/exchange_test.go`, `pkg/node/admit_test.go` | add / edit | tests below |
 
 Selection: the three sources reach `ResolveEndpoint` through the functions they already call; reverting `resolvePeerEndpoint` to its old body turns `TestGuessedEndpointNotAnnounced` red.
@@ -33,7 +34,7 @@ Selection: the three sources reach `ResolveEndpoint` through the functions they 
 2. [S2] Implement `ResolveEndpoint` and replace the three local functions with calls to it; the exchange path keeps an advertised real host, LAN keeps the sender host.
 3. [S3] Add `EndpointGuessed` and the rank; make `getKnownPeers` skip a guessed endpoint.
 4. [S4] Reproduce the report once on a branch, if a test mesh is available: join two nodes with distinct `--listen-port` values and read `[DHT] SUCCESS! Found wgmesh peer ... at "..."`; write what was seen into the commit message, or write "not reproduced, no test mesh". The issue's claim that the DHT record carries the exchange port (52654) as the WireGuard endpoint is not reproduced by reading `5edcdd0`: `grep -n "pe.port\|Keys.GossipPort" pkg/discovery/exchange.go` shows the exchange port used to bind the socket (`:137-147`), to derive a control endpoint (`:743`) and to log. [proof: human: needs two real nodes; the gate is hermetic]
-5. [S5] Run the mutants with `adr-verify --mutant`: the guess is stored at rank 30; `getKnownPeers` stops skipping; `ResolveEndpoint` uses the sender's port. [proof: mutation]
+5. [S5] Run the mutants with `adr-verify --mutant`: the guess is stored at rank 30; `getKnownPeers` stops skipping; the exchange fallback uses the sender's UDP port instead of `DefaultWGPort` (`ResolveEndpoint` takes no port, so the mutant lives in the exchange wrapper); the merge forgets `EndpointGuessed`; a non-LAN guess is not marked guessed; LAN stops preferring the sender; the rank mutant (`return 10` to 30) is recorded in the round-2 log. [proof: mutation]
 
 ## Acceptance
 
@@ -62,7 +63,7 @@ a=$(go test ./pkg/node -run '^(TestResolveEndpointKeepsAdvertisedPort|TestResolv
 | 1 — exists | the six tests |
 | 2 — something selects it | `resolvePeerEndpoint`, `resolveEndpoint` and the gossip path call `ResolveEndpoint`; reverting one turns a named test red |
 | 3 — the caller can discover it | doc comment; T11 amends the peer store and exchange specs |
-| 4 — it is used | `daemon.status` peers show an empty endpoint instead of a wrong one until an advertisement arrives |
+| 4 — it is used | a guessed endpoint is not re-announced in `KnownPeers` (the peer keeps its key with an empty endpoint); `daemon.status` still shows the guess, and `pkg/daemon/cache.go` does not persist it |
 
 ## Mutation Log
 - 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · getKnownPeers stops skipping a guessed endpoint: TestGuessedEndpointNotAnnounced must go red · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
@@ -80,6 +81,7 @@ a=$(go test ./pkg/node -run '^(TestResolveEndpointKeepsAdvertisedPort|TestResolv
 ## Risks
 
 - A peer known only by a guess has no endpoint to announce; transitive discovery of it waits for its own advertisement. This is the intended trade (a wrong address is worse than none) and is why `getKnownPeers` keeps the key.
+- Mixed fleet: a node before this release still announces its own guesses as advertised endpoints, so the wrong address keeps spreading until every node runs it (T11 release note); an empty port in an advertisement is now a guess in every mode (it was kept as is in the exchange mode); `daemon.status` and `peers.list` show a guess like any endpoint (no new field; BACKLOG row written by T11); `registry.go` copies `p.Endpoint` unguarded but has no production caller of `UpdatePeerListWithAll`.
 - Test doubles: none.
 
 ## Stop Condition
