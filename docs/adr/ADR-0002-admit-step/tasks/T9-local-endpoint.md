@@ -59,6 +59,11 @@ a=$(go test ./pkg/daemon -run '^(TestEndpointDoesNotFlapOnAlternatingObservation
 | 4 — it is used | the `[STUN] External endpoint changed` log line stops repeating each cycle on a dual-egress network |
 
 ## Mutation Log
+- 2026-11-15 · 305dd6a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · stun applies at once: TestStunNeedsThreeConsecutiveObservations and TestEndpointDoesNotFlap... must go red · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · 305dd6a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · a reflection (and interface) resets no pending STUN count: TestReflectionAppliesAtOnce must go red · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · 305dd6a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · the confirmation count is 1 instead of 3 · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · 305dd6a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · the first STUN observation over an unspecified endpoint is delayed: TestFirstStunAppliesOverUnspecified must go red · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
+- 2026-11-15 · 305dd6a* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · applyObservedEndpoint reverts to SetEndpoint: the fence's SetEndpoint count must fail · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821
 
 ## Invariants
 
@@ -81,3 +86,23 @@ Stop and ask if a test mesh shows that reflection is wrong more often than STUN 
 - The initial endpoint at start-up (permanent: boundary: it is configuration, not an observation).
 
 ## Verification Log
+- 2026-11-15 · 305dd6a* · exit 1 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:1629 · test-lock-sha256:4a8f3329837cc831d4d112de73b720438fea5d5ae0a4ebbc3cf73c901863e061 · test-lock-file:docs/adr/locks/4a8f3329837cc831d4d112de73b720438fea5d5ae0a4ebbc3cf73c901863e061.lock
+  ```
+  --- last 10 line(s) of stderr (of 16 after folding 16 raw)
+  === RUN   TestReflectionAppliesAtOnce
+      local_endpoint_test.go:64: pending STUN count survived a reflection
+  --- FAIL: TestReflectionAppliesAtOnce (0.00s)
+  === RUN   TestInterfaceSourceAppliesAtOnce
+  --- PASS: TestInterfaceSourceAppliesAtOnce (0.00s)
+  === RUN   TestFirstStunAppliesOverUnspecified
+  --- PASS: TestFirstStunAppliesOverUnspecified (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.010s
+  FAIL
+  ```
+- 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:13382
+- 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:11933
+- 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:13276
+- 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:16144
+- 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:14020
+- 2026-11-15 · 305dd6a* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:8436

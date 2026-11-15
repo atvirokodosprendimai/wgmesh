@@ -28,7 +28,7 @@ README must be regenerated.
 | T6 | Bind mesh IPs and routes to what the key derives, in warn mode, with frozen compat cases (#864) | done | — | seven named tests in pkg/node, fixture file exists, then `-race` |
 | T7 | One endpoint rule set: guessed endpoints rank last and are not re-announced (#839) | done | — | six named tests in two packages, then `-race` |
 | T8 | One validation path for announcements on LAN, gossip, registry and exchange (#875) | done | — | five named tests in two packages (ADR-0001 fixtures included), then `-race` |
-| T9 | Observe the local endpoint through one rule instead of eight writers (#828) | pending | — | four named tests, `SetEndpoint` count is 1, then `-race` |
+| T9 | Observe the local endpoint through one rule instead of eight writers (#828) | done | — | four named tests, `SetEndpoint` count is 1, then `-race` |
 | T10 | Approve non-mesh routes by an operator list on the receiving node, open when unset (#864) | pending | — | seven named tests in two packages, `accept-routes` flag present, then `-race` |
 | T11 | Amend the specs, write the release notes and the backlog rows | pending | — | `go test ./pkg/node -run TestSpecNamesAdmit`, note exists, `adr-debt` reports no unreceipted row |
 
