@@ -24,7 +24,7 @@ README must be regenerated.
 | T4 | Sweep `temporaryOffline` and guard every map field with a stated bound | pending | — | five named tests in `pkg/daemon`, then `-race` |
 | T5 | Replace the deprecated `Announce` with `AnnounceTraversal` (#836) | pending | — | three named tests, no `.Announce(` left in `dht.go`, `go vet`, then `-race` |
 | T6 | Print usage for an unknown command and honour `--version` only before the subcommand (#873) | pending | — | four named `TestScript` cases, then `-race` |
-| T7 | First tests of the `wg` wrappers through the fake-binary seam (#833) | pending | — | seven named tests in `pkg/wireguard`, then `-race` |
+| T7 | First tests of the `wg` wrappers through the fake-binary seam (#833) | done | — | seven named tests in `pkg/wireguard`, then `-race` |
 | T8 | One join-secret lookup for `join`, `status`, `qr`, `install-service` and `wgmesh service` (#891) | pending | — | four helper tests and four `TestScript` cases, then `-race` |
 
 ## Contract Coupling

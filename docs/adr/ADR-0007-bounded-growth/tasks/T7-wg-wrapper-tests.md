@@ -61,6 +61,12 @@ n=$(go test ./pkg/wireguard -run '^(TestSetPeerPassesPresharedKeyOnStdinNotArgv|
 | 4 — it is used | not applicable: tests only |
 
 ## Mutation Log
+- 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · preshared key moved to argv: TestSetPeerPassesPresharedKeyOnStdinNotArgv red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
+- 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · persistent-keepalive dropped: TestSetPeerArgsOrder red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
+- 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · shellQuote escapes nothing: TestShellQuoteEscapesSingleQuote red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
+- 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/keys.go` · pubkey failure ignored: TestGenerateKeyPairReportsFailure red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
+- 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/keys.go` · genkey failure ignored: TestGenerateKeyPairReportsGenkeyFailure red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
+- 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · empty endpoint written: TestGenerateWgQuickConfigPeerWithoutOptionalFields red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
 
 ## Invariants
 
@@ -83,3 +89,17 @@ Stop and ask if a test shows a defect in `SetPeer` or `GenerateKeyPair` that cha
 - The SSH-driven functions of `apply.go` and `persist.go` (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-15 · 84172d7* · exit 1 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:766 · test-lock-sha256:0ef16dc71762af5afdcb165c4b524389f80bc0f3908905c0984ecf0ec027164f · test-lock-file:docs/adr/locks/0ef16dc71762af5afdcb165c4b524389f80bc0f3908905c0984ecf0ec027164f.lock
+  ```
+  --- last 3 line(s) of stderr
+  testing: warning: no tests to run
+  PASS
+  ok  	github.com/atvirokodosprendimai/wgmesh/pkg/wireguard	0.003s [no tests to run]
+  ```
+- 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:5168
+- 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4939
+- 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4873
+- 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:5154
+- 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4795
+- 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4804
+- 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4317
