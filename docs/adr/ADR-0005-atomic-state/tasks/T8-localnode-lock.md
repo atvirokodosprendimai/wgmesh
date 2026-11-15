@@ -4,20 +4,20 @@
 **Covers:** none — no spec
 **Estimated scope:** L (multi-file)
 **Owner:** unassigned
-**Produces:** `LocalNode.GetMeshIP/SetMeshIP`, `GetMeshIPv6/SetMeshIPv6`, `GetNATType/SetNATType`, `GetRoutableNetworks/SetRoutableNetworks`, `Snapshot()`; `TestLocalNodeFieldsNotWrittenDirectly`
+**Produces:** `LocalNode.GetMeshIP/SetMeshIP`, `GetMeshIPv6/SetMeshIPv6`, `GetNATType/SetNATType`, `Snapshot()`; `TestLocalNodeFieldsNotWrittenDirectly`
 **Consumes:** the one `LocalNode` type (T7)
 **Data dependency:** hermetic
 **Proof map:** v1
 
 ## Goal
 
-`MeshIP`, `MeshIPv6`, `NATType` and `RoutableNetworks` of the local node are written and read under one `sync.RWMutex`; `go test -race` over the packages that read them in goroutines is clean, and a direct assignment from outside `pkg/node` fails a test.
+`MeshIP`, `MeshIPv6` and `NATType` of the local node are written and read under one new `sync.RWMutex` (`stateMu`), beside the two locks that already exist (`endpointMu` for the endpoint, `routesMu` for `RoutableNetworks`, which PR #895 added with `GetRoutableNetworks`/`SetRoutableNetworks`, merged 2026-11-15, `14a89ff`); one mutex per field group, no lock is held across two groups. `go test -race` over the packages that read them in goroutines is clean, and a direct assignment from outside `pkg/node` fails a test.
 
 ## Affected Files
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/node/types.go` | edit | rename `endpointMu` to `mu` and use it for the four fields and the endpoint; the four fields become unexported (`meshIP`, `meshIPv6`, `natType`, `routableNetworks`); getters, setters, `Snapshot() LocalSnapshot` (one `RLock`, copies the routes); `SetRoutableNetworks` copies its input; `GetRoutableNetworks` returns a copy |
+| `pkg/node/types.go` | edit | add `stateMu` for `MeshIP`, `MeshIPv6`, `NATType` (the existing `endpointMu` and `routesMu` stay as #895 left them); the three fields become unexported (`meshIP`, `meshIPv6`, `natType`), `RoutableNetworks` becomes unexported (`routableNetworks`) so the compiler selects every site; getters and setters for the three; `Snapshot() LocalSnapshot` reads each group under its own lock in turn (never nested), so a group is consistent, the groups are not read at one instant; `GetRoutableNetworks`/`SetRoutableNetworks` already copy (#895) and move with the type |
 | `pkg/daemon/daemon.go` | edit | the writes at `:378`, `:380`, `:391`, `:397`, `:490`, `:1719` call setters; the reads at `:224`, `:712`, `:974`, `:1273`, `:1534`, `:1847` call getters; the construction in `initLocalNode` (`:422`) sets the fields through the constructor `node.NewLocalNode(...)` or setters before any goroutine starts |
 | `pkg/daemon/collision.go` | edit | `:119-120` use `GetMeshIP` and `SetMeshIP` (ADR-0002 T4 and T5 edit nearby lines: this follows them) |
 | `pkg/discovery/exchange.go` | edit | announcement builders at `:507`, `:560`, `:563`, `:1170` read one `Snapshot()` |
@@ -51,7 +51,7 @@ n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|Tes
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestLocalNodeAccessorsConcurrent` | `pkg/node/localnode_lock_test.go` | 8 goroutines set and get the four fields and the endpoint for 200 iterations each; clean under `-race` | — | S1, S2 |
+| `TestLocalNodeAccessorsConcurrent` | `pkg/node/localnode_lock_test.go` | 8 goroutines set and get `MeshIP`, `MeshIPv6`, `NATType`, the routes and the endpoint for 200 iterations each; clean under `-race` | — | S1, S2 |
 | `TestRoutableNetworksAreCopied` | `pkg/node/localnode_lock_test.go` | mutating the slice passed to the setter, or returned by the getter, does not change the node | — | S1, S2 |
 | `TestSnapshotMatchesAccessors` | `pkg/node/localnode_lock_test.go` | `Snapshot` returns what the getters return at that moment and its routes are a copy | — | S1, S2 |
 | `TestLocalNodeFieldsNotWrittenDirectly` | `pkg/daemon/localnode_guard_test.go` | parses the module's non-test files outside `pkg/node` and fails on an assignment to a selector named `MeshIP`, `MeshIPv6`, `NATType` or `RoutableNetworks` whose receiver is a local-node expression (`localNode`, `d.localNode`, `pe.localNode`, `GetLocalNode()`); composite literals and `PeerInfo` fields are not flagged | — | S1, S3 |
@@ -83,7 +83,7 @@ n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|Tes
 
 ## Stop Condition
 
-Stop and ask if ADR-0002 T9 changed `LocalNode` so the lock cannot be the one `endpointMu` already is (for example if `ObserveEndpoint` took its own mutex), or if an external embedder of `pkg/daemon` sets the fields directly.
+Stop and ask if ADR-0002 T9 changed `LocalNode` so `stateMu` cannot stand beside `endpointMu` (for example if `ObserveEndpoint` took a lock of its own that must also cover `MeshIP`), or if an external embedder of `pkg/daemon` sets the fields directly. Before starting, `git fetch origin` and re-run both greps of the audit: PR #895 (merged 2026-11-15) already moved the `RoutableNetworks` sites to its accessors, so the write count at the start is lower than the 12 of the audit.
 
 ## Out of Scope
 
