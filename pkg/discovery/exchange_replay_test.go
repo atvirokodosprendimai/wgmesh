@@ -56,3 +56,17 @@ func TestHelloRetransmitIsNotDropped(t *testing.T) {
 		}
 	}
 }
+
+// The exchange path must remember a nonce for twice MaxMessageAge: a datagram
+// dated MaxMessageAge in the future is still accepted by OpenEnvelopeRaw that
+// long after it was first seen.
+func TestExchangeNonceCacheCoversFutureDatedPackets(t *testing.T) {
+	t.Parallel()
+	pe, _, _ := newAADExchange(t, "wgmesh-test-replay-ttl-1", aadKey(9), "")
+	if pe.nonces.ttl < 2*crypto.MaxMessageAge {
+		t.Errorf("nonce cache ttl %v is shorter than 2 x MaxMessageAge (%v)", pe.nonces.ttl, 2*crypto.MaxMessageAge)
+	}
+	if pe.nonces.capacity != nonceCacheCapacity {
+		t.Errorf("nonce cache capacity %d, want %d", pe.nonces.capacity, nonceCacheCapacity)
+	}
+}

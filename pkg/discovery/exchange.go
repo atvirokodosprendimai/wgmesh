@@ -94,6 +94,10 @@ type PeerExchange struct {
 	lastPacketLog  map[string]time.Time
 	lastLogCleanup time.Time
 
+	// nonces remembers recently opened datagrams so a replay inside the
+	// acceptance window is dropped (ADR-0001); HELLO is exempt.
+	nonces *nonceCache
+
 	// legacyOpens counts received envelopes sealed without type authentication
 	// (ADR-0001), per packet and not per sender. It measures old traffic once
 	// writers seal with additional data; until then it counts most traffic.
@@ -113,6 +117,7 @@ func NewPeerExchange(config *daemon.Config, localNode *daemon.LocalNode, peerSto
 		activePunches:      make(map[string]time.Time),
 		rendezvousStarts:   make(map[string]time.Time),
 		lastPacketLog:      make(map[string]time.Time),
+		nonces:             newNonceCache(2*crypto.MaxMessageAge, nonceCacheCapacity, time.Now),
 	}
 }
 
@@ -236,6 +241,20 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		pe.legacyOpens.Add(1)
 		if pe.allowLog("legacy "+envelope.MessageType, remoteAddr) {
 			log.Printf("[Exchange] %s from %s was sealed without type authentication (sender runs an older release)", envelope.MessageType, remoteAddr.String())
+		}
+	}
+
+	// A datagram whose nonce was already seen inside the acceptance window is a
+	// replay. The window is twice MaxMessageAge because OpenEnvelopeRaw accepts a
+	// timestamp that far in the future. HELLO is exempt: the retry loop in
+	// ExchangeWithPeer resends one sealed buffer on purpose, so a lost reply can
+	// be recovered, and senders from before this check do the same.
+	if envelope.MessageType != crypto.MessageTypeHello {
+		var nonce [12]byte
+		copy(nonce[:], envelope.Nonce)
+		if pe.nonces.Seen(nonce) {
+			slog.Debug("[Exchange] dropped replayed datagram", "type", envelope.MessageType, "from", remoteAddr.String())
+			return
 		}
 	}
 
