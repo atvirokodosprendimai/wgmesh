@@ -60,6 +60,11 @@ a=$(go test ./pkg/mesh -run '^(TestSyncRoutesRestoresConnectedRouteForGatewayedO
 - 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · no restore at all: the restore tests must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
 - 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a network is restored once per route: TestSyncRoutesRestoresOwnNetworkOnceWhenRemovedTwice must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
 - 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a foreign network is restored: TestSyncRoutesDoesNotRestoreForeignNetwork must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
+- 2026-11-16 · 5fb793a* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · the old behaviour: the gatewayed own-network route is not restored · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa
+- 2026-11-16 · 5fb793a* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · no restore at all · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa
+- 2026-11-16 · 5fb793a* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a network is restored once per route · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa
+- 2026-11-16 · 5fb793a* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a foreign network is restored · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa
+- 2026-11-16 · 5fb793a* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · no restore after a failed add: TestSyncRoutesRestoresAfterFailedAdd must go red · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa
 
 ## Invariants
 
@@ -103,3 +108,10 @@ Stop and ask if `CalculateRouteDiff` does not put a gatewayed own-network route 
 - 2026-11-16 · b21ee0d* · exit 0 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:11766
 - 2026-11-16 · b21ee0d* · exit 0 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:11038
 - 2026-11-16 · b21ee0d* · exit 0 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:8344
+- 2026-11-16 · 5fb793a* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:0 · test-lock-sha256:4889629738234964937dcc68b71b174b1e285032ad2c89b1ae809f061f523cb4 · test-lock-file:docs/adr/locks/4889629738234964937dcc68b71b174b1e285032ad2c89b1ae809f061f523cb4.lock · test-lock-kind:replace
+- 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:11906
+- 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:11481
+- 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:12531
+- 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:11878
+- 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:12732
+- 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:7893
