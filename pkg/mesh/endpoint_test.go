@@ -3,6 +3,7 @@ package mesh
 import (
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -11,10 +12,11 @@ import (
 
 // lanHost makes a server on 127.0.0.1 stand for a private LAN address: the
 // real classifier never calls loopback private (TestPrivateHostClassification).
-func lanHost(t *testing.T) {
+// Each extra host is classed private as well.
+func lanHost(t *testing.T, extra ...string) {
 	t.Helper()
 	old := hostIsPrivate
-	hostIsPrivate = func(h string) bool { return h == "127.0.0.1" || old(h) }
+	hostIsPrivate = func(h string) bool { return h == "127.0.0.1" || slices.Contains(extra, h) || old(h) }
 	t.Cleanup(func() { hostIsPrivate = old })
 }
 
@@ -202,4 +204,48 @@ func TestMixedMeshKeepsTodaysRule(t *testing.T) {
 	if n := countCurl(a); n != 0 {
 		t.Errorf("the private host was probed: %q", a.Commands())
 	}
+}
+
+// A node that cannot be dialled still counts in the classification: it needs no
+// connection, so an unreachable public host keeps the mesh mixed.
+func TestDetectEndpointsClassifiesUnreachableNodes(t *testing.T) {
+	build := func(t *testing.T) *Mesh {
+		a := sshtest.Start(t, nodeReplies())
+		b := sshtest.Start(t, nodeReplies())
+		return newTestMesh(
+			tnode{name: "a", host: a.Host, port: a.Port},
+			tnode{name: "b", host: b.Host, port: b.Port},
+			tnode{name: "c", host: "127.0.0.2", port: closedPort(t)},
+		)
+	}
+	t.Run("unreachable public node: peers get no endpoint", func(t *testing.T) {
+		lanHost(t)
+		m := build(t)
+
+		failures := m.detectEndpoints()
+
+		if failures["c"] == nil {
+			t.Fatalf("c was dialled successfully, the test needs it refused: %v", failures)
+		}
+		for _, name := range []string{"a", "b"} {
+			if n := m.Nodes[name]; n.PublicEndpoint != "" || !n.BehindNAT {
+				t.Errorf("%s: endpoint %q behindNAT %v, want none and true", name, n.PublicEndpoint, n.BehindNAT)
+			}
+		}
+	})
+	t.Run("unreachable private node: peers get endpoints", func(t *testing.T) {
+		lanHost(t, "127.0.0.2")
+		m := build(t)
+
+		failures := m.detectEndpoints()
+
+		if failures["c"] == nil {
+			t.Fatalf("c was dialled successfully, the test needs it refused: %v", failures)
+		}
+		for _, name := range []string{"a", "b"} {
+			if n := m.Nodes[name]; n.PublicEndpoint != "127.0.0.1:51820" || n.BehindNAT {
+				t.Errorf("%s: endpoint %q behindNAT %v, want 127.0.0.1:51820 and false", name, n.PublicEndpoint, n.BehindNAT)
+			}
+		}
+	})
 }
