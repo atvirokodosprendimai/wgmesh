@@ -83,6 +83,10 @@ n=$(go test ./pkg/daemon ./pkg/mesh . -run '^(TestSaveLocalNodeIsAtomic|TestSave
   ```
   the fence failed on a build/parse error, not an assertion
   ```
+- 2026-11-15 · 64aff92* · mutant killed · exit 1 · `pkg/daemon/helpers.go` · saveLocalNode back to os.WriteFile: TestSaveLocalNodeIsAtomic and TestSaveLocalNodeKeepsOldFileWhenWriteFails must go red · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b
+- 2026-11-15 · 64aff92* · mutant killed · exit 1 · `pkg/daemon/cache.go` · SavePeerCache back to os.WriteFile: TestSavePeerCacheIsAtomic must go red · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b
+- 2026-11-15 · 64aff92* · mutant killed · exit 1 · `pkg/mesh/mesh.go` · Mesh.Save back to os.WriteFile: TestMeshSaveIsAtomic must go red · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b
+- 2026-11-15 · 64aff92* · mutant killed · exit 1 · `main.go` · saveSecretFile back to os.WriteFile: TestSaveSecretFileIsAtomic must go red · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b
 
 ## Invariants
 
@@ -128,3 +132,9 @@ Stop and ask if ADR-0002 T5 has changed the signature of `saveLocalNode`, or if 
 - 2026-11-15 · 5b1b687* · exit 0 · `set -o pipefail …` · acceptance-sha256:654ff7bff7c6a90d4c4164ff172b5f571cc0e350bd724a4052ad134707c8c5a3 · ms:33644
 - 2026-11-15 · 5b1b687* · exit 0 · `set -o pipefail …` · acceptance-sha256:654ff7bff7c6a90d4c4164ff172b5f571cc0e350bd724a4052ad134707c8c5a3 · ms:29717
 - 2026-11-15 · 5b1b687* · exit 0 · `set -o pipefail …` · acceptance-sha256:654ff7bff7c6a90d4c4164ff172b5f571cc0e350bd724a4052ad134707c8c5a3 · ms:29953
+- 2026-11-15 · 64aff92* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:1 · test-lock-sha256:ee935bff9ed1ad6a4f3ed34f29a1269c109d9535b7290d7304561c238b05296e · test-lock-file:docs/adr/locks/ee935bff9ed1ad6a4f3ed34f29a1269c109d9535b7290d7304561c238b05296e.lock · test-lock-kind:replace
+- 2026-11-15 · 64aff92* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:46965
+- 2026-11-15 · 64aff92* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:33871
+- 2026-11-15 · 64aff92* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:27766
+- 2026-11-15 · 64aff92* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:31442
+- 2026-11-15 · 64aff92* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:29631
