@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strconv"
@@ -341,6 +342,10 @@ func announceableHostname(hostname string) string {
 	return hostname
 }
 
+// localNodeStateDir holds the persisted local node state; a variable so tests
+// can point initLocalNode at a temp directory.
+var localNodeStateDir = "/var/lib/wgmesh"
+
 // initLocalNode loads or creates the local WireGuard node
 func (d *Daemon) initLocalNode() error {
 	hostname, hostErr := os.Hostname()
@@ -350,7 +355,7 @@ func (d *Daemon) initLocalNode() error {
 	hostname = announceableHostname(hostname)
 
 	// Try to load existing key from state file
-	stateFile := fmt.Sprintf("/var/lib/wgmesh/%s.json", d.config.InterfaceName)
+	stateFile := filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
 	node, err := loadLocalNode(stateFile)
 	if err == nil && node != nil {
 		d.localNode = node
