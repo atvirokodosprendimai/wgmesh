@@ -55,6 +55,10 @@ a=$(go test ./pkg/mesh -run '^(TestSyncRoutesRestoresConnectedRouteForGatewayedO
 | 4 — it is used | every centralized HA upgrade whose nodes advertise the same subnet |
 
 ## Mutation Log
+- 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · the old behaviour: the gatewayed own-network route is not restored: TestSyncRoutesRestoresConnectedRouteForGatewayedOwnNetwork must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
+- 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · no restore at all: the restore tests must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
+- 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a network is restored once per route: TestSyncRoutesRestoresGatewaylessOwnNetworkOnce must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
+- 2026-11-16 · b21ee0d* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a foreign network is restored: TestSyncRoutesDoesNotRestoreForeignNetwork must go red · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6
 
 ## Invariants
 
@@ -79,3 +83,22 @@ Stop and ask if `CalculateRouteDiff` does not put a gatewayed own-network route 
 - `routes.ConnectedRouteCmd` and the daemon restore (permanent: boundary: not part of the centralized pipeline).
 
 ## Verification Log
+- 2026-11-16 · b21ee0d* · exit 1 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:850 · test-lock-sha256:6f584755fc04ff4d61b235a6aff146d482c2c38402987a183d5a2ff66f0326ad · test-lock-file:docs/adr/locks/6f584755fc04ff4d61b235a6aff146d482c2c38402987a183d5a2ff66f0326ad.lock
+  ```
+  --- last 10 line(s) of stderr (of 18 after folding 18 raw)
+      Removed route: 10.1.0.0/24
+      Restored connected route: 10.1.0.0/24 dev eth0
+  --- PASS: TestSyncRoutesRestoresGatewaylessOwnNetworkOnce (0.00s)
+  === RUN   TestSyncRoutesDoesNotRestoreForeignNetwork
+    Route changes: 1 to remove, 0 to add
+      Removed route: 10.5.0.0/24 via 10.99.0.3
+  --- PASS: TestSyncRoutesDoesNotRestoreForeignNetwork (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/mesh	0.017s
+  FAIL
+  ```
+- 2026-11-16 · b21ee0d* · exit 0 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:12799
+- 2026-11-16 · b21ee0d* · exit 0 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:11989
+- 2026-11-16 · b21ee0d* · exit 0 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:11766
+- 2026-11-16 · b21ee0d* · exit 0 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:11038
+- 2026-11-16 · b21ee0d* · exit 0 · `set -o pipefail …` · acceptance-sha256:b49efbbf748b1149b515259a7c78117b4507682d71db39895a6d159f4728c6e6 · ms:8344

@@ -27,7 +27,7 @@ README must be regenerated.
 | T4 | Record a result per node and continue past a failed one (#865) | done | — | eight named tests, build, vet, then `-race` |
 | T5 | Decide a node's endpoint in one pure function, and skip the probe for private hosts (#866) | done | — | five named tests, build, vet, then `-race` |
 | T6 | Amend the specs, write the release note and the backlog rows | pending | — | `go test ./pkg/mesh -run TestSpecNamesCentralized`, note exists, `adr-debt` reports no unreceipted row |
-| T7 | Restore the connected route for every removed own-network route, whatever its gateway (#894 item 1) | pending | — | three named tests, build, vet, then `-race` |
+| T7 | Restore the connected route for every removed own-network route, whatever its gateway (#894 item 1) | done | — | three named tests, build, vet, then `-race` |
 
 ## Contract Coupling
 
