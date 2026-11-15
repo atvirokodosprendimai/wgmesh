@@ -155,7 +155,8 @@ const stunConfirmations = 3
 // reflection applies at once and discards a pending STUN value. A STUN answer
 // that differs from the current endpoint applies only on its third identical
 // observation in a row; one equal to it discards the pending value.
-// It sets the field itself under endpointMu and does not call SetEndpoint.
+// It sets the field itself under endpointMu and does not call SetEndpoint:
+// SetEndpoint takes endpointMu too, so calling it here would deadlock.
 func (n *LocalNode) ObserveEndpoint(source EndpointSource, endpoint string) bool {
 	n.endpointMu.Lock()
 	defer n.endpointMu.Unlock()
