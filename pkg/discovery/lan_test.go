@@ -18,25 +18,50 @@ func TestResolveEndpointPrefersLANSourceIP(t *testing.T) {
 	sender := &net.UDPAddr{IP: net.ParseIP("192.168.1.42"), Port: 51830}
 
 	tests := []struct {
-		name       string
-		advertised string
-		sender     *net.UDPAddr
-		want       string
+		name        string
+		advertised  string
+		sender      *net.UDPAddr
+		want        string
+		wantGuessed bool
 	}{
 		{name: "public advertised on LAN", advertised: "203.0.113.9:51820", sender: sender, want: "192.168.1.42:51820"},
 		{name: "wildcard advertised", advertised: "0.0.0.0:51820", sender: sender, want: "192.168.1.42:51820"},
-		{name: "invalid advertised", advertised: "not-an-endpoint", sender: sender, want: "192.168.1.42:51820"},
+		{name: "invalid advertised", advertised: "not-an-endpoint", sender: sender, want: "192.168.1.42:51820", wantGuessed: true},
+		{name: "empty advertised", advertised: "", sender: sender, want: "192.168.1.42:51820", wantGuessed: true},
 		{name: "no sender keeps explicit", advertised: "203.0.113.9:51820", sender: nil, want: "203.0.113.9:51820"},
 		{name: "no sender invalid", advertised: "not-an-endpoint", sender: nil, want: ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, _ := resolveEndpoint(tt.advertised, tt.sender)
-			if got != tt.want {
-				t.Fatalf("resolveEndpoint(%q, %v) = %q, want %q", tt.advertised, tt.sender, got, tt.want)
+			got, guessed := resolveEndpoint(tt.advertised, tt.sender)
+			if got != tt.want || guessed != tt.wantGuessed {
+				t.Fatalf("resolveEndpoint(%q, %v) = %q, %v, want %q, %v", tt.advertised, tt.sender, got, guessed, tt.want, tt.wantGuessed)
 			}
 		})
+	}
+}
+
+// The sender's UDP source port is never the endpoint port.
+func TestResolveEndpointNeverUsesSenderPort(t *testing.T) {
+	tests := []struct {
+		advertised string
+		wantPort   string
+	}{
+		{"", "51820"},
+		{"garbage", "51820"},
+		{"203.0.113.9:", "51820"},
+		{"0.0.0.0:51821", "51821"},
+		{"203.0.113.9:51821", "51821"},
+	}
+	for _, senderPort := range []int{52654, 1} {
+		sender := &net.UDPAddr{IP: net.ParseIP("192.168.1.42"), Port: senderPort}
+		for _, tt := range tests {
+			got, _ := resolveEndpoint(tt.advertised, sender)
+			if _, port, err := net.SplitHostPort(got); err != nil || port != tt.wantPort {
+				t.Errorf("sender port %d, advertised %q: endpoint %q (err %v), want port %s", senderPort, tt.advertised, got, err, tt.wantPort)
+			}
+		}
 	}
 }
 

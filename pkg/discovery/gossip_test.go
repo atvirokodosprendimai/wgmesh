@@ -202,6 +202,33 @@ func TestHandleAnnouncementDropsWildcardEndpointWithoutSender(t *testing.T) {
 	}
 }
 
+// A gossip announcement without an endpoint, heard from a sender, stores the
+// sender IP with the default port, marked guessed.
+func TestHandleAnnouncementEmptyEndpointStoresGuess(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+
+	gossip, err := NewMeshGossip(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gossip.HandleAnnounceFrom(&crypto.PeerAnnouncement{
+		Protocol:  crypto.ProtocolVersion,
+		WGPubKey:  "remote-key",
+		MeshIP:    "10.0.0.2",
+		Timestamp: time.Now().Unix(),
+	}, &net.UDPAddr{IP: net.ParseIP("192.168.1.44"), Port: 50000})
+
+	peer, ok := store.Get("remote-key")
+	if !ok {
+		t.Fatal("expected remote-key in peer store")
+	}
+	if peer.Endpoint != "192.168.1.44:51820" || !peer.EndpointGuessed {
+		t.Fatalf("stored endpoint %q guessed=%v, want 192.168.1.44:51820 guessed=true", peer.Endpoint, peer.EndpointGuessed)
+	}
+}
+
 func TestNewMeshGossipWithExchangeSetsExchange(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
