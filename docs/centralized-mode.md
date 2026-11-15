@@ -62,14 +62,14 @@ wgmesh -deploy
 
 This will:
 1. Check the state file and stop before any connection when a value is unsafe (see "Validation")
-2. Connect to each node via SSH, in hostname order
-3. Install WireGuard if not present
-4. Detect public endpoints and NAT status (see "Endpoints and NAT")
+2. Detect: connect to every remote node via SSH, in hostname order, and collect its hostname, FQDN and public IP (see "Endpoints and NAT")
+3. Then, for each node in hostname order: connect via SSH
+4. Install WireGuard if not present
 5. Generate or update WireGuard configuration
-6. Write configuration to `/etc/wireguard/wg0.conf`
-7. Enable and start `wg-quick@wg0` systemd service
-8. Apply changes using `wg set` commands for online updates (when possible)
-9. Configure routing tables with routes to all mesh networks
+6. Apply changes using `wg set` commands for online updates (when possible)
+7. Configure routing tables with routes to all mesh networks
+8. Write configuration to `/etc/wireguard/wg0.conf`
+9. Enable and start `wg-quick@wg0` systemd service (on a first deploy)
 10. Print one summary of the nodes that failed, with the phase of each
 
 **Configuration persists across reboots** via systemd service.
@@ -83,7 +83,7 @@ This will:
 A node's endpoint is decided in this order, and the deploy prints the reason:
 1. A `public_endpoint` you wrote in the state file wins and is not overwritten.
 2. When every node's SSH host is a private IP address, each node's endpoint is `<ssh host>:<listen port>`, the local node included.
-3. When the node's detected public IP equals its SSH host, the endpoint is `<ssh host>:<listen port>`.
+3. When a remote node's detected public IP equals its SSH host, the endpoint is `<ssh host>:<listen port>`. The local node is never probed, so for it only rules 1 and 2 apply.
 4. Otherwise the node is behind NAT and has no endpoint.
 
 A DNS name used as `ssh_host` is never treated as private: a LAN mesh that you reach by name needs `public_endpoint` on every node that others should dial. In a mixed mesh (some private, some public SSH hosts) a node with a private SSH host has no endpoint unless you set `public_endpoint`. A node with a private SSH host is not asked for its public IP. The detected endpoint is used for that run only; `-deploy` does not write it to the state file.
@@ -183,7 +183,7 @@ After editing, run `wgmesh -deploy` to apply the changes.
 - Routes are added to both the live routing table and the persistent config file
 - If you remove a network from `routable_networks`, it will be automatically cleaned up from all nodes on the next deploy
 - A network a node advertises itself is never routed through the mesh: HA nodes that share a subnet no longer install routes to it via each other
-- When a deploy removes a route `<own network> via <peer> dev wg0` (the HA route of releases before the shared-subnet fix), it puts the node's connected route for that network back, whatever the gateway, and prints `Restored connected route: <net> dev wg0`; it needs a local address in that network, otherwise it warns. An older binary does not restore the connected route on later removals
+- When a deploy removes a route `<own network> via <peer> dev wg0` (the HA route of releases before the shared-subnet fix), it puts the node's connected route for that network back, whatever the gateway, and prints `Restored connected route: <net> dev <local interface>` (the interface that holds the local address in that network, not wg0); it needs such a local address, otherwise it warns. An older binary does not restore the connected route on later removals
 - Only the exact network is matched: an own `/16` does not drop a peer `/24`
 - The default route follows the same rule: when two HA exit nodes both advertise `0.0.0.0/0`, each drops the other's default route
 - Upgrade note: nodes still on an older binary keep routing the shared subnet via the peer until they are upgraded

@@ -21,7 +21,7 @@ The operator-driven deployment path that computes per-node WireGuard configurati
 - The endpoint of each node is decided in this order, and the deploy prints the reason (`Detected X has endpoint E (reason)`):
   1. a `public_endpoint` already written in the state wins and is not overwritten;
   2. when every node's SSH host is a private IP address, the endpoint is `<ssh host>:<listen port>` for every node, the local one included;
-  3. when the detected public IP equals the SSH host, the endpoint is `<ssh host>:<listen port>`;
+  3. when the detected public IP equals the SSH host, the endpoint is `<ssh host>:<listen port>` (a remote node only: the local node is never probed, so for it only rules 1 and 2 apply);
   4. otherwise the node is behind NAT and has no endpoint.
 
   A DNS name is never classified private, and an IPv6 host is bracketed. In a mixed mesh rules 3 and 4 apply, so the operator sets `public_endpoint` for a private node that others should dial.
@@ -32,7 +32,7 @@ The operator-driven deployment path that computes per-node WireGuard configurati
 - Config is persisted as `/etc/wireguard/<iface>.conf` (wg-quick format) and enabled as a systemd service — it survives reboots.
 - Route synchronisation is always performed independently of WireGuard peer sync.
   Routes for all allowed peers' routable networks are computed and reconciled against the kernel routing table.
-- When a route `<own network> via <peer> dev <iface>` is removed (the HA route of releases before the shared-subnet fix), the node's connected route for that network is restored, whatever the gateway, and the deploy prints `Restored connected route: <net> dev <iface>`. It needs a local address in that network; without one the deploy warns instead.
+- When a route `<own network> via <peer> dev <iface>` is removed (the HA route of releases before the shared-subnet fix), the node's connected route for that network is restored, whatever the gateway, and the deploy prints `Restored connected route: <net> dev <local interface>` (the interface that holds the local address in that network). It needs a local address in that network; without one the deploy warns instead.
 - WireGuard installation is idempotent: the system checks `which wg` first; installs via `apt` only if absent.
 - The wg-quick config enables IP forwarding via `PostUp = sysctl -w net.ipv4.ip_forward=1`.
 - Every remote command is built with `ssh.Cmd`: the command name is a constant and each argument goes through `ssh.Quote` (the safe set `[A-Za-z0-9._:/,@%+=-]` is sent unchanged, anything else is single-quoted, brackets included). The guard test `TestNoUnquotedRemoteCommand` fails when a command reaches a node another way. The wg-quick text refuses a value with a newline, carriage return or NUL.
@@ -59,7 +59,7 @@ The operator-driven deployment path that computes per-node WireGuard configurati
 
 - Auth: SSH agent (via `SSH_AUTH_SOCK`) first, then identity files (`id_rsa`, `id_ed25519`, `id_ecdsa`).
 - Always connects as `root`.
-- Host key verification disabled (`InsecureIgnoreHostKey`) — assumes a trusted private network.
+- Host key verification against `~/.ssh/known_hosts` by default (PR #876, `pkg/ssh/hostkey.go`); `WGMESH_SSH_KNOWN_HOSTS` names another file. An unknown or changed key refuses the connection. `WGMESH_SSH_INSECURE_HOST_KEY=1` turns verification off and prints a warning.
 - Connection timeout: 10 seconds.
 
 ## Mapping

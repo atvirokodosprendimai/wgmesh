@@ -47,7 +47,7 @@ func TestSpecNamesCentralized(t *testing.T) {
 		{stateSpec, []string{"StrictState", "class A", "class B"}},
 		{guide, []string{"centralized-rollout.md", "public_endpoint", "connected route", "StrictState", "PersistFailureFatal"}},
 		{note, []string{"StrictState", "PersistFailureFatal", "public_endpoint", "class A", "class B", "N+2", "connected route", "Warnings:"}},
-		{backlog, []string{"ADR-0006", "#894", "StrictState", "PersistFailureFatal", "N+2", "-only"}},
+		{backlog, []string{"ADR-0006", "#894", "StrictState", "PersistFailureFatal", "ADR-0006 follow-up N+2", "-only"}},
 		{readme, []string{"centralized-rollout.md"}},
 	}
 	for _, w := range wanted {
@@ -66,18 +66,26 @@ func TestSpecNamesCentralized(t *testing.T) {
 
 	// The old NAT sentence said a node whose public IP differs from its SSH
 	// host gets no public endpoint, without the all-private rule and the
-	// operator override. A line that still says it must carry the condition.
+	// operator override. The deploy spec must not carry it at all.
 	raw, err := os.ReadFile(filepath.Join(root, deploySpec))
 	if err != nil {
 		t.Errorf("%s: cannot read: %v", deploySpec, err)
 		return
 	}
-	for _, line := range strings.Split(string(raw), "\n") {
-		if strings.Contains(line, "given no public endpoint") && !strings.Contains(line, "private") {
-			t.Errorf("%s keeps the old NAT sentence without the private-address condition: %q", deploySpec, line)
-		}
+	if strings.Contains(string(raw), "given no public endpoint") {
+		t.Errorf("%s keeps the old NAT sentence %q", deploySpec, "given no public endpoint")
 	}
-	if !strings.Contains(string(raw), "private IP") {
-		t.Errorf("%s does not state the all-private endpoint rule", deploySpec)
+
+	// The documents name ssh.Cmd: the function must still exist.
+	quote, err := os.ReadFile(filepath.Join(root, "pkg/ssh/quote.go"))
+	if err != nil {
+		t.Errorf("pkg/ssh/quote.go: cannot read: %v", err)
+		return
+	}
+	if !strings.Contains(string(quote), "func Cmd(") {
+		t.Errorf("pkg/ssh/quote.go does not define func Cmd(")
 	}
 }
+
+// The documents name these two variables; a rename breaks the build.
+var _ = []any{StrictState, PersistFailureFatal}
