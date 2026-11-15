@@ -145,14 +145,25 @@ func (m *Mesh) deployNode(hostname string, node *Node) NodeResult {
 	return result
 }
 
+// probeResult is what one remote node answered to the public-IP probe.
+type probeResult struct {
+	publicIP string
+	probed   bool
+}
+
 // detectEndpoints probes every node that is not local and returns the nodes it
 // could not connect to, by hostname. The nodes are visited in sorted order.
+// A node whose SSH host is a private IP address is not asked for its public
+// IP: it can only differ. Once every node was visited, resolveEndpoint decides
+// each reachable node's endpoint; the result stays in memory.
 func (m *Mesh) detectEndpoints() map[string]error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	failures := map[string]error{}
-	for _, hostname := range slices.Sorted(maps.Keys(m.Nodes)) {
+	probes := map[string]probeResult{}
+	hostnames := slices.Sorted(maps.Keys(m.Nodes))
+	for _, hostname := range hostnames {
 		node := m.Nodes[hostname]
 		if node.IsLocal {
 			// For local node, get hostname directly
@@ -182,21 +193,44 @@ func (m *Mesh) detectEndpoints() map[string]error {
 			node.FQDN = fqdn
 		}
 
-		publicIP, err := ssh.DetectPublicIP(client)
-		client.Close()
-
-		if err != nil {
-			fmt.Printf("Warning: failed to detect public IP for %s: %v\n", hostname, err)
-			node.BehindNAT = true
+		if hostIsPrivate(node.SSHHost) {
+			client.Close()
 			continue
 		}
+		publicIP, err := ssh.DetectPublicIP(client)
+		client.Close()
+		if err != nil {
+			fmt.Printf("Warning: failed to detect public IP for %s: %v\n", hostname, err)
+		}
+		probes[hostname] = probeResult{publicIP: publicIP, probed: true}
+	}
 
-		if publicIP != "" && publicIP != node.SSHHost {
-			node.BehindNAT = true
-			fmt.Printf("Detected %s is behind NAT (public IP: %s)\n", hostname, publicIP)
-		} else {
-			node.PublicEndpoint = fmt.Sprintf("%s:%d", node.SSHHost, node.ListenPort)
-			fmt.Printf("Detected %s has public endpoint: %s\n", hostname, node.PublicEndpoint)
+	// A node that failed to connect is left out of the all-private rule and
+	// keeps the endpoint the state holds.
+	allPrivate := true
+	for _, hostname := range hostnames {
+		if _, failed := failures[hostname]; !failed && !hostIsPrivate(m.Nodes[hostname].SSHHost) {
+			allPrivate = false
+		}
+	}
+	for _, hostname := range hostnames {
+		if _, failed := failures[hostname]; failed {
+			continue
+		}
+		node := m.Nodes[hostname]
+		probe := probes[hostname]
+		d := resolveEndpoint(node, allPrivate, probe.publicIP, probe.probed)
+		if d.Endpoint != "" {
+			node.PublicEndpoint = d.Endpoint
+		}
+		if !node.IsLocal {
+			node.BehindNAT = d.BehindNAT
+		}
+		switch {
+		case d.Endpoint != "":
+			fmt.Printf("Detected %s has endpoint %s (%s)\n", hostname, d.Endpoint, d.Reason)
+		case !node.IsLocal:
+			fmt.Printf("Detected %s has no endpoint (%s)\n", hostname, d.Reason)
 		}
 	}
 
