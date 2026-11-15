@@ -68,6 +68,14 @@ a=$(go test ./pkg/mesh -run '^(TestResolveEndpointTable|TestPrivateHostClassific
 - 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · an IPv6 SSH host is not bracketed: the IPv6 row must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
 - 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · a DNS name is classed private: TestPrivateHostClassification must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
 - 2026-11-16 · 0563b3e* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · rule (c) removed: the public-IP-equals-host row must go red · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f
+- 2026-11-16 · b73ca0f* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · an all-private mesh gets no endpoints: TestAllLANMeshRendersEndpoints must go red · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8
+- 2026-11-16 · b73ca0f* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · public_endpoint no longer wins: the operator-wins row must go red · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8
+- 2026-11-16 · b73ca0f* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a private host is probed again: TestDetectEndpointsSkipsProbeForPrivateHost must go red · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8
+- 2026-11-16 · b73ca0f* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · an IPv6 SSH host is not bracketed: the IPv6 row must go red · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8
+- 2026-11-16 · b73ca0f* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · a DNS name is classed private: TestPrivateHostClassification must go red · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8
+- 2026-11-16 · b73ca0f* · mutant killed · exit 1 · `pkg/mesh/endpoint.go` · rule (c) removed: the public-IP-equals-host row must go red · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8
+- 2026-11-16 · b73ca0f* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · an unreachable public node no longer keeps the mesh mixed: TestDetectEndpointsClassifiesUnreachableNodes must go red · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8
+- 2026-11-16 · b73ca0f* · mutant killed · exit 1 · `pkg/mesh/deploy.go` · a written endpoint is read as operator-set by the next call: TestDetectEndpointsTwiceRecomputesItsOwnEndpoints must go red · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8
 
 ## Invariants
 
@@ -113,3 +121,13 @@ Stop and ask if a test shows the local node must not receive an endpoint, or if 
 - 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:11499
 - 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:11185
 - 2026-11-16 · 0563b3e* · exit 0 · `set -o pipefail …` · acceptance-sha256:1bd81b1f349b8acf76dffd883dd2608cf65915d9b7c77ab0030ebacb7b44b57f · ms:9308
+- 2026-11-16 · b73ca0f* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:0 · test-lock-sha256:1ac5d6520e6c12029934627d0ab1689ecc4a78a86587728c6b49697b2d2f635d · test-lock-file:docs/adr/locks/1ac5d6520e6c12029934627d0ab1689ecc4a78a86587728c6b49697b2d2f635d.lock · test-lock-kind:replace
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:11730
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:11672
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:11080
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:11652
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:12453
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:11952
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:10976
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:11182
+- 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:9226
