@@ -95,4 +95,5 @@ _Plans are best-effort at planning time._
 - 2611151637 plan written, branch task/security-report-1115 created from main 44ad8f4.
 - 2611151642 phase 1 actions 1-3 done: #844, #845, #849 cherry-picked with the reporter's authorship, plus the probe client cap (mutant ReadSlice->ReadBytes killed). `go test -race ./pkg/...` green.
 - 2611151643 phase 2 action 4 done: secret rotation keeps mesh IPs. `go test -race ./pkg/...` green.
+- 2611151653 phase 2 actions 1-3 done (auto-merge gate, PeerStore transitive, SSH host keys; the maintainer chose "in this PR" for SSH). Branch pushed, draft PR #876 opened. `go test -race ./...` exit 0. CI on #876 pending. Phase 4: waiting for green CI before closing #844, #845, #849 (the maintainer chose "after CI is green").
 - Issues re-read at 2611151638: 36 open, #850-#875 filed by the reporter. Matches to our findings: #864 = claim 4, #869 = claim 3, #871 = compose files also put the secret on argv (new, same class as claim 1), #868 and #870 new (state validation, non-atomic state writes), #875 = follow-ups of #849, #854 and #858 touch PeerStore.Update (same place as claim 4a). No new PRs since 2611151434.
