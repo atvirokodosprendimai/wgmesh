@@ -133,8 +133,9 @@ func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKin
 		return info.WGPubKey, PeerEventNew
 	}
 
-	if info.Endpoint != "" && shouldUpdateEndpoint(existing, info.Endpoint, discoveryMethod) {
+	if info.Endpoint != "" && shouldUpdateEndpoint(existing, info.Endpoint, info.EndpointGuessed, discoveryMethod) {
 		existing.Endpoint = info.Endpoint
+		existing.EndpointGuessed = info.EndpointGuessed
 		existing.EndpointMethod = discoveryMethod
 	}
 	// A transitive mention is second-hand (another member says it knows this
@@ -190,9 +191,14 @@ func isTransitiveMethod(discoveryMethod string) bool {
 	return strings.Contains(discoveryMethod, "transitive")
 }
 
-// endpointMethodRank returns a priority rank for endpoint discovery methods.
+// endpointMethodRank returns a priority rank for an endpoint: its discovery
+// method, or the lowest rank (10, below cache) when the endpoint is guessed
+// from the sender's address (ADR-0002 R6, #839).
 // Higher rank means higher priority.
-func endpointMethodRank(method string) int {
+func endpointMethodRank(method string, guessed bool) int {
+	if guessed {
+		return 10
+	}
 	if method == "" {
 		return 0
 	}
@@ -220,13 +226,13 @@ func endpointMethodRank(method string) int {
 	return 30
 }
 
-func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint, discoveryMethod string) bool {
+func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint string, newGuessed bool, discoveryMethod string) bool {
 	if existing.Endpoint == "" {
 		return true
 	}
 
-	newRank := endpointMethodRank(discoveryMethod)
-	oldRank := endpointMethodRank(existing.EndpointMethod)
+	newRank := endpointMethodRank(discoveryMethod, newGuessed)
+	oldRank := endpointMethodRank(existing.EndpointMethod, existing.EndpointGuessed)
 
 	if newRank > oldRank {
 		return true
@@ -244,7 +250,7 @@ func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint, discoveryMethod strin
 		return false
 	}
 
-	if oldRank == endpointMethodRank(LANMethod) {
+	if oldRank == endpointMethodRank(LANMethod, false) {
 		return discoveryMethod == LANMethod
 	}
 	return true

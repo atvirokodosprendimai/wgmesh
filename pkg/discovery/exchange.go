@@ -1151,12 +1151,18 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 		if p.WGPubKey == "" || p.WGPubKey == pe.localNode.WGPubKey {
 			continue
 		}
+		// A guessed endpoint is not announced: a wrong address is worse than
+		// none, and the peer keeps its key in the list (#839).
+		endpoint := p.Endpoint
+		if p.EndpointGuessed {
+			endpoint = ""
+		}
 		knownPeers = append(knownPeers, crypto.KnownPeer{
 			WGPubKey:   p.WGPubKey,
 			Hostname:   p.Hostname,
 			MeshIP:     p.MeshIP,
 			MeshIPv6:   p.MeshIPv6,
-			WGEndpoint: p.Endpoint,
+			WGEndpoint: endpoint,
 			Introducer: p.Introducer,
 			NATType:    p.NATType,
 		})
