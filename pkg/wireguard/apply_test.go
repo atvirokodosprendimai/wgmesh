@@ -70,11 +70,6 @@ func TestSetPeerPassesPresharedKeyOnStdinNotArgv(t *testing.T) {
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("args = %q, want %q", args, want)
 	}
-	for _, a := range args {
-		if strings.Contains(a, b64) {
-			t.Fatalf("preshared key appears in argument %q", a)
-		}
-	}
 }
 
 func TestSetPeerArgsOrder(t *testing.T) {

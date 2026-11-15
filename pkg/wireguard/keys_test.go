@@ -48,3 +48,15 @@ func TestGenerateKeyPairReportsFailure(t *testing.T) {
 		t.Fatalf("keys = %q, %q, want both empty on error", priv, pub)
 	}
 }
+
+func TestGenerateKeyPairReportsGenkeyFailure(t *testing.T) {
+	fakeWGScript(t, "echo boom >&2\nexit 1\n")
+
+	priv, pub, err := GenerateKeyPair()
+	if err == nil {
+		t.Fatal("want an error when genkey fails")
+	}
+	if priv != "" || pub != "" {
+		t.Fatalf("keys = %q, %q, want both empty on error", priv, pub)
+	}
+}

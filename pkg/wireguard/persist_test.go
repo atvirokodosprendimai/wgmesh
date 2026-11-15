@@ -55,3 +55,22 @@ func TestGenerateWgQuickConfigRoutes(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerateWgQuickConfigPeerWithoutOptionalFields(t *testing.T) {
+	cfg := &FullConfig{
+		Interface: WGInterface{PrivateKey: "PRIV", Address: "10.0.0.1/24", ListenPort: 51820},
+		Peers:     []WGPeer{{PublicKey: "keyA"}},
+	}
+	want := "[Interface]\n" +
+		"Address = 10.0.0.1/24\n" +
+		"ListenPort = 51820\n" +
+		"PrivateKey = PRIV\n" +
+		"PostUp = sysctl -w net.ipv4.ip_forward=1\n" +
+		"\n" +
+		"[Peer]\n" +
+		"PublicKey = keyA\n" +
+		"\n"
+	if got := GenerateWgQuickConfig(cfg, nil); got != want {
+		t.Fatalf("got:\n%s\nwant:\n%s", got, want)
+	}
+}
