@@ -75,14 +75,18 @@ type Policy struct {
 
 // Snapshot is what Decide reads: no I/O, no clock.
 type Snapshot struct {
-	Count  int
-	Known  bool
-	Policy *Policy
+	Count      int
+	Known      bool
+	Tombstoned bool
+	Policy     *Policy
 }
 
-// Decide is a pure function of a snapshot and a candidate. Its one refusal
-// today is the peer cap.
+// Decide is a pure function of a snapshot and a candidate. Its refusals are
+// a tombstoned key for a claim that is not first-hand, and the peer cap.
 func Decide(s Snapshot, c Candidate) Decision {
+	if s.Tombstoned && c.Hand != FirstHand {
+		return Decision{Verdict: Refuse, Reason: ReasonTombstoned}
+	}
 	if !s.Known && s.Count >= DefaultMaxPeers {
 		return Decision{Verdict: Refuse, Reason: ReasonPeerCap}
 	}
@@ -107,14 +111,23 @@ func (ps *PeerStore) Offer(c Candidate) Decision {
 		defer ps.mu.Unlock()
 		ps.offers++
 
-		_, known := ps.peers[c.Info.WGPubKey]
-		d = Decide(Snapshot{Count: len(ps.peers), Known: known, Policy: ps.policy}, c)
+		key := c.Info.WGPubKey
+		_, known := ps.peers[key]
+		d = Decide(Snapshot{Count: len(ps.peers), Known: known, Tombstoned: ps.isTombstoned(key), Policy: ps.policy}, c)
 		if d.Verdict == Refuse {
 			if d.Reason == ReasonPeerCap {
 				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
-					DefaultMaxPeers, shortKey(c.Info.WGPubKey), c.Method())
+					DefaultMaxPeers, shortKey(key), c.Method())
+			}
+			if t := ps.tombstones[key]; d.Reason == ReasonTombstoned && !t.logged {
+				t.logged = true
+				ps.tombstones[key] = t
+				log.Printf("[Admit] refused tombstoned peer %s... via %s (withdrawn: %s)", shortKey(key), c.Method(), t.cause)
 			}
 			return
+		}
+		if c.Hand == FirstHand {
+			delete(ps.tombstones, key)
 		}
 		eventKey, eventKind = ps.merge(c)
 	}()
