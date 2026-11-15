@@ -8,7 +8,7 @@ services:
     volumes:
       - ./data/node1:/var/lib/wgmesh
     environment:
-      WGMESH_SECRET: ${MESH_SECRET}
+      WGMESH_SECRET: ${MESH_SECRET:?set MESH_SECRET}
     command: >
       join
       --interface wg0
@@ -34,7 +34,7 @@ services:
   #   volumes:
   #     - ./data/node2:/var/lib/wgmesh
   #   environment:
-  #     WGMESH_SECRET: ${MESH_SECRET}
+  #     WGMESH_SECRET: ${MESH_SECRET:?set MESH_SECRET}
   #   command: >
   #     join
   #     --interface wg1
@@ -57,7 +57,7 @@ services:
   #   volumes:
   #     - ./data/node3:/var/lib/wgmesh
   #   environment:
-  #     WGMESH_SECRET: ${MESH_SECRET}
+  #     WGMESH_SECRET: ${MESH_SECRET:?set MESH_SECRET}
   #   command: >
   #     join
   #     --interface wg2
@@ -81,7 +81,7 @@ services:
   #   volumes:
   #     - ./data/node-advanced:/var/lib/wgmesh
   #   environment:
-  #     WGMESH_SECRET: ${MESH_SECRET}
+  #     WGMESH_SECRET: ${MESH_SECRET:?set MESH_SECRET}
   #   command: >
   #     join
   #     --interface wg0

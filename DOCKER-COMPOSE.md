@@ -81,7 +81,7 @@ You can customize the node configuration by modifying the `command` section:
 
 ```yaml
 environment:
-  WGMESH_SECRET: ${MESH_SECRET}
+  WGMESH_SECRET: ${MESH_SECRET:?set MESH_SECRET}
 command: >
   join
   --interface wg0
@@ -342,7 +342,7 @@ wgmesh-node:
   volumes:
     - ./data/gateway:/var/lib/wgmesh
   environment:
-    WGMESH_SECRET: ${MESH_SECRET}
+    WGMESH_SECRET: ${MESH_SECRET:?set MESH_SECRET}
   command: >
     join
     --interface wg0
@@ -364,7 +364,7 @@ wgmesh-node:
   volumes:
     - ./data/private:/var/lib/wgmesh
   environment:
-    WGMESH_SECRET: ${MESH_SECRET}
+    WGMESH_SECRET: ${MESH_SECRET:?set MESH_SECRET}
   command: >
     join
     --interface wg0
