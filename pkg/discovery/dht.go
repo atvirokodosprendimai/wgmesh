@@ -70,6 +70,7 @@ type DHTDiscovery struct {
 
 	mu                sync.RWMutex
 	running           bool
+	parentCtx         context.Context
 	ctx               context.Context
 	cancel            context.CancelFunc
 	contactedPeers    map[string]time.Time    // Dedup: don't spam same IP
@@ -87,6 +88,7 @@ func NewDHTDiscovery(parentCtx context.Context, config *daemon.Config, localNode
 		config:            config,
 		localNode:         localNode,
 		peerStore:         peerStore,
+		parentCtx:         parentCtx,
 		ctx:               ctx,
 		cancel:            cancel,
 		contactedPeers:    make(map[string]time.Time),
@@ -100,15 +102,33 @@ func NewDHTDiscovery(parentCtx context.Context, config *daemon.Config, localNode
 	return d, nil
 }
 
-// Start begins DHT discovery
-func (d *DHTDiscovery) Start() error {
+// beginRun marks the layer started and returns the "already running" error
+// when it is. STUB (T10 red): keeps today's behaviour.
+func (d *DHTDiscovery) beginRun() error {
 	d.mu.Lock()
+	defer d.mu.Unlock()
 	if d.running {
-		d.mu.Unlock()
 		return fmt.Errorf("DHT discovery already running")
 	}
 	d.running = true
-	d.mu.Unlock()
+	return nil
+}
+
+// setRunning marks the layer running once its sub-layers started. STUB.
+func (d *DHTDiscovery) setRunning() {}
+
+// runCtx returns the context of the current run, under d.mu.
+func (d *DHTDiscovery) runCtx() context.Context {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.ctx
+}
+
+// Start begins DHT discovery
+func (d *DHTDiscovery) Start() error {
+	if err := d.beginRun(); err != nil {
+		return err
+	}
 
 	// Discover external endpoint via STUN before announcing to peers.
 	// Uses an ephemeral port (WG owns the listen port) — the external IP

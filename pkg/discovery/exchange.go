@@ -80,6 +80,10 @@ type PeerExchange struct {
 	running bool
 	stopCh  chan struct{}
 
+	// loops counts live listenLoop goroutines. It is a test seam: after Stop
+	// returns it must be 0, after a restart it must be 1.
+	loops atomic.Int32
+
 	// pendingMu guards pendingReplies and pendingSeq (every access, reads
 	// included). pendingReplies: remote address -> registration id -> the
 	// reply channel of one ExchangeWithPeer call (see registerReply).
@@ -153,6 +157,7 @@ func (pe *PeerExchange) Start() error {
 	pe.stopCh = make(chan struct{}) // Re-create for restart safety (B8)
 
 	// Start listener
+	pe.loops.Add(1)
 	go pe.listenLoop()
 
 	log.Printf("[Exchange] Listening on UDP port %d", port)
@@ -176,6 +181,13 @@ func (pe *PeerExchange) Stop() {
 	}
 }
 
+// isRunning reports whether the exchange is started, under pe.mu.
+func (pe *PeerExchange) isRunning() bool {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	return pe.running
+}
+
 // Port returns the listening port
 func (pe *PeerExchange) Port() int {
 	pe.mu.RLock()
@@ -192,6 +204,7 @@ func (pe *PeerExchange) UDPConn() net.PacketConn {
 
 // listenLoop handles incoming peer exchange requests
 func (pe *PeerExchange) listenLoop() {
+	defer pe.loops.Add(-1)
 	buf := make([]byte, MaxExchangeSize)
 
 	for {
