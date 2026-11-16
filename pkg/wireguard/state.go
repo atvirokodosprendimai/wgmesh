@@ -10,12 +10,16 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // wgCommandTimeout bounds every `wg` child started through runWG (ADR-0007
-// Decision 6). A variable so a test can shorten it.
-var wgCommandTimeout = 10 * time.Second
+// Decision 6), in nanoseconds. Atomic so a test can shorten it while readers
+// of an earlier test still run.
+var wgCommandTimeout atomic.Int64
+
+func init() { wgCommandTimeout.Store(int64(10 * time.Second)) }
 
 // wgWaitDelay bounds the wait for a killed child's pipes, so a grandchild that
 // inherited stdout cannot keep runWG blocked past the deadline.
@@ -124,14 +128,13 @@ func parseState(output string) (*State, error) {
 
 // SetWGPath points the package at another `wg` binary and drops every stored
 // snapshot, so a test can use a fake script. The returned func restores the
-// previous path and drops the snapshots again. For tests only; not safe to
-// call while other goroutines use the package.
+// previous path and drops the snapshots again. For tests only; the path is
+// atomic, so readers running meanwhile see the old or the new one.
 func SetWGPath(path string) (restore func()) {
-	old := wgPath
-	wgPath = path
+	old := wgPath.Swap(&path)
 	resetSlots()
 	return func() {
-		wgPath = old
+		wgPath.Store(old)
 		resetSlots()
 	}
 }
@@ -146,10 +149,11 @@ func resetSlots() {
 // wgCommandTimeout. It returns stdout and stderr separately; on expiry the
 // error names the sub-command and the timeout.
 func runWG(stdin io.Reader, args ...string) (stdout, stderr []byte, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), wgCommandTimeout)
+	timeout := time.Duration(wgCommandTimeout.Load())
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, wgPath, args...)
+	cmd := exec.CommandContext(ctx, *wgPath.Load(), args...)
 	cmd.Stdin = stdin
 	cmd.WaitDelay = wgWaitDelay
 	var out, errb bytes.Buffer
@@ -157,7 +161,7 @@ func runWG(stdin io.Reader, args ...string) (stdout, stderr []byte, err error) {
 
 	err = cmd.Run()
 	if err != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		err = fmt.Errorf("wg %s timed out after %s: %w", args[0], wgCommandTimeout, context.DeadlineExceeded)
+		err = fmt.Errorf("wg %s timed out after %s: %w", args[0], timeout, context.DeadlineExceeded)
 	}
 	return out.Bytes(), errb.Bytes(), err
 }

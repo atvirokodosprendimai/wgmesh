@@ -20,7 +20,7 @@ func TestReadStateWhileWGPathAndTimeoutChange(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 20; i++ {
 			restore := SetWGPath(path)
-			wgCommandTimeout = 10*time.Second + time.Duration(i)
+			wgCommandTimeout.Store(int64(10*time.Second) + int64(i))
 			restore()
 		}
 	}()

@@ -147,9 +147,9 @@ func TestRunWGKillsChildAfterTimeout(t *testing.T) {
 	}
 	t.Cleanup(SetWGPath(path))
 
-	old := wgCommandTimeout
-	wgCommandTimeout = 200 * time.Millisecond
-	t.Cleanup(func() { wgCommandTimeout = old })
+	old := wgCommandTimeout.Load()
+	wgCommandTimeout.Store(int64(200 * time.Millisecond))
+	t.Cleanup(func() { wgCommandTimeout.Store(old) })
 
 	start := time.Now()
 	_, _, err := runWG(nil, "show", "wg0", "dump")

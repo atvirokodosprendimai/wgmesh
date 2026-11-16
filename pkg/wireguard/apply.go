@@ -6,6 +6,7 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+	"sync/atomic"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ifname"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
@@ -18,13 +19,16 @@ func shellQuote(s string) string {
 }
 
 // wgPath is the absolute path to the wg binary, resolved once at package init.
-// Falls back to "wg" (PATH lookup at exec time) if LookPath fails.
-var wgPath = "wg"
+// Falls back to "wg" (PATH lookup at exec time) if LookPath fails. Atomic: a
+// test replaces it through SetWGPath while readers run.
+var wgPath atomic.Pointer[string]
 
 func init() {
-	if p, err := exec.LookPath("wg"); err == nil {
-		wgPath = p
+	p := "wg"
+	if lp, err := exec.LookPath("wg"); err == nil {
+		p = lp
 	}
+	wgPath.Store(&p)
 }
 
 // shortKey safely truncates a key for logging (avoids panic on short/empty keys).
