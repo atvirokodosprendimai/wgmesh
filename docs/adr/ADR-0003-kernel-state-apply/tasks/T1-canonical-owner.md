@@ -68,6 +68,11 @@ n=$(go test ./pkg/routes -run '^(TestCanonicalDefaultPerFamily|TestResolveShared
 - 2026-11-16 · 7de5aff* · mutant killed · exit 1 · `pkg/routes/routes.go` · observed owner ignored: TestResolveKeepsFreshObservedOwner must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
 - 2026-11-16 · 7de5aff* · mutant killed · exit 1 · `pkg/routes/routes.go` · last duplicate wins: TestCalculateDiffDuplicateDesiredStable must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
 - 2026-11-16 · 7de5aff* · mutant killed · exit 1 · `pkg/routes/routes.go` · default kept as a word: TestCanonicalDefaultPerFamily and TestCalculateDiffDefaultNoChurn must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 57a41f0* · mutant killed · exit 1 · `pkg/routes/routes.go` · string compare of mesh IPs: TestResolveAllStaleLowestIPNumeric must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 57a41f0* · mutant killed · exit 1 · `pkg/routes/routes.go` · Fresh ignored: TestResolveFailoverWhenOwnerStale must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 57a41f0* · mutant killed · exit 1 · `pkg/routes/routes.go` · observed owner ignored: TestResolveKeepsFreshObservedOwner must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 57a41f0* · mutant killed · exit 1 · `pkg/routes/routes.go` · last duplicate wins: TestCalculateDiffDuplicateDesiredStable must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 57a41f0* · mutant killed · exit 1 · `pkg/routes/routes.go` · default kept as a word: TestCanonicalDefaultPerFamily and TestCalculateDiffDefaultNoChurn must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
 
 ## Invariants
 
@@ -111,3 +116,10 @@ Stop and ask if an existing test in `pkg/ssh` or `pkg/mesh` needs a changed expe
 - 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:5945
 - 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:6456
 - 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:5597
+- 2026-11-16 · 57a41f0* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:0 · test-lock-sha256:7741b1f0681dc986acdffbfb4a6ccca324ed23bc2c4098e2fd5481e50b806f25 · test-lock-file:docs/adr/locks/7741b1f0681dc986acdffbfb4a6ccca324ed23bc2c4098e2fd5481e50b806f25.lock · test-lock-kind:replace
+- 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:7023
+- 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:5340
+- 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:5371
+- 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:6274
+- 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:6200
+- 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:4589
