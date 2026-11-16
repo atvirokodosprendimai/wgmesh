@@ -104,6 +104,18 @@ func TestResolveSecret(t *testing.T) {
 	}
 }
 
+func TestResolveSecretReadsFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte("wgmesh://v1/file-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WGMESH_SECRET", "")
+	t.Setenv("WGMESH_SECRET_FILE", path)
+	if got := resolveSecret(""); got != "file-value" {
+		t.Errorf("expected file-value, got %q", got)
+	}
+}
+
 func TestResolveAccount(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "account.json")

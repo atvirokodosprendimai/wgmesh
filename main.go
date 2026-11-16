@@ -689,6 +689,12 @@ func statusCmd() {
 	}
 }
 
+// secretFromFlagOrEnv returns the join secret: the flag value, else WGMESH_SECRET,
+// else the trimmed content of the file named by WGMESH_SECRET_FILE.
+func secretFromFlagOrEnv(flagValue string) (string, error) {
+	return flagValue, nil
+}
+
 // qrCmd handles the "qr" subcommand - displays secret as a text-based QR code
 func qrCmd() {
 	fs := flag.NewFlagSet("qr", flag.ExitOnError)

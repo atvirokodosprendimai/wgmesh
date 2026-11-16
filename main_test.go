@@ -546,3 +546,107 @@ func TestCLIFirstWordExitCodes(t *testing.T) {
 		})
 	}
 }
+
+func TestSecretFromFlagOrEnvPrecedence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte("file-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WGMESH_SECRET", "env-value")
+	t.Setenv("WGMESH_SECRET_FILE", path)
+	if got, err := secretFromFlagOrEnv("flag-value"); err != nil || got != "flag-value" {
+		t.Errorf("flag: got %q, %v", got, err)
+	}
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "env-value" {
+		t.Errorf("env over file: got %q, %v", got, err)
+	}
+	t.Setenv("WGMESH_SECRET", "")
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "file-value" {
+		t.Errorf("file: got %q, %v", got, err)
+	}
+	t.Setenv("WGMESH_SECRET_FILE", "")
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "" {
+		t.Errorf("nothing set: got %q, %v", got, err)
+	}
+}
+
+func TestSecretFromFlagOrEnvFileTrimmed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte("  file-value \n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WGMESH_SECRET", "")
+	t.Setenv("WGMESH_SECRET_FILE", path)
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "file-value" {
+		t.Errorf("got %q, %v", got, err)
+	}
+}
+
+func TestSecretFromFlagOrEnvUnreadableFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("WGMESH_SECRET", "")
+	t.Setenv("WGMESH_SECRET_FILE", path)
+	_, err := secretFromFlagOrEnv("")
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Errorf("want an error naming %s, got %v", path, err)
+	}
+}
+
+// runWgmesh runs the built binary with only the given environment (plus HOME) and returns stdout, stderr and the exit code.
+func runWgmesh(t *testing.T, bin string, env []string, args ...string) (string, string, int) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(bin, args...)
+	cmd.Env = append([]string{"HOME=" + t.TempDir()}, env...)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	code := 0
+	if err := cmd.Run(); err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("run: %v", err)
+		}
+		code = ee.ExitCode()
+	}
+	return stdout.String(), stderr.String(), code
+}
+
+// TestCommandsFindSecretFromEnvAndFile: status and qr find the secret with no --secret flag
+func TestCommandsFindSecretFromEnvAndFile(t *testing.T) {
+	bin := buildTestBinary(t)
+	secret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want, stderr, code := runWgmesh(t, bin, nil, "status", "--json", "--secret", secret)
+	if code != 0 || !strings.Contains(want, "\"network_id\"") {
+		t.Fatalf("status with --secret: exit %d\nstdout: %s\nstderr: %s", code, want, stderr)
+	}
+	for name, env := range map[string][]string{
+		"WGMESH_SECRET":      {"WGMESH_SECRET=" + secret},
+		"WGMESH_SECRET_FILE": {"WGMESH_SECRET_FILE=" + path},
+	} {
+		t.Run("status "+name, func(t *testing.T) {
+			got, stderr, code := runWgmesh(t, bin, env, "status", "--json")
+			if code != 0 || got != want {
+				t.Errorf("exit %d, stdout differs from the --secret run\nstdout: %s\nstderr: %s", code, got, stderr)
+			}
+		})
+		t.Run("qr "+name, func(t *testing.T) {
+			got, stderr, code := runWgmesh(t, bin, env, "qr")
+			if code != 0 || !strings.Contains(got, "Mesh Secret QR Code") || strings.Contains(stderr, "--secret is required") {
+				t.Errorf("exit %d\nstdout: %s\nstderr: %s", code, got, stderr)
+			}
+		})
+	}
+}
+
+// TestJoinUnreadableSecretFileExitsOne: join keeps its message and exit code for a secret file it cannot read
+func TestJoinUnreadableSecretFileExitsOne(t *testing.T) {
+	bin := buildTestBinary(t)
+	path := filepath.Join(t.TempDir(), "missing")
+	_, stderr, code := runWgmesh(t, bin, []string{"WGMESH_SECRET_FILE=" + path}, "join")
+	if code != 1 || !strings.Contains(stderr, "Error reading secret file "+path) {
+		t.Errorf("exit %d, stderr: %s", code, stderr)
+	}
+}
