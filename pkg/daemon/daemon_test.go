@@ -339,6 +339,18 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: true,
 		},
 		{
+			name:   "legacy /16 upper edge is inside",
+			meshIP: "10.42.255.254",
+			cfg:    &Config{Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}}},
+			want:   true,
+		},
+		{
+			name:   "legacy next /16 is outside",
+			meshIP: "10.43.0.1",
+			cfg:    &Config{Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}}},
+			want:   false,
+		},
+		{
 			// Rotating the secret derives another /16; the persisted address
 			// outside it is not kept (#890).
 			name:   "legacy other /16 is rederived after secret rotation",

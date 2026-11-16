@@ -53,6 +53,9 @@ func defaultPersisted(t *testing.T) localNodeState {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if derived := crypto.DeriveMeshIP(cfg.Keys.MeshSubnet, stabilityPubKey, testConfigSecret); derived == fmt.Sprintf("10.%d.5.9", cfg.Keys.MeshSubnet[0]) {
+		t.Fatal("test setup: derived IP equals the persisted one")
+	}
 	return localNodeState{
 		WGPubKey:     stabilityPubKey,
 		WGPrivateKey: "stability-test-private",

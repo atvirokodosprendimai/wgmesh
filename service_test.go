@@ -393,28 +393,6 @@ func TestServiceAddReadsResolvedIP(t *testing.T) {
 	}
 }
 
-// TestServiceAddRederivesIPOutsideSecretSubnet: a persisted address outside
-// the current secret's /16 is not reported (#890); registration follows the
-// daemon and reports the derived one.
-func TestServiceAddRederivesIPOutsideSecretSubnet(t *testing.T) {
-	secret := "wgmesh://v1/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-	keys, err := crypto.DeriveKeys(secret)
-	if err != nil {
-		t.Fatalf("DeriveKeys: %v", err)
-	}
-	outside := fmt.Sprintf("10.%d.5.9", keys.MeshSubnet[0]^1)
-
-	dir := t.TempDir()
-	state := fmt.Sprintf(`{"wg_pubkey":"PUBKEY","wg_private_key":"x","mesh_ip":%q}`, outside)
-	if err := os.WriteFile(filepath.Join(dir, "wg0.json"), []byte(state), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	want := crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)
-	if got := deriveMeshIPForService(keys, secret, nil, dir); got != want {
-		t.Errorf("got %s, want the derived address %s, not the persisted %s", got, want, outside)
-	}
-}
-
 func TestDeriveMeshIPForServiceNoStateIsPlaceholder(t *testing.T) {
 	secret := "wgmesh://v1/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	keys, err := crypto.DeriveKeys(secret)

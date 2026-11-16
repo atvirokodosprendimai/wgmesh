@@ -524,6 +524,7 @@ func (d *Daemon) initLocalNode() error {
 			} else {
 				d.localNode.SetMeshIP(crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret))
 			}
+			log.Printf("Persisted mesh IP %s is outside the mesh network %s; re-derived %s", cur, d.meshNet(), d.localNode.GetMeshIP())
 			// Persist the newly derived IP so subsequent starts reuse it.
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
 				log.Printf("Warning: failed to save local node state: %v", err)
