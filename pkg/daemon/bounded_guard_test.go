@@ -6,6 +6,7 @@ import (
 	"go/token"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -74,11 +75,13 @@ var boundTable = []boundRow{
 	{"nonceCache.seen", "../discovery/replay_cache.go", "age-sweep-cap", "Seen drops entries older than ttl, then the oldest at capacity (drop)", "c.mu"},
 }
 
-// checkBoundTable lists every map-typed struct field of the files in src (path
-// to source text) and compares it with table. It is a heuristic over field
-// declarations: a map inside a nested type, a slice of maps, a sync.Map or a
-// map declared in a file that is not in src is outside it. A finding starts
-// with "unlisted", "stale" or "invalid".
+// checkBoundTable is a checklist, not a proof of a bound: it lists every
+// map-typed struct field declared directly in the files of src (path to source
+// text) and checks that table has a row for each, with a known rule kind, a
+// non-empty how and a non-empty lock. It does not check that how is true. It
+// does not see named map types, pointers to maps, slices of maps, a sync.Map, a
+// map inside a nested type, or a file that is not in src. A finding starts with
+// "unlisted", "stale" or "invalid". Why it is this weak: ADR-0007 Decision 1.
 func checkBoundTable(src map[string]string, table []boundRow) []string {
 	var out []string
 	found := map[string]bool{}
@@ -117,10 +120,19 @@ func checkBoundTable(src map[string]string, table []boundRow) []string {
 	for _, r := range table {
 		key := r.file + "|" + r.field
 		listed[key] = true
-		if !boundKinds[r.kind] || r.how == "" || r.lock == "" {
-			out = append(out, "invalid row "+r.field+" in "+r.file+": needs a known rule kind, a how and a lock")
+		where := " in row " + r.field + " of " + r.file
+		if !boundKinds[r.kind] {
+			out = append(out, "invalid column kind"+where+": "+strconv.Quote(r.kind)+" is not one of "+boundKindList())
 		}
-		if _, read := src[r.file]; read && !found[key] {
+		if r.how == "" {
+			out = append(out, "invalid column how"+where+": empty, name the function that releases entries")
+		}
+		if r.lock == "" {
+			out = append(out, "invalid column lock"+where+": empty, name the lock or say why none is needed")
+		}
+		if _, read := src[r.file]; !read {
+			out = append(out, "invalid column file"+where+": "+strconv.Quote(r.file)+" is not one of the parsed files (boundFiles)")
+		} else if !found[key] {
 			out = append(out, "stale row "+r.field+" in "+r.file+": the field no longer exists; delete the row")
 		}
 	}
@@ -132,10 +144,20 @@ func checkBoundTable(src map[string]string, table []boundRow) []string {
 	for _, k := range keys {
 		if !listed[k] {
 			file, field, _ := strings.Cut(k, "|")
-			out = append(out, "unlisted map field "+field+" in "+file+": add a row to boundTable naming its bound (rule kinds: ADR-0007 Decision 1)")
+			out = append(out, "unlisted map field "+field+" in "+file+": add a row to boundTable in pkg/daemon/bounded_guard_test.go with the shape {field, file, kind, how, lock}; kind is one of "+boundKindList()+"; how names the function that releases entries; lock names the lock that guards every access (ADR-0007 Decision 1)")
 		}
 	}
 	return out
+}
+
+// boundKindList is the valid rule kinds, sorted, for a finding's message.
+func boundKindList() string {
+	kinds := make([]string, 0, len(boundKinds))
+	for k := range boundKinds {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	return strings.Join(kinds, ", ")
 }
 
 func readBoundFiles(t *testing.T) map[string]string {
@@ -161,8 +183,11 @@ func findingsWithPrefix(findings []string, prefix string) []string {
 	return out
 }
 
-// TestEveryMapFieldHasABound fails on a map-typed struct field of the peer
-// path without a row in boundTable, or with an invalid one.
+// TestEveryMapFieldHasABound is the checklist of checkBoundTable: every
+// map-typed struct field of the seven boundFiles has a row in boundTable with a
+// known kind, a non-empty how and lock. It does not prove that a bound exists
+// and does not see named map types, pointers to maps, slices, sync.Map or files
+// outside boundFiles (ADR-0007 Decision 1).
 func TestEveryMapFieldHasABound(t *testing.T) {
 	findings := checkBoundTable(readBoundFiles(t), boundTable)
 	bad := append(findingsWithPrefix(findings, "unlisted"), findingsWithPrefix(findings, "invalid")...)
