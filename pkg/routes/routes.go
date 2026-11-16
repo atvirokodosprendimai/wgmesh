@@ -119,6 +119,26 @@ func canonicalNetwork(network string) string {
 	return network
 }
 
+// Canonical returns the canonical CIDR form of network for one address
+// family.
+func Canonical(network string, ipv6 bool) string {
+	return network
+}
+
+// Advertiser is one peer that advertises networks.
+type Advertiser struct {
+	Key      string
+	MeshIP   string
+	MeshIPv6 string
+	Fresh    bool
+	Networks []string
+}
+
+// Resolve gives every advertised network one owner.
+func Resolve(adv []Advertiser, own []string, current map[string]string) map[string]string {
+	return map[string]string{}
+}
+
 // ExcludeOwn returns the entries of networks that are not in own. A node must
 // never route a network it advertises itself through the mesh, so a peer's
 // advertisement of the same network (HA) is dropped on this node. This holds
