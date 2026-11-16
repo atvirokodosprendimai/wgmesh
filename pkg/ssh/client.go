@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,16 @@ import (
 
 type Client struct {
 	conn *ssh.Client
+}
+
+// dialAddr formats host and port for dialing and known_hosts lookups; IPv6
+// hosts come out bracketed ("[::1]:22"). A host already written in brackets
+// ("[::1]", the only IPv6 form that dialed before) is accepted too.
+func dialAddr(host string, port int) string {
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 func NewClient(host string, port int) (*Client, error) {
@@ -46,7 +57,7 @@ func NewClient(host string, port int) (*Client, error) {
 		return nil, err
 	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := dialAddr(host, port)
 	config := &ssh.ClientConfig{
 		User:              "root",
 		Auth:              authMethods,
