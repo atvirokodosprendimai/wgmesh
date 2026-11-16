@@ -143,3 +143,4 @@ Stop and ask if the `NATType` accessors turn out to need a lock order against `e
 - 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:8128
 - 2026-11-16 · ffb9f29* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:0 · test-lock-sha256:862bdc5426220e3d2f646d53344fb72723517d46598e8abde218623fbbc5f145 · test-lock-file:docs/adr/locks/862bdc5426220e3d2f646d53344fb72723517d46598e8abde218623fbbc5f145.lock · test-lock-kind:replace
 - 2026-11-16 · ffb9f29* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:9787
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:10100

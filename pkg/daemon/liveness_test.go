@@ -28,16 +28,15 @@ func enforceLiveness(t *testing.T) {
 func livenessDaemon(t *testing.T) *Daemon {
 	t.Helper()
 	return &Daemon{
-		config:                 &Config{InterfaceName: "wg-test", Keys: makeTestKeys(t)},
-		localNode:              &LocalNode{WGPubKey: "local-pubkey", NATType: "cone"},
-		peerStore:              NewPeerStore(),
-		lastAppliedPeerConfigs: make(map[string]string),
-		relayRoutes:            make(map[string]string),
-		directStableCycles:     make(map[string]int),
-		localSubnetsFn:         func() []*net.IPNet { return nil },
-		temporaryOffline:       make(map[string]time.Time),
-		probeSessions:          make(map[string]*peerProbeSession),
-		probeFailures:          make(map[string]int),
+		config:             &Config{InterfaceName: "wg-test", Keys: makeTestKeys(t)},
+		localNode:          &LocalNode{WGPubKey: "local-pubkey", NATType: "cone"},
+		peerStore:          NewPeerStore(),
+		relayRoutes:        make(map[string]string),
+		directStableCycles: make(map[string]int),
+		localSubnetsFn:     func() []*net.IPNet { return nil },
+		temporaryOffline:   make(map[string]time.Time),
+		probeSessions:      make(map[string]*peerProbeSession),
+		probeFailures:      make(map[string]int),
 	}
 }
 
@@ -261,7 +260,7 @@ func TestProbeLoopVisitsSuspectPeers(t *testing.T) {
 		setup     func(d *Daemon)
 		wantPings int32
 	}{
-		{"still configured", func(d *Daemon) { d.lastAppliedPeerConfigs["peer-susp"] = "sig" }, 1},
+		{"still configured", func(d *Daemon) { d.setConfigured("peer-susp", true) }, 1},
 		{"relay routed", func(d *Daemon) { d.relayRoutes["peer-susp"] = "relay-pubkey" }, 1},
 		{"neither configured nor relay routed", func(d *Daemon) {}, 0},
 	}

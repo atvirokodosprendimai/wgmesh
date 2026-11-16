@@ -134,3 +134,4 @@ Stop and ask if an existing store test needs a changed expectation with the swit
 - 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:9807
 - 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:10350
 - 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:6920
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:8426

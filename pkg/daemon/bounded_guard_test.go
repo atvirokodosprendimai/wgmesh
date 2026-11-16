@@ -50,7 +50,6 @@ var boundFiles = []string{
 // column was read from every non-test access of the field (ADR-0007, M's rule
 // of 2026-11-16: a field touched by more than one goroutine is under a lock).
 var boundTable = []boundRow{
-	{"Daemon.lastAppliedPeerConfigs", "daemon.go", "swept-vs-active-set", "applyDesiredPeerConfigs deletes the WireGuard peers that are not desired; evictPeerFromPool and attemptPeerReconnect delete one key", "d.appliedMu"},
 	{"Daemon.relayRoutes", "daemon.go", "replaced-per-tick", "reconcile assigns a fresh map every tick; evictPeerFromPool deletes one key", "d.relayMu"},
 	{"Daemon.directStableCycles", "daemon.go", "replaced-per-tick", "reconcile assigns a fresh map every tick; evictPeerFromPool deletes one key", "d.relayMu"},
 	{"Daemon.relayRouteSince", "daemon.go", "replaced-per-tick", "storeRelayPlan builds a fresh map from the relay routes every tick, so a peer that left the routes drops out", "d.relayMu"},
@@ -59,6 +58,18 @@ var boundTable = []boundRow{
 	{"Daemon.probeSessions", "daemon.go", "swept-vs-active-set", "cleanupProbeSessions (probePeersOverMesh, every second) closes and deletes sessions outside the active set", "d.probeMu"},
 	{"Daemon.probeFailures", "daemon.go", "swept-vs-active-set", "cleanupProbeSessions deletes keys outside the active set, with or without a session (a pass with an old peers snapshot can write a key after evictPeerFromPool deleted it)", "d.probeMu"},
 	{"Daemon.temporaryOffline", "daemon.go", "deadline-sweep", "sweepTemporaryOffline, called by staleCleanupTick every minute, deletes entries past their deadline", "d.offlineMu"},
+	{"Daemon.sharedLogged", "daemon.go", "swept-vs-active-set", "the shared-network log step (desired.go) deletes every network that is no longer shared in this tick", "d.sharedLogMu"},
+	{"Daemon.configured", "daemon.go", "swept-vs-active-set", "removeLocked (every plan.Remove of applyKernel, stale cleanup and eviction) calls setConfigured(key, false); a key is added only by a successful set of a peer the kernel then holds", "d.configuredMu"},
+	{"Daemon.pushedEndpoint", "daemon.go", "swept-vs-active-set", "removeLocked deletes the key of a peer removed from the kernel; keys are peers set in the kernel", "d.convergeMu"},
+	{"Daemon.lastResults", "daemon.go", "swept-vs-active-set", "logResults deletes every item id that is not in this tick's results, and the id of a result that succeeded", "d.convergeMu"},
+	{"Daemon.addressWarned", "daemon.go", "replaced-per-tick", "desireAddresses assigns the set of stale addresses that still hold (converge.go), so one that stops holding drops out", "d.convergeMu"},
+	{"Daemon.routeWarned", "daemon.go", "replaced-per-tick", "convergeWith assigns ds.routeWarned every tick: the rule cases this desire warned about and that still hold", "d.convergeMu"},
+	{"Daemon.routeObserveErr", "daemon.go", "hard-cap", "keyed by the route observe target (IPv4 and IPv6): at most two entries; the entry is deleted when the observe works again", "d.convergeMu"},
+	{"Daemon.hostDefaultWarned", "daemon.go", "hard-cap", "keyed by address family: at most two entries; deleted when the default route case stops holding", "d.convergeMu"},
+	{"Daemon.hostDefaultReadErr", "daemon.go", "hard-cap", "keyed by address family: at most two entries; deleted when the host default route reads again", "d.convergeMu"},
+	{"Daemon.hostDefaults", "daemon.go", "hard-cap", "keyed by address family: at most two entries; deleted when the mesh default route is removed and the host one restored", "d.convergeMu"},
+	{"Daemon.darwinWarned", "daemon.go", "replaced-per-tick", "the macOS route step assigns the set of cases warned about that still hold (converge.go), so one that stops holding drops out", "d.convergeMu"},
+	{"Daemon.darwinInstalled", "daemon.go", "swept-vs-active-set", "the macOS route step deletes the key of a network whose route it removed; keys are networks this run installed", "d.convergeMu"},
 	{"desiredPeerConfig.allowed", "daemon.go", "session-local", "built and read inside one reconcile call, then dropped with the desired map", "none: never shared between goroutines"},
 	{"DHTDiscovery.contactedPeers", "../discovery/dht.go", "age-sweep-cap", "markContacted sweeps entries older than ContactDedupWindow above contactSweepThreshold and refuses new addresses at MaxContactedPeers", "d.mu"},
 	{"DHTDiscovery.controlPeers", "../discovery/dht.go", "store-membership", "sweepPeerKeyed (first step of checkStaleHandshakes) deletes keys the PeerStore no longer holds", "d.mu"},

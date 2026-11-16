@@ -75,18 +75,17 @@ func showForks(t *testing.T, dir string) int {
 
 func forkTestDaemon() *Daemon {
 	d := &Daemon{
-		config:                 &Config{InterfaceName: forkIface},
-		localNode:              &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"},
-		peerStore:              NewPeerStore(),
-		lastAppliedPeerConfigs: map[string]string{},
-		directStableCycles:     map[string]int{},
-		relayRoutes:            map[string]string{},
-		peerHealthFailures:     map[string]int{},
-		lastPeerTransferTotal:  map[string]uint64{},
-		probeSessions:          map[string]*peerProbeSession{},
-		probeFailures:          map[string]int{},
-		temporaryOffline:       map[string]time.Time{},
-		localSubnetsFn:         func() []*net.IPNet { return nil },
+		config:                &Config{InterfaceName: forkIface},
+		localNode:             &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"},
+		peerStore:             NewPeerStore(),
+		directStableCycles:    map[string]int{},
+		relayRoutes:           map[string]string{},
+		peerHealthFailures:    map[string]int{},
+		lastPeerTransferTotal: map[string]uint64{},
+		probeSessions:         map[string]*peerProbeSession{},
+		probeFailures:         map[string]int{},
+		temporaryOffline:      map[string]time.Time{},
+		localSubnetsFn:        func() []*net.IPNet { return nil },
 	}
 	d.peerStore.Update(&PeerInfo{WGPubKey: "peer-a", MeshIP: "10.0.0.2", LastSeen: time.Now()}, "test")
 	return d

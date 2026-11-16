@@ -141,3 +141,5 @@ Stop and ask if `TestReconcileRecordsHandshakes` needs a second `wg show` per re
 - 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:15612
 - 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:8256
 - 2026-11-16 · ffb9f29* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:8447
+- 2026-11-16 · 7c1d459* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:0 · test-lock-sha256:e2800e109d9d8a7dce221bba770aa39279b54d6435f0947e9d0b4dd0b6bb1266 · test-lock-file:docs/adr/locks/e2800e109d9d8a7dce221bba770aa39279b54d6435f0947e9d0b4dd0b6bb1266.lock · test-lock-kind:replace
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:13058

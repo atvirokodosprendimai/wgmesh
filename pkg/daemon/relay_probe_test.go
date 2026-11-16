@@ -34,6 +34,7 @@ type wgRecorder struct {
 	mu      sync.Mutex
 	sets    []setPeerCall
 	removes []string
+	kernel  map[string][]string // peer key -> allowed-ips: the fake kernel the recorder serves as a dump
 }
 
 func (r *wgRecorder) setCalls() []setPeerCall {
@@ -48,26 +49,69 @@ func (r *wgRecorder) removeCalls() []string {
 	return append([]string(nil), r.removes...)
 }
 
-// stubWireGuard swaps the two seams for a recorder (no wg needed) and puts
-// them back when the test ends.
+// stubWireGuard returns a recorder that models the WireGuard interface (no wg
+// needed): wire(d) points the daemon's set, remove and dump seams at it, so
+// the apply step reads back what it wrote.
 func stubWireGuard(t *testing.T) *wgRecorder {
 	t.Helper()
-	r := &wgRecorder{}
-	oldSet, oldRemove := setPeer, wgRemovePeer
-	setPeer = func(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		r.sets = append(r.sets, setPeerCall{key: pubKey, endpoint: endpoint, allowed: allowedIPs})
-		return nil
+	return &wgRecorder{kernel: make(map[string][]string)}
+}
+
+func (r *wgRecorder) setPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sets = append(r.sets, setPeerCall{key: pubKey, endpoint: endpoint, allowed: allowedIPs})
+	switch allowedIPs {
+	case wireguard.AllowedIPsClear:
+		r.kernel[pubKey] = nil
+	case "":
+		if _, ok := r.kernel[pubKey]; !ok {
+			r.kernel[pubKey] = nil
+		}
+	default:
+		r.kernel[pubKey] = strings.Split(allowedIPs, ",")
 	}
-	wgRemovePeer = func(iface, pubKey string) error {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		r.removes = append(r.removes, pubKey)
-		return nil
+	return nil
+}
+
+func (r *wgRecorder) removePeer(iface, pubKey string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.removes = append(r.removes, pubKey)
+	delete(r.kernel, pubKey)
+	return nil
+}
+
+func (r *wgRecorder) dump(string) (wireguard.DumpPeers, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make(wireguard.DumpPeers, len(r.kernel))
+	for key, allowed := range r.kernel {
+		out[key] = wireguard.DumpPeer{PublicKey: key, AllowedIPs: append([]string(nil), allowed...)}
 	}
-	t.Cleanup(func() { setPeer, wgRemovePeer = oldSet, oldRemove })
-	return r
+	return out, nil
+}
+
+// wire points d's WireGuard seams at the recorder.
+func (r *wgRecorder) wire(d *Daemon) {
+	d.setPeerFn, d.removePeerFn, d.dumpFn = r.setPeer, r.removePeer, r.dump
+}
+
+// applyDesired applies a desired peer set the way a tick does: observe the
+// kernel, plan, apply, under the converge lock.
+func applyDesired(d *Daemon, desired map[string]*desiredPeerConfig) error {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	obs := d.observeKernel()
+	if err := obs.Errs[targetPeers]; err != nil {
+		return err
+	}
+	for _, r := range d.applyKernel(planKernel(desired, obs, d.pushedLocked(), d.config.DisableIPv6)) {
+		if r.Err != nil {
+			return r.Err
+		}
+	}
+	return nil
 }
 
 // relayProbeDaemon is livenessDaemon plus the health loop's maps.
@@ -160,6 +204,7 @@ func TestProbeOnlyPeerCarriesNoAllowedIPs(t *testing.T) {
 	enforceRelayProbe(t)
 	rec := stubWireGuard(t)
 	d := relayProbeDaemon(t)
+	rec.wire(d)
 	intro, peer := relayProbePeers("no-allowed-ips-peer")
 
 	desired, _ := relayCycle(d, []*PeerInfo{intro, peer}, map[string]int64{})
@@ -174,8 +219,8 @@ func TestProbeOnlyPeerCarriesNoAllowedIPs(t *testing.T) {
 		t.Errorf("allowedCSVFor(relay) = %q, want a list holding %s/32", got, peer.MeshIP)
 	}
 
-	if err := d.applyDesiredPeerConfigs(desired, nil); err != nil {
-		t.Fatalf("applyDesiredPeerConfigs: %v", err)
+	if err := applyDesired(d, desired); err != nil {
+		t.Fatalf("applyDesired: %v", err)
 	}
 	var sentPeer, sentRelay bool
 	for _, c := range rec.setCalls() {
@@ -348,6 +393,7 @@ func TestRelayRouteAgeMetric(t *testing.T) {
 func TestHealthCheckSkipsRelayRoutedAndProbeOnlyPeers(t *testing.T) {
 	rec := stubWireGuard(t)
 	d := relayProbeDaemon(t)
+	rec.wire(d)
 	d.relayRoutes["relayed-peer"] = probeIntroKey
 	keys := []string{"direct-peer", "relayed-peer"}
 	for i, key := range keys {
@@ -390,6 +436,7 @@ func TestHealthCheckSkipsRelayRoutedAndProbeOnlyPeers(t *testing.T) {
 func TestApplySignatureIncludesProbeOnlyMode(t *testing.T) {
 	rec := stubWireGuard(t)
 	d := relayProbeDaemon(t)
+	rec.wire(d)
 	_, peer := relayProbePeers("signature-peer")
 	probe := map[string]*desiredPeerConfig{peer.WGPubKey: {peer: peer, allowed: map[string]struct{}{}, probeOnly: true}}
 	direct := map[string]*desiredPeerConfig{peer.WGPubKey: {peer: peer, allowed: map[string]struct{}{peer.MeshIP + "/32": {}}}}
@@ -407,8 +454,8 @@ func TestApplySignatureIncludesProbeOnlyMode(t *testing.T) {
 		{"probe-only after direct", probe, 3, wireguard.AllowedIPsClear},
 	}
 	for _, s := range steps {
-		if err := d.applyDesiredPeerConfigs(s.desired, nil); err != nil {
-			t.Fatalf("%s: applyDesiredPeerConfigs: %v", s.name, err)
+		if err := applyDesired(d, s.desired); err != nil {
+			t.Fatalf("%s: applyDesired: %v", s.name, err)
 		}
 		sets := rec.setCalls()
 		if len(sets) != s.wantCalls {
@@ -421,8 +468,9 @@ func TestApplySignatureIncludesProbeOnlyMode(t *testing.T) {
 }
 
 func TestEvictPeerFromPoolRemovesRelayAgeSeries(t *testing.T) {
-	stubWireGuard(t)
+	rec := stubWireGuard(t)
 	d := relayProbeDaemon(t)
+	rec.wire(d)
 	key := "evicted-age-peer"
 	label := key[:8]
 	t.Cleanup(func() { relayRouteAge.DeleteLabelValues(label) })
@@ -457,37 +505,60 @@ func TestRelayRouteAgeIsZeroWhenClockStepsBack(t *testing.T) {
 	}
 }
 
-// TestReconcileStoresRelayPlan pins the wiring: reconcile builds the plan
-// through planPeers and hands it to storeRelayPlan, the only writer of the
-// relay routes, so the gauge and the health skip see what the apply step sees.
-func TestReconcileStoresRelayPlan(t *testing.T) {
-	file, err := parser.ParseFile(token.NewFileSet(), "daemon.go", nil, 0)
+// callsIn returns the names of the selectors called inside the method name of
+// file: the wiring tests read the source, not the behaviour.
+func callsIn(t *testing.T, file, name string) map[string]bool {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
 	if err != nil {
-		t.Fatalf("parse daemon.go: %v", err)
+		t.Fatalf("parse %s: %v", file, err)
 	}
 	called := map[string]bool{}
 	found := false
-	for _, decl := range file.Decls {
+	for _, decl := range f.Decls {
 		fn, ok := decl.(*ast.FuncDecl)
-		if !ok || fn.Recv == nil || fn.Name.Name != "reconcile" || fn.Body == nil {
+		if !ok || fn.Recv == nil || fn.Name.Name != name || fn.Body == nil {
 			continue
 		}
 		found = true
 		ast.Inspect(fn.Body, func(n ast.Node) bool {
 			if call, ok := n.(*ast.CallExpr); ok {
-				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-					called[sel.Sel.Name] = true
+				switch fun := call.Fun.(type) {
+				case *ast.SelectorExpr:
+					called[fun.Sel.Name] = true
+				case *ast.Ident:
+					called[fun.Name] = true
 				}
 			}
 			return true
 		})
 	}
 	if !found {
-		t.Fatal("reconcile not found in daemon.go: the walk sees nothing")
+		t.Fatalf("%s not found in %s: the walk sees nothing", name, file)
 	}
-	for _, name := range []string{"planPeers", "storeRelayPlan", "applyDesiredPeerConfigs"} {
-		if !called[name] {
-			t.Errorf("reconcile does not call %s", name)
+	return called
+}
+
+// TestReconcileStoresRelayPlan pins the wiring: reconcile runs the converge
+// tick, which records the handshakes as evidence, reads the active peers,
+// builds the desired state once and hands the relay plan to storeRelayPlan,
+// the only writer of the relay routes, before anything is applied, so the
+// gauge and the health skip see what the apply step sees.
+func TestReconcileStoresRelayPlan(t *testing.T) {
+	for _, c := range []struct {
+		file, fn string
+		want     []string
+	}{
+		{"daemon.go", "reconcile", []string{"convergeTick"}},
+		{"converge.go", "convergeTick", []string{"convergeWith"}},
+		{"converge.go", "convergeWith", []string{"peersFn", "desire", "storeRelayPlan", "applyKernel"}},
+		{"liveness.go", "activePeers", []string{"observeHandshakes", "GetActive"}},
+	} {
+		called := callsIn(t, c.file, c.fn)
+		for _, name := range c.want {
+			if !called[name] {
+				t.Errorf("%s does not call %s", c.fn, name)
+			}
 		}
 	}
 }
@@ -496,8 +567,9 @@ func TestReconcileStoresRelayPlan(t *testing.T) {
 // state from several goroutines. A dropped lock is detected only under -race,
 // which the task's fence uses.
 func TestProbeOnlyStateIsRaceFree(t *testing.T) {
-	stubWireGuard(t)
+	rec := stubWireGuard(t)
 	d := relayProbeDaemon(t) // relayRouteSince starts nil
+	rec.wire(d)
 	key, evictKey := "race-probe-peer", "race-evicted-peer"
 	evicted := &PeerInfo{WGPubKey: evictKey, MeshIP: "10.250.0.4", Endpoint: "172.20.2.21:51820"}
 	routes := func() map[string]string { return map[string]string{key: probeIntroKey, evictKey: probeIntroKey} }

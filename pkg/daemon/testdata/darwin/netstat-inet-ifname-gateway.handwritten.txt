@@ -1,0 +1,8 @@
+Routing tables
+
+Internet:
+Destination        Gateway            Flags               Netif Expire
+default            192.168.1.1        UGScg                 en0
+10.99/16           utun4              US                  utun4
+10.100.0.5         utun4              UHS                 utun4
+192.168.5/24       utun4              US                  utun4

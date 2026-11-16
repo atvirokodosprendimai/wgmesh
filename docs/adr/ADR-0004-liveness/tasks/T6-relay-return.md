@@ -152,3 +152,5 @@ Stop and ask if S2 shows that an empty AllowedIPs list still lets WireGuard acce
 - 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:13840
 - 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:14043
 - 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:9834
+- 2026-11-16 · 7c1d459* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:0 · test-lock-sha256:73e078292aa8453166bba574dd4419eed79013f02761f93505eb0f56b5f4b7e9 · test-lock-file:docs/adr/locks/73e078292aa8453166bba574dd4419eed79013f02761f93505eb0f56b5f4b7e9.lock · test-lock-kind:replace
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:11454

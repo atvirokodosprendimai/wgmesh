@@ -1,67 +1,12 @@
 package daemon
 
 import (
-	"fmt"
 	"log"
 	"net"
-	"runtime"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
-
-func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
-	if runtime.GOOS != "linux" {
-		return nil
-	}
-
-	desired := make([]routes.Entry, 0)
-	relayRoutes := d.currentRelayRoutesSnapshot()
-	ownNetworks := d.ownRoutableNetworks()
-	meshIPByPubKey := make(map[string]string, len(peers))
-	for _, p := range peers {
-		if p != nil && p.WGPubKey != "" && p.MeshIP != "" {
-			meshIPByPubKey[p.WGPubKey] = p.MeshIP
-		}
-	}
-	for _, peer := range peers {
-		if peer.WGPubKey == d.localNode.WGPubKey || peer.MeshIP == "" {
-			continue
-		}
-		if d.isTemporarilyOffline(peer.WGPubKey) {
-			continue
-		}
-		gateway := peer.MeshIP
-		if relayPubKey, ok := relayRoutes[peer.WGPubKey]; ok {
-			if relayIP := meshIPByPubKey[relayPubKey]; relayIP != "" {
-				gateway = relayIP
-			}
-		}
-		for _, network := range routes.ExcludeOwn(peer.RoutableNetworks, ownNetworks) {
-			network = strings.TrimSpace(network)
-			if network == "" {
-				continue
-			}
-			desired = append(desired, routes.Entry{Network: network, Gateway: gateway})
-		}
-	}
-
-	current, err := getCurrentRoutes(d.config.InterfaceName)
-	if err != nil {
-		return err
-	}
-
-	toAdd, toRemove := routes.CalculateDiff(current, desired)
-	removed, err := applyRouteDiff(d.config.InterfaceName, toAdd, toRemove)
-	// Removals run before adds, so restore even if an add failed. Only a
-	// removed route can be replaced by the connected route.
-	for _, r := range removed {
-		if len(routes.ExcludeOwn([]string{r.Network}, ownNetworks)) == 0 {
-			restoreConnectedRoute(r.Network)
-		}
-	}
-	return err
-}
 
 // restoreConnectedRoute re-adds the kernel connected route for an own network
 // whose `<network> via <peer> dev <mesh iface>` route was just removed: older
@@ -113,81 +58,4 @@ func (d *Daemon) directStableCyclesSnapshot() map[string]int {
 		out[k] = v
 	}
 	return out
-}
-
-func getCurrentRoutes(iface string) ([]routes.Entry, error) {
-	cmd := cmdExecutor.Command("ip", "route", "show", "dev", iface)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read routes: %w", err)
-	}
-
-	result := make([]routes.Entry, 0)
-	for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		parts := strings.Fields(line)
-		if len(parts) < 1 {
-			continue
-		}
-
-		network := routes.NormalizeNetwork(parts[0])
-		gateway := ""
-		for i, part := range parts {
-			if part == "via" && i+1 < len(parts) {
-				gateway = parts[i+1]
-				break
-			}
-		}
-
-		if gateway == "" {
-			continue
-		}
-
-		result = append(result, routes.Entry{Network: network, Gateway: gateway})
-	}
-
-	return result, nil
-}
-
-// applyRouteDiff applies the diff and returns the routes whose `ip route del` succeeded.
-func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) ([]routes.Entry, error) {
-	var removed []routes.Entry
-	for _, route := range toRemove {
-		cmd := cmdExecutor.Command("ip", "route", "del", route.Network, "via", route.Gateway, "dev", iface)
-		if cmd.Run() == nil {
-			removed = append(removed, route)
-		}
-	}
-
-	for _, route := range toAdd {
-		cmd := cmdExecutor.Command("ip", "route", "replace", route.Network, "via", route.Gateway, "dev", iface)
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return removed, fmt.Errorf("failed to add route %s via %s: %s: %w", route.Network, route.Gateway, string(output), err)
-		}
-	}
-
-	cmd := cmdExecutor.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
-	_ = cmd.Run()
-
-	ensureWGForwardingRule(iface)
-
-	return removed, nil
-}
-
-func ensureWGForwardingRule(iface string) {
-	// Best-effort: allow forwarding between WG peers on this interface.
-	// This is required for relay mode when traffic must pass through a public node.
-	check := cmdExecutor.Command("iptables", "-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
-	if err := check.Run(); err == nil {
-		return
-	}
-
-	add := cmdExecutor.Command("iptables", "-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT")
-	if out, err := add.CombinedOutput(); err != nil {
-		log.Printf("Failed to install relay FORWARD rule for %s: %s: %v", iface, strings.TrimSpace(string(out)), err)
-	}
 }

@@ -15,14 +15,6 @@ import (
 // health goroutines; tests call Store.
 var EnforceRelayProbe atomic.Bool
 
-// The WireGuard calls of the apply step and the health loop, as variables so a
-// test can record them without wg. Production never writes them. The reads go
-// through wireguard.ReadState (ADR-0007), not through a seam here.
-var (
-	setPeer      = wireguard.SetPeer
-	wgRemovePeer = wireguard.RemovePeer
-)
-
 // allowedCSVFor is the allowed-ips argument of cfg: the sorted list, or the
 // explicit clear for a probe-only peer, which carries no AllowedIPs.
 func allowedCSVFor(cfg *desiredPeerConfig) string {

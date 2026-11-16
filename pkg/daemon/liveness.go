@@ -24,10 +24,17 @@ func observeHandshakes(store *PeerStore, handshakes map[string]int64, now time.T
 // whose only evidence is a handshake must already be Alive when the active
 // set is read.
 func (d *Daemon) planPeers(handshakes map[string]int64, now time.Time) ([]*PeerInfo, map[string]*desiredPeerConfig, map[string]string, map[string]int) {
-	observeHandshakes(d.peerStore, handshakes, now)
-	peers := d.peerStore.GetActive()
+	peers := d.activePeers(handshakes, now)
 	desired, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, handshakes)
 	return peers, desired, relayRoutes, directStable
+}
+
+// activePeers records the handshakes as data-plane evidence and then reads the
+// active peers, in that order: a peer whose only evidence is a handshake must
+// already be Alive when the active set is read.
+func (d *Daemon) activePeers(handshakes map[string]int64, now time.Time) []*PeerInfo {
+	observeHandshakes(d.peerStore, handshakes, now)
+	return d.peerStore.GetActive()
 }
 
 // DecideByLiveness is PeerInfo.DecideByAge that counts each disagreement in
