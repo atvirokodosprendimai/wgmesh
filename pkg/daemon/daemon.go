@@ -1495,6 +1495,18 @@ func (d *Daemon) evaluatePeerHealth(handshakes map[string]int64, transfers map[s
 		}
 		activeSet[p.WGPubKey] = struct{}{}
 
+		// A relay-routed peer has no handshake of its own and a probe-only peer
+		// is kept on the interface without AllowedIPs only to handshake: a
+		// reconnect would give it its mesh IP and take the address from the
+		// relay, an eviction would drop it. Neither is judged here.
+		if d.isRelayPathPeer(p.WGPubKey) {
+			d.healthMu.Lock()
+			delete(d.peerHealthFailures, p.WGPubKey)
+			delete(d.lastPeerTransferTotal, p.WGPubKey)
+			d.healthMu.Unlock()
+			continue
+		}
+
 		ts := handshakes[p.WGPubKey]
 		transfer := transfers[p.WGPubKey]
 		currentTotal := transfer.RxBytes + transfer.TxBytes
@@ -1572,6 +1584,9 @@ func reconnectAllowedCSV(peer *PeerInfo, ownNetworks []string) string {
 func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
+	}
+	if d.isRelayPathPeer(peer.WGPubKey) {
+		return // the relay carries its traffic; see evaluatePeerHealth
 	}
 	log.Printf("[Health] Peer %s... stale handshake >%v with no transfer growth, forcing reconnect", shortKey(peer.WGPubKey), HandshakeStaleAfter)
 	if peer.Endpoint == "" {
