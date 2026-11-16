@@ -1,0 +1,5 @@
+! exec wgmesh statu
+stderr 'wgmesh - WireGuard mesh network builder'
+stderr 'SUBCOMMANDS'
+! stderr 'Failed to load mesh state'
+! stdout .

@@ -1,0 +1,9 @@
+exec wgmesh --version
+stdout '^wgmesh version'
+
+exec wgmesh version
+stdout '^wgmesh version'
+
+# --version after the subcommand is the subcommand's, not the program's
+! exec wgmesh peers list --version
+! stdout 'wgmesh version'
