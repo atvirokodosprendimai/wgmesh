@@ -593,3 +593,84 @@ func TestConvergeConcurrentWithHealthWrites(t *testing.T) {
 		t.Errorf("only %d writes ran", writes.Load())
 	}
 }
+
+// pushedOf is a copy of the endpoints recorded as pushed.
+func pushedOf(d *Daemon) map[string]string {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	out := make(map[string]string)
+	for k, v := range d.pushedLocked() {
+		out[k] = v
+	}
+	return out
+}
+
+// reconnectPeerInKernel pushes what the desired state says, not what the
+// caller's PeerInfo says, and skips a peer planKernel would not configure.
+func TestReconnectPeerGuards(t *testing.T) {
+	const ep = "203.0.113.2:51820"
+	stale := testPeer("keyA", "10.99.0.2", "198.51.100.1:1")
+
+	t.Run("pushes the desired endpoint", func(t *testing.T) {
+		k := newFakeKernel()
+		d := newConvergeDaemon(t, k, &logSink{})
+		if err := d.reconnectPeerInKernel(stale, []*PeerInfo{testPeer("keyA", "10.99.0.2", ep)}); err != nil {
+			t.Fatal(err)
+		}
+		if got, want := k.setCalls(), []setCall{{"keyA", ep, "10.99.0.2/32"}}; !reflect.DeepEqual(got, want) {
+			t.Errorf("sets = %v, want %v", got, want)
+		}
+		if got := pushedOf(d); !reflect.DeepEqual(got, map[string]string{"keyA": ep}) {
+			t.Errorf("pushed = %v, want the desired endpoint", got)
+		}
+	})
+
+	skipped := map[string]struct {
+		desired     *PeerInfo
+		disableIPv6 bool
+	}{
+		"empty desired endpoint":       {testPeer("keyA", "10.99.0.2", ""), false},
+		"IPv6 endpoint, IPv6 disabled": {testPeer("keyA", "10.99.0.2", "[2001:db8::1]:51820"), true},
+	}
+	for name, c := range skipped {
+		t.Run(name, func(t *testing.T) {
+			k := newFakeKernel()
+			ls := &logSink{}
+			d := newConvergeDaemon(t, k, ls)
+			d.config.DisableIPv6 = c.disableIPv6
+			if err := d.reconnectPeerInKernel(stale, []*PeerInfo{c.desired}); err != nil {
+				t.Fatal(err)
+			}
+			if got := k.setCalls(); len(got) != 0 {
+				t.Errorf("wrote %v for a peer that is not configurable", got)
+			}
+			if got := pushedOf(d); len(got) != 0 {
+				t.Errorf("pushed = %v, want nothing recorded", got)
+			}
+			if n := ls.total(); n != 1 {
+				t.Errorf("logged %d lines, want 1: %v", n, ls.lines)
+			}
+		})
+	}
+
+	t.Run("IPv6 endpoint with IPv6 on is pushed", func(t *testing.T) {
+		k := newFakeKernel()
+		d := newConvergeDaemon(t, k, &logSink{})
+		v6 := "[2001:db8::1]:51820"
+		if err := d.reconnectPeerInKernel(stale, []*PeerInfo{testPeer("keyA", "10.99.0.2", v6)}); err != nil {
+			t.Fatal(err)
+		}
+		if got := k.setCalls(); len(got) != 1 || got[0].endpoint != v6 {
+			t.Errorf("sets = %v, want one with %s", got, v6)
+		}
+	})
+
+	// desire never yields an entry without AllowedIPs, so the empty-set guard
+	// is checked on the shared predicate.
+	t.Run("empty allowed set", func(t *testing.T) {
+		cfg := &desiredPeerConfig{peer: testPeer("keyA", "10.99.0.2", ep), allowed: map[string]struct{}{}}
+		if cfg.configurable(false) {
+			t.Error("a peer with no AllowedIPs is configurable")
+		}
+	})
+}

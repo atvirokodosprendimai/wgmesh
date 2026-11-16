@@ -63,13 +63,10 @@ func planKernel(want map[string]*desiredPeerConfig, kernel kernelObserved, pushe
 	var shrinking, growing []peerWrite
 	for _, key := range keys {
 		cfg := want[key]
-		if cfg.peer.Endpoint == "" || (disableIPv6 && isIPv6Endpoint(cfg.peer.Endpoint)) {
+		if !cfg.configurable(disableIPv6) {
 			continue
 		}
 		allowed := mapKeysSorted(cfg.allowed)
-		if len(allowed) == 0 {
-			continue
-		}
 		wanted := make(map[string]struct{}, len(allowed))
 		for _, cidr := range allowed {
 			wanted[canonicalCIDR(cidr)] = struct{}{}
@@ -91,6 +88,13 @@ func planKernel(want map[string]*desiredPeerConfig, kernel kernelObserved, pushe
 	}
 	plan.Set = append(shrinking, growing...)
 	return plan
+}
+
+// configurable reports whether the peer can be written to the kernel: it has an
+// endpoint (an IPv6 one only when IPv6 is on) and something to allow.
+func (cfg *desiredPeerConfig) configurable(disableIPv6 bool) bool {
+	ep := cfg.peer.Endpoint
+	return ep != "" && !(disableIPv6 && isIPv6Endpoint(ep)) && len(cfg.allowed) > 0
 }
 
 // sameSet reports whether a and b hold the same members.
@@ -184,12 +188,15 @@ func (d *Daemon) reconnectPeerInKernel(peer *PeerInfo, peers []*PeerInfo) error 
 		d.logf("[Health] Peer %s... has no WireGuard peer entry of its own (relayed or not desired); not touching it", shortKey(peer.WGPubKey))
 		return nil
 	}
-	allowed := mapKeysSorted(cfg.allowed)
-	if err := d.setSeam(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, peer.Endpoint, strings.Join(allowed, ",")); err != nil {
+	if !cfg.configurable(d.config.DisableIPv6) {
+		d.logf("[Health] Peer %s... is not configurable (no endpoint, IPv6 endpoint with IPv6 disabled, or nothing to allow); not touching it", shortKey(peer.WGPubKey))
+		return nil
+	}
+	ep := cfg.peer.Endpoint
+	if err := d.setSeam(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, ep, strings.Join(mapKeysSorted(cfg.allowed), ",")); err != nil {
 		return err
 	}
-	d.pushedLocked()[peer.WGPubKey] = peer.Endpoint
-	RecordKernelChange(targetPeers)
+	d.pushedLocked()[peer.WGPubKey] = ep
 	return nil
 }
 
