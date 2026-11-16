@@ -131,3 +131,4 @@ Stop and ask if the temp file cannot be created in the target's directory on a s
 - 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:10986
 - 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:4651
 - 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:5212
+- 2026-11-16 · 9171f6d · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:4032

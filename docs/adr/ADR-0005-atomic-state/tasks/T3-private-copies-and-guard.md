@@ -136,3 +136,23 @@ Stop and ask if a file outside the table already has an `os.WriteFile` that is s
 - 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:31834
 - 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:28321
 - 2026-11-15 · fc71fd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:29442
+- 2026-11-16 · 9171f6d* · exit 1 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:25001
+  ```
+  --- last 7 line(s) of stdout
+  ok  	github.com/atvirokodosprendimai/wgmesh/pkg/mesh	19.300s
+  --- FAIL: TestValidateCodeChecksum (0.00s)
+      generate_test.go:104: only 3/8 payload mutations detected (expected >=4)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/promo	0.063s
+  ok  	github.com/atvirokodosprendimai/wgmesh	22.596s
+  FAIL
+  --- last 8 line(s) of stderr
+  === RUN   TestNoInPlaceStateWrite
+  --- PASS: TestNoInPlaceStateWrite (0.07s)
+  === RUN   TestNoPrivateRenameCopy
+  --- PASS: TestNoPrivateRenameCopy (0.05s)
+  === RUN   TestGuardSkipsHiddenAndNestedModuleDirs
+  --- PASS: TestGuardSkipsHiddenAndNestedModuleDirs (0.00s)
+  PASS
+  ok  	github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile	0.124s
+  ```
