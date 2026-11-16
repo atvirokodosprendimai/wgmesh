@@ -73,8 +73,8 @@ type Daemon struct {
 	forwardScopeWarned bool   // the node is forced to forward without needing to (rule forward-scope)
 	forwardNoIptables  bool   // "iptables missing" was logged
 	forwardObserveErr  string // last forwarding observe error text
-	// Ownership of what this run wrote for forwarding, and the revert's
-	// logged-once flag (converge.go revertKernel).
+	// Ownership of what this run wrote for forwarding (cleared only by
+	// revertKernel), and the revert's logged-once flag (converge.go revertKernel).
 	ruleOwner, ipForwardOwner forwardOwner
 	revertWarned              bool
 	// Address target (converge.go): logged once per change.

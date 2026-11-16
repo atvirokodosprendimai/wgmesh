@@ -145,8 +145,12 @@ var EnforceRevertOnExit atomic.Bool
 
 // forwardOwner is what a run knows of who set one forwarding item. It is
 // decided once, by the first tick that observes the item or writes it, and
-// never changes in the run: an item found in place is not ours, also when it
-// drifts away and a later tick writes it again.
+// is cleared only by revertKernel: an item found in place is not ours, also
+// when it drifts away and a later tick writes it again.
+//
+// The claim is not atomic: another process may set the value or add the rule
+// between our observe and our write; our write then succeeds, we record the
+// item as ours, and the exit undoes it.
 //
 // Shared host, known gap: ip_forward is one global sysctl. Two daemons on a
 // host (wg0, wg1) share it: A wrote 1 (ours), B then read 1 (found) and relies
