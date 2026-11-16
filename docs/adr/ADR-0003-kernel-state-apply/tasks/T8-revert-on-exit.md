@@ -57,6 +57,12 @@ n=$(go test ./pkg/daemon -run '^(TestShutdownRemovesRuleWeAdded|TestShutdownKeep
 | 4 — it is used | every graceful exit |
 
 ## Mutation Log
+- 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · found rule deleted: TestShutdownKeepsPreexistingRule must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · found ip_forward=1 restored to 0: TestShutdownRestoresIPForwardOnlyIfWeChangedIt must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · record overwritten: TestShutdownRecordSurvivesDriftReapply must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · found not recorded: a drift re-write makes the rule ours: TestShutdownRecordSurvivesDriftReapply must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · commands at N: TestShutdownRevertIsWarnOnlyAtN must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · revertKernel calls removed: TestRunRevertsKernelAfterWait must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
 
 ## Invariants
 
@@ -80,3 +86,24 @@ Stop and ask if `Run` has more than one exit path that skips the deferred calls.
 - Reverting routes and addresses (permanent: boundary: `teardownWireGuard` already deletes the interface, which removes both).
 
 ## Verification Log
+- 2026-11-16 · 308320a* · exit 1 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:2287 · test-lock-sha256:fd7252a0a2f7427a9c59959cd2ed7a53f7577880e2022f0547fa1023f335a0ab · test-lock-file:docs/adr/locks/fd7252a0a2f7427a9c59959cd2ed7a53f7577880e2022f0547fa1023f335a0ab.lock
+  ```
+  --- last 10 line(s) of stderr (of 22 after folding 22 raw)
+      --- FAIL: TestShutdownRestoresIPForwardOnlyIfWeChangedIt/read_0_and_written_1 (0.00s)
+      --- PASS: TestShutdownRestoresIPForwardOnlyIfWeChangedIt/read_1 (0.00s)
+      --- PASS: TestShutdownRestoresIPForwardOnlyIfWeChangedIt/read_1,_drifted_to_0,_written_1_again (0.00s)
+  === RUN   TestShutdownRevertIsWarnOnlyAtN
+      revert_test.go:136: revert-on-exit logged 0 times, want 1; lines ["forward-scope: this node neither relays (introducer) nor advertises routes (advertise-routes), yet ip_forward and the FORWARD rule on wgmesh-t3-none are still forced; a later release stops forcing them (EnforceForwardScope); set --introducer or advertise-routes if this node must forward" "Cannot read the addresses of wgmesh-t3-none, skipping them this tick: read addresses: fake host: unexpected command \"ip -o addr show dev wgmesh-t3-none\"" "Cannot read the IPv4 routes of wgmesh-t3-none, skipping them this tick: failed to read routes: fake host: unexpected command \"ip route show dev wgmesh-t3-none\"" "Cannot read the IPv6 routes of wgmesh-t3-none, skipping them this tick: failed to read routes: fake host: unexpected command \"ip -6 route show dev wgmesh-t3-none\"" "set forward ip_forward... done" "append forward FORWARD... done"]
+      revert_test.go:139: the line does not name EnforceRevertOnExit: ["forward-scope: this node neither relays (introducer) nor advertises routes (advertise-routes), yet ip_forward and the FORWARD rule on wgmesh-t3-none are still forced; a later release stops forcing them (EnforceForwardScope); set --introducer or advertise-routes if this node must forward" "Cannot read the addresses of wgmesh-t3-none, skipping them this tick: read addresses: fake host: unexpected command \"ip -o addr show dev wgmesh-t3-none\"" "Cannot read the IPv4 routes of wgmesh-t3-none, skipping them this tick: failed to read routes: fake host: unexpected command \"ip route show dev wgmesh-t3-none\"" "Cannot read the IPv6 routes of wgmesh-t3-none, skipping them this tick: failed to read routes: fake host: unexpected command \"ip -6 route show dev wgmesh-t3-none\"" "set forward ip_forward... done" "append forward FORWARD... done"]
+  --- FAIL: TestShutdownRevertIsWarnOnlyAtN (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.006s
+  FAIL
+  ```
+- 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:11488
+- 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:12133
+- 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:14632
+- 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:13133
+- 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:12139
+- 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:14140
+- 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:7894
