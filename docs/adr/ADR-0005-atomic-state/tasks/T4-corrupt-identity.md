@@ -59,6 +59,10 @@ n=$(go test ./pkg/daemon -run '^(TestLoadLocalNodeDistinguishesMissingAndCorrupt
 | 4 — it is used | every start with a damaged identity file |
 
 ## Mutation Log
+- 2026-11-16 · 25cdb4c* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · the corrupt file is not moved aside: TestInitLocalNodeCorruptMovesAside must go red · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc
+- 2026-11-16 · 25cdb4c* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · RefuseCorruptState ignored: TestInitLocalNodeRefusesWhenEnforced must go red · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc
+- 2026-11-16 · 25cdb4c* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · a permission error is treated as absent: TestInitLocalNodeUnreadableIsNotAbsent must go red · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc
+- 2026-11-16 · 25cdb4c* · mutant killed · exit 1 · `pkg/daemon/helpers.go` · an identity without keys is valid: TestLoadLocalNodeDistinguishesMissingAndCorrupt must go red · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc
 
 ## Invariants
 
@@ -81,3 +85,22 @@ Stop and ask if ADR-0002 T5 is not merged (the `stateFile` field is missing), or
 - Validating that the public key matches the private key (permanent: boundary: a damaged file that still parses with both keys is not what #870 reports; a mismatch would show at the first handshake).
 
 ## Verification Log
+- 2026-11-16 · 25cdb4c* · exit 1 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:2464 · test-lock-sha256:5e6386018e50d53b10390c5bf568a281084332a5b5276991578ef36204652076 · test-lock-file:docs/adr/locks/5e6386018e50d53b10390c5bf568a281084332a5b5276991578ef36204652076.lock
+  ```
+  --- last 10 line(s) of stderr (of 30 after folding 30 raw)
+  === RUN   TestInitLocalNodeMissingGeneratesKey
+  2026/11/16 08:41:31 [WARN] Secret does not use wgmesh:// format — it may have low entropy. Use 'wgmesh init --secret' to generate a cryptographically strong secret.
+  --- PASS: TestInitLocalNodeMissingGeneratesKey (0.00s)
+  === RUN   TestInitLocalNodeUnreadableIsNotAbsent
+  2026/11/16 08:41:31 [WARN] Secret does not use wgmesh:// format — it may have low entropy. Use 'wgmesh init --secret' to generate a cryptographically strong secret.
+      identity_state_test.go:228: initLocalNode succeeded on a file it cannot read
+  --- FAIL: TestInitLocalNodeUnreadableIsNotAbsent (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.012s
+  FAIL
+  ```
+- 2026-11-16 · 25cdb4c* · exit 0 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:18834
+- 2026-11-16 · 25cdb4c* · exit 0 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:21262
+- 2026-11-16 · 25cdb4c* · exit 0 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:21244
+- 2026-11-16 · 25cdb4c* · exit 0 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:18637
+- 2026-11-16 · 25cdb4c* · exit 0 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:16801
