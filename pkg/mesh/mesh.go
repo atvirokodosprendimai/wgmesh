@@ -243,7 +243,7 @@ func (m *Mesh) List() {
 
 		// Show group memberships
 		if len(m.Groups) > 0 {
-			nodeGroups := m.GetNodeGroups(hostname)
+			nodeGroups := m.getNodeGroupsLocked(hostname)
 			if len(nodeGroups) > 0 {
 				fmt.Printf("    Groups: %v\n", nodeGroups)
 			} else {
