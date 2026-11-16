@@ -39,7 +39,7 @@ Ordering note: follows ADR-0002 T10, which edits `main.go` flags near `:333` and
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/flock . -run '^(TestTryLockExcludesSecondHolder|TestTryLockReportsHolderPid|TestTryLockReleaseAllowsNext|TestTryLockFreedWhenHolderDies|TestAcquireInterfaceLockMessage|TestJoinTakesLockBeforeDaemonAndSocket|TestTryLockEmptyHolderHasNoPid|TestTryLockTruncatesStalePid|TestTryLockReleaseTwiceKeepsReusedDescriptor|TestTryLockReleaseIsSafeConcurrently|TestAcquireInterfaceLockCreatesDirectory0700|TestAcquireInterfaceLockHolderWithoutPid)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 12 ] && go test -race ./pkg/flock ./pkg/daemon -count=1
+n=$(go test ./pkg/flock . -run '^(TestTryLockExcludesSecondHolder|TestTryLockReportsHolderPid|TestTryLockReleaseAllowsNext|TestTryLockFreedWhenHolderDies|TestAcquireInterfaceLockMessage|TestJoinTakesLockBeforeDaemonAndSocket|TestTryLockEmptyHolderHasNoPid|TestTryLockTruncatesStalePid|TestTryLockReleaseTwiceKeepsReusedDescriptor|TestTryLockReleaseIsSafeConcurrently|TestAcquireInterfaceLockCreatesDirectory0700|TestAcquireInterfaceLockHolderWithoutPid|TestAcquireInterfaceLockPermissionHint)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 12 ] && go test -race ./pkg/flock ./pkg/daemon -count=1
 ```
 
 ## Tests
@@ -76,6 +76,10 @@ n=$(go test ./pkg/flock . -run '^(TestTryLockExcludesSecondHolder|TestTryLockRep
 - 2026-11-16 · 2a5f687* · mutant killed · exit 1 · `pkg/flock/flock.go` · the holder pid is not written: TestTryLockReportsHolderPid must go red · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
 - 2026-11-16 · 2a5f687* · mutant killed · exit 1 · `pkg/flock/flock.go` · a stale pid line survives: TestTryLockTruncatesStalePid must go red · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
 - 2026-11-16 · 2a5f687* · mutant killed · exit 1 · `pkg/flock/flock.go` · the second TryLock blocks instead of failing: TestTryLockExcludesSecondHolder must go red (bounded wait) · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
+- 2026-11-16 · f04f321 · mutant killed · exit 1 · `pkg/flock/flock.go` · a held lock is not reported as held (fence with the final test list) · acceptance-sha256:14f7a42d3ef5eb28b14b093c72308fbde88a63f59a155b6b67afc6e4993e74db
+- 2026-11-16 · f04f321* · mutant killed · exit 1 · `main.go` · the lock is released at once (final fence) · acceptance-sha256:14f7a42d3ef5eb28b14b093c72308fbde88a63f59a155b6b67afc6e4993e74db
+- 2026-11-16 · f04f321* · mutant killed · exit 1 · `pkg/flock/flock.go` · a stale pid line survives (final fence) · acceptance-sha256:14f7a42d3ef5eb28b14b093c72308fbde88a63f59a155b6b67afc6e4993e74db
+- 2026-11-16 · f04f321* · mutant killed · exit 1 · `pkg/flock/flock.go` · a held lock is not reported as held (final fence, all table tests) · acceptance-sha256:152408ee19737e0a0b79b7275f4b250262d4ecc8192396ea3d4c746855585212
 
 ## Invariants
 
@@ -122,3 +126,9 @@ Stop and ask if `joinCmd` builds the RPC server or touches the interface before 
   FAIL	github.com/atvirokodosprendimai/wgmesh	0.010s
   FAIL
   ```
+- 2026-11-16 · f04f321 · exit 0 · `set -o pipefail …` · acceptance-sha256:14f7a42d3ef5eb28b14b093c72308fbde88a63f59a155b6b67afc6e4993e74db · ms:17027
+- 2026-11-16 · f04f321* · exit 0 · `set -o pipefail …` · acceptance-sha256:14f7a42d3ef5eb28b14b093c72308fbde88a63f59a155b6b67afc6e4993e74db · ms:20330
+- 2026-11-16 · f04f321* · exit 0 · `set -o pipefail …` · acceptance-sha256:14f7a42d3ef5eb28b14b093c72308fbde88a63f59a155b6b67afc6e4993e74db · ms:22601
+- 2026-11-16 · f04f321* · exit 0 · `set -o pipefail …` · acceptance-sha256:14f7a42d3ef5eb28b14b093c72308fbde88a63f59a155b6b67afc6e4993e74db · ms:17670
+- 2026-11-16 · f04f321* · exit 0 · `set -o pipefail …` · acceptance-sha256:152408ee19737e0a0b79b7275f4b250262d4ecc8192396ea3d4c746855585212 · ms:21967
+- 2026-11-16 · f04f321* · exit 0 · `set -o pipefail …` · acceptance-sha256:152408ee19737e0a0b79b7275f4b250262d4ecc8192396ea3d4c746855585212 · ms:14752
