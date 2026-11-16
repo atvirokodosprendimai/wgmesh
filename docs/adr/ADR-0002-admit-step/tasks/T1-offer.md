@@ -107,3 +107,4 @@ Stop and ask if any existing store test needs a changed expectation, or if `Deci
 - 2026-11-15 · 647601e* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12018
 - 2026-11-15 · 647601e* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:12095
 - 2026-11-16 · 51e018f · exit 0 · `set -o pipefail …` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:7240
+- 2026-11-16 · c192dcd* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:ad905e076b5d63556b81de9fc156d38f14e08580dc31e492bdc1b4e6aa47fb37 · ms:0 · test-lock-sha256:e6eb25f6274e39d2a2cf8e8cd5e31b55a22a2147f3d53647af13a77209300a18 · test-lock-file:docs/adr/locks/e6eb25f6274e39d2a2cf8e8cd5e31b55a22a2147f3d53647af13a77209300a18.lock · test-lock-kind:replace

@@ -125,3 +125,4 @@ Stop and ask if clearing on first-hand would let a replayed first-hand packet (A
 - 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:14238
 - 2026-11-15 · ad237a9* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:10390
 - 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:10039
+- 2026-11-16 · c192dcd* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:f97ccc7ab11d6627c996e19da0af66a55df87f1512005275768602a9b188555a · ms:0 · test-lock-sha256:8843263150184d5548d8e640f0d1c5c9298c1b4c7b92b29e0c0cedcc66a91914 · test-lock-file:docs/adr/locks/8843263150184d5548d8e640f0d1c5c9298c1b4c7b92b29e0c0cedcc66a91914.lock · test-lock-kind:replace

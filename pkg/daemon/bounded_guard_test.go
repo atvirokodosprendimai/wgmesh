@@ -69,6 +69,7 @@ var boundTable = []boundRow{
 	{"Daemon.hostDefaultReadErr", "daemon.go", "hard-cap", "keyed by address family: at most two entries; deleted when the host default route reads again", "d.convergeMu"},
 	{"Daemon.hostDefaults", "daemon.go", "hard-cap", "keyed by address family: at most two entries; deleted when the mesh default route is removed and the host one restored", "d.convergeMu"},
 	{"Daemon.darwinWarned", "daemon.go", "replaced-per-tick", "the macOS route step assigns the set of cases warned about that still hold (converge.go), so one that stops holding drops out", "d.convergeMu"},
+	{"Daemon.collisionSeen", "daemon.go", "replaced-per-tick", "CheckAndResolveCollisions assigns the collisions of the pass at its end and nil when there are none, so a collision that stops standing drops out", "d.collisionMu"},
 	{"Daemon.darwinInstalled", "daemon.go", "swept-vs-active-set", "the macOS route step deletes the key of a network whose route it removed; keys are networks this run installed", "d.convergeMu"},
 	{"desiredPeerConfig.allowed", "daemon.go", "session-local", "built and read inside one reconcile call, then dropped with the desired map", "none: never shared between goroutines"},
 	{"DHTDiscovery.contactedPeers", "../discovery/dht.go", "age-sweep-cap", "markContacted sweeps entries older than ContactDedupWindow above contactSweepThreshold and refuses new addresses at MaxContactedPeers", "d.mu"},

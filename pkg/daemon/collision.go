@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"sync/atomic"
+	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	node "github.com/atvirokodosprendimai/wgmesh/pkg/node"
@@ -108,9 +109,25 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 	)
 }
 
+// collisionMoveInterval is the least time between two moves of the local node
+// after a collision: a node moves at most once in this window, whoever holds
+// the claims on its address. The time of the last move is memory only: a
+// restart starts a new window.
+const collisionMoveInterval = 5 * time.Minute
+
+// collisionTime is the clock of the move cap; a test sets d.collisionNow.
+func (d *Daemon) collisionTime() time.Time {
+	if d.collisionNow != nil {
+		return d.collisionNow()
+	}
+	return time.Now()
+}
+
 // CheckAndResolveCollisions checks for collisions and resolves them. When the
 // local node loses and moves to a nonce-derived address, the address is written
-// to the local node state file, so it survives a restart (#830).
+// to the local node state file, so it survives a restart (#830). The local node
+// moves at most once per collisionMoveInterval; a move the cap holds back
+// changes nothing and is logged once per window.
 // The check (is the address still the colliding one), the move and the interface
 // address are one check-then-set. Callers outside reconcile() must not run it
 // at the same time as reconcile: reconcileMu serializes reconcile(), which is
@@ -125,27 +142,58 @@ func (d *Daemon) CheckAndResolveCollisions() {
 	}
 	collisions := DetectCollisions(d.peerStore, local)
 	if len(collisions) == 0 {
+		d.collisionSeen = nil
 		return
 	}
 
 	derive, warn := policyFuncs(d.peerStore)
+	seen := make(map[string]struct{}, len(collisions))
+	defer func() { d.collisionSeen = seen }()
 	for _, collision := range collisions {
-		winner, loser := orderPeers(collision.Peer1, collision.Peer2, derive, warn)
-		log.Printf("[Collision] Mesh IP collision detected: %s claimed by %s and %s",
-			collision.MeshIP, safeKeyPrefix(winner.WGPubKey), safeKeyPrefix(loser.WGPubKey))
+		// A collision that stands is logged and counted once, not on every tick.
+		id := collision.MeshIP + "|" + collision.Peer1.WGPubKey + "|" + collision.Peer2.WGPubKey
+		_, repeat := d.collisionSeen[id]
+		seen[id] = struct{}{}
+		pairWarn := warn
+		if repeat {
+			pairWarn = nil
+		}
+		winner, loser := orderPeers(collision.Peer1, collision.Peer2, derive, pairWarn)
+		if !repeat {
+			log.Printf("[Collision] Mesh IP collision detected: %s claimed by %s and %s",
+				collision.MeshIP, safeKeyPrefix(winner.WGPubKey), safeKeyPrefix(loser.WGPubKey))
+		}
 
 		// If we are the loser, re-derive our IP
 		if loser.WGPubKey == local.Key {
 			if d.localNode.GetMeshIP() != collision.MeshIP {
 				continue // already moved by an earlier collision of this pass
 			}
+			if !d.losesBoundFirst(local.Key, collision.MeshIP, derive) {
+				if !repeat {
+					log.Printf("[Collision] Keeping mesh IP %s: the other claim on it (%s) is not ahead of this node's claim, which its key derives; no move. If both members are meant to stay, one of them must use its own derived address or a new key", collision.MeshIP, safeKeyPrefix(winner.WGPubKey))
+				}
+				continue // the bound-first order decides: an unbound claim does not move a node on an address its key derives
+			}
+			now := d.collisionTime()
+			if !d.collisionLastMove.IsZero() && now.Sub(d.collisionLastMove) < collisionMoveInterval {
+				if !repeat {
+					log.Printf("[Collision] Mesh IP move suppressed: this node moved %s ago and moves at most once per %s; it keeps %s until the window passes",
+						now.Sub(d.collisionLastMove).Round(time.Second), collisionMoveInterval, collision.MeshIP)
+				}
+				continue
+			}
 			newIP := d.moverIP()
 			if newIP == "" {
 				log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet — keeping current IP")
 				continue
 			}
+			if newIP == d.localNode.GetMeshIP() {
+				continue // every other address is claimed too: nothing to move to, nothing to write
+			}
 			log.Printf("[Collision] We lost collision, re-deriving mesh IP: %s -> %s", d.localNode.GetMeshIP(), newIP)
 			d.localNode.SetMeshIP(newIP)
+			d.collisionLastMove = now
 			// Persist it so a restart and `service add` keep the address (#830);
 			// a failed save keeps the in-memory address.
 			if err := saveLocalNode(d.stateFile, d.localNode); err != nil {
@@ -164,6 +212,23 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 		}
 	}
+}
+
+// losesBoundFirst reports whether the local node, on ip, loses to another
+// stored claim on ip under the bound-first order (node.BoundFirst): a bound
+// claim beats an unbound one, between two of one class the lower key wins.
+// The lower-key order of release N alone does not make the node move.
+func (d *Daemon) losesBoundFirst(key, ip string, derive func(pubKey string, nonce int) string) bool {
+	self := node.Claim{Key: key, IP: ip}
+	for _, p := range d.peerStore.GetAll() {
+		if p.WGPubKey == self.Key || p.MeshIP != ip {
+			continue
+		}
+		if _, loser := node.BoundFirst(self, node.Claim{Key: p.WGPubKey, IP: p.MeshIP}, derive); loser == self {
+			return true
+		}
+	}
+	return false
 }
 
 // moverIP is the address the local node moves to after it lost a collision:

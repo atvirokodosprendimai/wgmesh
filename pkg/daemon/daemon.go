@@ -147,8 +147,15 @@ type Daemon struct {
 
 	// collisionMu serialises CheckAndResolveCollisions: the reconcile loop and a
 	// SIGHUP reload both reach it, and it reads the mesh IP, derives a new one and
-	// sets it.
+	// sets it. It also guards collisionSeen.
 	collisionMu sync.Mutex
+	// collisionSeen holds the collisions of the last pass (address and the two
+	// keys), so one that stands is logged and counted once. Guarded by collisionMu.
+	collisionSeen map[string]struct{}
+	// collisionLastMove is when the local node last moved after a collision,
+	// collisionNow the clock (nil is time.Now). Both guarded by collisionMu.
+	collisionLastMove time.Time
+	collisionNow      func() time.Time
 
 	// layersMu guards dhtDiscovery and rpcServer: the setters may be called
 	// while Run reads them.
