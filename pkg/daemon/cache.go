@@ -158,7 +158,11 @@ func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 			LastSeen:         lastSeen,
 		}
 
-		peerStore.Offer(Candidate{Info: peer, Source: "cache", Hand: Restored})
+		// A refused key (tombstoned, or the peer cap) is not restored: it is
+		// neither counted nor logged.
+		if d := peerStore.Offer(Candidate{Info: peer, Source: "cache", Hand: Restored}); d.Verdict == node.Refuse {
+			continue
+		}
 		restored++
 		keys = append(keys, entry.WGPubKey)
 	}
