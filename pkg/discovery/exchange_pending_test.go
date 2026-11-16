@@ -158,12 +158,14 @@ func TestUnregisterLastRemovesAddressEntry(t *testing.T) {
 
 func TestUnregisterIsIdempotentAndConcurrent(t *testing.T) {
 	pe, addr := newPendingTestExchange(t)
+	_, un1 := pe.registerReply(addr.String())
 	ch2, un2 := pe.registerReply(addr.String())
 	defer un2()
-	_, un1 := pe.registerReply(addr.String())
+	ch3, un3 := pe.registerReply(addr.String())
+	defer un3()
 
 	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
+	for i := 0; i < 8; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -173,11 +175,14 @@ func TestUnregisterIsIdempotentAndConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 
+	// A repeated unregister of the first registration must not remove either
+	// of the other two (a second call deleting some other id would).
 	pe.handleReply(pendingTestReply(), addr)
-	if !receivedWithin(ch2, time.Second) {
+	if !receivedWithin(ch2, time.Second) || !receivedWithin(ch3, time.Second) {
 		t.Fatal("repeated unregister of one registration removed another")
 	}
 	un2()
+	un3()
 	if entry, total := pendingTestEntries(pe, addr.String()); entry || total != 0 {
 		t.Fatalf("entry=%v, map size=%d after all unregistered, want none", entry, total)
 	}
