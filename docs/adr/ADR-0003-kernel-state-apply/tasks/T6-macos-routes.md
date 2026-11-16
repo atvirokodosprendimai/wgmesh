@@ -65,6 +65,10 @@ The fence is hermetic apart from the two recorded files; the real behaviour is S
 | 4 — it is used | S6 on a real Mac |
 
 ## Mutation Log
+- 2026-11-16 · 69e2b4d* · mutant killed · exit 1 · `pkg/daemon/converge.go` · no -interface: TestDarwinRouteAddUsesInterface must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
+- 2026-11-16 · 69e2b4d* · mutant killed · exit 1 · `pkg/daemon/darwin_routes.go` · abbreviation not expanded: TestParseNetstatDarwin must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
+- 2026-11-16 · 69e2b4d* · mutant killed · exit 1 · `pkg/daemon/converge.go` · early return restored: TestSyncRoutesRunsOnDarwin must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
+- 2026-11-16 · 69e2b4d* · mutant killed · exit 1 · `pkg/daemon/converge.go` · File exists not turned into change: TestDarwinFileExistsBecomesChange must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
 
 ## Invariants
 
@@ -88,3 +92,22 @@ Stop and ask if `route -n add -net <cidr> -interface <utun>` does not route into
 - Windows (permanent: boundary: the daemon has no Windows interface code, `helpers.go:166-168`).
 
 ## Verification Log
+- 2026-11-16 · 69e2b4d* · exit 1 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:2614 · test-lock-sha256:82dbada4497c9083e1ba7b4f7fcaf003b89b52bd9cd56cf9a0727d4e50b17130 · test-lock-file:docs/adr/locks/82dbada4497c9083e1ba7b4f7fcaf003b89b52bd9cd56cf9a0727d4e50b17130.lock
+  ```
+  --- last 10 line(s) of stderr (of 48 after folding 48 raw)
+  === RUN   TestSyncRoutesRunsOnDarwin/darwin_reads_and_writes_the_table
+      darwin_routes_test.go:418: the table was not read once per family: []
+      darwin_routes_test.go:421: the peer's network is not routed; commands []
+  === RUN   TestSyncRoutesRunsOnDarwin/another_OS_touches_no_route
+  --- FAIL: TestSyncRoutesRunsOnDarwin (0.00s)
+      --- FAIL: TestSyncRoutesRunsOnDarwin/darwin_reads_and_writes_the_table (0.00s)
+      --- PASS: TestSyncRoutesRunsOnDarwin/another_OS_touches_no_route (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.006s
+  FAIL
+  ```
+- 2026-11-16 · 69e2b4d* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:10879
+- 2026-11-16 · 69e2b4d* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:10624
+- 2026-11-16 · 69e2b4d* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:10390
+- 2026-11-16 · 69e2b4d* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:11106
+- 2026-11-16 · 69e2b4d* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:6853
