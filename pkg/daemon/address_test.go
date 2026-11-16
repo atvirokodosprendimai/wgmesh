@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"net/netip"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -372,6 +373,7 @@ func TestAddressSteadyStateQuiet(t *testing.T) {
 	before := addressChanges()
 	d, rh, ls := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/64", "192.168.1.5/24")
 	d.localNode.MeshIPv6 = "fd99::1"
+	d.config.Introducer = true // forward-scope warns on a node that neither relays nor advertises: another target's line
 	tick(t, d, 5)
 	if w := rh.addrCmds(); len(w) != 0 {
 		t.Errorf("five ticks over the correct addresses wrote %q", w)
@@ -379,12 +381,13 @@ func TestAddressSteadyStateQuiet(t *testing.T) {
 	if got := addressChanges() - before; got != 0 {
 		t.Errorf("address changes grew by %v in a steady state", got)
 	}
-	if ls.count("address") != 0 {
-		t.Errorf("a quiet target logged %d lines", ls.count("address"))
+	if n := ls.total(); n != 0 {
+		t.Errorf("a quiet target logged %d lines: %q", n, ls.lines)
 	}
 
-	// IPv6 disabled: a mesh IPv6 on the node is not wanted, and a held one is not touched.
-	d, rh, _ = newAddrDaemon(t, "10.99.0.1/16", "fd99::1/64")
+	// IPv6 disabled: the node's mesh IPv6 is not wanted, so it is not added (the
+	// interface does not hold it: a wrong add would show).
+	d, rh, _ = newAddrDaemon(t, "10.99.0.1/16")
 	d.localNode.MeshIPv6 = "fd99::1"
 	d.config.DisableIPv6 = true
 	tick(t, d, 2)
@@ -445,14 +448,21 @@ func TestAddressRemovalsRunBeforeAdds(t *testing.T) {
 	})
 }
 
-// reconcile twice on one goroutine while a reload changes the config on
-// another: the address step reads the node's addresses and the config only
-// under the serialisation of reconcile and the config lock.
+// Two reconcile goroutines run while a peer claims the node's mesh IP and the
+// node loses the collision: CheckAndResolveCollisions writes MeshIP, the
+// address step reads it, both only under reconcileMu; a reload changes the
+// config on a third goroutine. Run under -race.
 func TestAddressTargetRaceFree(t *testing.T) {
-	d, rh, _ := newAddrDaemon(t)
+	enforceAddressRemoval(t, true)
+	enforceIPBinding(t, false)
+	d, rh, _ := newAddrDaemon(t, nodeMeshAddr)
+	d.localNode.WGPubKey = "zzz-local" // the higher key loses
 	d.localNode.MeshIPv6 = "fd99::1"
+	d.config.Secret = collisionSecret
+	d.stateFile = filepath.Join(t.TempDir(), "wg0.json")
+	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "10.99.0.1"}, "test")
 	var wg sync.WaitGroup
-	wg.Add(1)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
@@ -463,13 +473,164 @@ func TestAddressTargetRaceFree(t *testing.T) {
 			d.reloadConfig(DaemonOpts{AdvertiseRoutes: routes})
 		}
 	}()
-	d.reconcile()
-	d.reconcile()
+	for g := 0; g < 2; g++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 20; i++ {
+				d.reconcile()
+			}
+		}()
+	}
 	wg.Wait()
-	if got, want := rh.held(), sorted("10.99.0.1/16", "fd99::1/64"); !sameLines(got, want) {
+	moved := d.localNode.MeshIP
+	if moved == "10.99.0.1" {
+		t.Fatal("the node did not move: the collision did not write MeshIP")
+	}
+	if got, want := rh.held(), sorted(moved+"/16", "fd99::1/64"); !sameLines(got, want) {
 		t.Errorf("interface holds %q, want %q", got, want)
 	}
-	if n := len(rh.addrCmds()); n != 2 {
-		t.Errorf("%d address writes over two reconciles, want 2: %q", n, rh.addrCmds())
+}
+
+// A mesh IP that is empty or not an IPv4 address wants no address; a mesh IPv6
+// that is not an IPv6 address is left out, the IPv4 one is still wanted.
+func TestDesireAddressesInvalidIdentity(t *testing.T) {
+	cases := []struct {
+		name, ip, ip6 string
+		noNode        bool
+		want          []string // nil: not wanted
+	}{
+		{"valid", "10.99.0.1", "fd99::1", false, []string{"10.99.0.1/16", "fd99::1/64"}},
+		{"empty MeshIP", "", "fd99::1", false, nil},
+		{"garbage MeshIP", "not-an-ip", "", false, nil},
+		{"IPv6 in MeshIP", "fd99::1", "", false, nil},
+		{"no local node", "", "", true, nil},
+		{"bad MeshIPv6 string", "10.99.0.1", "not-an-ip", false, []string{"10.99.0.1/16"}},
+		{"IPv4 in MeshIPv6", "10.99.0.1", "10.99.0.9", false, []string{"10.99.0.1/16"}},
 	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			d, _, _ := newAddrDaemon(t)
+			d.localNode.MeshIP, d.localNode.MeshIPv6 = c.ip, c.ip6
+			if c.noNode {
+				d.localNode = nil
+			}
+			got := d.desireAddresses()
+			var addrs []string
+			for _, p := range got.Addrs {
+				addrs = append(addrs, p.String())
+			}
+			if got.Wanted != (c.want != nil) || !sameLines(addrs, c.want) {
+				t.Errorf("desired Wanted=%v %q, want %q", got.Wanted, addrs, c.want)
+			}
+		})
+	}
+}
+
+// Off Linux the address target is not wanted: no read, no write.
+func TestAddressNotWantedOffLinux(t *testing.T) {
+	enforceAddressRemoval(t, true)
+	d, rh, _ := newAddrDaemon(t, "10.99.7.7/16")
+	d.goos = "darwin"
+	if d.desireAddresses().Wanted {
+		t.Error("the address target is wanted on darwin")
+	}
+	tick(t, d, 2)
+	if n := rh.count("ip -o addr show"); n != 0 {
+		t.Errorf("%d address reads on darwin", n)
+	}
+	if w := rh.addrCmds(); len(w) != 0 {
+		t.Errorf("address writes on darwin: %q", w)
+	}
+}
+
+// A failed read of the interface skips the address target without a write,
+// and the first tick that reads it again converges it, logging the recovery
+// once.
+func TestAddressObserveFailsThenRecovers(t *testing.T) {
+	d, rh, ls := newAddrDaemon(t)
+	rh.mu.Lock()
+	rh.readErr["ip -o addr show dev wg0"] = fmt.Errorf("exit status 1")
+	rh.mu.Unlock()
+	tick(t, d, 3)
+	if w := rh.addrCmds(); len(w) != 0 {
+		t.Fatalf("address writes while the read fails: %q", w)
+	}
+	rh.mu.Lock()
+	delete(rh.readErr, "ip -o addr show dev wg0")
+	rh.mu.Unlock()
+	tick(t, d, 2)
+	if got, want := rh.addrCmds(), []string{"ip addr add 10.99.0.1/16 dev wg0"}; !sameLines(got, want) {
+		t.Errorf("address commands after the recovery %q, want %q", got, want)
+	}
+	if n := ls.count("Cannot read the addresses"); n != 1 {
+		t.Errorf("the failed read was logged %d times, want once", n)
+	}
+	if n := ls.count("Reading the addresses of wg0 works again"); n != 1 {
+		t.Errorf("the recovery was logged %d times, want once", n)
+	}
+}
+
+// One failed add or removal is a result of its own: the others still run.
+func TestAddressFailureDoesNotStopTheLoop(t *testing.T) {
+	enforceAddressRemoval(t, true)
+	d, rh, _ := newAddrDaemon(t, "10.99.5.5/16", "10.99.7.7/16")
+	d.localNode.MeshIPv6 = "fd99::1"
+	rh.addrDelErr["10.99.5.5/16"] = exitError{1}
+	rh.addrAddErr["10.99.0.1/16"] = exitError{1}
+	tick(t, d, 1)
+	want := []string{"ip addr del 10.99.5.5/16 dev wg0", "ip addr del 10.99.7.7/16 dev wg0", "ip addr add 10.99.0.1/16 dev wg0", "ip addr add fd99::1/64 dev wg0"}
+	if got := rh.addrCmds(); !sameLines(got, want) {
+		t.Errorf("address commands %q, want %q", got, want)
+	}
+	if got, want := rh.held(), sorted("10.99.5.5/16", "fd99::1/64"); !sameLines(got, want) {
+		t.Errorf("interface holds %q, want %q", got, want)
+	}
+}
+
+// "File exists" on an add is success in the item's result, not only in the
+// log; any other failure of the add is an error.
+func TestApplyAddressesResults(t *testing.T) {
+	d, rh, _ := newAddrDaemon(t, "10.99.0.1/16")
+	before := addressChanges()
+	v4 := netip.MustParsePrefix("10.99.0.1/16")
+	got := d.applyAddresses(addressPlan{Add: []netip.Prefix{v4}})
+	if len(got) != 1 || got[0].Op != "add" || got[0].Key != "10.99.0.1/16" || got[0].Err != nil {
+		t.Errorf("an add of a held address: %+v, want one add result with no error", got)
+	}
+	if addressChanges() != before {
+		t.Error("File exists counted as a change")
+	}
+	rh.addrAddErr["10.99.8.8/16"] = exitError{1}
+	got = d.applyAddresses(addressPlan{Add: []netip.Prefix{netip.MustParsePrefix("10.99.8.8/16")}})
+	if len(got) != 1 || got[0].Err == nil {
+		t.Errorf("a failed add: %+v, want one result with an error", got)
+	}
+}
+
+// Only a longer prefix of the node's address is held: the /16 is added and,
+// once removal is enforced, the /24 removed; before that the /24 is only
+// warned about.
+func TestOnlyWrongPrefixLengthHeld(t *testing.T) {
+	t.Run("enforced", func(t *testing.T) {
+		enforceAddressRemoval(t, true)
+		d, rh, _ := newAddrDaemon(t, "10.99.0.1/24")
+		tick(t, d, 2)
+		if got, want := rh.addrCmds(), []string{"ip addr del 10.99.0.1/24 dev wg0", "ip addr add 10.99.0.1/16 dev wg0"}; !sameLines(got, want) {
+			t.Errorf("address commands %q, want %q", got, want)
+		}
+		if got := rh.held(); !sameLines(got, []string{"10.99.0.1/16"}) {
+			t.Errorf("interface holds %q", got)
+		}
+	})
+	t.Run("release N", func(t *testing.T) {
+		enforceAddressRemoval(t, false)
+		d, rh, ls := newAddrDaemon(t, "10.99.0.1/24")
+		tick(t, d, 2)
+		if got, want := rh.addrCmds(), []string{"ip addr add 10.99.0.1/16 dev wg0"}; !sameLines(got, want) {
+			t.Errorf("address commands %q, want %q", got, want)
+		}
+		if n := ls.count("stale address 10.99.0.1/24"); n != 1 {
+			t.Errorf("the /24 was warned about %d times, want once", n)
+		}
+	})
 }

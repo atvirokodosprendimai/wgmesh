@@ -133,17 +133,18 @@ func funcAt(f *ast.File, pos token.Pos) string {
 }
 
 // ipAddrViolation is the text of a violation by an `ip` Command call that
-// names `addr` (or `address`) and `add` or `del` among its literal arguments:
-// an address write belongs in converge.go. The one named exception is the
-// first-setup helper setInterfaceAddress of helpers.go (it flushes the family
-// before the interface is up; collision.go reaches it through the variable
+// names `addr` (or `address`) and `add`, `del` or `flush` among its literal
+// arguments: an address write belongs in converge.go. The named exceptions are
+// the first-setup helper setInterfaceAddress and, for a flush only, the reset
+// helper resetInterface of helpers.go (they flush before the interface is up
+// or when it is reset; collision.go reaches the first through the variable
 // applyInterfaceAddress, so no `ip` call of collision.go is excepted).
 func ipAddrViolation(name, fn string, call *ast.CallExpr, lits map[string][]string) string {
 	words := callWords(call, lits)
-	if !(words["addr"] || words["address"]) || !(words["add"] || words["del"]) {
+	if !(words["addr"] || words["address"]) || !(words["add"] || words["del"] || words["flush"]) {
 		return ""
 	}
-	if name == "converge.go" || (name == "helpers.go" && fn == "setInterfaceAddress") {
+	if name == "converge.go" || (name == "helpers.go" && (fn == "setInterfaceAddress" || (fn == "resetInterface" && !words["add"] && !words["del"]))) {
 		return ""
 	}
 	return fmt.Sprintf("%s runs an ip addr write in %q: address writes belong in converge.go (first setup: setInterfaceAddress in helpers.go)", name, fn)
@@ -406,6 +407,11 @@ func TestAddressGuardForms(t *testing.T) {
 		{"collision may not add", "collision.go", "f", `cmdExecutor.Command("ip", "addr", "add", "x", "dev", "wg0")`, true},
 		{"word in a constant", "routes.go", "f", "const w = \"del\"\n\tcmdExecutor.Command(\"ip\", \"addr\", w, \"x\")", true},
 		{"ip -6 addr add", "other.go", "f", `cmdExecutor.Command("ip", "-6", "addr", "add", "x", "dev", "wg0")`, true},
+		{"ip address add", "routes.go", "f", `cmdExecutor.Command("ip", "address", "add", "x", "dev", "wg0")`, true},
+		{"ip addr flush", "routes.go", "f", `cmdExecutor.Command("ip", "addr", "flush", "dev", "wg0")`, true},
+		{"ip -4 addr flush in another helper", "helpers.go", "other", `cmdExecutor.Command("ip", "-4", "addr", "flush", "dev", "wg0")`, true},
+		{"first setup helper may flush", "helpers.go", "setInterfaceAddress", `cmdExecutor.Command("ip", "-4", "addr", "flush", "dev", "wg0")`, false},
+		{"the reset helper may flush", "helpers.go", "resetInterface", `cmdExecutor.Command("ip", "addr", "flush", "dev", "wg0")`, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

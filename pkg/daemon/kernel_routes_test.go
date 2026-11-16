@@ -40,8 +40,12 @@ type routeHost struct {
 	addrDelErr map[string]error  // address -> what `ip addr del` fails with
 }
 
+// nodeMeshAddr is the mesh address of the fake node (MeshIP 10.99.0.1 of
+// newConvergeDaemon, the /16 of Config.PrefixLen) that its interface holds.
+const nodeMeshAddr = "10.99.0.1/16"
+
 func newRouteHost(h *fakeHost) *routeHost {
-	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}, delErr: map[string]error{}, addrAddErr: map[string]error{}, addrDelErr: map[string]error{}, ifAddrs: []string{"10.99.0.1/16"}}
+	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}, delErr: map[string]error{}, addrAddErr: map[string]error{}, addrDelErr: map[string]error{}, ifAddrs: []string{nodeMeshAddr}}
 }
 
 // canonRoute is the canonical network of a printed or canonical one.
@@ -594,7 +598,7 @@ func TestConvergeSteadyStateIssuesNoWrites(t *testing.T) {
 	k := newFakeKernel()
 	d := newRouteDaemon(t, rh, &logSink{}, k)
 	d.localNode.MeshIPv6 = "fd99::1"
-	rh.ifAddrs = []string{"10.99.0.1/16", "fd99::1/64"} // the interface already holds the node's addresses
+	rh.ifAddrs = []string{nodeMeshAddr, "fd99::1/64"} // the interface already holds the node's addresses
 	a := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "192.168.50.0/24", "0.0.0.0/0", "fd00:5::/64")
 	a.MeshIPv6 = "fd99::2"
 	b := testPeer("keyB", "10.99.0.3", "203.0.113.3:51820", "192.168.50.0/24", "192.168.60.0/24")
