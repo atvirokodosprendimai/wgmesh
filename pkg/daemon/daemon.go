@@ -80,11 +80,12 @@ type Daemon struct {
 	// sets it.
 	collisionMu sync.Mutex
 
+	// layersMu guards dhtDiscovery and rpcServer: the setters may be called
+	// while Run reads them.
+	layersMu sync.Mutex
+
 	// Discovery layer (DHT discovery will be attached)
 	dhtDiscovery DiscoveryLayer
-
-	// Epoch manager for Dandelion++ privacy
-	epochManager *EpochManager
 
 	// RPC server
 	rpcServer RPCServer
@@ -404,7 +405,21 @@ func (d *Daemon) deriveMeshIP(pubKey string, nonce int) string {
 
 // SetDHTDiscovery sets the DHT discovery layer
 func (d *Daemon) SetDHTDiscovery(dht DiscoveryLayer) {
+	d.layersMu.Lock()
+	defer d.layersMu.Unlock()
 	d.dhtDiscovery = dht
+}
+
+func (d *Daemon) dhtLayer() DiscoveryLayer {
+	d.layersMu.Lock()
+	defer d.layersMu.Unlock()
+	return d.dhtDiscovery
+}
+
+func (d *Daemon) rpcLayer() RPCServer {
+	d.layersMu.Lock()
+	defer d.layersMu.Unlock()
+	return d.rpcServer
 }
 
 // Run starts the daemon and blocks until stopped
@@ -435,11 +450,11 @@ func (d *Daemon) Run() error {
 	}
 
 	// Start DHT discovery if configured
-	if d.dhtDiscovery != nil {
-		if err := d.dhtDiscovery.Start(); err != nil {
+	if dht := d.dhtLayer(); dht != nil {
+		if err := dht.Start(); err != nil {
 			return fmt.Errorf("failed to start DHT discovery: %w", err)
 		}
-		defer d.dhtDiscovery.Stop()
+		defer dht.Stop()
 	}
 
 	// Setup signal handling
@@ -1765,30 +1780,30 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		if err != nil {
 			return fmt.Errorf("failed to create DHT discovery: %w", err)
 		}
-		d.dhtDiscovery = dht
+		d.SetDHTDiscovery(dht)
 
-		if err := d.dhtDiscovery.Start(); err != nil {
+		if err := dht.Start(); err != nil {
 			return fmt.Errorf("failed to start DHT discovery: %w", err)
 		}
-		defer d.dhtDiscovery.Stop()
+		defer dht.Stop()
 	} else {
 		log.Printf("Warning: DHT discovery factory not set, running without DHT")
 	}
 
 	// Start epoch manager for privacy features
 	if d.config.Privacy {
-		d.epochManager = NewEpochManager(d.config.Keys.EpochSeed)
-		d.epochManager.Start(d.ctx, d.getPrivacyPeers)
-		defer d.epochManager.Stop()
+		epochManager := NewEpochManager(d.config.Keys.EpochSeed)
+		epochManager.Start(d.ctx, d.getPrivacyPeers)
+		defer epochManager.Stop()
 		log.Printf("Privacy mode enabled (Dandelion++ relay)")
 	}
 
 	// Start RPC server if one is set
-	if d.rpcServer != nil {
-		if err := d.rpcServer.Start(); err != nil {
+	if rpcServer := d.rpcLayer(); rpcServer != nil {
+		if err := rpcServer.Start(); err != nil {
 			log.Printf("Warning: failed to start RPC server: %v", err)
 		} else {
-			defer d.rpcServer.Stop()
+			defer rpcServer.Stop()
 		}
 	}
 
@@ -1996,6 +2011,8 @@ func (d *Daemon) getPrivacyPeers() []privacy.PeerInfo {
 
 // SetRPCServer sets the RPC server for the daemon
 func (d *Daemon) SetRPCServer(server RPCServer) {
+	d.layersMu.Lock()
+	defer d.layersMu.Unlock()
 	d.rpcServer = server
 }
 
