@@ -38,13 +38,24 @@ func (d *Daemon) now() time.Time {
 // inResumeGrace reports whether now is within ResumeGrace of the store's last
 // wake.
 func (d *Daemon) inResumeGrace(now time.Time) bool {
-	return false
+	if d.peerStore == nil {
+		return false
+	}
+	at := d.peerStore.ResumedAt()
+	return !at.IsZero() && now.Round(0).Sub(at.Round(0)) < ResumeGrace
 }
 
 // resumeGraceBlocks says whether a decision that would evict a peer or choose
 // a relay from a handshake age must be skipped: the grace blocks only while
 // EnforceLiveness is on; while it is off the case is counted.
 func (d *Daemon) resumeGraceBlocks(now time.Time) bool {
+	if !d.inResumeGrace(now) {
+		return false
+	}
+	if node.EnforceLiveness.Load() {
+		return true
+	}
+	recordLivenessDisagree(SiteResumeGrace)
 	return false
 }
 

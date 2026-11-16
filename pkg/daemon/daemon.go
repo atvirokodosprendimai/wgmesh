@@ -850,7 +850,12 @@ func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*P
 			//
 			// The relay→direct hysteresis (RelayHysteresisThreshold cycles) will
 			// transition back to direct once a fresh handshake is confirmed.
-			return true
+			// A wake makes the handshake age meaningless (the stale handshake
+			// includes the time asleep): for ResumeGrace judge as if there were no
+			// handshake data, by the cases below.
+			if !d.resumeGraceBlocks(d.now()) {
+				return true
+			}
 		}
 	}
 
@@ -1217,7 +1222,7 @@ func (d *Daemon) probePeersOverMesh() {
 	// Suspect peers are visited only while configured or relay-routed; peers
 	// kept Alive by evidence are visited too. A pong makes a peer Alive again.
 	peers := d.peerStore.GetProbeable()
-	now := time.Now()
+	now := d.now()
 	activeSet := make(map[string]struct{}, len(peers))
 	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
 
@@ -1269,6 +1274,14 @@ func (d *Daemon) probePeersOverMesh() {
 		d.probeMu.Unlock()
 
 		if failures >= MeshProbeFailLimit {
+			// Inside the wake grace the failures are an artefact of the sleep:
+			// start counting again instead of evicting.
+			if d.resumeGraceBlocks(now) {
+				d.probeMu.Lock()
+				d.probeFailures[p.WGPubKey] = 0
+				d.probeMu.Unlock()
+				continue
+			}
 			log.Printf("[Health] Probe failed %d times for %s..., marking temporarily offline", failures, shortKey(p.WGPubKey))
 			d.evictPeerFromPool(p)
 		}
@@ -1458,7 +1471,7 @@ func (d *Daemon) checkPeerHealth() {
 // handshake and transfer readings; checkPeerHealth reads them from WireGuard.
 func (d *Daemon) evaluatePeerHealth(handshakes map[string]int64, transfers map[string]wireguard.PeerTransfer) {
 	peers := d.peerStore.GetActive()
-	now := time.Now()
+	now := d.now()
 	activeSet := make(map[string]struct{}, len(peers))
 
 	for _, p := range peers {
@@ -1475,6 +1488,11 @@ func (d *Daemon) evaluatePeerHealth(handshakes map[string]int64, transfers map[s
 		prevTotal := d.lastPeerTransferTotal[p.WGPubKey]
 		d.lastPeerTransferTotal[p.WGPubKey] = currentTotal
 		isStale := shouldTreatPeerAsStale(ts, prevTotal, currentTotal, now)
+		// Inside the wake grace the handshake age includes the time asleep: not
+		// stale, so neither the reconnect nor the eviction below happens.
+		if isStale && d.resumeGraceBlocks(now) {
+			isStale = false
+		}
 		if isStale {
 			d.peerHealthFailures[p.WGPubKey]++
 		} else {
@@ -1591,7 +1609,7 @@ func (d *Daemon) markTemporarilyOffline(pubKey string) {
 		return
 	}
 	d.offlineMu.Lock()
-	d.temporaryOffline[pubKey] = time.Now().Add(TemporaryOfflineTTL)
+	d.temporaryOffline[pubKey] = d.now().Add(TemporaryOfflineTTL)
 	d.offlineMu.Unlock()
 }
 
@@ -1608,7 +1626,7 @@ func (d *Daemon) isTemporarilyOffline(pubKey string) bool {
 	if pubKey == "" {
 		return false
 	}
-	now := time.Now()
+	now := d.now()
 	d.offlineMu.Lock()
 	until, ok := d.temporaryOffline[pubKey]
 	if !ok {
