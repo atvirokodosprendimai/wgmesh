@@ -151,7 +151,27 @@ func ipAddrViolation(name, fn string, call *ast.CallExpr, lits map[string][]stri
 }
 
 // routeWriters are the functions that write routes; only converge.go calls them.
-var routeWriters = map[string]bool{"applyRouteDiff": true, "restoreConnectedRoute": true}
+var routeWriters = map[string]bool{
+	"applyRouteDiff": true, "restoreConnectedRoute": true,
+	"applyRouteDiffDarwin": true, "darwinRouteCommand": true,
+}
+
+// routeWriteViolation is the text of a violation by a `route` Command call
+// (macOS) that names `add`, `delete` or `change` among its literal arguments:
+// a route write belongs in converge.go. The named exception is the first-setup
+// helper setInterfaceAddress of helpers.go, which installs the mesh route.
+// The darwin adapter builds its arguments at run time, which the guard does
+// not see: it is held by its callers (callViolations, routeWriters).
+func routeWriteViolation(name, fn string, call *ast.CallExpr, lits map[string][]string) string {
+	words := callWords(call, lits)
+	if !(words["add"] || words["delete"] || words["change"]) {
+		return ""
+	}
+	if name == "converge.go" || (name == "helpers.go" && fn == "setInterfaceAddress") {
+		return ""
+	}
+	return fmt.Sprintf("%s runs a route write in %q: route writes belong in converge.go (first setup: setInterfaceAddress in helpers.go)", name, fn)
+}
 
 // callViolations is one text per call of a route writer in file `name`, unless
 // the file is converge.go.
@@ -273,6 +293,12 @@ func commandViolations(name string, f *ast.File, lits map[string][]string) []str
 					out = append(out, v)
 				}
 				if v := ipAddrViolation(name, funcAt(f, call.Pos()), call, lits); v != "" {
+					out = append(out, v)
+				}
+				continue
+			}
+			if cmd == "route" {
+				if v := routeWriteViolation(name, funcAt(f, call.Pos()), call, lits); v != "" {
 					out = append(out, v)
 				}
 				continue
@@ -441,6 +467,10 @@ func TestRouteWriterCallsGuardForms(t *testing.T) {
 		{"routes calls restoreConnectedRoute", "routes.go", `restoreConnectedRoute("10.0.0.0/24")`, true},
 		{"converge calls applyRouteDiff", "converge.go", `applyRouteDiff("wg0", nil, nil)`, false},
 		{"converge calls restoreConnectedRoute", "converge.go", `restoreConnectedRoute("10.0.0.0/24")`, false},
+		{"darwin_routes calls applyRouteDiffDarwin", "darwin_routes.go", `applyRouteDiffDarwin("utun4", routePlan{})`, true},
+		{"darwin_routes calls darwinRouteCommand", "darwin_routes.go", `darwinRouteCommand("add", "10.0.0.0/24", "utun4")`, true},
+		{"converge calls applyRouteDiffDarwin", "converge.go", `applyRouteDiffDarwin("utun4", routePlan{})`, false},
+		{"converge calls darwinRouteCommand", "converge.go", `darwinRouteCommand("add", "10.0.0.0/24", "utun4")`, false},
 		{"another function", "routes.go", `applyRoutes("wg0")`, false},
 	}
 	for _, c := range cases {
