@@ -31,7 +31,7 @@ Ordering note: follows ADR-0002 T10, which edits `main.go` flags near `:333` and
 
 1. [S1] Add the tests with a compiling stub (`TryLock` that always succeeds, `acquireInterfaceLock` that returns a no-op) and run red.
 2. [S2] Implement `TryLock`; `release` is idempotent.
-3. [S3] Add `InterfaceLockPath`, `acquireInterfaceLock`, and the `joinCmd` call; the message reads like: `another wgmesh join holds interface wg0 (lock /var/lib/wgmesh/wg0.lock, pid 4242); stop it first`.
+3. [S3] Add `InterfaceLockPath`, `acquireInterfaceLock(path)`, and the `joinCmd` call, placed before `handleAccountFlag` and `recordReferralCode` as well (a refused join must not overwrite the running node's account file); the message reads like: `another wgmesh join holds the lock /var/lib/wgmesh/wg0.lock (pid 4242); stop it first (systemctl stop wgmesh, or brew services stop wgmesh)`; a permission error adds `run wgmesh join as root (or as the user that owns /var/lib/wgmesh)`.
 4. [S4] [proof: human: whether `join` under systemd on a real host exits 1 and leaves the first service running was not run here; the test covers the lock and the order, a one-time check on a development host is the sign-off] Start the service, run `wgmesh join` by hand, confirm exit 1, the service's socket and interface intact; record host, date and release in the sign-off line.
 5. [S5] Run the mutants with `adr-verify --mutant`: `TryLock` ignores `EWOULDBLOCK`; the lock is taken after `createRPCServer`; the release is called before the daemon exits. [proof: mutation]
 
@@ -39,7 +39,7 @@ Ordering note: follows ADR-0002 T10, which edits `main.go` flags near `:333` and
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/flock . -run '^(TestTryLockExcludesSecondHolder|TestTryLockReportsHolderPid|TestTryLockReleaseAllowsNext|TestTryLockFreedWhenHolderDies|TestAcquireInterfaceLockMessage|TestJoinTakesLockBeforeDaemonAndSocket)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 6 ] && go test -race ./pkg/flock ./pkg/daemon -count=1
+n=$(go test ./pkg/flock . -run '^(TestTryLockExcludesSecondHolder|TestTryLockReportsHolderPid|TestTryLockReleaseAllowsNext|TestTryLockFreedWhenHolderDies|TestAcquireInterfaceLockMessage|TestJoinTakesLockBeforeDaemonAndSocket|TestTryLockEmptyHolderHasNoPid|TestTryLockTruncatesStalePid|TestTryLockReleaseTwiceKeepsReusedDescriptor|TestTryLockReleaseIsSafeConcurrently|TestAcquireInterfaceLockCreatesDirectory0700|TestAcquireInterfaceLockHolderWithoutPid)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 12 ] && go test -race ./pkg/flock ./pkg/daemon -count=1
 ```
 
 ## Tests
@@ -52,6 +52,13 @@ n=$(go test ./pkg/flock . -run '^(TestTryLockExcludesSecondHolder|TestTryLockRep
 | `TestTryLockFreedWhenHolderDies` | `pkg/flock/flock_test.go` | the test binary re-executes itself as a child that takes the lock; the parent kills the child with `cmd.Process.Kill` (its own child, never `pkill`) and the next `TryLock` succeeds | — | S1, S2 |
 | `TestAcquireInterfaceLockMessage` | `main_lock_test.go` | with the lock held the error names the lock path and the pid | — | S1, S3 |
 | `TestJoinTakesLockBeforeDaemonAndSocket` | `main_lock_test.go` | parsing `main.go`: in `joinCmd` the call to `acquireInterfaceLock` precedes `daemon.NewDaemon` and `createRPCServer` | — | S1, S3 |
+| `TestTryLockEmptyHolderHasNoPid` | `pkg/flock/flock_test.go` | a lock held without a pid written gives a `HeldError` with an empty holder | — | S1, S2 |
+| `TestTryLockTruncatesStalePid` | `pkg/flock/flock_test.go` | an old pid line is replaced by exactly the new pid line | — | S1, S2 |
+| `TestTryLockReleaseTwiceKeepsReusedDescriptor` | `pkg/flock/flock_test.go` | a second `release` does not touch a descriptor number reused by another file | — | S1, S2 |
+| `TestTryLockReleaseIsSafeConcurrently` | `pkg/flock/flock_test.go` | 16 goroutines call `release` under `-race` | — | S1, S2 |
+| `TestAcquireInterfaceLockPermissionHint` | `main_lock_test.go` | an unwritable lock directory gives the error plus the run-as-root hint (skipped as root) | — | S1, S3 |
+| `TestAcquireInterfaceLockCreatesDirectory0700` | `main_lock_test.go` | a missing parent directory is created with mode 0700 | — | S1, S3 |
+| `TestAcquireInterfaceLockHolderWithoutPid` | `main_lock_test.go` | a holder that has not written its pid prints `pid unknown` | — | S1, S3 |
 
 ## Reachability
 
@@ -63,10 +70,16 @@ n=$(go test ./pkg/flock . -run '^(TestTryLockExcludesSecondHolder|TestTryLockRep
 | 4 — it is used | every `wgmesh join`, including the systemd service |
 
 ## Mutation Log
+- 2026-11-16 · 2a5f687 · mutant killed · exit 1 · `pkg/flock/flock.go` · a held lock is not reported as held: TestTryLockExcludesSecondHolder must go red · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
+- 2026-11-16 · 2a5f687* · mutant killed · exit 1 · `main.go` · joinCmd no longer takes the lock: TestJoinTakesLockBeforeDaemonAndSocket must go red · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
+- 2026-11-16 · 2a5f687* · mutant killed · exit 1 · `main.go` · the lock is released at once: TestJoinTakesLockBeforeDaemonAndSocket (defer check) must go red · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
+- 2026-11-16 · 2a5f687* · mutant killed · exit 1 · `pkg/flock/flock.go` · the holder pid is not written: TestTryLockReportsHolderPid must go red · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
+- 2026-11-16 · 2a5f687* · mutant killed · exit 1 · `pkg/flock/flock.go` · a stale pid line survives: TestTryLockTruncatesStalePid must go red · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
+- 2026-11-16 · 2a5f687* · mutant killed · exit 1 · `pkg/flock/flock.go` · the second TryLock blocks instead of failing: TestTryLockExcludesSecondHolder must go red (bounded wait) · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43
 
 ## Invariants
 
-- A single `join` per interface starts exactly as before (the lock file is created, held, and removed or left empty at exit; its content is a pid line only).
+- A single `join` per interface starts exactly as before (the lock file is created and held; it is never removed, and its content is the last holder's pid line only; the kernel drops the lock when the process dies).
 - The lock is held for the life of the process; nothing releases it before `Run` returns.
 - `pkg/flock` imports only the standard library.
 
@@ -75,6 +88,7 @@ n=$(go test ./pkg/flock . -run '^(TestTryLockExcludesSecondHolder|TestTryLockRep
 - A daemon of an older release does not take the lock, so a new `join` beside an old running daemon is not stopped (stated in the release note).
 - `flock` on a network filesystem may not exclude; the state directory is local by convention (parent Risks).
 - Test doubles: `localNodeStateDir` pointed at a temp directory; the child process of the death test.
+- Behaviour taken on (panel 2026-11-16, not covered by a test): the lock path is `/var/lib/wgmesh/<iface>.lock` whatever `--state-dir` says (the interface is a host resource, so two joins with different state dirs on one interface are refused); `handleAccountFlag` and `recordReferralCode` now run after `NewConfig` and the lock, so a join whose config is invalid no longer saves the account key or the referral; `wgmesh install-service` starts the unit with `systemctl start`, which succeeds before a lock-refused `join` exits 1, so the install reports success while the unit crash-loops every 5 s (T11 release note); a lock file removed while a daemon runs lets a second join take a new inode (known limit, commented above `TryLock`; closing it needs a hook between open and flock); `pkg/flock` is `unix` only and `main.go` imports it unconditionally, so a non-unix build fails (Out of Scope: releases are linux and darwin); a daemon of an older release does not hold the lock; Docker Desktop bind mounts on macOS may not exclude across the VM; the lock file keeps the previous holder's pid until the next holder writes its own, so a joiner that reads in that window may print the old pid or `pid unknown`.
 
 ## Stop Condition
 
@@ -87,3 +101,24 @@ Stop and ask if `joinCmd` builds the RPC server or touches the interface before 
 - Non-unix platforms (permanent: fact: releases are built for linux and darwin only; citation: file `.goreleaser.yml:15`).
 
 ## Verification Log
+- 2026-11-16 · 2a5f687 · exit 0 · `set -o pipefail …` · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43 · ms:17468
+- 2026-11-16 · 2a5f687* · exit 0 · `set -o pipefail …` · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43 · ms:17325
+- 2026-11-16 · 2a5f687* · exit 0 · `set -o pipefail …` · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43 · ms:19993
+- 2026-11-16 · 2a5f687* · exit 0 · `set -o pipefail …` · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43 · ms:17909
+- 2026-11-16 · 2a5f687* · exit 0 · `set -o pipefail …` · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43 · ms:18265
+- 2026-11-16 · 2a5f687* · exit 0 · `set -o pipefail …` · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43 · ms:19358
+- 2026-11-16 · 2a5f687* · exit 0 · `set -o pipefail …` · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43 · ms:20105
+- 2026-11-16 · 2a5f687* · exit 1 · `set -o pipefail …` · acceptance-sha256:80669b0252c24df8b8abcbb2f2ad1c9f99e152c6757846fc4558bcaf091d3e43 · ms:1729 · test-lock-sha256:071613171a6d873010e30f68335bb2bbdf99a718cebffa90fa13cb5a9323e848 · test-lock-file:docs/adr/locks/071613171a6d873010e30f68335bb2bbdf99a718cebffa90fa13cb5a9323e848.lock
+  ```
+  --- last 10 line(s) of stderr (of 22 after folding 22 raw)
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/flock	0.005s
+  === RUN   TestAcquireInterfaceLockMessage
+      main_lock_test.go:32: second acquire succeeded while the first is held
+  --- FAIL: TestAcquireInterfaceLockMessage (0.00s)
+  === RUN   TestJoinTakesLockBeforeDaemonAndSocket
+      main_lock_test.go:82: joinCmd does not call acquireInterfaceLock
+  --- FAIL: TestJoinTakesLockBeforeDaemonAndSocket (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh	0.010s
+  FAIL
+  ```

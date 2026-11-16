@@ -24,7 +24,7 @@ README must be regenerated.
 | T2 | Write the four in-place state files through `atomicfile` (#870) | done | — | five named tests in three packages, `os.WriteFile` count at most 10, then `-race` |
 | T3 | Replace the four private temp-and-rename copies and fail the build on a new one | done | — | two guard tests, then `-race` on mesh, promo and the root package |
 | T4 | A corrupt identity file is not treated as absent (#870) | done | — | five named tests, then `-race` |
-| T5 | Take an exclusive per-interface lock before `join` touches the socket or the interface (#860) | pending | — | six named tests in two packages, then `-race` |
+| T5 | Take an exclusive per-interface lock before `join` touches the socket or the interface (#860) | done | — | six named tests in two packages, then `-race` |
 | T6 | `rpc.NewServer` owns its socket path before it removes anything (#860) | pending | — | four named tests, then `-race` |
 | T7 | One `LocalNode` type, so a method added to it reaches the node the daemon runs | pending | — | one named test, build, vet, then `-race` on three packages |
 | T8 | Put the local node's mutable fields under one lock | pending | — | four named tests under `-race`, build, vet, then `-race` on three packages |
