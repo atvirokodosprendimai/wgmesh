@@ -18,7 +18,7 @@
 | File | Change | Why |
 |------|--------|-----|
 | `pkg/daemon/daemon.go` | edit | `sweepTemporaryOffline` new (under `offlineMu`); the body of the `staleCleanupLoop` tick (`daemon.go:934-950`) moves to `staleCleanupTick` and calls the sweep |
-| `pkg/daemon/bounded_guard_test.go` | add | the guard: parses `daemon.go`, `../discovery/dht.go`, `exchange.go`, `gossip.go`, `lan.go` with `go/parser`, lists map-typed struct fields, compares them with the table (19 rows on 2026-11-15: field, file, rule kind, how) |
+| `pkg/daemon/bounded_guard_test.go` | add | the guard: parses `daemon.go`, `../discovery/dht.go`, `exchange.go`, `gossip.go`, `lan.go`, `../node/store.go`, `../discovery/replay_cache.go` with `go/parser`, lists map-typed struct fields, compares them with the table (19 rows on 2026-11-15: field, file, rule kind, how) |
 | `pkg/daemon/offline_sweep_test.go` | add | the sweep tests |
 
 Selection: `staleCleanupLoop` calls `staleCleanupTick`; the guard test is selected by `go test ./...` and fails when the table and the source differ either way.
@@ -42,7 +42,7 @@ n=$(go test ./pkg/daemon -run '^(TestEveryMapFieldHasABound|TestBoundTableHasNoS
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestEveryMapFieldHasABound` | `pkg/daemon/bounded_guard_test.go` | every map-typed struct field in the five files has a table row | — | S1, S2 |
+| `TestEveryMapFieldHasABound` | `pkg/daemon/bounded_guard_test.go` | every map-typed struct field in the seven files (the five of the audit plus `pkg/node/store.go` and `pkg/discovery/replay_cache.go`) has a table row | — | S1, S2 |
 | `TestBoundTableHasNoStaleRows` | `pkg/daemon/bounded_guard_test.go` | every table row names a field that exists | — | S1, S2 |
 | `TestGuardFailsOnUnlistedMapField` | `pkg/daemon/bounded_guard_test.go` | `checkBoundTable` on a synthetic struct with an unlisted `map[string]time.Time` field returns one finding naming it | — | S1, S4 |
 | `TestSweepTemporaryOfflineDropsExpiredKeepsLive` | `pkg/daemon/offline_sweep_test.go` | an entry whose deadline passed is deleted without a lookup; one inside `TemporaryOfflineTTL` stays and `isTemporarilyOffline` still returns true | — | S1, S3 |
@@ -58,6 +58,23 @@ n=$(go test ./pkg/daemon -run '^(TestEveryMapFieldHasABound|TestBoundTableHasNoS
 | 4 — it is used | every build |
 
 ## Mutation Log
+- 2026-11-16 · f0f1d0f* · mutant killed · exit 1 · `pkg/daemon/bounded_guard_test.go` · a field without a row: TestEveryMapFieldHasABound red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · f0f1d0f* · mutant killed · exit 1 · `pkg/daemon/bounded_guard_test.go` · a row for a field that does not exist: TestEveryMapFieldHasABound red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · f0f1d0f* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · tick never sweeps: TestStaleCleanupTickRunsOfflineSweep red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · f0f1d0f* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · bare map access: -race test red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · f0f1d0f* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · expired entries stay: TestSweepTemporaryOfflineDropsExpiredKeepsLive red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · 7fd9ed8* · mutant killed · exit 1 · `pkg/daemon/bounded_guard_test.go` · a field without a row and a stale row: TestEveryMapFieldHasABound red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · 7fd9ed8* · mutant killed · exit 1 · `pkg/daemon/bounded_guard_test.go` · a row for a field that does not exist: TestBoundTableHasNoStaleRows red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · 7fd9ed8* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · tick never sweeps: TestStaleCleanupTickRunsOfflineSweep red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · 7fd9ed8* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · bare map access: -race test red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · 7fd9ed8* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · expired entries stay: TestSweepTemporaryOfflineDropsExpiredKeepsLive red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · 7fd9ed8* · mutant killed · exit 1 · `pkg/daemon/bounded_guard_test.go` · bad kind passes: TestGuardFailsOnUnlistedMapField red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · 7fd9ed8* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · a failure count outlives its peer: TestCleanupProbeSessionsDropsFailuresOfInactiveKeysWithoutSession red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+- 2026-11-16 · 7fd9ed8* · mutant survived · exit 0 · `pkg/daemon/daemon.go` · lazy init overwrites the start: ? · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-16 · 7fd9ed8* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · live entries dropped: TestSweepTemporaryOfflineDropsExpiredKeepsLive red · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036
 
 ## Invariants
 
@@ -81,3 +98,34 @@ Stop and ask if the guard cannot read `../discovery` from `pkg/daemon` under the
 - Maps in other packages (permanent: boundary: ADR-0007 Out of Scope).
 
 ## Verification Log
+- 2026-11-16 · f0f1d0f* · exit 1 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:1857 · test-lock-sha256:c05661da1d787acbd1f55876fa9a1639599a90bb723e01f4bab9bea4c8b58df6 · test-lock-file:docs/adr/locks/c05661da1d787acbd1f55876fa9a1639599a90bb723e01f4bab9bea4c8b58df6.lock
+  ```
+  --- last 10 line(s) of stderr (of 39 after folding 39 raw)
+  --- PASS: TestGuardFailsOnUnlistedMapField (0.00s)
+  === RUN   TestSweepTemporaryOfflineDropsExpiredKeepsLive
+      offline_sweep_test.go:26: expired entry survived the sweep
+  --- FAIL: TestSweepTemporaryOfflineDropsExpiredKeepsLive (0.00s)
+  === RUN   TestStaleCleanupTickRunsOfflineSweep
+      offline_sweep_test.go:65: staleCleanupTick left an expired temporaryOffline entry
+  --- FAIL: TestStaleCleanupTickRunsOfflineSweep (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.061s
+  FAIL
+  ```
+- 2026-11-16 · f0f1d0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:18211
+- 2026-11-16 · f0f1d0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:17100
+- 2026-11-16 · f0f1d0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:16524
+- 2026-11-16 · f0f1d0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:19650
+- 2026-11-16 · f0f1d0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:25012
+- 2026-11-16 · f0f1d0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:14341
+- 2026-11-16 · 7fd9ed8* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:1 · test-lock-sha256:9a7bae0e2bd98bef24a4a992ada7e081e217c62a7f519825bf0a8d70dfc5ba35 · test-lock-file:docs/adr/locks/9a7bae0e2bd98bef24a4a992ada7e081e217c62a7f519825bf0a8d70dfc5ba35.lock · test-lock-kind:replace
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:16151
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:17082
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:14592
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:14860
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:13438
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:17678
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:15076
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:16343
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:10580
+- 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:13085
