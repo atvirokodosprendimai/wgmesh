@@ -25,6 +25,7 @@ On a host set up from the package (unit with `WGMESH_SECRET_FILE=/etc/wgmesh/sec
 | `testdata/script/status-secret-env.txtar`, `status-secret-file.txtar`, `qr-secret-env.txtar`, `join-secret-file-missing.txtar` | add | `exec wgmesh ...` scripts run by `TestScript` (`main_test.go:20`) |
 
 Selection: the four commands call the helper; the scripts run `status` and `qr` with no `--secret`, so removing one call turns its script red.
+The four `.txtar` scripts (`status-secret-env`, `status-secret-file`, `qr-secret-env`, `join-secret-file-missing`) stay in the acceptance fence but are not Tests-table rows: adr-lint cannot hash a `.txtar` row, so the table names Go tests that say the same through a built binary (lesson of ADR-0007 T6). `main.go` line numbers here are those of 2026-11-15 and have drifted by about 8 to 20.
 
 ## Ordered Steps
 
