@@ -57,6 +57,11 @@ func TestParseDump(t *testing.T) {
 		"empty":            "",
 		"short peer line":  "(none)\t(none)\t51820\toff\nK1=\t(none)\t1.2.3.4:5\n",
 		"bad handshake":    "(none)\t(none)\t51820\toff\nK1=\t(none)\t(none)\t(none)\tsoon\t0\t0\toff\n",
+		"3-field iface":    "(none)\t(none)\t51820\n",
+		"7-field peer":     "(none)\t(none)\t51820\toff\nK1=\t(none)\t(none)\t(none)\t0\t0\t0\n",
+		"rx not a number":  "(none)\t(none)\t51820\toff\nK1=\t(none)\t(none)\t(none)\t0\tabc\t0\toff\n",
+		"tx not a number":  "(none)\t(none)\t51820\toff\nK1=\t(none)\t(none)\t(none)\t0\t0\tabc\toff\n",
+		"keepalive soon":   "(none)\t(none)\t51820\toff\nK1=\t(none)\t(none)\t(none)\t0\t0\t0\tsoon\n",
 		"short iface line": "(none)\n",
 	} {
 		if _, err := ParseDump(in); err == nil {

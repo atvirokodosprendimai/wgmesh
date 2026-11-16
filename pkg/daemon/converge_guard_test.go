@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -48,15 +49,42 @@ func selectors(node ast.Node, fn func(x, sel string)) {
 	})
 }
 
+// wireguardImportPath is the package whose SetPeer and RemovePeer write peers.
+const wireguardImportPath = "github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
+
+// importNames is every local name file f gives to the package at path, found
+// by the import path, so an alias does not hide a call.
+func importNames(f *ast.File, path string) map[string]bool {
+	names := make(map[string]bool)
+	for _, imp := range f.Imports {
+		p, err := strconv.Unquote(imp.Path.Value)
+		if err != nil || p != path {
+			continue
+		}
+		name := filepath.Base(p)
+		if imp.Name != nil {
+			name = imp.Name.Name
+		}
+		names[name] = true
+	}
+	return names
+}
+
 // TestKernelWritesOnlyInConverge: no production file of pkg/daemon outside
-// converge.go calls wireguard.SetPeer or wireguard.RemovePeer, or the Daemon
-// seams that stand for them. Later tasks extend the pattern list.
+// converge.go calls SetPeer or RemovePeer of pkg/wireguard (under any import
+// alias), or the Daemon seams that stand for them. Later tasks extend the
+// pattern list.
 func TestKernelWritesOnlyInConverge(t *testing.T) {
-	banned := []struct{ x, sel string }{
-		{"wireguard", "SetPeer"},
-		{"wireguard", "RemovePeer"},
-		{"", "setPeerFn"},
-		{"", "removePeerFn"},
+	banned := []struct {
+		sel     string
+		inWgPkg bool // the selector must be on the wireguard package, else any receiver
+	}{
+		{"SetPeer", true},
+		{"RemovePeer", true},
+		{"setPeerFn", false},
+		{"removePeerFn", false},
+		{"setSeam", false},
+		{"removeSeam", false},
 	}
 	files := parseProduction(t)
 	if _, ok := files["converge.go"]; !ok {
@@ -66,9 +94,10 @@ func TestKernelWritesOnlyInConverge(t *testing.T) {
 		if name == "converge.go" {
 			continue
 		}
+		wg := importNames(f, wireguardImportPath)
 		selectors(f, func(x, sel string) {
 			for _, b := range banned {
-				if sel == b.sel && (b.x == "" || x == b.x) {
+				if sel == b.sel && (!b.inWgPkg || wg[x]) {
 					t.Errorf("%s calls %s.%s: kernel peer writes belong in converge.go", name, x, sel)
 				}
 			}

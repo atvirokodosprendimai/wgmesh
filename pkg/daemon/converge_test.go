@@ -8,7 +8,6 @@ import (
 	"reflect"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -223,8 +222,8 @@ func TestObserveFailureSkipsApply(t *testing.T) {
 }
 
 func TestPlanPeersAllowedIPsDriftReapplies(t *testing.T) {
-	// B was set last and took 192.168.50.0/24 from A in the kernel; nothing
-	// in the desired state changed.
+	// keyA's kernel entry lost 192.168.50.0/24, which the desired state gives
+	// it; nothing in the desired state changed.
 	k := newFakeKernel().
 		with("keyA", "203.0.113.2:51820", "10.99.0.2/32").
 		with("keyB", "203.0.113.3:51820", "10.99.0.3/32")
@@ -239,9 +238,9 @@ func TestPlanPeersAllowedIPsDriftReapplies(t *testing.T) {
 	if ds := d.converge(peers); ds == nil {
 		t.Fatal("converge skipped the tick")
 	}
-	want := []setCall{{"keyA", "", "10.99.0.2/32,192.168.50.0/24"}}
-	if got := k.setCalls(); !reflect.DeepEqual(got, want) {
-		t.Errorf("sets = %v, want %v (drift-only set: no endpoint, only the drifted peer)", got, want)
+	expect := []setCall{{"keyA", "", "10.99.0.2/32,192.168.50.0/24"}}
+	if got := k.setCalls(); !reflect.DeepEqual(got, expect) {
+		t.Errorf("sets = %v, want %v (drift-only set: no endpoint, only the drifted peer)", got, expect)
 	}
 }
 
@@ -432,6 +431,9 @@ func TestStaleCleanupRemovedPeerIsReadded(t *testing.T) {
 	if _, ok := k.peers["keyA"]; ok {
 		t.Fatal("stale cleanup left the peer in the kernel")
 	}
+	if got := pushedOf(d); len(got) != 0 {
+		t.Errorf("pushed = %v after removePeerFromKernel, want empty", got)
+	}
 	d.converge([]*PeerInfo{a})
 
 	got := k.setCalls()
@@ -518,6 +520,87 @@ func TestResultLoggedOnChangeOnly(t *testing.T) {
 	}
 }
 
+// A failure is logged again when its text changes, and again when the item
+// dropped out of the plan in between (its entry is pruned).
+func TestResultLogRepeatsOnNewTextOrAfterPrune(t *testing.T) {
+	t.Run("different text", func(t *testing.T) {
+		k := newFakeKernel()
+		ls := &logSink{}
+		d := newConvergeDaemon(t, k, ls)
+		peers := []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820")}
+		k.setErr["keyA"] = errors.New("boom one")
+		for i := 0; i < 3; i++ {
+			d.converge(peers)
+		}
+		k.setErr["keyA"] = errors.New("boom two")
+		for i := 0; i < 3; i++ {
+			d.converge(peers)
+		}
+		if n := ls.count("boom one"); n != 1 {
+			t.Errorf("first text logged %d times, want 1: %v", n, ls.lines)
+		}
+		if n := ls.count("boom two"); n != 1 {
+			t.Errorf("second text logged %d times, want 1: %v", n, ls.lines)
+		}
+	})
+
+	t.Run("pruned when the item leaves the plan", func(t *testing.T) {
+		k := newFakeKernel()
+		ls := &logSink{}
+		d := newConvergeDaemon(t, k, ls)
+		peers := []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820")}
+		k.setErr["keyA"] = errors.New("boom")
+		d.converge(peers)
+		d.converge(peers)
+		if n := ls.count("boom"); n != 1 {
+			t.Fatalf("same failure logged %d times in 2 ticks, want 1: %v", n, ls.lines)
+		}
+		d.converge(nil) // keyA is not wanted: no item, the entry is pruned
+		d.converge(peers)
+		if n := ls.count("boom"); n != 2 {
+			t.Errorf("failure after the item came back logged %d times in total, want 2: %v", n, ls.lines)
+		}
+	})
+}
+
+// A reconnect records what it pushed: the next tick has nothing to write.
+func TestConvergeAfterReconnectWritesNothing(t *testing.T) {
+	k := newFakeKernel()
+	d := newConvergeDaemon(t, k, &logSink{})
+	a := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820")
+	if err := d.reconnectPeerInKernel(a, []*PeerInfo{a}); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(k.setCalls()); got != 1 {
+		t.Fatalf("reconnect wrote %d sets, want 1", got)
+	}
+	if ds := d.converge([]*PeerInfo{a}); ds == nil {
+		t.Fatal("converge skipped the tick")
+	}
+	if got := k.setCalls(); len(got) != 1 {
+		t.Errorf("converge after reconnect wrote again: %v", got)
+	}
+}
+
+// One plan removes first, then sets.
+func TestPlanRemovalsRunBeforeSets(t *testing.T) {
+	k := newFakeKernel().with("old-key", "", "10.99.0.9/32")
+	d := newConvergeDaemon(t, k, &logSink{})
+	var order []string
+	d.setPeerFn = func(iface, key string, psk [32]byte, ep, allowed string) error {
+		order = append(order, "set "+key)
+		return k.set(iface, key, psk, ep, allowed)
+	}
+	d.removePeerFn = func(iface, key string) error {
+		order = append(order, "remove "+key)
+		return k.remove(iface, key)
+	}
+	d.converge([]*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820"), testPeer("keyB", "10.99.0.3", "203.0.113.3:51820")})
+	if want := []string{"remove old-key", "set keyA", "set keyB"}; !reflect.DeepEqual(order, want) {
+		t.Errorf("apply order = %v, want %v", order, want)
+	}
+}
+
 // TestReconnectOnlyTouchesPeerWithOwnEntry: a forced reconnect of a relayed
 // peer must not set its mesh /32 on the peer, pulling it off its relay.
 func TestReconnectOnlyTouchesPeerWithOwnEntry(t *testing.T) {
@@ -544,53 +627,75 @@ func TestReconnectOnlyTouchesPeerWithOwnEntry(t *testing.T) {
 	}
 }
 
-// TestConvergeConcurrentWithHealthWrites: a tick's apply and a health-path
-// write never interleave, and the shared state has no race (run with -race).
+// TestConvergeConcurrentWithHealthWrites: a health-path write waits for a
+// tick's apply in flight and runs after it (run with -race: both goroutines
+// touch the pushed endpoints). The tick's first write blocks on a channel, so
+// the order is forced, not hoped for.
 func TestConvergeConcurrentWithHealthWrites(t *testing.T) {
 	k := newFakeKernel()
 	d := newConvergeDaemon(t, k, &logSink{})
-	var inflight atomic.Int32
-	var overlap atomic.Bool
-	var writes atomic.Int32
-	write := func() {
-		if inflight.Add(1) != 1 {
-			overlap.Store(true)
-		}
-		time.Sleep(200 * time.Microsecond)
-		writes.Add(1)
-		inflight.Add(-1)
+	var mu sync.Mutex
+	var order []string
+	note := func(s string) {
+		mu.Lock()
+		defer mu.Unlock()
+		order = append(order, s)
 	}
-	d.setPeerFn = func(string, string, [32]byte, string, string) error { write(); return nil }
-	d.removePeerFn = func(string, string) error { write(); return nil }
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var once, rel sync.Once
+	releaseTick := func() { rel.Do(func() { close(release) }) }
+	defer releaseTick()
+	d.setPeerFn = func(_, key string, _ [32]byte, _, _ string) error {
+		once.Do(func() {
+			close(entered)
+			<-release
+		})
+		note("set " + key)
+		return nil
+	}
+	d.removePeerFn = func(_, key string) error { note("remove " + key); return nil }
 	peers := []*PeerInfo{
 		testPeer("keyA", "10.99.0.2", "203.0.113.2:51820"),
 		testPeer("keyB", "10.99.0.3", "203.0.113.3:51820"),
-		testPeer("keyC", "10.99.0.4", "203.0.113.4:51820"),
 	}
 
-	var wg sync.WaitGroup
-	wg.Add(2)
+	tick := make(chan struct{})
 	go func() {
-		defer wg.Done()
-		for i := 0; i < 20; i++ {
-			d.reconcileMu.Lock()
-			d.converge(peers)
-			d.reconcileMu.Unlock()
-		}
+		defer close(tick)
+		d.reconcileMu.Lock()
+		defer d.reconcileMu.Unlock()
+		d.converge(peers)
 	}()
-	go func() {
-		defer wg.Done()
-		for i := 0; i < 20; i++ {
-			_ = d.removePeerFromKernel("keyZ")
-		}
-	}()
-	wg.Wait()
-
-	if overlap.Load() {
-		t.Error("two wg writes ran at the same time")
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("the tick never reached its first write")
 	}
-	if writes.Load() < 40 {
-		t.Errorf("only %d writes ran", writes.Load())
+
+	health := make(chan struct{})
+	go func() {
+		defer close(health)
+		_ = d.removePeerFromKernel("keyZ")
+	}()
+	select {
+	case <-health:
+		t.Fatal("removePeerFromKernel returned while a tick's write was in flight")
+	case <-time.After(time.Second):
+	}
+
+	releaseTick()
+	for name, done := range map[string]chan struct{}{"tick": tick, "health write": health} {
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatalf("%s did not finish after the release", name)
+		}
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if want := []string{"set keyA", "set keyB", "remove keyZ"}; !reflect.DeepEqual(order, want) {
+		t.Errorf("write order = %v, want %v (the health write after the whole apply)", order, want)
 	}
 }
 
