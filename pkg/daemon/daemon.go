@@ -151,6 +151,16 @@ func (n *LocalNode) SetEndpoint(ep string) {
 	n.wgEndpoint = ep
 }
 
+// GetNATType returns the detected NAT type.
+func (n *LocalNode) GetNATType() string {
+	return n.NATType
+}
+
+// SetNATType records the detected NAT type.
+func (n *LocalNode) SetNATType(t string) {
+	n.NATType = t
+}
+
 // EndpointSource names where an endpoint observation came from.
 type EndpointSource string
 
@@ -161,6 +171,10 @@ const (
 	EndpointReflection EndpointSource = "reflection"
 	// EndpointSTUN is the answer of a STUN server.
 	EndpointSTUN EndpointSource = "stun"
+	// EndpointSTUNResume is a STUN answer fetched on purpose right after a
+	// wake from sleep (ADR-0004 M5). The node's mapping is known to be stale,
+	// so unlike EndpointSTUN it applies at once and discards a pending value.
+	EndpointSTUNResume EndpointSource = "stun-resume"
 )
 
 // stunConfirmations is how many identical STUN observations in a row replace

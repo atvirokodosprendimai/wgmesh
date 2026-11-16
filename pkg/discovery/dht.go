@@ -19,6 +19,7 @@ import (
 	"github.com/anacrolix/dht/v2/krpc"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -75,6 +76,22 @@ type DHTDiscovery struct {
 	contactedPeers    map[string]time.Time    // Dedup: don't spam same IP
 	controlPeers      map[string]string       // peer pubkey -> exchange/control endpoint
 	rendezvousBackoff map[string]backoffEntry // peer pubkey -> backoff state
+
+	// stunMu serialises refreshSTUNOnce: the ticker and OnResume both call it.
+	stunMu sync.Mutex
+	// stunInterval is the ticker period of stunRefreshLoop; set before Start.
+	stunInterval time.Duration
+	// The three hooks below are set in NewDHTDiscovery and replaced only by
+	// tests before the layer runs: the STUN query, the announce to the
+	// infohash and the one-address announce.
+	stunFn         func() (NATType, net.IP, error)
+	announceFn     func()
+	sendAnnounceFn func(*net.UDPAddr) error
+	// resumable is true from the end of Start to the start of Stop (guarded by
+	// mu): OnResume acts only then, so it never reads fields Start is still
+	// writing. resumeWG tracks the goroutine OnResume starts.
+	resumable bool
+	resumeWG  sync.WaitGroup
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance.
@@ -92,10 +109,14 @@ func NewDHTDiscovery(parentCtx context.Context, config *daemon.Config, localNode
 		contactedPeers:    make(map[string]time.Time),
 		controlPeers:      make(map[string]string),
 		rendezvousBackoff: make(map[string]backoffEntry),
+		stunInterval:      60 * time.Second,
 	}
 
 	// Create peer exchange handler
 	d.exchange = NewPeerExchange(config, localNode, peerStore)
+	d.stunFn = d.queryStun
+	d.announceFn = d.announce
+	d.sendAnnounceFn = d.exchange.SendAnnounce
 
 	return d, nil
 }
@@ -459,6 +480,30 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 		}
 	}
 }
+
+// queryStun is the default stunFn: the STUN servers' view of our external
+// address. With two servers it also classifies the NAT; with one the NAT type
+// comes back empty and the caller leaves it as it was.
+func (d *DHTDiscovery) queryStun() (NATType, net.IP, error) {
+	servers := DefaultSTUNServers
+	if len(servers) >= 2 {
+		natType, ip, _, err := DetectNATType(servers[0], servers[1], 0, 3000)
+		return natType, ip, err
+	}
+	ip, _, err := DiscoverExternalEndpoint(0)
+	return "", ip, err
+}
+
+// refreshSTUNOnce is one pass of the STUN refresh (stub).
+func (d *DHTDiscovery) refreshSTUNOnce(src daemon.EndpointSource) {}
+
+// announceNow announces to the infohash and to every active peer (stub).
+func (d *DHTDiscovery) announceNow() {}
+
+var _ node.Resumer = (*DHTDiscovery)(nil)
+
+// OnResume runs the wake actions (stub).
+func (d *DHTDiscovery) OnResume() {}
 
 // initDHTServer initializes the BitTorrent DHT server
 func (d *DHTDiscovery) initDHTServer() error {
