@@ -90,9 +90,11 @@ func (d *Daemon) resumeLoop(ticks <-chan time.Time) {
 // that has one caller at a time, reconcileLoop. The daemon does not import
 // discovery, so the layer is reached through the interface.
 func (d *Daemon) handleResume(now time.Time, gap time.Duration) {
-	log.Printf("[Resume] wall clock jumped %s", gap.Round(time.Second))
+	log.Printf("[Resume] wall clock jumped %s: eviction and stale-handshake decisions wait %s when liveness is enforced", gap.Round(time.Second), ResumeGrace)
 	resumeDetected.Inc()
-	d.peerStore.NoteResume(now)
+	if d.peerStore != nil {
+		d.peerStore.NoteResume(now)
+	}
 	select {
 	case d.resumeCh <- struct{}{}:
 	default: // a pass is already requested
