@@ -190,9 +190,85 @@ type Advertiser struct {
 	Networks []string
 }
 
-// Resolve gives every advertised network one owner.
+// Resolve gives every network that peers advertise exactly one owner and
+// returns canonical network -> owner key. The choice is the same on every
+// call and does not depend on the order of adv.
+//
+// Candidates for a network are the peers that advertise it after ExcludeOwn
+// (a network this node advertises is never owned by a peer); blank entries are
+// ignored. A peer with a fresh handshake beats one without. Among fresh
+// candidates the owner already observed in current (canonical network -> owner
+// key, read back from the kernel) keeps the network; otherwise the lowest
+// mesh IP wins, compared as an address, then the lowest key. For an IPv6
+// network the candidate's MeshIPv6 is compared when it has one, else its
+// MeshIP; an address that does not parse sorts last. Resolve is pure: adv,
+// own and current are not modified.
 func Resolve(adv []Advertiser, own []string, current map[string]string) map[string]string {
-	return map[string]string{}
+	type candidate struct {
+		key, ip string
+		fresh   bool
+	}
+	byNetwork := make(map[string][]candidate)
+	for _, a := range adv {
+		seen := make(map[string]struct{})
+		for _, n := range ExcludeOwn(a.Networks, own) {
+			if strings.TrimSpace(n) == "" {
+				continue
+			}
+			v6 := familyOf(n)
+			network := Canonical(n, v6)
+			if _, dup := seen[network]; dup {
+				continue
+			}
+			seen[network] = struct{}{}
+			ip := a.MeshIP
+			if v6 && strings.TrimSpace(a.MeshIPv6) != "" {
+				ip = a.MeshIPv6
+			}
+			byNetwork[network] = append(byNetwork[network], candidate{a.Key, ip, a.Fresh})
+		}
+	}
+
+	observed := make(map[string]string, len(current))
+	for _, n := range sortedKeys(current) {
+		observed[Canonical(n, familyOf(n))] = current[n]
+	}
+
+	owners := make(map[string]string, len(byNetwork))
+	for network, cands := range byNetwork {
+		best := cands[0]
+		for _, c := range cands[1:] {
+			switch {
+			case c.fresh != best.fresh:
+				if c.fresh {
+					best = c
+				}
+			case addrLess(c.ip, best.ip):
+				best = c
+			case !addrLess(best.ip, c.ip) && c.key < best.key:
+				best = c
+			}
+		}
+		if best.fresh {
+			for _, c := range cands {
+				if c.fresh && c.key == observed[network] {
+					best = c
+					break
+				}
+			}
+		}
+		owners[network] = best.key
+	}
+	return owners
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // ExcludeOwn returns the entries of networks that are not in own. A node must
