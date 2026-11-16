@@ -140,3 +140,4 @@ Stop and ask if `TestReconcileRecordsHandshakes` needs a second `wg show` per re
 - 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:21033
 - 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:15612
 - 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:8256
+- 2026-11-16 · ffb9f29* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:8447
