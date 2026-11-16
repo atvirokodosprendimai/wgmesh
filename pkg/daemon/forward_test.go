@@ -147,7 +147,13 @@ func TestForwardRuleText(t *testing.T) {
 // package executor and so never run in parallel.
 func newForwardDaemon(t *testing.T, h *fakeHost, ls *logSink) *Daemon {
 	t.Helper()
-	d := newConvergeDaemon(t, newFakeKernel(), ls)
+	return newForwardDaemonOn(t, h, ls, newFakeKernel())
+}
+
+// newForwardDaemonOn is newForwardDaemon on a given WireGuard kernel.
+func newForwardDaemonOn(t *testing.T, h *fakeHost, ls *logSink, k *fakeKernel) *Daemon {
+	t.Helper()
+	d := newConvergeDaemon(t, k, ls)
 	d.goos = "linux"
 	d.readFileFn = h.readFile
 	old := cmdExecutor
@@ -545,5 +551,57 @@ func TestForwardScopeLogNamesRoleAndRemedy(t *testing.T) {
 	}
 	if strings.Contains(line, "\n") {
 		t.Errorf("forward-scope line is not one line: %q", line)
+	}
+}
+
+// An unreadable forwarding state (a read error, "2", an empty file) skips only
+// the forward target: no sysctl, no iptables write, while the peer writes of
+// the same tick still run. Logged once, recovery once.
+func TestForwardReadErrorSkipsOnlyForward(t *testing.T) {
+	str := func(s string) *string { return &s }
+	cases := []struct {
+		name string
+		fail func(h *fakeHost)
+	}{
+		{"read error", func(h *fakeHost) { h.readErr = errors.New("permission denied") }},
+		{"value 2", func(h *fakeHost) { h.procValue = str("2\n") }},
+		{"empty file", func(h *fakeHost) { h.procValue = str("") }},
+	}
+	peers := []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820")}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			enforceForwardScope(t, false)
+			h := &fakeHost{iptablesPresent: true}
+			c.fail(h)
+			ls := &logSink{}
+			k := newFakeKernel()
+			d := newForwardDaemonOn(t, h, ls, k)
+
+			for i := 0; i < 3; i++ {
+				if d.converge(peers) == nil {
+					t.Fatalf("tick %d: converge skipped the whole tick", i+1)
+				}
+			}
+			if got := h.writes(); len(got) != 0 {
+				t.Errorf("an unreadable forwarding state was written to: %q", got)
+			}
+			if got := len(k.setCalls()); got != 1 {
+				t.Errorf("peer sets = %d, want 1: a forward observe error must not skip the peers", got)
+			}
+			if got := ls.count("Cannot read the forwarding state"); got != 1 {
+				t.Errorf("observe error logged %d times in 3 ticks, want 1; log: %q", got, ls.lines)
+			}
+
+			h.set(func(h *fakeHost) { h.readErr, h.procValue = nil, nil })
+			for i := 0; i < 2; i++ {
+				d.converge(peers)
+			}
+			if got, want := h.writes(), []string{wantSysctl, wantRule}; !sameLines(got, want) {
+				t.Errorf("after recovery writes = %q, want %q", got, want)
+			}
+			if got := ls.count("works again"); got != 1 {
+				t.Errorf("recovery logged %d times, want 1; log: %q", got, ls.lines)
+			}
+		})
 	}
 }
