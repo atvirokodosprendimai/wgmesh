@@ -585,6 +585,8 @@ func (d *Daemon) reconcileLoop() {
 
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
+	d.reconcileMu.Lock()
+	defer d.reconcileMu.Unlock()
 	start := time.Now()
 
 	peers := d.peerStore.GetActive()
