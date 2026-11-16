@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -489,4 +491,58 @@ func buildTestBinary(t *testing.T) string {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
 	return bin
+}
+
+// TestCLIFirstWordExitCodes pins what the first argument decides: help, version, a typo, the legacy flags
+func TestCLIFirstWordExitCodes(t *testing.T) {
+	bin := buildTestBinary(t)
+	usage := "wgmesh - WireGuard mesh network builder"
+	missing := filepath.Join(t.TempDir(), "missing-state.json")
+
+	tests := []struct {
+		args   []string
+		code   int
+		stream string
+		wants  []string
+	}{
+		{nil, 2, "stderr", []string{usage}},
+		{[]string{"statu"}, 2, "stderr", []string{usage}},
+		{[]string{""}, 2, "stderr", []string{usage}},
+		{[]string{"help"}, 0, "stdout", []string{usage}},
+		{[]string{"-h"}, 0, "stdout", []string{usage}},
+		{[]string{"--help"}, 0, "stdout", []string{usage}},
+		{[]string{"--version"}, 0, "stdout", []string{"wgmesh version"}},
+		{[]string{"-v"}, 0, "stdout", []string{"wgmesh version"}},
+		{[]string{"version"}, 0, "stdout", []string{"wgmesh version"}},
+		{[]string{"-list", "-state", missing}, 1, "stderr", []string{"Failed to load mesh state"}},
+		{[]string{"-list", "--version"}, 2, "stderr", []string{"flag provided but not defined: -version"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q", tt.args), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			cmd := exec.Command(bin, tt.args...)
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			code := 0
+			if err := cmd.Run(); err != nil {
+				ee, ok := err.(*exec.ExitError)
+				if !ok {
+					t.Fatalf("run: %v", err)
+				}
+				code = ee.ExitCode()
+			}
+			if code != tt.code {
+				t.Errorf("exit code %d, want %d\nstdout: %s\nstderr: %s", code, tt.code, stdout.String(), stderr.String())
+			}
+			got := stdout.String()
+			if tt.stream == "stderr" {
+				got = stderr.String()
+			}
+			for _, w := range tt.wants {
+				if !strings.Contains(got, w) {
+					t.Errorf("%s lacks %q:\n%s", tt.stream, w, got)
+				}
+			}
+		})
+	}
 }
