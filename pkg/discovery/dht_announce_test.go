@@ -44,6 +44,7 @@ func TestAnnounceCallsUseTraversal(t *testing.T) {
 	if total != 3 {
 		t.Errorf("AnnounceTraversal calls in dht.go = %d, want 3", total)
 	}
+	// Guards the call shape only: a method value or a call in another file is not seen.
 	// The announce site passes announceOpts(port)... and nothing else.
 	cs := serverCalls(t, "AnnounceTraversal")["announceToInfohash"]
 	if len(cs) != 1 || len(cs[0].Args) != 2 || !cs[0].Ellipsis.IsValid() {
@@ -61,6 +62,9 @@ func TestAnnounceCallsUseTraversal(t *testing.T) {
 func TestAnnounceOptsCarryPortOnlyWhenNonZero(t *testing.T) {
 	if got := announceOpts(0); len(got) != 0 {
 		t.Errorf("announceOpts(0) has %d options, want 0", len(got))
+	}
+	if got := announceOpts(-1); len(got) != 1 {
+		t.Errorf("announceOpts(-1) has %d options, want 1 (old Announce announced iff port != 0)", len(got))
 	}
 	if got := announceOpts(51820); len(got) != 1 {
 		t.Errorf("announceOpts(51820) has %d options, want 1", len(got))
