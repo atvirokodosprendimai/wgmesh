@@ -38,7 +38,7 @@ Selection: `Run` and `RunWithDHTDiscovery` start the loop; a mutant that does no
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestBothRunPathsStartResumeLoop|TestResumeGraceBlocksHealthEviction|TestResumeGraceBlocksProbeEviction|TestResumeGraceExpires|TestNoGraceWhileLivenessNotEnforced|TestResumeKeepsAllPeersAlive|TestResumeLoopStateIsRaceFree)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 9 ] && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
+a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestBothRunPathsStartResumeLoop|TestResumeGraceBlocksHealthEviction|TestResumeGraceBlocksProbeEviction|TestResumeGraceExpires|TestNoGraceWhileLivenessNotEnforced|TestResumeKeepsAllPeersAlive|TestResumeLoopStateIsRaceFree|TestInResumeGraceBounds|TestOnlyReconcileLoopCallsReconcile|TestDaemonNowIsWallClock)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 12 ] && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
 ```
 
 ## Tests
@@ -54,6 +54,9 @@ a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestB
 | `TestNoGraceWhileLivenessNotEnforced` | `pkg/daemon/resume_test.go` | with the switch off the eviction happens and the counter `resume-grace` is incremented | — | S1, S4 |
 | `TestResumeKeepsAllPeersAlive` | `pkg/daemon/resume_test.go` | after `NoteResume`, every stored peer, as a copy from `GetActive`, is `Alive` for `PeerDeadTimeout` even if its other evidence is hours old | — | S1, S3 |
 | `TestResumeLoopStateIsRaceFree` | `pkg/daemon/resume_test.go` | the loop runs with a jumping clock while `checkPeerHealth`, `inResumeGrace`, `reconcileLoop`'s signal receiver and `NoteResume` run in other goroutines; the final fence runs it under `-race` | — | S1, S3 |
+| `TestInResumeGraceBounds` | `pkg/daemon/resume_test.go` | the grace needs a non-negative age: a clock stepped back after the wake is outside it, exactly `ResumeGrace` after is outside it | — | S1, S4 |
+| `TestOnlyReconcileLoopCallsReconcile` | `pkg/daemon/resume_test.go` | a go/parser walk finds `reconcile` called only by `reconcileLoop` and `handleSIGHUP`, never by the resume goroutine | — | S1, S3 |
+| `TestDaemonNowIsWallClock` | `pkg/daemon/resume_test.go` | `Daemon.now` returns a wall-clock instant without a monotonic reading, so temporary-offline expiry counts the time asleep | — | S1, S3 |
 
 ## Reachability
 
