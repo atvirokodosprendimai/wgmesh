@@ -557,7 +557,7 @@ func (d *DHTDiscovery) attemptBootstrapLookup() bool {
 	var randomID [20]byte
 	copy(randomID[:], d.config.Keys.NetworkID[:])
 
-	a, err := d.server.Announce(randomID, 0, false)
+	a, err := d.server.AnnounceTraversal(randomID)
 	if err != nil {
 		log.Printf("[DHT] Bootstrap lookup failed: %v", err)
 		return false
@@ -723,7 +723,7 @@ func (d *DHTDiscovery) announceToInfohash(infohash [20]byte, port int) {
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
-	announce, err := d.server.Announce(infohash, port, false)
+	announce, err := d.server.AnnounceTraversal(infohash, announceOpts(port)...)
 	if err != nil {
 		log.Printf("[DHT] Failed to start announce: %v", err)
 		return
@@ -801,7 +801,7 @@ func (d *DHTDiscovery) queryInfohash(infohash [20]byte) {
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
-	peers, err := d.server.Announce(infohash, 0, false) // port=0, false = get_peers only, no announce
+	peers, err := d.server.AnnounceTraversal(infohash) // no announce option: get_peers only
 	if err != nil {
 		log.Printf("[DHT] Failed to query peers: %v", err)
 		return
@@ -1565,9 +1565,12 @@ func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) boo
 	d.contactedPeers[addr] = now
 	return true
 }
- 
+
 // announceOpts returns the announce option for port: one AnnouncePeer option
 // when port is non-zero, none for a query-only traversal.
 func announceOpts(port int) []dht.AnnounceOpt {
+	if port > 0 {
+		return []dht.AnnounceOpt{dht.AnnouncePeer(dht.AnnouncePeerOpts{Port: port})}
+	}
 	return nil
 }
