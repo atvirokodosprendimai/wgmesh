@@ -2,8 +2,10 @@ package daemon
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -296,5 +298,26 @@ func TestRestoreSkipsRefusedKeys(t *testing.T) {
 	}
 	if ps.Count() != 0 {
 		t.Fatalf("Count = %d, want 0", ps.Count())
+	}
+}
+
+// The restore log counts the peers by the evidence (Assess), whatever the
+// EnforceLiveness switch says. Serial: it swaps the process-wide log output.
+func TestRestoreLogCounts(t *testing.T) {
+	var buf strings.Builder
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(prev) })
+
+	cache := &PeerCache{Peers: []PeerCacheEntry{
+		{WGPubKey: "a", MeshIP: "10.0.0.2", LastSeen: time.Now().Add(-time.Hour).Unix()},
+		{WGPubKey: "b", MeshIP: "10.0.0.3", LastSeen: time.Now().Add(-2 * time.Hour).Unix()},
+	}}
+	if n := restorePeers(cache, NewPeerStore()); n != 2 {
+		t.Fatalf("restorePeers = %d, want 2", n)
+	}
+	const want = "[Cache] Restored 2 peers from cache (2 alive by evidence, 0 only suspected)"
+	if !strings.Contains(buf.String(), want) {
+		t.Fatalf("log = %q, want a line with %q", buf.String(), want)
 	}
 }
