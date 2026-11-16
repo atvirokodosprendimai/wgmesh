@@ -274,6 +274,41 @@ func TestRelayProbeOffByDefault(t *testing.T) {
 	}
 }
 
+// A probe-only entry the apply step would skip for want of a usable endpoint
+// would stay in desired and keep the peer from being removed, yet never be
+// sent: the relayed peer then gets no entry, as at N.
+func TestBuildDesiredNoProbeOnlyWithoutUsableEndpoint(t *testing.T) {
+	tests := []struct {
+		name        string
+		endpoint    string
+		disableIPv6 bool
+		wantEntry   bool
+	}{
+		{"empty endpoint", "", false, false},
+		{"IPv6 endpoint with IPv6 disabled", "[2001:db8::2]:51820", true, false},
+		{"IPv4 endpoint with IPv6 enabled", "172.20.2.20:51820", false, true},
+		{"IPv4 endpoint with IPv6 disabled", "172.20.2.20:51820", true, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enforceRelayProbe(t)
+			d := relayProbeDaemon(t)
+			d.config.DisableIPv6 = tt.disableIPv6
+			intro, peer := relayProbePeers("usable-endpoint-peer")
+			peer.Endpoint = tt.endpoint
+
+			desired, relayRoutes := relayCycle(d, []*PeerInfo{intro, peer}, map[string]int64{})
+
+			if relayRoutes[peer.WGPubKey] != probeIntroKey {
+				t.Fatalf("relayRoutes[%s] = %q, want %q", peer.WGPubKey, relayRoutes[peer.WGPubKey], probeIntroKey)
+			}
+			if _, ok := desired[peer.WGPubKey]; ok != tt.wantEntry {
+				t.Errorf("relayed peer in desired = %v, want %v", ok, tt.wantEntry)
+			}
+		})
+	}
+}
+
 func TestRelayRouteAgeMetric(t *testing.T) {
 	// The gauge is exported from N: the switch stays off.
 	d := relayProbeDaemon(t)
