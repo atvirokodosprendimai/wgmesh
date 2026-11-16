@@ -330,9 +330,9 @@ func saveSecretFile(path, secretURI string) error {
 
 // acquireInterfaceLock takes the exclusive lock on the file at path (its
 // directory is created 0700) for the life of the process, so a second join
-// cannot unlink the running daemon's RPC socket or reset its interface (#860).
-// It returns the release func; when another process holds the lock the error
-// names the lock file and that process's pid.
+// cannot unlink the running daemon's RPC socket or reset its interface (see
+// package flock). It returns the release func; when another process holds the
+// lock the error names the lock file and that process's pid.
 func acquireInterfaceLock(path string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create lock directory: %w%s", err, permissionHint(err))
