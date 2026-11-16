@@ -434,3 +434,34 @@ func TestSyncPeerRoutes_GatewayFlap(t *testing.T) {
 		}
 	}
 }
+
+// TestHAExitNodesDropEachOthersDefault: a node that advertises 0.0.0.0/0 does
+// not install a peer's 0.0.0.0/0 (routes.ExcludeOwn, applied after admit), and
+// a node that does not advertise it installs the peer's.
+func TestHAExitNodesDropEachOthersDefault(t *testing.T) {
+	t.Parallel()
+
+	peer := &PeerInfo{WGPubKey: "exit2", MeshIP: "10.0.0.30", RoutableNetworks: []string{"0.0.0.0/0", "192.168.5.0/24"}}
+	for _, tc := range []struct {
+		name  string
+		own   []string
+		wantD bool
+	}{
+		{"local is an exit node too", []string{"0.0.0.0/0"}, false},
+		{"local is not an exit node", nil, true},
+	} {
+		d := makeRelayTestDaemon()
+		d.localNode.RoutableNetworks = tc.own
+		desired, _, _ := d.buildDesiredPeerConfigsWithHandshakes([]*PeerInfo{peer}, nil)
+		cfg := desired["exit2"]
+		if cfg == nil {
+			t.Fatalf("%s: peer has no desired config", tc.name)
+		}
+		if _, got := cfg.allowed["0.0.0.0/0"]; got != tc.wantD {
+			t.Errorf("%s: default route installed = %v, want %v", tc.name, got, tc.wantD)
+		}
+		if _, ok := cfg.allowed["192.168.5.0/24"]; !ok {
+			t.Errorf("%s: the peer's other network is missing", tc.name)
+		}
+	}
+}

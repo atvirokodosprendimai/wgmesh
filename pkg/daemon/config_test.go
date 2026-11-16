@@ -244,3 +244,22 @@ func TestNewConfigAdvertiseRoutes(t *testing.T) {
 		t.Fatalf("NewConfig with garbage route: err = %v, want advertise-routes error", err)
 	}
 }
+
+func TestNewConfigAcceptRoutesInvalid(t *testing.T) {
+	t.Parallel()
+	for name, list := range map[string][]string{
+		"not a CIDR":      {"10.0.0.5/8", "bogus"},
+		"separators only": {"", ""},
+		"blanks only":     {" ", "", "  "},
+	} {
+		_, err := NewConfig(DaemonOpts{Secret: testConfigSecret, AcceptRoutes: list})
+		if err == nil || !strings.Contains(err.Error(), "invalid accept-routes") {
+			t.Errorf("%s: NewConfig(%q) err = %v, want an invalid accept-routes error", name, list, err)
+		}
+	}
+	// the flag leaves the list nil when unset: open, not an error
+	cfg, err := NewConfig(DaemonOpts{Secret: testConfigSecret})
+	if err != nil || len(cfg.AcceptRoutes) != 0 {
+		t.Errorf("unset: cfg.AcceptRoutes = %v, err = %v, want an empty list", cfg.AcceptRoutes, err)
+	}
+}

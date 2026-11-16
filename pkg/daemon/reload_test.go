@@ -4,8 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 // --- LoadReloadFile tests ---
@@ -305,4 +308,59 @@ func newMinimalDaemon(t *testing.T) *Daemon {
 		lastAppliedPeerConfigs: make(map[string]string),
 	}
 	return d
+}
+
+// TestAcceptRoutesReloadApplies: the reload file sets accept-routes and a later
+// offer is judged by the new list; an empty value opens the node again.
+func TestAcceptRoutesReloadApplies(t *testing.T) {
+	old := node.EnforceRouteBinding
+	node.EnforceRouteBinding = true
+	t.Cleanup(func() { node.EnforceRouteBinding = old })
+
+	d := newMinimalDaemon(t)
+	d.peerStore.SetPolicy(d.admitPolicy())
+	offer := func(key string) Decision {
+		return d.peerStore.Offer(Candidate{
+			Info:   &PeerInfo{WGPubKey: key, MeshIP: "10.99.1.1", RoutableNetworks: []string{"192.168.5.0/24", "172.16.0.0/12"}},
+			Source: "dht",
+			Hand:   FirstHand,
+		})
+	}
+	reload := func(content string) {
+		opts, err := LoadReloadFile(writeTempReload(t, content))
+		if err != nil {
+			t.Fatalf("LoadReloadFile: %v", err)
+		}
+		d.reloadConfig(opts)
+	}
+
+	if dec := offer("before"); dec.Verdict != node.Admit || len(dec.Dropped) != 0 {
+		t.Fatalf("with no list: decision = %+v, want a plain Admit", dec)
+	}
+	reload("accept-routes=192.168.0.0/16\n")
+	if dec := offer("during"); dec.Verdict != node.AdmitPartial || !reflect.DeepEqual(dec.Dropped, []string{"172.16.0.0/12"}) {
+		t.Fatalf("with the list: decision = %+v, want 172.16.0.0/12 dropped", dec)
+	}
+	reload("accept-routes=\n")
+	if dec := offer("after"); dec.Verdict != node.Admit || len(dec.Dropped) != 0 {
+		t.Fatalf("after clearing the list: decision = %+v, want a plain Admit", dec)
+	}
+}
+
+func TestLoadReloadFile_AcceptRoutes(t *testing.T) {
+	t.Parallel()
+	for _, bad := range []string{"accept-routes=10.0.0.5/8,bogus\n", "accept-routes=,\n", "accept-routes= ,  \n"} {
+		if _, err := LoadReloadFile(writeTempReload(t, bad)); err == nil || !strings.Contains(err.Error(), "invalid accept-routes") {
+			t.Errorf("LoadReloadFile(%q) err = %v, want an invalid accept-routes error", bad, err)
+		}
+	}
+	// an empty value clears the list: non-nil and empty, unlike an absent key
+	opts, err := LoadReloadFile(writeTempReload(t, "accept-routes=\n"))
+	if err != nil || opts.AcceptRoutes == nil || len(opts.AcceptRoutes) != 0 {
+		t.Errorf("accept-routes= : AcceptRoutes = %#v, err = %v, want non-nil empty", opts.AcceptRoutes, err)
+	}
+	opts, err = LoadReloadFile(writeTempReload(t, "log-level=debug\n"))
+	if err != nil || opts.AcceptRoutes != nil {
+		t.Errorf("absent key: AcceptRoutes = %#v, err = %v, want nil", opts.AcceptRoutes, err)
+	}
 }

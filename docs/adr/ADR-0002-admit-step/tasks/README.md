@@ -20,17 +20,17 @@ README must be regenerated.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Add `PeerStore.Offer` with an explicit hand, and pin the merged rules | pending | — | `go test ./pkg/node` four named tests, then `-race` on node, daemon, discovery |
-| T2 | Send every production claim through `Offer`, and fail the build on a direct one | pending | — | five named tests, `grep` count of direct `Update` calls is 0, then `-race` |
-| T3 | Keep a tombstone for removed peers and refuse second-hand re-adds (#854) | pending | — | eight named tests in three packages, then `-race` |
-| T4 | Put the local node into the mesh IP claim table and order claims (#856) | pending | — | seven named tests in two packages, then `-race` |
-| T5 | Persist the collision-resolved mesh IP (#830) | pending | — | three named tests, then `-race` |
-| T6 | Bind mesh IPs and routes to what the key derives, in warn mode, with frozen compat cases (#864) | pending | — | eight named tests in two packages, fixture file exists, then `-race` |
-| T7 | One endpoint rule set: guessed endpoints rank last and are not re-announced (#839) | pending | — | six named tests in two packages, then `-race` |
-| T8 | One validation path for announcements on LAN, gossip, registry and exchange (#875) | pending | — | five named tests in two packages (ADR-0001 fixtures included), then `-race` |
-| T9 | Observe the local endpoint through one rule instead of eight writers (#828) | pending | — | four named tests, `SetEndpoint` count is 1, then `-race` |
-| T10 | Approve non-mesh routes by an operator list on the receiving node, open when unset (#864) | pending | — | seven named tests in two packages, `accept-routes` flag present, then `-race` |
-| T11 | Amend the specs, write the release notes and the backlog rows | pending | — | `go test ./pkg/node -run TestSpecNamesAdmit`, note exists, `adr-debt` reports no unreceipted row |
+| T1 | Add `PeerStore.Offer` with an explicit hand, and pin the merged rules | done | — | `go test ./pkg/node` five named tests, then `-race` on node, daemon, discovery |
+| T2 | Send every production claim through `Offer`, and fail the build on a direct one | done | — | five named tests, `grep` count of direct `Update` calls is 0, then `-race` |
+| T3 | Keep a tombstone for removed peers and refuse second-hand re-adds (#854) | done | — | eight named tests in three packages, then `-race` |
+| T4 | Put the local node into the mesh IP claim table and order claims (#856) | done | — | seven named tests in two packages, then `-race` |
+| T5 | Persist the collision-resolved mesh IP (#830) | done | — | three named tests, then `-race` |
+| T6 | Bind mesh IPs and routes to what the key derives, in warn mode, with frozen compat cases (#864) | done | — | seven named tests in pkg/node, fixture file exists, then `-race` |
+| T7 | One endpoint rule set: guessed endpoints rank last and are not re-announced (#839) | done | — | six named tests in two packages, then `-race` |
+| T8 | One validation path for announcements on LAN, gossip, registry and exchange (#875) | done | — | five named tests in two packages (ADR-0001 fixtures included), then `-race` |
+| T9 | Observe the local endpoint through one rule instead of eight writers (#828) | done | — | five named tests, `SetEndpoint` count is 1, then `-race` |
+| T10 | Approve non-mesh routes by an operator list on the receiving node, open when unset (#864) | done | — | seven named tests in two packages, `accept-routes` flag present, then `-race` |
+| T11 | Amend the specs, write the release notes and the backlog rows | done | — | `go test ./pkg/node -run TestSpecNamesAdmit`, note exists, `adr-debt` reports no unreceipted row |
 
 ## Contract Coupling
 
@@ -39,9 +39,9 @@ README must be regenerated.
 | T1 | `Candidate`, `Hand`, `Source`, `Decision`, `Offer`, `Policy`, `SetPolicy` | T2, T4, T6 | T1 before each |
 | T2 | every production claim goes through `Offer`; `TestNoDirectPeerStoreMutation` | T3, T7, T8, T9 | T2 before each (same files: `exchange.go`, `dht.go`, `gossip.go`, `lan.go`) |
 | T3 | `Withdraw`, tombstones, `TombstoneTTL` | T11 | T3 before T11 |
-| T4 | `Claim`, `ResolveClaims`, claim order, `EnforceIPBinding` | T5, T6 | T4 before each |
+| T4 | `Claim`, `ResolveClaims`, claim order, `EnforceIPBinding`, `wgmesh_admit_warnings_total` | T5, T6 | T4 before each |
 | T5 | persisted resolved IP | T11 | T5 before T11 |
-| T6 | `EnforceRouteBinding`, compat fixtures, `wgmesh_admit_warnings_total` | T11 | T6 before T11 |
+| T6 | `EnforceRouteBinding`, compat fixtures | T11 | T6 before T11 |
 | T7 | `ResolveEndpoint`, `PeerInfo.EndpointGuessed` | T11 | T7 before T11 |
 | T8 | `crypto.FilterAnnouncement` | T11 | T8 before T11 |
 | T9 | `LocalNode.ObserveEndpoint` | T11 | T9 before T11 |
