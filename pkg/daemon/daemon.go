@@ -347,7 +347,7 @@ func (d *Daemon) SetDHTDiscovery(dht DiscoveryLayer) {
 
 // Run starts the daemon and blocks until stopped
 func (d *Daemon) Run() error {
-	d.startTime = time.Now()
+	d.markStarted()
 	log.Printf("Starting wgmesh daemon...")
 
 	// Load or create local node
@@ -1960,6 +1960,11 @@ func (d *Daemon) getPrivacyPeers() []privacy.PeerInfo {
 // SetRPCServer sets the RPC server for the daemon
 func (d *Daemon) SetRPCServer(server RPCServer) {
 	d.rpcServer = server
+}
+
+// markStarted records the start time that GetUptime reports from.
+func (d *Daemon) markStarted() {
+	d.startTime = time.Now()
 }
 
 // GetUptime returns the daemon uptime
