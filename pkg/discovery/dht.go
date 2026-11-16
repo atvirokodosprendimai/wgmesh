@@ -83,6 +83,7 @@ type DHTDiscovery struct {
 	parentCtx         context.Context
 	ctx               context.Context
 	cancel            context.CancelFunc
+	loopWG            *sync.WaitGroup         // the loops of the current run; Stop waits on it
 	contactedPeers    map[string]time.Time    // Dedup: don't spam same IP
 	controlPeers      map[string]string       // peer pubkey -> exchange/control endpoint
 	rendezvousBackoff map[string]backoffEntry // peer pubkey -> backoff state
@@ -125,7 +126,43 @@ func (d *DHTDiscovery) beginRun() error {
 	d.cancel() // release the previous context (cancelled by Stop, or the initial one)
 	d.ctx, d.cancel = context.WithCancel(d.parentCtx)
 	d.starting = true
+	d.loopWG = &sync.WaitGroup{}
 	return nil
+}
+
+// dhtStopTimeout bounds how long Stop waits for the DHT loops, so a stuck
+// network call cannot hang the daemon; it is the exchange's bound.
+const dhtStopTimeout = exchangeStopTimeout
+
+// goLoop runs fn as a loop of the current run: it is counted in d.loops and
+// in the run's group, which Stop waits on. It is called only between beginRun
+// and setRunning, while Stop is still a no-op, so the group never grows under
+// a Wait.
+func (d *DHTDiscovery) goLoop(fn func()) {
+	d.mu.RLock()
+	wg := d.loopWG
+	d.mu.RUnlock()
+	wg.Add(1)
+	d.loops.Add(1)
+	go func() {
+		defer wg.Done()
+		defer d.loops.Add(-1) // runs before wg.Done: Stop sees 0 once it returns
+		fn()
+	}()
+}
+
+// waitDHTLoops waits for the group of a stopped run, at most dhtStopTimeout.
+func waitDHTLoops(wg *sync.WaitGroup) {
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(dhtStopTimeout):
+		log.Printf("[DHT] Stop: loops did not end within %v", dhtStopTimeout)
+	}
 }
 
 // setRunning marks the run live once the exchange, gossip, LAN and DHT server
@@ -252,19 +289,21 @@ func (d *DHTDiscovery) Start() error {
 		return fmt.Errorf("failed to initialize DHT server: %w", err)
 	}
 
-	d.setRunning()
-	started = true
-
-	// Start background goroutines; each gets this run's context.
-	go d.announceLoop(ctx)
-	go d.queryLoop(ctx)
-	go d.persistLoop(ctx)
+	// Start the background loops before running is set: Stop is a no-op until
+	// then, so it never waits on a group that is still growing. Each loop gets
+	// this run's context.
+	d.goLoop(func() { d.announceLoop(ctx) })
+	d.goLoop(func() { d.queryLoop(ctx) })
+	d.goLoop(func() { d.persistLoop(ctx) })
 	if d.config.DisablePunching {
 		log.Printf("[NAT] NAT punching disabled by configuration")
 	} else {
-		go d.transitiveConnectLoop(ctx)
+		d.goLoop(func() { d.transitiveConnectLoop(ctx) })
 	}
-	go d.stunRefreshLoop(ctx)
+	d.goLoop(func() { d.stunRefreshLoop(ctx) })
+
+	d.setRunning()
+	started = true
 
 	log.Printf("[DHT] Discovery started, listening on port %d", d.exchange.Port())
 	return nil
@@ -280,6 +319,7 @@ func (d *DHTDiscovery) Stop() error {
 	d.running = false
 	cancel := d.cancel
 	server, lan, gossip := d.server, d.lan, d.gossip
+	wg := d.loopWG
 	d.mu.Unlock()
 
 	d.broadcastGoodbye()
@@ -302,6 +342,9 @@ func (d *DHTDiscovery) Stop() error {
 	if d.exchange != nil {
 		d.exchange.Stop()
 	}
+
+	// Last, so a loop blocked on the server or the exchange is released first.
+	waitDHTLoops(wg)
 
 	log.Printf("[DHT] Discovery stopped")
 	return nil
@@ -608,7 +651,7 @@ func (d *DHTDiscovery) initDHTServer() error {
 	d.loadPersistedNodes(server)
 
 	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", boundPort)
-	go d.bootstrapWithRetry()
+	d.goLoop(d.bootstrapWithRetry)
 	return nil
 }
 
