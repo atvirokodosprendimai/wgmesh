@@ -3,6 +3,8 @@ package daemon
 import (
 	"fmt"
 	"log"
+	"net"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -32,7 +34,8 @@ type desiredState struct {
 // peer itself or its relay) and the gateway of its routes.
 type desiredMember struct {
 	peer, carrier *PeerInfo
-	gateway       string
+	gateway       string // the carrier's mesh IP, the gateway of IPv4 routes
+	gateway6      string // the carrier's mesh IPv6, the gateway of IPv6 routes; "" = none
 }
 
 // desire computes the AllowedIPs of every peer and the kernel routes from one
@@ -55,6 +58,8 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 		relayRoutes:  make(map[string]string),
 		directStable: make(map[string]int),
 	}
+	warned := make(map[string]struct{})
+	enforceGuard := EnforceRouteGuard.Load()
 	now := time.Now()
 	localSubnets := d.getLocalSubnets()
 	localKey := ""
@@ -115,7 +120,11 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 		if gateway == "" {
 			gateway = p.MeshIP
 		}
-		members = append(members, desiredMember{peer: p, carrier: carrier, gateway: gateway})
+		gateway6 := carrier.MeshIPv6
+		if gateway6 == "" {
+			gateway6 = p.MeshIPv6
+		}
+		members = append(members, desiredMember{peer: p, carrier: carrier, gateway: gateway, gateway6: gateway6})
 
 		ts := handshakes[p.WGPubKey]
 		advertisers = append(advertisers, routes.Advertiser{
@@ -155,13 +164,88 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 			if owner != p.WGPubKey {
 				continue
 			}
+			gateway := m.gateway
+			if strings.Contains(canonical, ":") {
+				if m.gateway6 == "" {
+					if d.warnRoute(warned, "no-ipv6 "+p.WGPubKey+" "+canonical) {
+						d.logf("Peer %s... advertises %s but has no mesh IPv6, so the network has no gateway: it is left out of its AllowedIPs and of the routes", shortKey(p.WGPubKey), network)
+					}
+					continue
+				}
+				gateway = m.gateway6
+			}
+			if attached := d.attachedSubnet(canonical, localSubnets); attached != nil {
+				first := d.warnRoute(warned, "attached "+canonical)
+				if enforceGuard {
+					if first {
+						d.logf("attached-network: %s from peer %s... is equal to or inside %s, a network this host is attached to: it is left out of the routes and the AllowedIPs", network, shortKey(p.WGPubKey), attached)
+					}
+					continue
+				}
+				if first {
+					d.logf("attached-network: %s from peer %s... is equal to or inside %s, a network this host is attached to: it is still installed, a later release leaves it out (EnforceRouteGuard)", network, shortKey(p.WGPubKey), attached)
+					RecordKernelWarning("attached-network")
+				}
+			}
 			d.addAllowedIP(ds.Peers, m.carrier, network)
-			ds.Routes = append(ds.Routes, routes.Entry{Network: network, Gateway: m.gateway})
+			ds.Routes = append(ds.Routes, routes.Entry{Network: network, Gateway: gateway})
 		}
 	}
 
 	d.logSharedOwners(claimants, owners)
+	d.routeWarned = warned
 	return ds
+}
+
+// warnRoute marks key in this tick's set of warned cases and reports whether
+// it is new: not warned in the previous tick either. A case that stops
+// holding leaves the set, so it warns again when it returns. The caller holds
+// convergeMu.
+func (d *Daemon) warnRoute(warned map[string]struct{}, key string) bool {
+	warned[key] = struct{}{}
+	_, was := d.routeWarned[key]
+	return !was
+}
+
+// prefixOf is the masked prefix of a local subnet.
+func prefixOf(n *net.IPNet) (netip.Prefix, bool) {
+	addr, ok := netip.AddrFromSlice(n.IP)
+	if !ok {
+		return netip.Prefix{}, false
+	}
+	ones, _ := n.Mask.Size()
+	return netip.PrefixFrom(addr.Unmap(), ones).Masked(), true
+}
+
+// attachedSubnet returns the subnet of this host that the canonical network is
+// equal to or inside (a supernet is not), or nil. The mesh network is not an
+// attached one: the mesh interface's own address is among the local subnets,
+// and a route inside the mesh is the mesh's. Linux only; macOS is T6.
+func (d *Daemon) attachedSubnet(canonical string, localSubnets []*net.IPNet) *net.IPNet {
+	if d.osName() != "linux" {
+		return nil
+	}
+	prefix, err := netip.ParsePrefix(canonical)
+	if err != nil {
+		return nil
+	}
+	var mesh netip.Prefix
+	meshKnown := false
+	for _, s := range localSubnets {
+		sp, ok := prefixOf(s)
+		if !ok || !sp.Contains(prefix.Addr()) || prefix.Bits() < sp.Bits() {
+			continue
+		}
+		if !meshKnown {
+			mesh, _ = prefixOf(d.meshNet())
+			meshKnown = true
+		}
+		if sp == mesh {
+			continue
+		}
+		return s
+	}
+	return nil
 }
 
 // desireForward is what this node wants of forwarding. Needed is an
