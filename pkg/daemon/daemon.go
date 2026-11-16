@@ -70,12 +70,10 @@ type Daemon struct {
 	offlineMu              sync.Mutex
 	temporaryOffline       map[string]time.Time
 
-	// probeOnlyPeers holds the keys of the relayed peers that are configured
-	// with their endpoint and no AllowedIPs (T6), and relayRouteSince the time
-	// each peer entered relayRoutes. Both are guarded by relayMu, created on
-	// the first write (a &Daemon{...} literal has them nil) and written only
-	// through storeRelayPlan and evictPeerFromPool.
-	probeOnlyPeers  map[string]struct{}
+	// relayRouteSince holds the time each peer entered relayRoutes (T6). It is
+	// guarded by relayMu, created on the first write (a &Daemon{...} literal
+	// has it nil) and written only through storeRelayPlan and
+	// evictPeerFromPool.
 	relayRouteSince map[string]time.Time
 
 	// clock is the daemon's time source; nil means time.Now (see now). It is
@@ -699,7 +697,7 @@ func (d *Daemon) reconcile() {
 	// the desired set are built. The probe loop reads its own handshakes.
 	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
 	peers, desired, relayRoutes, directStable := d.planPeers(handshakes, start)
-	d.storeRelayPlan(relayRoutes, directStable, desired, d.now())
+	d.storeRelayPlan(relayRoutes, directStable, d.now())
 	if err := d.applyDesiredPeerConfigs(desired); err != nil {
 		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
 	}
@@ -1507,7 +1505,7 @@ func (d *Daemon) evaluatePeerHealth(handshakes map[string]int64, transfers map[s
 		// is kept on the interface without AllowedIPs only to handshake: a
 		// reconnect would give it its mesh IP and take the address from the
 		// relay, an eviction would drop it. Neither is judged here.
-		if d.isRelayPathPeer(p.WGPubKey) {
+		if d.isRelayRoutedPeer(p.WGPubKey) {
 			d.healthMu.Lock()
 			delete(d.peerHealthFailures, p.WGPubKey)
 			delete(d.lastPeerTransferTotal, p.WGPubKey)
@@ -1593,7 +1591,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
 	}
-	if d.isRelayPathPeer(peer.WGPubKey) {
+	if d.isRelayRoutedPeer(peer.WGPubKey) {
 		return // the relay carries its traffic; see evaluatePeerHealth
 	}
 	log.Printf("[Health] Peer %s... stale handshake >%v with no transfer growth, forcing reconnect", shortKey(peer.WGPubKey), HandshakeStaleAfter)
@@ -1631,7 +1629,6 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	d.relayMu.Lock()
 	delete(d.relayRoutes, peer.WGPubKey)
 	delete(d.directStableCycles, peer.WGPubKey)
-	delete(d.probeOnlyPeers, peer.WGPubKey)
 	delete(d.relayRouteSince, peer.WGPubKey)
 	relayRouteAge.DeleteLabelValues(peer.WGPubKey)
 	d.relayMu.Unlock()

@@ -90,7 +90,7 @@ func relayProbePeers(relayedKey string) (intro, relayed *PeerInfo) {
 // stores the plan the way reconcile does.
 func relayCycle(d *Daemon, peers []*PeerInfo, handshakes map[string]int64) (map[string]*desiredPeerConfig, map[string]string) {
 	desired, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, handshakes)
-	d.storeRelayPlan(relayRoutes, directStable, desired, d.now())
+	d.storeRelayPlan(relayRoutes, directStable, d.now())
 	return desired, relayRoutes
 }
 
@@ -269,9 +269,6 @@ func TestRelayProbeOffByDefault(t *testing.T) {
 	} else if _, has := cfg.allowed[peer.MeshIP+"/32"]; !has {
 		t.Errorf("the relay entry lost the peer's mesh IP: %v", cfg.allowed)
 	}
-	if d.isProbeOnlyPeer(peer.WGPubKey) {
-		t.Error("the peer is probe-only with the switch off")
-	}
 }
 
 // A probe-only entry the apply step would skip for want of a usable endpoint
@@ -346,8 +343,7 @@ func TestHealthCheckSkipsRelayRoutedAndProbeOnlyPeers(t *testing.T) {
 	rec := stubWireGuard(t)
 	d := relayProbeDaemon(t)
 	d.relayRoutes["relayed-peer"] = probeIntroKey
-	d.probeOnlyPeers = map[string]struct{}{"probe-only-peer": {}}
-	keys := []string{"direct-peer", "relayed-peer", "probe-only-peer"}
+	keys := []string{"direct-peer", "relayed-peer"}
 	for i, key := range keys {
 		d.peerStore.SetPeerDirectly(key, &PeerInfo{
 			WGPubKey: key,
@@ -357,7 +353,7 @@ func TestHealthCheckSkipsRelayRoutedAndProbeOnlyPeers(t *testing.T) {
 		})
 	}
 	stale := time.Now().Add(-5 * time.Minute).Unix()
-	handshakes := map[string]int64{"direct-peer": stale, "relayed-peer": stale, "probe-only-peer": stale}
+	handshakes := map[string]int64{"direct-peer": stale, "relayed-peer": stale}
 	transfers := map[string]wireguard.PeerTransfer{}
 
 	d.evaluatePeerHealth(handshakes, transfers)
@@ -370,7 +366,7 @@ func TestHealthCheckSkipsRelayRoutedAndProbeOnlyPeers(t *testing.T) {
 	if removed := rec.removeCalls(); len(removed) != 1 || removed[0] != "direct-peer" {
 		t.Errorf("wgRemovePeer calls = %v, want exactly direct-peer", removed)
 	}
-	for _, key := range []string{"relayed-peer", "probe-only-peer"} {
+	for _, key := range []string{"relayed-peer"} {
 		got, ok := d.peerStore.Get(key)
 		if !ok {
 			t.Fatalf("%s was evicted from the store", key)
@@ -417,35 +413,21 @@ func TestApplySignatureIncludesProbeOnlyMode(t *testing.T) {
 
 func TestProbeOnlyStateIsRaceFree(t *testing.T) {
 	stubWireGuard(t)
-	d := relayProbeDaemon(t) // probeOnlyPeers and relayRouteSince start nil
+	d := relayProbeDaemon(t) // relayRouteSince starts nil
 	key, evictKey := "race-probe-peer", "race-evicted-peer"
-	_, peer := relayProbePeers(key)
 	evicted := &PeerInfo{WGPubKey: evictKey, MeshIP: "10.250.0.4", Endpoint: "172.20.2.21:51820"}
 	routes := func() map[string]string { return map[string]string{key: probeIntroKey, evictKey: probeIntroKey} }
-	probe := func() map[string]*desiredPeerConfig {
-		return map[string]*desiredPeerConfig{
-			key:      {peer: peer, allowed: map[string]struct{}{}, probeOnly: true},
-			evictKey: {peer: evicted, allowed: map[string]struct{}{}, probeOnly: true},
-		}
-	}
 	const rounds = 300
 
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < rounds; i++ {
-			d.storeRelayPlan(routes(), map[string]int{}, probe(), time.Now())
-			d.storeRelayPlan(map[string]string{}, map[string]int{}, map[string]*desiredPeerConfig{}, time.Now())
+			d.storeRelayPlan(routes(), map[string]int{}, time.Now())
+			d.storeRelayPlan(map[string]string{}, map[string]int{}, time.Now())
 		}
-		d.storeRelayPlan(routes(), map[string]int{}, probe(), time.Now())
-	}()
-	go func() {
-		defer wg.Done()
-		for i := 0; i < rounds; i++ {
-			d.isProbeOnlyPeer(key)
-			d.isRelayPathPeer(key)
-		}
+		d.storeRelayPlan(routes(), map[string]int{}, time.Now())
 	}()
 	go func() {
 		defer wg.Done()
@@ -457,12 +439,12 @@ func TestProbeOnlyStateIsRaceFree(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < rounds/10; i++ {
-			d.evictPeerFromPool(evicted) // deletes the probe-only, route and age state of its own key
+			d.evictPeerFromPool(evicted) // deletes the route and age state of its own key
 		}
 	}()
 	wg.Wait()
 
-	if !d.isProbeOnlyPeer(key) || !d.isRelayRoutedPeer(key) || !d.isRelayPathPeer(key) {
-		t.Errorf("after the last plan the peer is probe-only %v, relay-routed %v, on the relay path %v, want all", d.isProbeOnlyPeer(key), d.isRelayRoutedPeer(key), d.isRelayPathPeer(key))
+	if !d.isRelayRoutedPeer(key) {
+		t.Error("after the last plan the peer is not relay-routed")
 	}
 }
