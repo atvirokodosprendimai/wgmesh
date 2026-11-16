@@ -340,13 +340,34 @@ func (d *Daemon) noteHostDefault(want []routes.Entry, plan routePlan) {
 	}
 }
 
-// convergeRoutes is the route target of one tick, on Linux only: it plans the
-// difference between the observed routes and ds.Routes and applies it, one
-// route at a time. The caller holds convergeMu.
+// convergeRoutes is the route target of one tick: it plans the difference
+// between the observed routes and ds.Routes and applies it, one route at a
+// time, with the adapter of the OS (Linux `ip`, macOS `route`); another OS has
+// no route target. The caller holds convergeMu.
 func (d *Daemon) convergeRoutes(ds *desiredState, obs kernelObserved) []itemResult {
-	if d.osName() != "linux" {
-		return nil
+	switch d.osName() {
+	case "linux":
+		return d.convergeRoutesLinux(ds, obs)
+	case "darwin":
+		return d.convergeRoutesDarwin(ds, obs)
 	}
+	return nil
+}
+
+// convergeRoutesDarwin is the route target on macOS: the routes leave by the
+// mesh interface with no gateway (WireGuard picks the peer by AllowedIPs), so
+// it has its own plan. There is no host default to warn about
+// (`noteHostDefault` reads Linux's `ip route`) and no connected route to
+// restore: an attached network is never installed on macOS. The caller holds
+// convergeMu.
+func (d *Daemon) convergeRoutesDarwin(ds *desiredState, obs kernelObserved) []itemResult {
+	d.noteRouteObserve(obs)
+	plan := planRoutesDarwin(ds.Routes, obs, d.meshPrefixes())
+	return applyRouteDiffDarwin(d.config.InterfaceName, plan)
+}
+
+// convergeRoutesLinux is the route target on Linux.
+func (d *Daemon) convergeRoutesLinux(ds *desiredState, obs kernelObserved) []itemResult {
 	d.noteRouteObserve(obs)
 	plan := planRoutes(ds.Routes, obs)
 	d.noteHostDefault(ds.Routes, plan)
@@ -391,6 +412,52 @@ func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) ([]routes.Entr
 		results = append(results, itemResult{Target: targetRoutes, Op: "replace", Key: route.Network + " via " + route.Gateway, Err: err})
 	}
 	return removed, results
+}
+
+// applyRouteDiffDarwin removes and adds the routes of a plan, one at a time
+// with one result each (Op delete, add or change; Key the canonical network):
+// a failure of one never skips the others. `route -n add` that answers "File
+// exists" is repeated as `route -n change`, as setInterfaceAddress does for
+// the mesh route.
+func applyRouteDiffDarwin(iface string, plan routePlan) []itemResult {
+	results := make([]itemResult, 0, len(plan.Add)+len(plan.Remove))
+	for _, r := range plan.Remove {
+		out, err := darwinRouteCommand("delete", r.Network, iface)
+		results = append(results, darwinRouteResult("delete", r.Network, out, err))
+	}
+	for _, r := range plan.Add {
+		op := "add"
+		out, err := darwinRouteCommand("add", r.Network, iface)
+		if err != nil && strings.Contains(string(out), "File exists") {
+			op = "change"
+			out, err = darwinRouteCommand("change", r.Network, iface)
+		}
+		results = append(results, darwinRouteResult(op, r.Network, out, err))
+	}
+	return results
+}
+
+// darwinRouteCommand runs `route -n <verb> [-inet6] -net <network> -interface
+// <iface>`: no gateway, the interface alone, as setInterfaceAddress adds the
+// mesh route. `-inet6` is for an IPv6 network.
+func darwinRouteCommand(verb, network, iface string) ([]byte, error) {
+	args := []string{"-n", verb}
+	if strings.Contains(network, ":") {
+		args = append(args, "-inet6")
+	}
+	args = append(args, "-net", network, "-interface", iface)
+	return cmdExecutor.Command("route", args...).CombinedOutput()
+}
+
+// darwinRouteResult is the result of one `route` write; a success is counted
+// as a kernel change.
+func darwinRouteResult(op, network string, out []byte, err error) itemResult {
+	if err != nil {
+		err = fmt.Errorf("failed to %s route %s: %w", op, network, commandFailure(out, err))
+	} else {
+		RecordKernelChange(targetRoutes)
+	}
+	return itemResult{Target: targetRoutes, Op: op, Key: network, Err: err}
 }
 
 // addressPlan is what one tick will write for addresses: the adds, then the

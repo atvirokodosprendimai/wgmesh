@@ -76,7 +76,10 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 		directStable: make(map[string]int),
 	}
 	warned := make(map[string]struct{})
-	enforceGuard := EnforceRouteGuard.Load()
+	// macOS has no old behaviour to keep: the attached-network rule is
+	// enforced there from the first release, whatever the switch says.
+	darwin := d.osName() == "darwin"
+	enforceGuard := EnforceRouteGuard.Load() || darwin
 	now := time.Now()
 	localSubnets := d.getLocalSubnets()
 	localKey := ""
@@ -202,6 +205,9 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 				if enforceGuard {
 					if first {
 						d.logf("attached-network: %s from peer %s... is equal to or inside %s, a network this host is attached to: it is left out of the routes and the AllowedIPs", network, shortKey(p.WGPubKey), attached)
+						if darwin {
+							RecordKernelWarning("attached-network")
+						}
 					}
 					continue
 				}
@@ -256,9 +262,11 @@ func prefixOf(n *net.IPNet) (netip.Prefix, bool) {
 // attached ones: the mesh interface's own addresses (the IPv4 mesh subnet and
 // the IPv6 /64 setupWireGuard configures) are among the local subnets, and a
 // route inside the mesh is the mesh's; nor is a link-local subnet, which
-// belongs to the link. Linux only; macOS is T6.
+// belongs to the link. Linux and macOS; no other OS has routes.
 func (d *Daemon) attachedSubnet(canonical string, localSubnets []*net.IPNet) *net.IPNet {
-	if d.osName() != "linux" {
+	switch d.osName() {
+	case "linux", "darwin":
+	default:
 		return nil
 	}
 	prefix, err := netip.ParsePrefix(canonical)

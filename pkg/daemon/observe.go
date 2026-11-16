@@ -103,13 +103,21 @@ func readRoutes(iface string, ipv6 bool) ([]routes.Entry, error) {
 	return result, nil
 }
 
-// observeRoutes reads the routes of the mesh interface, both families, on
-// Linux only. A family whose read fails is an entry in obs.Errs for that
-// family only; it is never read as "no routes".
+// observeRoutes reads the routes of the mesh interface, both families: with
+// `ip` on Linux, with `netstat` on macOS (darwin_routes.go), nowhere else. A
+// family whose read fails is an entry in obs.Errs for that family only; it is
+// never read as "no routes".
 func (d *Daemon) observeRoutes(obs *kernelObserved) {
-	if d.osName() != "linux" {
-		return
+	switch d.osName() {
+	case "linux":
+		d.observeRoutesLinux(obs)
+	case "darwin":
+		d.observeRoutesDarwin(obs)
 	}
+}
+
+// observeRoutesLinux reads the gateway routes of the mesh interface with `ip`.
+func (d *Daemon) observeRoutesLinux(obs *kernelObserved) {
 	iface := d.config.InterfaceName
 	if entries, err := readRoutes(iface, false); err != nil {
 		obs.fail(targetRoutes4, err)

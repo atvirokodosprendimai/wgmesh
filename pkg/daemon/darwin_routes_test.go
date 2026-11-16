@@ -414,7 +414,7 @@ func TestSyncRoutesRunsOnDarwin(t *testing.T) {
 		if d.converge(peers) == nil {
 			t.Fatal("converge skipped the tick")
 		}
-		if dh.count("netstat -rn -f inet ") != 1 || dh.count("netstat -rn -f inet6") != 1 {
+		if dh.count("netstat") != 2 || dh.count("netstat -rn -f inet6") != 1 {
 			t.Errorf("the table was not read once per family: %q", dh.log)
 		}
 		if !dh.has("192.168.50.0/24", "utun4") {
