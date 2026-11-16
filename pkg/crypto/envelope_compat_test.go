@@ -308,11 +308,12 @@ func regenEnvelopeFixtures(t *testing.T) {
 }
 
 func setTestNow(t time.Time) func() {
-	oldNow := now
-	now = func() time.Time {
+	oldNow := clock.Load()
+	f := func() time.Time {
 		return t
 	}
+	clock.Store(&f)
 	return func() {
-		now = oldNow
+		clock.Store(oldNow)
 	}
 }

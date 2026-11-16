@@ -1,10 +1,10 @@
 package daemon
 
 import (
-	"time"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
+	"sync"
+	"time"
 )
 
 var (
@@ -62,17 +62,14 @@ var (
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 )
 
-// metricsRegistered ensures RegisterMetrics is called at most once.
-var metricsRegistered bool
+// metricsOnce ensures RegisterMetrics registers at most once.
+var metricsOnce sync.Once
 
 // RegisterMetrics registers all wgmesh Prometheus metrics with the default
-// registry. It is safe to call multiple times; subsequent calls are no-ops.
+// registry. It is safe to call multiple times, from any goroutine; subsequent
+// calls are no-ops.
 func RegisterMetrics() {
-	if metricsRegistered {
-		return
-	}
-	metricsRegistered = true
-	registerMetrics(prometheus.DefaultRegisterer)
+	metricsOnce.Do(func() { registerMetrics(prometheus.DefaultRegisterer) })
 }
 
 // registerMetrics registers the metrics with reg. The admit warning counter
