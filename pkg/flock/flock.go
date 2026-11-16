@@ -51,7 +51,9 @@ func (e *HeldError) Is(target error) bool { return target == ErrHeld }
 // matches ErrHeld and holder is the pid that holder wrote. release unlocks and
 // closes; it is idempotent and safe to call from several goroutines.
 func TryLock(path string) (release func(), holder string, err error) {
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	// O_NOFOLLOW: a symlink planted at the lock path (shared directory) is
+	// refused, not followed and truncated.
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, "", fmt.Errorf("open lock %s: %w", path, err)
 	}
