@@ -3,6 +3,8 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os/exec"
 	"strings"
 	"sync"
 	"testing"
@@ -20,13 +22,29 @@ type fakeHost struct {
 	iptablesPresent bool
 	cmds            []string
 	sysctlErr       error
+	checkErr        error // what `iptables -C` fails with, whatever the rule
+	lookPathErr     error // what LookPath fails with, whatever the binary
+	readErr         error // what reading ip_forward fails with
+	procValue       *string
 }
+
+// exitError is a command that ended with an exit status, as exec.ExitError.
+type exitError struct{ code int }
+
+func (e exitError) Error() string { return fmt.Sprintf("exit status %d", e.code) }
+func (e exitError) ExitCode() int { return e.code }
 
 func (h *fakeHost) readFile(path string) ([]byte, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if path != "/proc/sys/net/ipv4/ip_forward" {
 		return nil, fmt.Errorf("fake host: unexpected read of %s", path)
+	}
+	if h.readErr != nil {
+		return nil, h.readErr
+	}
+	if h.procValue != nil {
+		return []byte(*h.procValue), nil
 	}
 	if h.ipForward {
 		return []byte("1\n"), nil
@@ -37,10 +55,13 @@ func (h *fakeHost) readFile(path string) ([]byte, error) {
 func (h *fakeHost) lookPath(file string) (string, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.lookPathErr != nil {
+		return "", h.lookPathErr
+	}
 	if file == "iptables" && h.iptablesPresent {
 		return "/usr/sbin/iptables", nil
 	}
-	return "", errors.New("not found")
+	return "", &exec.Error{Name: file, Err: exec.ErrNotFound}
 }
 
 func (h *fakeHost) exec(name string, args ...string) ([]byte, error) {
@@ -57,8 +78,11 @@ func (h *fakeHost) exec(name string, args ...string) ([]byte, error) {
 	case name == "iptables" && !h.iptablesPresent:
 		return nil, errors.New("executable file not found")
 	case strings.HasPrefix(line, "iptables -C FORWARD "):
+		if h.checkErr != nil {
+			return []byte("Another app is currently holding the xtables lock"), h.checkErr
+		}
 		if !h.ruleInstalled {
-			return []byte("iptables: Bad rule"), errors.New("exit status 1")
+			return []byte("iptables: Bad rule"), exitError{1}
 		}
 	case strings.HasPrefix(line, "iptables -A FORWARD "):
 		h.ruleInstalled = true
@@ -380,5 +404,63 @@ func TestForwardTickRaceFree(t *testing.T) {
 		default:
 			d.converge(nil)
 		}
+	}
+}
+
+// `iptables -C` exits 1 for an absent rule; any other failure (the xtables
+// lock is exit 4, an exec error has no status) says nothing about the rule and
+// is an observe error for the forward target: no -A, however many ticks.
+func TestForwardRuleCheckFailureIsNotAbsent(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+	}{
+		{"xtables lock exit 4", exitError{4}},
+		{"exec failure", errors.New("fork/exec /usr/sbin/iptables: permission denied")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			enforceForwardScope(t, false)
+			h := &fakeHost{iptablesPresent: true, checkErr: c.err}
+			ls := &logSink{}
+			d := newForwardDaemon(t, h, ls)
+
+			tick(t, d, 3)
+			if got := h.count("iptables -A"); got != 0 {
+				t.Errorf("a failed -C was read as 'rule absent': %d x iptables -A in 3 ticks: %q", got, h.cmds)
+			}
+			if got := ls.count("Cannot read the forwarding state"); got != 1 {
+				t.Errorf("the observe error was logged %d times in 3 ticks, want 1; log: %q", got, ls.lines)
+			}
+
+			h.set(func(h *fakeHost) { h.checkErr = nil })
+			tick(t, d, 2)
+			if got, want := h.writes(), []string{wantSysctl, wantRule}; !sameLines(got, want) {
+				t.Errorf("after -C recovered writes = %q, want %q", got, want)
+			}
+			if got := ls.count("works again"); got != 1 {
+				t.Errorf("recovery logged %d times, want 1; log: %q", got, ls.lines)
+			}
+		})
+	}
+}
+
+// A LookPath error other than "not found" is an observe error, not a missing
+// iptables.
+func TestForwardLookPathErrorIsObserveError(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: true, lookPathErr: &exec.Error{Name: "iptables", Err: fs.ErrPermission}}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+
+	tick(t, d, 3)
+	if got := ls.count("iptables not found"); got != 0 {
+		t.Errorf("a permission error was reported as a missing iptables: %q", ls.lines)
+	}
+	if got := ls.count("Cannot read the forwarding state"); got != 1 {
+		t.Errorf("the observe error was logged %d times in 3 ticks, want 1; log: %q", got, ls.lines)
+	}
+	if got := h.writes(); len(got) != 0 {
+		t.Errorf("an unobserved forward target was written: %q", got)
 	}
 }

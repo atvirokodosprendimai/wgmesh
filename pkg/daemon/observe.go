@@ -1,7 +1,9 @@
 package daemon
 
 import (
+	"errors"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
@@ -68,11 +70,32 @@ func (d *Daemon) observeForward(want forwardDesired, obs *kernelObserved) {
 		return
 	}
 	if _, err := cmdExecutor.LookPath("iptables"); err != nil {
+		if !errors.Is(err, exec.ErrNotFound) {
+			fail(fmt.Errorf("look up iptables: %w", err))
+		}
 		return
 	}
 	obs.Forward.IptablesPresent = true
 	iface := d.config.InterfaceName
-	obs.Forward.RuleInstalled = cmdExecutor.Command("iptables", "-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT").Run() == nil
+	out, err := cmdExecutor.Command("iptables", "-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT").CombinedOutput()
+	var status interface{ ExitCode() int }
+	switch {
+	case err == nil:
+		obs.Forward.RuleInstalled = true
+	case errors.As(err, &status) && status.ExitCode() == 1:
+		// -C exits 1 for a rule that is not there; that is the one failure that means "absent".
+	default:
+		fail(fmt.Errorf("iptables -C FORWARD: %w", commandFailure(out, err)))
+	}
+}
+
+// commandFailure is the error of a failed command with its output in front
+// when it printed any.
+func commandFailure(out []byte, err error) error {
+	if text := strings.TrimSpace(string(out)); text != "" {
+		return fmt.Errorf("%s: %w", text, err)
+	}
+	return err
 }
 
 // observeKernel reads the kernel once (peer target only for now).
