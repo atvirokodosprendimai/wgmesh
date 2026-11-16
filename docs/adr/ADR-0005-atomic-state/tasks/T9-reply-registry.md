@@ -37,7 +37,7 @@ Ordering note: follows ADR-0002 T9 and T8 of this record (same file). `handleMes
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/discovery -run '^(TestRegisterReplyKeepsBothCallers|TestHandleReplyReachesEveryRegisteredCaller|TestUnregisterRemovesOnlyOwnRegistration|TestUnregisterLastRemovesAddressEntry|TestUnregisterIsIdempotentAndConcurrent|TestRegisterReplyConcurrentCallersUnderRace)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 6 ] && go test -race ./pkg/discovery -count=1
+n=$(go test ./pkg/discovery -run '^(TestRegisterReplyKeepsBothCallers|TestHandleReplyReachesEveryRegisteredCaller|TestUnregisterRemovesOnlyOwnRegistration|TestUnregisterLastRemovesAddressEntry|TestUnregisterIsIdempotentAndConcurrent|TestRegisterReplyConcurrentCallersUnderRace|TestHandleReplyGivesEveryCallerItsOwnCopy|TestConcurrentExchangeWithPeerBothGetTheReply)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 8 ] && go test -race ./pkg/discovery -count=1
 ```
 
 ## Tests
@@ -50,6 +50,8 @@ n=$(go test ./pkg/discovery -run '^(TestRegisterReplyKeepsBothCallers|TestHandle
 | `TestUnregisterLastRemovesAddressEntry` | `pkg/discovery/exchange_pending_test.go` | after both unregister the map has no entry for the address | — | S1, S2 |
 | `TestUnregisterIsIdempotentAndConcurrent` | `pkg/discovery/exchange_pending_test.go` | 16 goroutines call one `unregister`: only that registration is removed, once, under `-race` | — | S1, S2 |
 | `TestRegisterReplyConcurrentCallersUnderRace` | `pkg/discovery/exchange_pending_test.go` | 32 callers register, receive a reply and unregister at once under `-race` | — | S1, S2, S3 |
+| `TestHandleReplyGivesEveryCallerItsOwnCopy` | `pkg/discovery/exchange_pending_test.go` | two callers receive distinct `*PeerInfo` values (and the store its own): a write by one is invisible to the other under `-race` | — | S1, S3 |
+| `TestConcurrentExchangeWithPeerBothGetTheReply` | `pkg/discovery/exchange_pending_test.go` | end to end on loopback: two concurrent `ExchangeWithPeer` calls to one peer address both return that peer's single sealed REPLY (on the single-slot code one caller timed out: reasoned from the code, not run) | — | S1, S3 |
 
 ## Reachability
 
