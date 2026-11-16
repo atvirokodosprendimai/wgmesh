@@ -81,7 +81,9 @@ func (p *PeerInfo) LastAlive(now time.Time) time.Time { return p.evidence().newe
 // instant, or the zero time when there is none: measured contact only. It
 // leaves out RestoredAt and the store's resume time, which are grace, so a
 // peer never heard from does not look contacted at the moment it was restored.
-func (p *PeerInfo) LastContact() time.Time { return time.Time{} }
+func (p *PeerInfo) LastContact() time.Time {
+	return Evidence{LastSeen: p.LastSeen, LastDataPlane: p.LastDataPlane}.newest()
+}
 
 // DecideByAge applies a reader's own age test (its window and operator) to the
 // peer. While EnforceLiveness is false the legacy LastSeen age decides; once

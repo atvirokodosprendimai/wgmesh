@@ -72,9 +72,10 @@ func buildPeerCache(peerStore *PeerStore) *PeerCache {
 		if p.EndpointGuessed {
 			endpoint = ""
 		}
-		// last_seen is the newest evidence (LastAlive), so a peer kept
-		// connected by handshakes is saved with a fresh time; the field and its
-		// type are unchanged, an older version reads it as before.
+		// last_seen is the newest measured contact (LastContact), so a peer kept
+		// connected by handshakes is saved with a fresh time while a restored
+		// peer never heard from keeps its cache time and expires on schedule;
+		// the field and its type are unchanged, an older version reads it as before.
 		cache.Peers = append(cache.Peers, PeerCacheEntry{
 			WGPubKey:         p.WGPubKey,
 			Hostname:         p.Hostname,
@@ -84,7 +85,7 @@ func buildPeerCache(peerStore *PeerStore) *PeerCache {
 			Introducer:       p.Introducer,
 			RoutableNetworks: p.RoutableNetworks,
 			NATType:          p.NATType,
-			LastSeen:         p.LastAlive(now).Unix(),
+			LastSeen:         p.LastContact().Unix(),
 		})
 	}
 	return cache
