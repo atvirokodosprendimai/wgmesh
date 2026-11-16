@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync/atomic"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	node "github.com/atvirokodosprendimai/wgmesh/pkg/node"
@@ -18,9 +19,15 @@ type CollisionInfo struct {
 	Peer2  *node.PeerInfo
 }
 
-// applyInterfaceAddress is setInterfaceAddress behind a variable so the
-// collision tests can record what the daemon would set.
-var applyInterfaceAddress = setInterfaceAddress
+// applyInterfaceAddress is setInterfaceAddress behind an atomic pointer so the
+// collision tests can record what the daemon would set while a collision pass
+// of an earlier test may still run.
+var applyInterfaceAddress atomic.Pointer[func(name, address string) error]
+
+func init() {
+	f := setInterfaceAddress
+	applyInterfaceAddress.Store(&f)
+}
 
 // DetectCollisions lists the mesh IPs claimed by more than one member: the
 // peers in the store and the local node (local). The order of the claims
@@ -105,9 +112,11 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 // local node loses and moves to a nonce-derived address, the address is written
 // to the local node state file, so it survives a restart (#830).
 func (d *Daemon) CheckAndResolveCollisions() {
+	d.collisionMu.Lock()
+	defer d.collisionMu.Unlock()
 	var local node.Claim
 	if d.localNode != nil {
-		local = node.Claim{Key: d.localNode.WGPubKey, IP: d.localNode.MeshIP}
+		local = node.Claim{Key: d.localNode.WGPubKey, IP: d.localNode.GetMeshIP()}
 	}
 	collisions := DetectCollisions(d.peerStore, local)
 	if len(collisions) == 0 {
@@ -122,7 +131,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 
 		// If we are the loser, re-derive our IP
 		if loser.WGPubKey == local.Key {
-			if d.localNode.MeshIP != collision.MeshIP {
+			if d.localNode.GetMeshIP() != collision.MeshIP {
 				continue // already moved by an earlier collision of this pass
 			}
 			newIP := d.moverIP()
@@ -130,8 +139,8 @@ func (d *Daemon) CheckAndResolveCollisions() {
 				log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet — keeping current IP")
 				continue
 			}
-			log.Printf("[Collision] We lost collision, re-deriving mesh IP: %s -> %s", d.localNode.MeshIP, newIP)
-			d.localNode.MeshIP = newIP
+			log.Printf("[Collision] We lost collision, re-deriving mesh IP: %s -> %s", d.localNode.GetMeshIP(), newIP)
+			d.localNode.SetMeshIP(newIP)
 			// Persist it so a restart and `service add` keep the address (#830);
 			// a failed save keeps the in-memory address.
 			if err := saveLocalNode(d.stateFile, d.localNode); err != nil {
@@ -139,7 +148,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 
 			// Reconfigure WireGuard with new IP using correct prefix length
-			if err := applyInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, d.config.PrefixLen())); err != nil {
+			if err := (*applyInterfaceAddress.Load())(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, d.config.PrefixLen())); err != nil {
 				log.Printf("[Collision] Failed to update interface address: %v", err)
 			}
 		} else {
@@ -157,7 +166,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 // (the local node's current address counts as claimed). When every one is
 // claimed it is the nonce-1 address. It is "" when the custom subnet is unusable.
 func (d *Daemon) moverIP() string {
-	claimed := map[string]bool{d.localNode.MeshIP: true}
+	claimed := map[string]bool{d.localNode.GetMeshIP(): true}
 	for _, p := range d.peerStore.GetAll() {
 		if p.WGPubKey != d.localNode.WGPubKey {
 			claimed[p.MeshIP] = true

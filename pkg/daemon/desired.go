@@ -80,7 +80,8 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 	// enforced there from the first release, whatever the switch says.
 	darwin := d.routeAdapter() == routesDarwin
 	enforceGuard := EnforceRouteGuard.Load() || darwin
-	now := time.Now()
+	now := d.now()
+	probeRelayed := EnforceRelayProbe.Load()
 	localSubnets := d.getLocalSubnets()
 	localKey := ""
 	if d.localNode != nil {
@@ -95,7 +96,7 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 		if d.isTemporarilyOffline(p.WGPubKey) {
 			continue
 		}
-		if p.Introducer && p.Endpoint != "" && now.Sub(p.LastSeen) <= RelayCandidateMaxAge {
+		if p.Introducer && p.Endpoint != "" && DecideByLiveness(SiteRelayCandidate, p, now, func(age time.Duration) bool { return age <= RelayCandidateMaxAge }) {
 			relayCandidates = append(relayCandidates, p)
 		}
 	}
@@ -161,6 +162,16 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 	claimants := make(map[string][]desiredMember)
 	for _, m := range members {
 		p := m.peer
+		if probeRelayed && m.carrier != p && d.hasUsableEndpoint(p) {
+			// A relayed peer stays configured with its endpoint and no
+			// AllowedIPs: WireGuard drops its direct data packets and its
+			// handshake attempts keep running, so a fresh handshake can bring it
+			// back (ADR-0004 Decision 6, #852). An entry that exists already
+			// (the peer is a relay for another peer and carries routes) is kept.
+			if _, held := ds.Peers[p.WGPubKey]; !held {
+				ds.Peers[p.WGPubKey] = &desiredPeerConfig{peer: p, allowed: make(map[string]struct{}), probeOnly: true}
+			}
+		}
 		d.addAllowedIP(ds.Peers, m.carrier, p.MeshIP+"/32")
 		if p.MeshIPv6 != "" {
 			d.addAllowedIP(ds.Peers, m.carrier, p.MeshIPv6+"/128")
@@ -294,10 +305,14 @@ func (d *Daemon) attachedSubnet(canonical string, localSubnets []*net.IPNet) *ne
 // meshPrefixV6 is the IPv6 /64 of the mesh interface (the node's mesh IPv6
 // with the /64 setupWireGuard gives it), the zero Prefix when there is none.
 func (d *Daemon) meshPrefixV6() netip.Prefix {
-	if d.localNode == nil || d.localNode.MeshIPv6 == "" {
+	if d.localNode == nil {
 		return netip.Prefix{}
 	}
-	addr, err := netip.ParseAddr(d.localNode.MeshIPv6)
+	v6 := d.localNode.GetMeshIPv6()
+	if v6 == "" {
+		return netip.Prefix{}
+	}
+	addr, err := netip.ParseAddr(v6)
 	if err != nil {
 		return netip.Prefix{}
 	}
@@ -331,7 +346,7 @@ func (d *Daemon) desireAddresses() addressDesired {
 	if d.osName() != "linux" || d.localNode == nil {
 		return addressDesired{}
 	}
-	meshIP, meshIPv6 := d.localNode.MeshIP, d.localNode.MeshIPv6
+	meshIP, meshIPv6 := d.localNode.GetMeshIPs()
 	ip, err := netip.ParseAddr(meshIP)
 	v4 := netip.PrefixFrom(ip, d.config.PrefixLen())
 	if err != nil || !ip.Is4() || !v4.IsValid() {

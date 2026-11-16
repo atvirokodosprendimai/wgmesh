@@ -214,9 +214,8 @@ func newDarwinDaemon(t *testing.T, dh *darwinHost, ls *logSink, k *fakeKernel) *
 	_, subnet, _ := net.ParseCIDR("10.99.0.0/16")
 	d.config.CustomSubnet = subnet
 	d.localNode.MeshIPv6 = "fd99::1"
-	old := cmdExecutor
-	cmdExecutor = &MockCommandExecutor{commandFunc: dh.command}
-	t.Cleanup(func() { cmdExecutor = old })
+	old := cmdExecutor.swap(&MockCommandExecutor{commandFunc: dh.command})
+	t.Cleanup(func() { cmdExecutor.swap(old) })
 	return d
 }
 

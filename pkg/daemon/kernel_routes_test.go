@@ -264,9 +264,8 @@ func newRouteDaemon(t *testing.T, rh *routeHost, ls *logSink, k *fakeKernel) *Da
 	d.goos = "linux"
 	d.config.InterfaceName = "wg0"
 	d.readFileFn = rh.host.readFile
-	old := cmdExecutor
-	cmdExecutor = &MockCommandExecutor{lookPathFunc: rh.host.lookPath, commandFunc: rh.command}
-	t.Cleanup(func() { cmdExecutor = old })
+	old := cmdExecutor.swap(&MockCommandExecutor{lookPathFunc: rh.host.lookPath, commandFunc: rh.command})
+	t.Cleanup(func() { cmdExecutor.swap(old) })
 	return d
 }
 

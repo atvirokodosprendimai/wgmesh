@@ -193,9 +193,8 @@ func newForwardDaemonOn(t *testing.T, h *fakeHost, ls *logSink, k *fakeKernel) *
 	d := newConvergeDaemon(t, k, ls)
 	d.goos = "linux"
 	d.readFileFn = h.readFile
-	old := cmdExecutor
-	cmdExecutor = &MockCommandExecutor{lookPathFunc: h.lookPath, commandFunc: h.command}
-	t.Cleanup(func() { cmdExecutor = old })
+	old := cmdExecutor.swap(&MockCommandExecutor{lookPathFunc: h.lookPath, commandFunc: h.command})
+	t.Cleanup(func() { cmdExecutor.swap(old) })
 	return d
 }
 

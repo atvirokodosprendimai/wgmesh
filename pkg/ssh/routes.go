@@ -15,7 +15,7 @@ type RouteEntry = routes.Entry
 // GetCurrentRoutes returns the kernel routing table entries for the given
 // interface by running `ip route show dev <iface>` over the SSH client.
 func GetCurrentRoutes(client *Client, iface string) ([]RouteEntry, error) {
-	output, err := client.Run(fmt.Sprintf("ip route show dev %s", iface))
+	output, err := client.Run(Cmd("ip", "route", "show", "dev", iface))
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +71,7 @@ func RestoreConnectedRoute(client *Client, network string) {
 		family = "-6"
 	}
 
-	output, runErr := client.Run(fmt.Sprintf("ip %s -o addr show to %s", family, ipnet))
+	output, runErr := client.Run(Cmd("ip", family, "-o", "addr", "show", "to", ipnet.String()))
 	iface, src, ok := "", "", false
 	if runErr == nil {
 		iface, src, ok = routes.ParseLocalAddr(output, ipnet)
@@ -81,7 +81,7 @@ func RestoreConnectedRoute(client *Client, network string) {
 		return
 	}
 
-	output, err = client.Run(routes.ConnectedRouteCmd(ipnet, iface, src))
+	output, err = client.Run(Cmd(routes.ConnectedRouteCmd(ipnet, iface, src)))
 	if err != nil && !strings.Contains(output, "File exists") {
 		fmt.Printf("    Warning: failed to restore connected route %s dev %s: %v %s\n", ipnet, iface, err, strings.TrimSpace(output))
 		return
@@ -105,6 +105,17 @@ func CalculateRouteDiff(current, desired []RouteEntry) (toAdd, toRemove []RouteE
 	return routes.CalculateDiff(current, desired)
 }
 
+// RouteArgs returns the arguments that follow `ip` in an `ip route <verb>`
+// command: the network, `via <gateway>` when there is a gateway, and the
+// interface. Pass it to Cmd, which quotes each one.
+func RouteArgs(verb, network, gateway, iface string) []string {
+	args := []string{"route", verb, network}
+	if gateway != "" {
+		args = append(args, "via", gateway)
+	}
+	return append(args, "dev", iface)
+}
+
 // ApplyRouteDiff applies the computed route diff over the SSH client.
 func ApplyRouteDiff(client *Client, iface string, toAdd, toRemove []RouteEntry) error {
 	totalChanges := len(toAdd) + len(toRemove)
@@ -117,16 +128,7 @@ func ApplyRouteDiff(client *Client, iface string, toAdd, toRemove []RouteEntry) 
 
 	if len(toRemove) > 0 {
 		for _, route := range toRemove {
-			var cmd string
-			if route.Gateway != "" {
-				cmd = fmt.Sprintf("ip route del %s via %s dev %s 2>/dev/null || true",
-					route.Network, route.Gateway, iface)
-			} else {
-				cmd = fmt.Sprintf("ip route del %s dev %s 2>/dev/null || true",
-					route.Network, iface)
-			}
-
-			if err := client.RunQuiet(cmd); err != nil {
+			if err := client.RunQuiet(Cmd("ip", RouteArgs("del", route.Network, route.Gateway, iface)...) + " 2>/dev/null || true"); err != nil {
 				fmt.Printf("    Warning: failed to remove route %s: %v\n", route.Network, err)
 			} else {
 				if route.Gateway != "" {
@@ -140,16 +142,8 @@ func ApplyRouteDiff(client *Client, iface string, toAdd, toRemove []RouteEntry) 
 
 	if len(toAdd) > 0 {
 		for _, route := range toAdd {
-			var cmd string
-			if route.Gateway != "" {
-				cmd = fmt.Sprintf("ip route add %s via %s dev %s || ip route replace %s via %s dev %s",
-					route.Network, route.Gateway, iface, route.Network, route.Gateway, iface)
-			} else {
-				cmd = fmt.Sprintf("ip route add %s dev %s || ip route replace %s dev %s",
-					route.Network, iface, route.Network, iface)
-			}
-
-			if err := client.RunQuiet(cmd); err != nil {
+			if err := client.RunQuiet(Cmd("ip", RouteArgs("add", route.Network, route.Gateway, iface)...) +
+				" || " + Cmd("ip", RouteArgs("replace", route.Network, route.Gateway, iface)...)); err != nil {
 				return fmt.Errorf("failed to add route for %s: %w", route.Network, err)
 			}
 
@@ -161,7 +155,7 @@ func ApplyRouteDiff(client *Client, iface string, toAdd, toRemove []RouteEntry) 
 		}
 	}
 
-	cmd := "sysctl -w net.ipv4.ip_forward=1 > /dev/null"
+	const cmd = "sysctl -w net.ipv4.ip_forward=1 > /dev/null"
 	if err := client.RunQuiet(cmd); err != nil {
 		return fmt.Errorf("failed to enable IP forwarding: %w", err)
 	}

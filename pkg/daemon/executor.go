@@ -3,6 +3,7 @@ package daemon
 import (
 	"io"
 	"os/exec"
+	"sync/atomic"
 )
 
 // CommandExecutor abstracts command execution for testing
@@ -89,4 +90,32 @@ func (r *RealCommand) SetStdout(stdout io.Writer) {
 // SetStderr sets the standard error for the command
 func (r *RealCommand) SetStderr(stderr io.Writer) {
 	r.cmd.Stderr = stderr
+}
+
+// switchableExecutor is the process-wide executor: helpers run commands from
+// reconcile, health and probe goroutines while a test swaps the implementation,
+// so the current one is held atomically.
+type switchableExecutor struct {
+	cur atomic.Pointer[CommandExecutor]
+}
+
+func newSwitchableExecutor(e CommandExecutor) *switchableExecutor {
+	s := &switchableExecutor{}
+	s.cur.Store(&e)
+	return s
+}
+
+// LookPath implements CommandExecutor.
+func (s *switchableExecutor) LookPath(file string) (string, error) {
+	return (*s.cur.Load()).LookPath(file)
+}
+
+// Command implements CommandExecutor.
+func (s *switchableExecutor) Command(name string, args ...string) Command {
+	return (*s.cur.Load()).Command(name, args...)
+}
+
+// swap installs e and returns the previous executor.
+func (s *switchableExecutor) swap(e CommandExecutor) CommandExecutor {
+	return *s.cur.Swap(&e)
 }

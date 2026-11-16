@@ -13,6 +13,8 @@ type Hand = node.Hand
 type Source = node.Source
 type Decision = node.Decision
 type Policy = node.Policy
+type Liveness = node.Liveness
+type Evidence = node.Evidence
 
 const (
 	PeerDeadTimeout   = node.PeerDeadTimeout

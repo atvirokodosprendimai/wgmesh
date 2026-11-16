@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
@@ -81,6 +82,11 @@ func planKernel(want map[string]*desiredPeerConfig, kernel kernelObserved, pushe
 		if present && !endpointChanged && sameSet(obs.Allowed, wanted) {
 			continue
 		}
+		if cfg.probeOnly && len(allowed) == 0 {
+			// A relayed peer kept for its handshake attempts: configured with
+			// its endpoint and no AllowedIPs (ADR-0004 Decision 6).
+			allowed = []string{wireguard.AllowedIPsClear}
+		}
 		w := peerWrite{Key: key, Allowed: allowed}
 		if !present || endpointChanged {
 			w.Endpoint = cfg.peer.Endpoint
@@ -96,10 +102,11 @@ func planKernel(want map[string]*desiredPeerConfig, kernel kernelObserved, pushe
 }
 
 // configurable reports whether the peer can be written to the kernel: it has an
-// endpoint (an IPv6 one only when IPv6 is on) and something to allow.
+// endpoint (an IPv6 one only when IPv6 is on) and something to allow, or it is
+// a probe-only peer, which is written with no AllowedIPs.
 func (cfg *desiredPeerConfig) configurable(disableIPv6 bool) bool {
 	ep := cfg.peer.Endpoint
-	return ep != "" && !(disableIPv6 && isIPv6Endpoint(ep)) && len(cfg.allowed) > 0
+	return ep != "" && !(disableIPv6 && isIPv6Endpoint(ep)) && (len(cfg.allowed) > 0 || cfg.probeOnly)
 }
 
 // sameSet reports whether a and b hold the same members.
@@ -852,10 +859,29 @@ func (r itemResult) id() string {
 	return r.Target + " " + r.Op + " " + r.Key
 }
 
-// converge runs one tick against the kernel and returns the desired state it
-// applied, or nil when the observe failed and nothing was decided or written.
-// The caller holds reconcileMu.
+// converge runs one tick against the kernel over the given active peers and
+// returns the desired state it applied, or nil when the observe failed and
+// nothing was decided or written. The caller holds reconcileMu.
 func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
+	return d.convergeWith(func(map[string]int64, time.Time) []*PeerInfo { return peers })
+}
+
+// convergeTick is the production tick: the handshakes of the dump are recorded
+// as evidence first and the active set is read after (ADR-0004: a peer whose
+// only sign of life is a handshake is already Alive when the set is read).
+// The caller holds reconcileMu.
+func (d *Daemon) convergeTick() *desiredState {
+	return d.convergeWith(d.activePeers)
+}
+
+// convergeWith is the one step of a tick: observe, desire, plan, apply, under
+// convergeMu; peersFn supplies the active peers once the dump has been read.
+// The relay plan of the tick is stored under relayMu after the desired state is
+// computed and before anything is applied, so the gauge and the health skip see
+// what the apply step sees. Lock order: reconcileMu, then convergeMu, then
+// relayMu; a reader of the relay state never takes convergeMu while holding
+// relayMu.
+func (d *Daemon) convergeWith(peersFn func(handshakes map[string]int64, now time.Time) []*PeerInfo) *desiredState {
 	d.convergeMu.Lock()
 	defer d.convergeMu.Unlock()
 
@@ -866,7 +892,10 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	}
 	d.noteObserve(nil)
 
-	ds := d.desire(peers, obs.handshakes(), obs.owners())
+	handshakes := obs.handshakes()
+	peers := peersFn(handshakes, d.now())
+	ds := d.desire(peers, handshakes, obs.owners())
+	d.storeRelayPlan(ds.relayRoutes, ds.directStable, d.now())
 	d.routeWarned = ds.routeWarned
 	d.noteForwardScope(ds.Forward)
 	d.observeForward(ds.Forward, &obs)
@@ -909,6 +938,7 @@ func (d *Daemon) removeLocked(key string) error {
 	err := d.removeSeam(d.config.InterfaceName, key)
 	if err == nil {
 		delete(d.pushedLocked(), key)
+		d.setConfigured(key, false)
 		RecordKernelChange(targetPeers)
 	}
 	return err
@@ -919,6 +949,7 @@ func (d *Daemon) removeLocked(key string) error {
 func (d *Daemon) setLocked(key, endpoint, allowedCSV string) error {
 	err := d.setSeam(d.config.InterfaceName, key, d.config.Keys.PSK, endpoint, allowedCSV)
 	if err == nil {
+		d.setConfigured(key, true)
 		if endpoint != "" {
 			d.pushedLocked()[key] = endpoint
 		}
@@ -956,7 +987,7 @@ func (d *Daemon) reconnectPeerInKernel(peer *PeerInfo, peers []*PeerInfo) error 
 		d.logf("[Health] Peer %s... is not configurable (no endpoint, IPv6 endpoint with IPv6 disabled, or nothing to allow); not touching it", shortKey(peer.WGPubKey))
 		return nil
 	}
-	return d.setLocked(peer.WGPubKey, cfg.peer.Endpoint, strings.Join(mapKeysSorted(cfg.allowed), ","))
+	return d.setLocked(peer.WGPubKey, cfg.peer.Endpoint, allowedCSVFor(cfg))
 }
 
 // logResults prints a result only when it differs from the last one of the

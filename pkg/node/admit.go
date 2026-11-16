@@ -3,6 +3,7 @@ package node
 import (
 	"log"
 	"net"
+	"sync/atomic"
 )
 
 // Source labels where a claim came from: lan, dht, dht-rendezvous,
@@ -73,7 +74,7 @@ type Decision struct {
 // The order between two claims for one address (a bound claim beats an unbound
 // one, then the lower key) is R4 and lives in Winner and ResolveClaims, which
 // read the same switch.
-var EnforceIPBinding = false
+var EnforceIPBinding atomic.Bool
 
 // Policy is what the daemon lends the store. All fields are optional.
 type Policy struct {
