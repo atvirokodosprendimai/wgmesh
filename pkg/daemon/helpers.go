@@ -137,11 +137,14 @@ func saveLocalNode(path string, node *LocalNode) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
+	// One Snapshot: the key and both addresses are read together, so the saved
+	// pair is one that the node held (ADR-0005 T8).
+	snap := node.Snapshot()
 	state := localNodeState{
-		WGPubKey:     node.WGPubKey,
+		WGPubKey:     snap.PubKey,
 		WGPrivateKey: node.WGPrivateKey,
-		MeshIP:       node.GetMeshIP(),
-		MeshIPv6:     node.GetMeshIPv6(),
+		MeshIP:       snap.MeshIP,
+		MeshIPv6:     snap.MeshIPv6,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")

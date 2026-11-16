@@ -1023,12 +1023,16 @@ func (d *Daemon) healthMonitorLoop() {
 }
 
 func (d *Daemon) startMeshProbeServer() error {
-	if d.localNode == nil || d.localNode.GetMeshIP() == "" {
+	if d.localNode == nil {
+		return fmt.Errorf("local mesh IP not initialized")
+	}
+	meshIP, ip6 := d.localNode.GetMeshIP(), d.localNode.GetMeshIPv6()
+	if meshIP == "" {
 		return fmt.Errorf("local mesh IP not initialized")
 	}
 
-	listenAddrs := []string{net.JoinHostPort(d.localNode.GetMeshIP(), strconv.Itoa(d.healthProbePort))}
-	if ip6 := d.localNode.GetMeshIPv6(); ip6 != "" {
+	listenAddrs := []string{net.JoinHostPort(meshIP, strconv.Itoa(d.healthProbePort))}
+	if ip6 != "" {
 		listenAddrs = append(listenAddrs, net.JoinHostPort(ip6, strconv.Itoa(d.healthProbePort)))
 	}
 
