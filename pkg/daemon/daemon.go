@@ -70,10 +70,18 @@ type Daemon struct {
 	offlineMu              sync.Mutex
 	temporaryOffline       map[string]time.Time
 
-	// configMu guards the hot-reloadable fields in config and localNode.
-	// Callers that read AdvertiseRoutes or LogLevel at runtime must hold at
-	// least a read lock; SIGHUP reload holds the write lock.
+	// configMu guards the hot-reloadable fields in config (AdvertiseRoutes,
+	// AcceptRoutes, LogLevel). The local node guards itself: stateMu,
+	// endpointMu and routesMu inside pkg/node. Callers that read
+	// AdvertiseRoutes or LogLevel at runtime must hold at least a read lock;
+	// SIGHUP reload holds the write lock.
 	configMu sync.RWMutex
+
+	// reconcileMu serializes reconcile(), which runs from reconcileLoop and
+	// from handleSIGHUP. Lock order: reconcileMu, then configMu (reconcile
+	// reads config through the RLock accessors); nothing holding configMu
+	// calls reconcile.
+	reconcileMu sync.Mutex
 
 	// Discovery layer (DHT discovery will be attached)
 	dhtDiscovery DiscoveryLayer
