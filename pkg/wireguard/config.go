@@ -90,7 +90,10 @@ func parseWGDump(output string) (*Config, error) {
 		publicKey := parts[0]
 		presharedKey := noneToEmpty(parts[1])
 		endpoint := noneToEmpty(parts[2])
-		allowedIPs := strings.Split(parts[3], ",")
+		var allowedIPs []string // "(none)" means no allowed IPs, as in ParseDump
+		if ips := noneToEmpty(parts[3]); ips != "" {
+			allowedIPs = strings.Split(ips, ",")
+		}
 		var keepalive int
 		if len(parts) >= 8 {
 			fmt.Sscanf(parts[7], "%d", &keepalive) // "off" leaves 0

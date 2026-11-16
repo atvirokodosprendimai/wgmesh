@@ -661,6 +661,15 @@ func TestParseWGDump(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "no allowed ips",
+			output: "priv\tpub\t51820\toff\n" +
+				"peer3\t(none)\t(none)\t(none)\t0\t0\t0\toff\n",
+			wantPort: 51820,
+			wantPeers: map[string]Peer{
+				"peer3": {PublicKey: "peer3"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
