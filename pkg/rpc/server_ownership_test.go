@@ -99,6 +99,27 @@ func TestNewServerRefusesOwnedSocket(t *testing.T) {
 	}
 }
 
+// The refusal tells the operator what to do, and names the pid once.
+func TestNewServerRefusalSaysWhatToDo(t *testing.T) {
+	path := shortSocketPath(t)
+	first := startServer(t, path)
+	defer first.Stop()
+
+	_, err := NewServer(ownershipConfig(path))
+	if err == nil {
+		t.Fatal("second NewServer on an owned socket path succeeded")
+	}
+	msg := err.Error()
+	for _, want := range []string{"--socket-path", "WGMESH_SOCKET", "different file"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q lacks %q", msg, want)
+		}
+	}
+	if n := strings.Count(msg, "pid "); n != 1 {
+		t.Errorf("error %q names the pid %d times, want once", msg, n)
+	}
+}
+
 func TestNewServerLeavesLiveSocketAlone(t *testing.T) {
 	path := shortSocketPath(t)
 	first := startServer(t, path)
