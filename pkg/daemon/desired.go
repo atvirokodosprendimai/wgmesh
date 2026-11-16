@@ -229,9 +229,11 @@ func prefixOf(n *net.IPNet) (netip.Prefix, bool) {
 }
 
 // attachedSubnet returns the subnet of this host that the canonical network is
-// equal to or inside (a supernet is not), or nil. The mesh network is not an
-// attached one: the mesh interface's own address is among the local subnets,
-// and a route inside the mesh is the mesh's. Linux only; macOS is T6.
+// equal to or inside (a supernet is not), or nil. The mesh networks are not
+// attached ones: the mesh interface's own addresses (the IPv4 mesh subnet and
+// the IPv6 /64 setupWireGuard configures) are among the local subnets, and a
+// route inside the mesh is the mesh's; nor is a link-local subnet, which
+// belongs to the link. Linux only; macOS is T6.
 func (d *Daemon) attachedSubnet(canonical string, localSubnets []*net.IPNet) *net.IPNet {
 	if d.osName() != "linux" {
 		return nil
@@ -240,23 +242,37 @@ func (d *Daemon) attachedSubnet(canonical string, localSubnets []*net.IPNet) *ne
 	if err != nil {
 		return nil
 	}
-	var mesh netip.Prefix
+	var mesh, mesh6 netip.Prefix
 	meshKnown := false
 	for _, s := range localSubnets {
 		sp, ok := prefixOf(s)
-		if !ok || !sp.Contains(prefix.Addr()) || prefix.Bits() < sp.Bits() {
+		if !ok || !sp.Contains(prefix.Addr()) || prefix.Bits() < sp.Bits() || sp.Addr().IsLinkLocalUnicast() {
 			continue
 		}
 		if !meshKnown {
 			mesh, _ = prefixOf(d.meshNet())
+			mesh6 = d.meshPrefixV6()
 			meshKnown = true
 		}
-		if sp == mesh {
+		if sp == mesh || sp == mesh6 {
 			continue
 		}
 		return s
 	}
 	return nil
+}
+
+// meshPrefixV6 is the IPv6 /64 of the mesh interface (the node's mesh IPv6
+// with the /64 setupWireGuard gives it), the zero Prefix when there is none.
+func (d *Daemon) meshPrefixV6() netip.Prefix {
+	if d.localNode == nil || d.localNode.MeshIPv6 == "" {
+		return netip.Prefix{}
+	}
+	addr, err := netip.ParseAddr(d.localNode.MeshIPv6)
+	if err != nil {
+		return netip.Prefix{}
+	}
+	return netip.PrefixFrom(addr, 64).Masked()
 }
 
 // desireForward is what this node wants of forwarding. Needed is an

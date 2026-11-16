@@ -686,3 +686,54 @@ func TestIPv6GatewayNormalisedNoChurn(t *testing.T) {
 		})
 	}
 }
+
+// The mesh interface carries the node's IPv6 /64 and a link-local /64 among
+// the local subnets: a network inside either is the mesh's or the link's, not
+// an attached one. A real attached IPv6 subnet still counts.
+func TestAttachedRuleIgnoresMeshIPv6AndLinkLocal(t *testing.T) {
+	setup := func(t *testing.T) (*Daemon, *routeHost, *fakeKernel, *logSink, []*PeerInfo) {
+		rh := convergedHost()
+		ls := &logSink{}
+		k := newFakeKernel()
+		d := newRouteDaemon(t, rh, ls, k)
+		d.localNode.MeshIPv6 = "fd99:0:0:1::1"
+		d.localSubnetsFn = func() []*net.IPNet {
+			return []*net.IPNet{
+				{IP: net.ParseIP("fd99:0:0:1::1"), Mask: net.CIDRMask(64, 128)},
+				{IP: net.ParseIP("fe80::1"), Mask: net.CIDRMask(64, 128)},
+				{IP: net.ParseIP("2001:db8:7::1"), Mask: net.CIDRMask(64, 128)},
+			}
+		}
+		peer := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "fd99:0:0:1:7::/80", "fe80::/64", "2001:db8:7::/64")
+		peer.MeshIPv6 = "fd99:0:0:1::2"
+		return d, rh, k, ls, []*PeerInfo{peer}
+	}
+	warnings := func() float64 { return testutil.ToFloat64(kernelWarnings.WithLabelValues("attached-network")) }
+
+	t.Run("N counts only the real attached subnet", func(t *testing.T) {
+		enforceRouteGuard(t, false)
+		d, rh, _, ls, peers := setup(t)
+		before := warnings()
+		ticks(t, d, rh, peers, 3)
+		if got := warnings() - before; got != 1 {
+			t.Errorf("attached-network counted %v times, want 1 (2001:db8:7::/64 only); log: %q", got, ls.lines)
+		}
+		if n := ls.count("attached-network: fd99:") + ls.count("attached-network: fe80:"); n != 0 {
+			t.Errorf("a mesh or link-local network was called attached: %q", ls.lines)
+		}
+	})
+
+	t.Run("N+1 keeps the mesh and link-local networks", func(t *testing.T) {
+		enforceRouteGuard(t, true)
+		d, rh, k, _, peers := setup(t)
+		ticks(t, d, rh, peers, 3)
+		for _, n := range []string{"fd99:0:0:1:7::/80", "fe80::/64"} {
+			if !rh.has(n, "fd99:0:0:1::2", "wg0") || !contains(kernelAllowed(k, "keyA"), n) {
+				t.Errorf("with EnforceRouteGuard %s must stay (route %v, AllowedIPs %v)", n, rh.has(n, "fd99:0:0:1::2", "wg0"), kernelAllowed(k, "keyA"))
+			}
+		}
+		if rh.has("2001:db8:7::/64", "fd99:0:0:1::2", "wg0") || contains(kernelAllowed(k, "keyA"), "2001:db8:7::/64") {
+			t.Error("with EnforceRouteGuard the attached IPv6 subnet is still installed")
+		}
+	})
+}
