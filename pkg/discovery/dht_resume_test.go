@@ -314,3 +314,61 @@ func TestOnResumeSerialisedWithStunRefreshLoop(t *testing.T) {
 		t.Fatalf("max STUN passes in flight = %d, want 1 (stunMu serialises the ticker and OnResume)", got)
 	}
 }
+
+// A layer cancelled while the STUN query runs must not apply its answer or
+// announce: the resume goroutine may outlive Stop.
+func TestOnResumeDropsAnswerAfterCancelDuringSTUN(t *testing.T) {
+	d, p := resumeDHT(t)
+	d.stunFn = func() (NATType, net.IP, error) {
+		p.stun.Add(1)
+		d.cancel()
+		return NATCone, net.ParseIP(resumeNewIP), nil
+	}
+
+	d.OnResume()
+	d.resumeWG.Wait()
+
+	if got := p.stun.Load(); got != 1 {
+		t.Fatalf("STUN queries = %d, want 1", got)
+	}
+	if got := d.localNode.GetEndpoint(); got != resumeEndpoint(d, resumeOldIP) {
+		t.Fatalf("endpoint = %s, want it unchanged after cancel", got)
+	}
+	if got := d.localNode.GetNATType(); got != "" {
+		t.Fatalf("NATType = %q, want it unchanged after cancel", got)
+	}
+	if got := p.announce.Load(); got != 0 {
+		t.Fatalf("announce() calls = %d, want 0 after cancel", got)
+	}
+}
+
+func TestOnResumeStopWhileSTUNBlockedKeepsEndpoint(t *testing.T) {
+	d, p := resumeDHT(t)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	d.stunFn = func() (NATType, net.IP, error) {
+		p.stun.Add(1)
+		close(started)
+		<-release
+		return NATCone, net.ParseIP(resumeNewIP), nil
+	}
+
+	d.OnResume()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the resume goroutine never reached the STUN query")
+	}
+	if err := d.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	close(release)
+	d.resumeWG.Wait()
+
+	if got := d.localNode.GetEndpoint(); got != resumeEndpoint(d, resumeOldIP) {
+		t.Fatalf("endpoint = %s, want it unchanged after Stop", got)
+	}
+	if got := p.announce.Load(); got != 0 {
+		t.Fatalf("announce() calls = %d, want 0 after Stop", got)
+	}
+}
