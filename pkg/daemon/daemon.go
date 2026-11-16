@@ -60,7 +60,8 @@ type Daemon struct {
 	// convergeMu serialises every write to the WireGuard peers of the kernel
 	// (see converge.go) and guards pushedEndpoint, lastResults,
 	// observeErrLogged and the forwarding target's state (forwardScopeWarned,
-	// forwardNoIptables, forwardObserveErr). Lock order: reconcileMu, then
+	// forwardNoIptables, forwardObserveErr) and the route target's state
+	// (routeObserveErr, routeWarned, hostDefaultWarned). Lock order: reconcileMu, then
 	// convergeMu; the health paths (attemptPeerReconnect, evictPeerFromPool,
 	// staleCleanupLoop) take only convergeMu; never the reverse.
 	convergeMu       sync.Mutex
@@ -71,6 +72,10 @@ type Daemon struct {
 	forwardScopeWarned bool   // the node is forced to forward without needing to (rule forward-scope)
 	forwardNoIptables  bool   // "iptables missing" was logged
 	forwardObserveErr  string // last forwarding observe error text
+	// Route target (converge.go, desired.go): each is logged once per change.
+	routeObserveErr   map[string]string   // target -> last observe error text of that family
+	routeWarned       map[string]struct{} // rule cases that desire warned about and that still hold
+	hostDefaultWarned map[string]struct{} // families whose host default route was warned about
 	// Seams of the kernel and the log, set at construction; nil means the
 	// real wireguard functions and log.Printf (see converge.go).
 	setPeerFn    func(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error
@@ -706,9 +711,6 @@ func (d *Daemon) reconcile() {
 		d.directStableCycles = ds.directStable
 		d.relayMu.Unlock()
 
-		if err := d.applyRoutes(ds.Routes); err != nil {
-			log.Printf("Failed to sync peer routes: %v", err)
-		}
 	}
 
 	// Check for mesh IP collisions

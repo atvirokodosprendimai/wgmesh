@@ -128,7 +128,7 @@ func TestNormalizeNetwork(t *testing.T) {
 // TestGetCurrentRoutes uses a mock executor so no real "ip" binary is required.
 func TestGetCurrentRoutes(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("getCurrentRoutes is Linux-only")
+		t.Skip("readRoutes is Linux-only")
 	}
 
 	ipOutput := strings.Join([]string{
@@ -149,7 +149,7 @@ func TestGetCurrentRoutes(t *testing.T) {
 	}
 
 	withMockExecutor(t, mock, func() {
-		routes, err := getCurrentRoutes("wg0")
+		routes, err := readRoutes("wg0", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -168,7 +168,7 @@ func TestGetCurrentRoutes(t *testing.T) {
 // TestGetCurrentRoutesSkipsNoGateway verifies that routes without "via" are ignored.
 func TestGetCurrentRoutesSkipsNoGateway(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("getCurrentRoutes is Linux-only")
+		t.Skip("readRoutes is Linux-only")
 	}
 
 	// "local" route lines have no "via" — must be skipped
@@ -183,7 +183,7 @@ func TestGetCurrentRoutesSkipsNoGateway(t *testing.T) {
 	}
 
 	withMockExecutor(t, mock, func() {
-		routes, err := getCurrentRoutes("wg0")
+		routes, err := readRoutes("wg0", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -211,8 +211,14 @@ func TestApplyRouteDiff_AddAndRemove(t *testing.T) {
 	toRemove := []routes.Entry{{Network: "10.0.2.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
-		if _, results := applyRouteDiff("wg0", toAdd, toRemove); len(results) != 0 {
-			t.Fatalf("applyRouteDiff reported results for a clean apply: %+v", results)
+		_, results := applyRouteDiff("wg0", toAdd, toRemove)
+		if len(results) != 2 {
+			t.Fatalf("applyRouteDiff returned %d results for 2 routes: %+v", len(results), results)
+		}
+		for _, r := range results {
+			if r.Err != nil {
+				t.Fatalf("applyRouteDiff failed: %+v", r)
+			}
 		}
 	})
 

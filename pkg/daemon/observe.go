@@ -51,13 +51,68 @@ type kernelObserved struct {
 	Errs    map[string]error
 }
 
-// readRoutes reads the gateway routes of iface for one family.
-func readRoutes(iface string, ipv6 bool) ([]routes.Entry, error) {
-	return nil, nil
+// fail records that one target could not be read.
+func (k *kernelObserved) fail(target string, err error) {
+	if k.Errs == nil {
+		k.Errs = make(map[string]error)
+	}
+	k.Errs[target] = err
 }
 
-// observeRoutes reads both families of routes into obs, on Linux only.
+// readRoutes reads the gateway routes of iface for one family: IPv4 with
+// `ip route show dev` (the default family of ip), IPv6 with `ip -6`. Networks
+// are canonical for the family queried, so `default` is 0.0.0.0/0 or ::/0 and
+// a bare host is /32 or /128; routes without a gateway are ignored.
+func readRoutes(iface string, ipv6 bool) ([]routes.Entry, error) {
+	var out []byte
+	var err error
+	if ipv6 {
+		out, err = cmdExecutor.Command("ip", "-6", "route", "show", "dev", iface).Output()
+	} else {
+		out, err = cmdExecutor.Command("ip", "route", "show", "dev", iface).Output()
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to read routes: %w", err)
+	}
+	result := make([]routes.Entry, 0)
+	for _, line := range strings.Split(string(out), "\n") {
+		parts := strings.Fields(line)
+		if len(parts) == 0 {
+			continue
+		}
+		gateway := ""
+		for i, part := range parts {
+			if part == "via" && i+1 < len(parts) {
+				gateway = parts[i+1]
+				break
+			}
+		}
+		if gateway == "" {
+			continue
+		}
+		result = append(result, routes.Entry{Network: routes.Canonical(parts[0], ipv6), Gateway: gateway})
+	}
+	return result, nil
+}
+
+// observeRoutes reads the routes of the mesh interface, both families, on
+// Linux only. A family whose read fails is an entry in obs.Errs for that
+// family only; it is never read as "no routes".
 func (d *Daemon) observeRoutes(obs *kernelObserved) {
+	if d.osName() != "linux" {
+		return
+	}
+	iface := d.config.InterfaceName
+	if entries, err := readRoutes(iface, false); err != nil {
+		obs.fail(targetRoutes4, err)
+	} else {
+		obs.Routes4 = entries
+	}
+	if entries, err := readRoutes(iface, true); err != nil {
+		obs.fail(targetRoutes6, err)
+	} else {
+		obs.Routes6 = entries
+	}
 }
 
 // ipForwardPath is the sysctl net.ipv4.ip_forward as a file.
@@ -71,12 +126,7 @@ func (d *Daemon) observeForward(want forwardDesired, obs *kernelObserved) {
 	if !want.Wanted {
 		return
 	}
-	fail := func(err error) {
-		if obs.Errs == nil {
-			obs.Errs = make(map[string]error)
-		}
-		obs.Errs[targetForward] = err
-	}
+	fail := func(err error) { obs.fail(targetForward, err) }
 	raw, err := d.readFileSeam(ipForwardPath)
 	if err != nil {
 		fail(fmt.Errorf("read %s: %w", ipForwardPath, err))

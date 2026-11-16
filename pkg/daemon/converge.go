@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -219,6 +220,105 @@ func (d *Daemon) noteForwardScope(f forwardDesired) {
 	d.forwardScopeWarned = warn
 }
 
+// routePlan is what one tick will write for routes: the removals, then the adds.
+type routePlan struct {
+	Add, Remove []routes.Entry
+}
+
+// planRoutes is pure: per family, the difference between the observed
+// canonical routes and the wanted ones (routes.CalculateDiff). A family whose
+// observe failed plans nothing, so it removes nothing.
+func planRoutes(want []routes.Entry, k kernelObserved) routePlan {
+	var plan routePlan
+	for _, f := range []struct {
+		target  string
+		ipv6    bool
+		current []routes.Entry
+	}{{targetRoutes4, false, k.Routes4}, {targetRoutes6, true, k.Routes6}} {
+		if k.Errs[f.target] != nil {
+			continue
+		}
+		var desired []routes.Entry
+		for _, e := range want {
+			if strings.Contains(e.Network, ":") == f.ipv6 {
+				desired = append(desired, e)
+			}
+		}
+		add, remove := routes.CalculateDiff(f.current, desired)
+		plan.Add = append(plan.Add, add...)
+		plan.Remove = append(plan.Remove, remove...)
+	}
+	return plan
+}
+
+// noteRouteObserve logs a failed route read once per family, and the recovery
+// once. The caller holds convergeMu.
+func (d *Daemon) noteRouteObserve(obs kernelObserved) {
+	if d.routeObserveErr == nil {
+		d.routeObserveErr = make(map[string]string)
+	}
+	for _, f := range []struct{ target, name string }{{targetRoutes4, "IPv4"}, {targetRoutes6, "IPv6"}} {
+		err, prev := obs.Errs[f.target], d.routeObserveErr[f.target]
+		switch {
+		case err == nil && prev != "":
+			d.logf("Reading the %s routes of %s works again", f.name, d.config.InterfaceName)
+			delete(d.routeObserveErr, f.target)
+		case err != nil && err.Error() != prev:
+			d.logf("Cannot read the %s routes of %s, skipping them this tick: %v", f.name, d.config.InterfaceName, err)
+			d.routeObserveErr[f.target] = err.Error()
+		}
+	}
+}
+
+// convergeRoutes is the route target of one tick, on Linux only: it plans the
+// difference between the observed routes and ds.Routes and applies it, one
+// route at a time. The caller holds convergeMu.
+func (d *Daemon) convergeRoutes(ds *desiredState, obs kernelObserved) []itemResult {
+	if d.osName() != "linux" {
+		return nil
+	}
+	d.noteRouteObserve(obs)
+	plan := planRoutes(ds.Routes, obs)
+	removed, results := applyRouteDiff(d.config.InterfaceName, plan.Add, plan.Remove)
+	// Removals run before adds, so restore even if an add failed. Only a
+	// removed route can be replaced by the connected route.
+	for _, r := range removed {
+		if d.isOwnNetwork(r.Network) {
+			restoreConnectedRoute(r.Network)
+		}
+	}
+	return results
+}
+
+// applyRouteDiff removes and adds the routes, one at a time with one result
+// each: a failure of one never skips the others. It returns the routes whose
+// `ip route del` succeeded. Forwarding is the forwarding target's, not this
+// function's.
+func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) ([]routes.Entry, []itemResult) {
+	var removed []routes.Entry
+	results := make([]itemResult, 0, len(toAdd)+len(toRemove))
+	for _, route := range toRemove {
+		err := cmdExecutor.Command("ip", "route", "del", route.Network, "via", route.Gateway, "dev", iface).Run()
+		if err == nil {
+			removed = append(removed, route)
+			RecordKernelChange(targetRoutes)
+		} else {
+			err = fmt.Errorf("failed to remove route %s via %s: %w", route.Network, route.Gateway, err)
+		}
+		results = append(results, itemResult{Target: targetRoutes, Op: "del", Key: route.Network + " via " + route.Gateway, Err: err})
+	}
+	for _, route := range toAdd {
+		out, err := cmdExecutor.Command("ip", "route", "replace", route.Network, "via", route.Gateway, "dev", iface).CombinedOutput()
+		if err != nil {
+			err = fmt.Errorf("failed to add route %s via %s: %w", route.Network, route.Gateway, commandFailure(out, err))
+		} else {
+			RecordKernelChange(targetRoutes)
+		}
+		results = append(results, itemResult{Target: targetRoutes, Op: "replace", Key: route.Network + " via " + route.Gateway, Err: err})
+	}
+	return removed, results
+}
+
 // converge runs one tick against the kernel and returns the desired state it
 // applied, or nil when the observe failed and nothing was decided or written.
 // The caller holds reconcileMu.
@@ -236,12 +336,14 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	ds := d.desire(peers, obs.handshakes(), obs.owners())
 	d.noteForwardScope(ds.Forward)
 	d.observeForward(ds.Forward, &obs)
+	d.observeRoutes(&obs)
 	if ds.Forward.Wanted {
 		d.noteForwardObserve(obs.Errs[targetForward])
 	}
 	plan := planKernel(ds.Peers, obs, d.pushedLocked(), d.config.DisableIPv6)
 	results := d.applyKernel(plan)
 	results = append(results, d.applyForward(planForward(ds.Forward, obs), ds.Forward.Wanted && obs.Errs[targetForward] == nil)...)
+	results = append(results, d.convergeRoutes(ds, obs)...)
 	d.logResults(results)
 	return ds
 }
