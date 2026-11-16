@@ -31,10 +31,10 @@ func TestStopWhileStartAssignsFields(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
-			d.gossip = g
-			d.lan = nil
-			d.server = nil
-			d.dhtPort = i
+			d.gossip.Store(g)
+			d.lan.Store(nil)
+			d.server.Store(nil)
+			d.dhtPort.Store(int32(i))
 		}
 	}()
 	go func() {
