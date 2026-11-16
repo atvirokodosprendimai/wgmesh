@@ -129,6 +129,13 @@ var EnforceForwardScope atomic.Bool
 // Every access is Load or Store.
 var EnforceRouteGuard atomic.Bool
 
+// EnforceAddressRemoval is the release switch of the rule stale-address: false
+// (release N) only warns about a held address inside the mesh network that is
+// not this node's (once per address while it holds) and removes nothing; true
+// (N+1) removes it. Adding a missing address is not behind it. Every access is
+// Load or Store.
+var EnforceAddressRemoval atomic.Bool
+
 // forwardRuleArgs is the FORWARD rule of a mesh interface as iptables
 // arguments after the -C or -A that checks or appends it.
 func forwardRuleArgs(iface string) []string {
@@ -390,6 +397,9 @@ func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) ([]routes.Entr
 // removals.
 type addressPlan struct {
 	Add, Remove []netip.Prefix
+	// Skipped: the observe failed, so nothing was planned and nothing is
+	// known about what holds.
+	Skipped bool
 }
 
 // planAddresses is pure: a desired address the interface does not hold (same
@@ -399,7 +409,11 @@ type addressPlan struct {
 // target whose observe failed, or that is not wanted, plans nothing.
 func planAddresses(want addressDesired, k kernelObserved) addressPlan {
 	var plan addressPlan
-	if !want.Wanted || k.Errs[targetAddress] != nil {
+	if k.Errs[targetAddress] != nil {
+		plan.Skipped = true
+		return plan
+	}
+	if !want.Wanted {
 		return plan
 	}
 	wanted := make(map[netip.Prefix]bool, len(want.Addrs))
@@ -450,6 +464,10 @@ func (d *Daemon) applyAddresses(plan addressPlan) []itemResult {
 		}
 		results = append(results, itemResult{Target: targetAddress, Op: "add", Key: p.String(), Err: err})
 	}
+	if !EnforceAddressRemoval.Load() {
+		d.noteStaleAddresses(plan)
+		return results
+	}
 	for _, p := range plan.Remove {
 		r := itemResult{Target: targetAddress, Op: "del", Key: p.String()}
 		if _, failing := d.lastResults[r.id()]; !failing {
@@ -464,6 +482,28 @@ func (d *Daemon) applyAddresses(plan addressPlan) []itemResult {
 		results = append(results, r)
 	}
 	return results
+}
+
+// noteStaleAddresses is the rule stale-address at release N: each held address
+// inside the mesh network that is not this node's is logged once and counted
+// once while it holds; one that stops holding leaves the set, so it warns
+// again when it returns. An unread interface changes nothing. The caller holds
+// convergeMu.
+func (d *Daemon) noteStaleAddresses(plan addressPlan) {
+	if plan.Skipped {
+		return
+	}
+	holding := make(map[string]struct{}, len(plan.Remove))
+	for _, p := range plan.Remove {
+		key := p.String()
+		holding[key] = struct{}{}
+		if _, was := d.addressWarned[key]; was {
+			continue
+		}
+		d.logf("stale address %s inside the mesh network, not this node's address: a later release removes it (EnforceAddressRemoval); remove it yourself if it is not an operator's", key)
+		RecordKernelWarning("stale-address")
+	}
+	d.addressWarned = holding
 }
 
 // noteAddressObserve logs a failed address read once, and the recovery once.

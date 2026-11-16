@@ -102,6 +102,15 @@ func addressChanges() float64 {
 	return testutil.ToFloat64(kernelChanges.WithLabelValues(targetAddress))
 }
 
+// enforceAddressRemoval sets the release switch of the stale-address rule for
+// one test.
+func enforceAddressRemoval(t *testing.T, v bool) {
+	t.Helper()
+	old := EnforceAddressRemoval.Load()
+	EnforceAddressRemoval.Store(v)
+	t.Cleanup(func() { EnforceAddressRemoval.Store(old) })
+}
+
 func sorted(s ...string) []string {
 	sort.Strings(s)
 	return s
@@ -202,6 +211,7 @@ func TestMissingAddressReadded(t *testing.T) {
 }
 
 func TestStaleMeshAddressRemovedOtherAddressKept(t *testing.T) {
+	enforceAddressRemoval(t, true)
 	d, rh, ls := newAddrDaemon(t,
 		"10.99.0.1/16",   // desired
 		"10.99.0.1/24",   // desired address with another prefix length: not the desired address
@@ -226,6 +236,52 @@ func TestStaleMeshAddressRemovedOtherAddressKept(t *testing.T) {
 	}
 	if ls.count("removing 10.99.7.7/16: inside the mesh network and not this node's address") != 1 {
 		t.Errorf("the removal was not logged with its reason: %d lines", ls.count("inside the mesh network"))
+	}
+}
+
+// At release N a stale address inside the mesh network is only warned about:
+// no `ip addr del`, one log line and one counter increment per address while
+// it holds, and again when it returns after it stopped holding.
+func TestStaleMeshAddressWarnsAtN(t *testing.T) {
+	enforceAddressRemoval(t, false)
+	warnings := func() float64 { return testutil.ToFloat64(kernelWarnings.WithLabelValues("stale-address")) }
+	before := warnings()
+	held := []string{"10.99.0.1/16", "10.99.7.7/16", "192.168.1.5/24", "fd99::1/64", "fd99::9/64"}
+	d, rh, ls := newAddrDaemon(t, held...)
+	d.localNode.MeshIPv6 = "fd99::1"
+	tick(t, d, 3)
+	if got := rh.addrCmds(); len(got) != 0 {
+		t.Errorf("address writes at release N: %q", got)
+	}
+	if !sameLines(rh.held(), sorted(held...)) {
+		t.Errorf("interface holds %q", rh.held())
+	}
+	for _, a := range []string{"10.99.7.7/16", "fd99::9/64"} {
+		if n := ls.count("stale address " + a + " inside the mesh network"); n != 1 {
+			t.Errorf("stale %s logged %d times over 3 ticks, want once", a, n)
+		}
+	}
+	if ls.count("stale address 192.168.1.5/24") != 0 {
+		t.Error("an address outside the mesh network was warned about")
+	}
+	if got := warnings() - before; got != 2 {
+		t.Errorf("stale-address warnings grew by %v, want 2", got)
+	}
+
+	// It stops holding, then returns: warned again.
+	rh.mu.Lock()
+	rh.ifAddrs = []string{"10.99.0.1/16", "fd99::1/64", "fd99::9/64"}
+	rh.mu.Unlock()
+	tick(t, d, 2)
+	rh.mu.Lock()
+	rh.ifAddrs = append(rh.ifAddrs, "10.99.7.7/16")
+	rh.mu.Unlock()
+	tick(t, d, 2)
+	if n := ls.count("stale address 10.99.7.7/16 inside the mesh network"); n != 2 {
+		t.Errorf("a returning stale address was logged %d times in all, want 2", n)
+	}
+	if got := warnings() - before; got != 3 {
+		t.Errorf("stale-address warnings grew by %v, want 3", got)
 	}
 }
 
@@ -255,6 +311,7 @@ func TestAddressSteadyStateQuiet(t *testing.T) {
 }
 
 func TestAddressConvergesAfterCollisionIPChange(t *testing.T) {
+	enforceAddressRemoval(t, true)
 	d, rh, _ := newAddrDaemon(t, "10.99.0.1/16")
 	tick(t, d, 2)
 	if w := rh.addrCmds(); len(w) != 0 {

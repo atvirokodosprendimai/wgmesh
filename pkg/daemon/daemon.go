@@ -73,7 +73,8 @@ type Daemon struct {
 	forwardNoIptables  bool   // "iptables missing" was logged
 	forwardObserveErr  string // last forwarding observe error text
 	// Address target (converge.go): logged once per change.
-	addressObserveErr string // last address observe error text
+	addressObserveErr string              // last address observe error text
+	addressWarned     map[string]struct{} // stale addresses warned about that still hold (rule stale-address)
 	// Route target (converge.go, desired.go): each is logged once per change.
 	routeObserveErr    map[string]string   // target -> last observe error text of that family
 	routeWarned        map[string]struct{} // rule cases that desire warned about and that still hold
