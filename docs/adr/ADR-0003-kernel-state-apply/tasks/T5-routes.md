@@ -67,6 +67,12 @@ n=$(go test ./pkg/daemon -run '^(TestObserveRoutesBothFamilies|TestSharedSubnetN
 | 4 — it is used | every tick of every Linux node |
 
 ## Mutation Log
+- 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/observe.go` · default not canonical: TestObserveRoutesBothFamilies must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/converge.go` · first failed add aborts: TestRouteAddFailureDoesNotAbortOthers must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/desired.go` · inside not matched: TestAttachedNetworkWarnsThenSkips must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/converge.go` · forwarding call in applyRouteDiff: TestApplyRouteDiffIssuesNoForwardingCommands must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/observe.go` · IPv6 never read: TestObserveRoutesBothFamilies must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/desired.go` · no skip: TestPeerWithoutMeshIPv6SkippedLoggedOnce must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
 
 ## Invariants
 
@@ -93,3 +99,24 @@ Stop and ask if the observe cannot tell a route we installed from a foreign rout
 - Policy routing and route metrics (permanent: boundary: decision 6 keeps today's `replace`).
 
 ## Verification Log
+- 2026-11-16 · ff69c48* · exit 1 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:1901 · test-lock-sha256:b9824c4ebf27cfa9e7568581ebb8c698ee5aad498d7720b27cab2ba900d2f740 · test-lock-file:docs/adr/locks/b9824c4ebf27cfa9e7568581ebb8c698ee5aad498d7720b27cab2ba900d2f740.lock
+  ```
+  --- last 10 line(s) of stderr (of 67 after folding 67 raw)
+      kernel_routes_test.go:549: the converged table lacks 192.168.60.0/24 via 10.99.0.3
+  --- FAIL: TestConvergeSteadyStateIssuesNoWrites (0.00s)
+  === RUN   TestApplyRouteDiffIssuesNoForwardingCommands
+      routes_test.go:260: applyRouteDiff ran 5 commands for 3 routes, want 3: ["ip route del 10.0.2.0/24 via 10.0.0.1 dev wg0" "ip route replace 10.0.1.0/24 via 10.0.0.1 dev wg0" "ip route replace fd00:5::/64 via fd99::2 dev wg0" "sysctl -w net.ipv4.ip_forward=1" "iptables -C FORWARD -i wg0 -o wg0 -j ACCEPT"]
+      routes_test.go:264: applyRouteDiff ran a forwarding command: "sysctl -w net.ipv4.ip_forward=1"
+      routes_test.go:264: applyRouteDiff ran a forwarding command: "iptables -C FORWARD -i wg0 -o wg0 -j ACCEPT"
+  --- FAIL: TestApplyRouteDiffIssuesNoForwardingCommands (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.016s
+  FAIL
+  ```
+- 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:11819
+- 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:12721
+- 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:11844
+- 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:14463
+- 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:13226
+- 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:12440
+- 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:7747
