@@ -78,6 +78,14 @@ a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResume
   ```
 - 2026-11-16 · 1ccb7e8* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · GetNATType reads without the lock · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d
 - 2026-11-16 · 1ccb7e8* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume runs before Start · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d
+- 2026-11-16 · 961a969* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume passes EndpointSTUN · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c
+- 2026-11-16 · 961a969* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume skips the announce · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c
+- 2026-11-16 · 961a969* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume does not reset the back-off · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c
+- 2026-11-16 · 961a969* · mutant killed · exit 1 · `pkg/discovery/dht.go` · refreshSTUNOnce drops stunMu · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c
+- 2026-11-16 · 961a969* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · GetNATType reads without the lock · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c
+- 2026-11-16 · 961a969* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume runs before Start · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c
+- 2026-11-16 · 961a969* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume does not coalesce · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c
+- 2026-11-16 · 961a969* · mutant killed · exit 1 · `pkg/discovery/dht.go` · answer applied after the layer stopped · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c
 
 ## Invariants
 
@@ -123,3 +131,13 @@ Stop and ask if the `NATType` accessors turn out to need a lock order against `e
 - 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:12750
 - 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:13617
 - 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:8261
+- 2026-11-16 · 961a969* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:0 · test-lock-sha256:70f01ed6cef7cabe81c0b0c5c0c24cdfa3eccbf33d4aa75b3c4ccce126f60473 · test-lock-file:docs/adr/locks/70f01ed6cef7cabe81c0b0c5c0c24cdfa3eccbf33d4aa75b3c4ccce126f60473.lock · test-lock-kind:replace
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:15591
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:18470
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:15982
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:16965
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:17140
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:15745
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:14657
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:14762
+- 2026-11-16 · 961a969* · exit 0 · `set -o pipefail …` · acceptance-sha256:29ceace98b093b38591c8542e93218b5bc334ff35bae043307919e811fe3223c · ms:8128
