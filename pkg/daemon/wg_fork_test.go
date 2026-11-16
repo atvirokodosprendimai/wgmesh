@@ -188,3 +188,43 @@ func TestReconcileAlwaysReadsFresh(t *testing.T) {
 	}
 	t.Fatalf("reconcile did not remove the peer only the fresh dump lists; calls: %q", fakeCalls(t, dir))
 }
+
+// installFailingWG is installFakeWG for a wg that logs its arguments and
+// exits 1 on every call, `show` included.
+func installFailingWG(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("FAKEWG_DIR", dir)
+	script := "#!/bin/sh\n" +
+		"echo \"$@\" >> \"$FAKEWG_DIR/calls\"\n" +
+		"exit 1\n"
+	path := filepath.Join(dir, "wg")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(wireguard.SetWGPath(path))
+	return dir
+}
+
+// TestFailedShowDoesNotPanicOrRemovePeers: when `wg show` fails, reconcile
+// has no snapshot, so it must not remove any peer; probe and health run on
+// an empty handshake map.
+func TestFailedShowDoesNotPanicOrRemovePeers(t *testing.T) {
+	dir := installFailingWG(t)
+	d := forkTestDaemon()
+
+	withNoopExecutor(t, func() {
+		d.reconcile()
+		d.probePeersOverMesh()
+		d.checkPeerHealth()
+	})
+
+	if got := showForks(t, dir); got == 0 {
+		t.Fatalf("the failing wg was never asked to show; calls: %q", fakeCalls(t, dir))
+	}
+	for _, c := range fakeCalls(t, dir) {
+		if strings.HasSuffix(c, " remove") {
+			t.Errorf("a failed read still removed a peer: %q", c)
+		}
+	}
+}
