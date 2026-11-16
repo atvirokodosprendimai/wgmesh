@@ -61,7 +61,7 @@ type Daemon struct {
 	// (see converge.go) and guards pushedEndpoint, lastResults,
 	// observeErrLogged and the forwarding target's state (forwardScopeWarned,
 	// forwardNoIptables, forwardObserveErr) and the route target's state
-	// (routeObserveErr, routeWarned, hostDefaultWarned, hostDefaultReadErr,
+	// (routeObserveErr, routeWarned, hostDefaultWarned, hostDefaultReadErr, hostDefaults,
 	// darwinWarned). Lock order: reconcileMu, then
 	// convergeMu; the health paths (attemptPeerReconnect, evictPeerFromPool,
 	// staleCleanupLoop) take only convergeMu; never the reverse.
@@ -77,12 +77,13 @@ type Daemon struct {
 	addressObserveErr string              // last address observe error text
 	addressWarned     map[string]struct{} // stale addresses warned about that still hold (rule stale-address)
 	// Route target (converge.go, desired.go): each is logged once per change.
-	routeObserveErr    map[string]string   // target -> last observe error text of that family
-	routeWarned        map[string]struct{} // rule cases that desire warned about and that still hold
-	hostDefaultWarned  map[string]struct{} // families whose host default route was warned about
-	darwinWarned       map[string]struct{} // macOS: kind|family|text of the cases warned about that still hold
-	darwinInstalled    map[string]struct{} // macOS: canonical networks this daemon run installed on the mesh interface
-	hostDefaultReadErr map[string]string   // family -> last error text of reading the host default route
+	routeObserveErr    map[string]string    // target -> last observe error text of that family
+	routeWarned        map[string]struct{}  // rule cases that desire warned about and that still hold
+	hostDefaultWarned  map[string]struct{}  // families whose host default route was warned about
+	darwinWarned       map[string]struct{}  // macOS: kind|family|text of the cases warned about that still hold
+	darwinInstalled    map[string]struct{}  // macOS: canonical networks this daemon run installed on the mesh interface
+	hostDefaultReadErr map[string]string    // family -> last error text of reading the host default route
+	hostDefaults       map[string]hostRoute // family -> the host default route seen before the mesh one replaced it (restored when the mesh default is removed)
 	// Seams of the kernel and the log, set at construction; nil means the
 	// real wireguard functions and log.Printf (see converge.go).
 	setPeerFn    func(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error

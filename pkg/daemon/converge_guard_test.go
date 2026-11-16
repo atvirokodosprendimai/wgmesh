@@ -153,7 +153,7 @@ func ipAddrViolation(name, fn string, call *ast.CallExpr, lits map[string][]stri
 // routeWriters are the functions that write routes; only converge.go calls them.
 var routeWriters = map[string]bool{
 	"applyRouteDiff": true, "restoreConnectedRoute": true,
-	"applyRouteDiffDarwin": true, "darwinRouteCommand": true,
+	"applyRouteDiffDarwin": true, "darwinRouteCommand": true, "restoreHostDefault": true,
 }
 
 // routeWriteViolation is the text of a violation by a `route` Command call
