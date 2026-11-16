@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log"
@@ -16,6 +17,7 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/flock"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/pilot"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/referral"
@@ -326,12 +328,29 @@ func saveSecretFile(path, secretURI string) error {
 	return nil
 }
 
-// acquireInterfaceLock stub (red): takes no lock yet.
+// acquireInterfaceLock takes the exclusive lock of one interface for the life
+// of the process, so a second join cannot unlink the running daemon's RPC
+// socket or reset its interface (#860). The kernel drops the lock when the
+// process dies.
 // interfaceLockPath is read once per join and set only by non-parallel tests.
 var interfaceLockPath = daemon.InterfaceLockPath
 
 func acquireInterfaceLock(iface string) (func(), error) {
-	return func() {}, nil
+	path := interfaceLockPath(iface)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create lock directory: %w", err)
+	}
+	release, holder, err := flock.TryLock(path)
+	if err != nil {
+		if errors.Is(err, flock.ErrHeld) {
+			if holder == "" {
+				holder = "unknown"
+			}
+			return nil, fmt.Errorf("another wgmesh join holds interface %s (lock %s, pid %s); stop it first", iface, path, holder)
+		}
+		return nil, fmt.Errorf("interface lock %s: %w", path, err)
+	}
+	return release, nil
 }
 
 // joinCmd handles the "join --secret" subcommand
@@ -437,6 +456,15 @@ func joinCmd() {
 	// Configure logging before creating the daemon (must be done in main,
 	// not inside library code like NewDaemon).
 	daemon.ConfigureLogging(cfg.LogLevel)
+
+	// One join per interface: take the lock before NewDaemon and before the RPC
+	// server, which unlinks the socket. Held until the process exits.
+	releaseLock, err := acquireInterfaceLock(cfg.InterfaceName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+	defer releaseLock()
 
 	// Create and run daemon with DHT discovery
 	d, err := daemon.NewDaemon(cfg)
