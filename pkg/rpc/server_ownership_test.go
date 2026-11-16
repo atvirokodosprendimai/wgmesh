@@ -206,3 +206,60 @@ func TestStartFailureReleasesLock(t *testing.T) {
 		t.Fatal("failed Start left the socket lock held")
 	}
 }
+
+// A stopped Server must not bind a socket: its lock is released, so the
+// socket would have no owner.
+func TestStartAfterStopFails(t *testing.T) {
+	path := shortSocketPath(t)
+	s, err := NewServer(ownershipConfig(path))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := s.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if err := s.Start(); err == nil {
+		_ = s.Stop()
+		t.Fatal("Start after Stop succeeded")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("Start after Stop left a socket file: %v", err)
+	}
+}
+
+// A zero Server (no NewServer) has no cancel func and no lock release.
+func TestStopWithoutNewServerDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Stop on &Server{} panicked: %v", r)
+		}
+	}()
+	if err := (&Server{}).Stop(); err != nil {
+		t.Errorf("Stop on &Server{}: %v", err)
+	}
+}
+
+// Start and Stop run concurrently (run under -race): the listener field is
+// shared by both. Whatever order wins, the lock is free afterwards and the
+// socket file is gone.
+func TestStartStopRaceFree(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		path := shortSocketPath(t)
+		s, err := NewServer(ownershipConfig(path))
+		if err != nil {
+			t.Fatalf("NewServer: %v", err)
+		}
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = s.Start() }()
+		go func() { defer wg.Done(); _ = s.Stop() }()
+		wg.Wait()
+		_ = s.Stop()
+		if !lockIsFree(t, path) {
+			t.Fatalf("iteration %d: lock still held", i)
+		}
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("iteration %d: socket file left: %v", i, err)
+		}
+	}
+}
