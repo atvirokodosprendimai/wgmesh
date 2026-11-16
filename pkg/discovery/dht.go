@@ -140,10 +140,10 @@ func (d *DHTDiscovery) Start() error {
 		if err != nil {
 			log.Printf("[LAN] Failed to initialize LAN discovery: %v", err)
 		} else {
+			d.lan.Store(lan)
 			if err := lan.Start(); err != nil {
 				log.Printf("[LAN] Failed to start LAN discovery: %v", err)
-			} else {
-				d.lan.Store(lan)
+				d.lan.CompareAndSwap(lan, nil)
 			}
 		}
 	} else {
