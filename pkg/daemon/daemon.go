@@ -1651,7 +1651,7 @@ func (d *Daemon) isTemporarilyOffline(pubKey string) bool {
 // sweepTemporaryOffline deletes the entries past their deadline without a
 // lookup, so a key never asked about again does not stay (ADR-0007 Decision 4).
 func (d *Daemon) sweepTemporaryOffline() {
-	now := time.Now()
+	now := d.now() // the daemon clock, as markTemporarilyOffline and isTemporarilyOffline read it
 	d.offlineMu.Lock()
 	defer d.offlineMu.Unlock()
 	for k, until := range d.temporaryOffline {
