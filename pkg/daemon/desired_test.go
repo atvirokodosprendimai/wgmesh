@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
 func routesTo(ds *desiredState, network string) []routes.Entry {
@@ -227,6 +228,8 @@ func TestReconcileRunsSerialised(t *testing.T) {
 	d := makeRelayTestDaemon()
 	d.config.InterfaceName = "wgtest-ser0"
 	d.peerStore = NewPeerStore()
+	// reconcile reads the kernel first; an unreadable one would skip desire.
+	d.dumpFn = func(string) (wireguard.DumpPeers, error) { return wireguard.DumpPeers{}, nil }
 
 	var inside, maxInside, calls atomic.Int32
 	secondEntered := make(chan struct{})

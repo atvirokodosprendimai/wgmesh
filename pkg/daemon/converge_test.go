@@ -148,18 +148,17 @@ func (l *logSink) total() int {
 func newConvergeDaemon(t *testing.T, k *fakeKernel, ls *logSink) *Daemon {
 	t.Helper()
 	return &Daemon{
-		config:                 &Config{InterfaceName: "wgmesh-t3-none", Keys: makeTestKeys(t)},
-		localNode:              &LocalNode{WGPubKey: "local-key", MeshIP: "10.99.0.1", NATType: "cone"},
-		peerStore:              NewPeerStore(),
-		lastAppliedPeerConfigs: make(map[string]string),
-		relayRoutes:            make(map[string]string),
-		directStableCycles:     make(map[string]int),
-		temporaryOffline:       make(map[string]time.Time),
-		localSubnetsFn:         func() []*net.IPNet { return nil },
-		setPeerFn:              k.set,
-		removePeerFn:           k.remove,
-		dumpFn:                 k.dump,
-		logFn:                  ls.printf,
+		config:             &Config{InterfaceName: "wgmesh-t3-none", Keys: makeTestKeys(t)},
+		localNode:          &LocalNode{WGPubKey: "local-key", MeshIP: "10.99.0.1", NATType: "cone"},
+		peerStore:          NewPeerStore(),
+		relayRoutes:        make(map[string]string),
+		directStableCycles: make(map[string]int),
+		temporaryOffline:   make(map[string]time.Time),
+		localSubnetsFn:     func() []*net.IPNet { return nil },
+		setPeerFn:          k.set,
+		removePeerFn:       k.remove,
+		dumpFn:             k.dump,
+		logFn:              ls.printf,
 	}
 }
 
@@ -528,12 +527,11 @@ func TestReconnectOnlyTouchesPeerWithOwnEntry(t *testing.T) {
 	relay := testPeer("intro-key", "10.250.0.1", "172.20.1.10:51820")
 	relay.Introducer = true
 	relayed := testPeer("relayed-key", "10.250.0.3", "172.20.2.20:51820")
-	relayed.DiscoveredVia = []string{"gossip"}
 	direct := testPeer("direct-key", "10.250.0.4", "172.20.3.30:51820")
-	direct.DiscoveredVia = []string{LANMethod}
-	for _, p := range []*PeerInfo{relay, relayed, direct} {
-		d.peerStore.Update(p, "test")
-	}
+	// Update records how a peer was discovered; a LAN peer stays direct.
+	d.peerStore.Update(relay, "dht")
+	d.peerStore.Update(relayed, "gossip")
+	d.peerStore.Update(direct, LANMethod)
 
 	d.attemptPeerReconnect(relayed)
 	if got := k.setCalls(); len(got) != 0 {

@@ -301,11 +301,10 @@ func newMinimalDaemon(t *testing.T) *Daemon {
 		t.Fatalf("NewConfig: %v", err)
 	}
 	d := &Daemon{
-		config:                 cfg,
-		peerStore:              NewPeerStore(),
-		relayRoutes:            make(map[string]string),
-		temporaryOffline:       make(map[string]time.Time),
-		lastAppliedPeerConfigs: make(map[string]string),
+		config:           cfg,
+		peerStore:        NewPeerStore(),
+		relayRoutes:      make(map[string]string),
+		temporaryOffline: make(map[string]time.Time),
 	}
 	return d
 }

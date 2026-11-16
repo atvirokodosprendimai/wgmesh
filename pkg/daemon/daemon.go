@@ -47,16 +47,14 @@ type peerProbeSession struct {
 
 // Daemon manages the mesh node lifecycle
 type Daemon struct {
-	stateFile              string // local node state file, set by initLocalNode
-	config                 *Config
-	localNode              *LocalNode
-	peerStore              *PeerStore
-	lastAppliedPeerConfigs map[string]string
-	appliedMu              sync.Mutex
-	relayRoutes            map[string]string // target pubkey -> relay pubkey
-	relayMu                sync.RWMutex
-	directStableCycles     map[string]int // pubkey -> consecutive cycles with working direct path (relay hysteresis)
-	localSubnetsFn         func() []*net.IPNet
+	stateFile          string // local node state file, set by initLocalNode
+	config             *Config
+	localNode          *LocalNode
+	peerStore          *PeerStore
+	relayRoutes        map[string]string // target pubkey -> relay pubkey
+	relayMu            sync.RWMutex
+	directStableCycles map[string]int // pubkey -> consecutive cycles with working direct path (relay hysteresis)
+	localSubnetsFn     func() []*net.IPNet
 	// reconcileMu serialises reconcile: the ticker and handleSIGHUP call it.
 	reconcileMu sync.Mutex
 	// convergeMu serialises every write to the WireGuard peers of the kernel
@@ -287,20 +285,19 @@ func NewDaemon(config *Config) (*Daemon, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	d := &Daemon{
-		config:                 config,
-		peerStore:              NewPeerStore(),
-		lastAppliedPeerConfigs: make(map[string]string),
-		relayRoutes:            make(map[string]string),
-		directStableCycles:     make(map[string]int),
-		localSubnetsFn:         detectLocalSubnets,
-		peerHealthFailures:     make(map[string]int),
-		lastPeerTransferTotal:  make(map[string]uint64),
-		healthProbePort:        int(config.Keys.GossipPort) + MeshProbePortOffset,
-		probeSessions:          make(map[string]*peerProbeSession),
-		probeFailures:          make(map[string]int),
-		temporaryOffline:       make(map[string]time.Time),
-		ctx:                    ctx,
-		cancel:                 cancel,
+		config:                config,
+		peerStore:             NewPeerStore(),
+		relayRoutes:           make(map[string]string),
+		directStableCycles:    make(map[string]int),
+		localSubnetsFn:        detectLocalSubnets,
+		peerHealthFailures:    make(map[string]int),
+		lastPeerTransferTotal: make(map[string]uint64),
+		healthProbePort:       int(config.Keys.GossipPort) + MeshProbePortOffset,
+		probeSessions:         make(map[string]*peerProbeSession),
+		probeFailures:         make(map[string]int),
+		temporaryOffline:      make(map[string]time.Time),
+		ctx:                   ctx,
+		cancel:                cancel,
 	}
 
 	d.peerStore.SetPolicy(d.admitPolicy())
@@ -692,18 +689,17 @@ func (d *Daemon) reconcile() {
 	start := time.Now()
 
 	peers := d.peerStore.GetActive()
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
-	ds := d.desire(peers, handshakes, map[string]string{})
-	d.relayMu.Lock()
-	d.relayRoutes = ds.relayRoutes
-	d.directStableCycles = ds.directStable
-	d.relayMu.Unlock()
-	if err := d.applyDesiredPeerConfigs(ds.Peers); err != nil {
-		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
-	}
+	// An unreadable kernel skips the tick: no relay state, peers or routes are
+	// decided from nothing.
+	if ds := d.converge(peers); ds != nil {
+		d.relayMu.Lock()
+		d.relayRoutes = ds.relayRoutes
+		d.directStableCycles = ds.directStable
+		d.relayMu.Unlock()
 
-	if err := d.applyRoutes(ds.Routes); err != nil {
-		log.Printf("Failed to sync peer routes: %v", err)
+		if err := d.applyRoutes(ds.Routes); err != nil {
+			log.Printf("Failed to sync peer routes: %v", err)
+		}
 	}
 
 	// Check for mesh IP collisions
@@ -849,63 +845,6 @@ func (d *Daemon) addAllowedIP(desired map[string]*desiredPeerConfig, peer *PeerI
 	entry.allowed[cidr] = struct{}{}
 }
 
-func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) error {
-	existing, err := wireguard.GetPeers(d.config.InterfaceName)
-	if err == nil {
-		for _, current := range existing {
-			if _, ok := desired[current.PublicKey]; !ok {
-				if err := wireguard.RemovePeer(d.config.InterfaceName, current.PublicKey); err != nil {
-					log.Printf("Failed to remove obsolete peer %s...: %v", shortKey(current.PublicKey), err)
-				}
-				d.appliedMu.Lock()
-				delete(d.lastAppliedPeerConfigs, current.PublicKey)
-				d.appliedMu.Unlock()
-			}
-		}
-	}
-
-	// One failing peer must not block the rest: keep going, report the first error.
-	var firstErr error
-	for pubKey, cfg := range desired {
-		if cfg.peer.Endpoint == "" {
-			continue
-		}
-		if d.config.DisableIPv6 && isIPv6Endpoint(cfg.peer.Endpoint) {
-			continue
-		}
-		allowed := mapKeysSorted(cfg.allowed)
-		if len(allowed) == 0 {
-			continue
-		}
-		allowedCSV := strings.Join(allowed, ",")
-		signature := cfg.peer.Endpoint + "|" + allowedCSV
-
-		// Check-and-mark under the same lock to avoid TOCTOU (W4)
-		d.appliedMu.Lock()
-		prev, ok := d.lastAppliedPeerConfigs[pubKey]
-		if ok && prev == signature {
-			d.appliedMu.Unlock()
-			continue
-		}
-		d.lastAppliedPeerConfigs[pubKey] = signature
-		d.appliedMu.Unlock()
-
-		if err := wireguard.SetPeer(d.config.InterfaceName, pubKey, d.config.Keys.PSK, cfg.peer.Endpoint, allowedCSV); err != nil {
-			// Rollback the optimistic write on failure
-			d.appliedMu.Lock()
-			delete(d.lastAppliedPeerConfigs, pubKey)
-			d.appliedMu.Unlock()
-			if firstErr == nil {
-				firstErr = fmt.Errorf("failed to configure peer %s: %w", shortKey(pubKey), err)
-			} else {
-				log.Printf("Failed to configure peer %s: %v", shortKey(pubKey), err)
-			}
-		}
-	}
-
-	return firstErr
-}
-
 func mapKeysSorted(m map[string]struct{}) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -989,11 +928,6 @@ func endpointOnAnyLocalSubnet(endpoint string, subnets []*net.IPNet) bool {
 	return false
 }
 
-// removePeer removes a peer from the WireGuard configuration
-func (d *Daemon) removePeer(pubKey string) error {
-	return wireguard.RemovePeer(d.config.InterfaceName, pubKey)
-}
-
 // statusLoop periodically prints mesh status
 func (d *Daemon) statusLoop() {
 	ticker := time.NewTicker(StatusInterval)
@@ -1020,7 +954,7 @@ func (d *Daemon) staleCleanupLoop() {
 		case <-ticker.C:
 			removed := d.peerStore.CleanupStale()
 			for _, pubKey := range removed {
-				if err := d.removePeer(pubKey); err != nil {
+				if err := d.removePeerFromKernel(pubKey); err != nil {
 					log.Printf("[Peers] Failed to remove stale peer %s: %v", shortKey(pubKey), err)
 				}
 			}
@@ -1457,19 +1391,9 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
-	allowedCSV := d.reconnectAllowedCSV(peer, d.peerStore.GetActive(), handshakes)
-	if allowedCSV == "" {
-		return
-	}
-
-	if err := wireguard.SetPeer(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, peer.Endpoint, allowedCSV); err != nil {
+	if err := d.reconnectPeerInKernel(peer, d.peerStore.GetActive()); err != nil {
 		log.Printf("[Health] Failed to reconnect peer %s...: %v", shortKey(peer.WGPubKey), err)
-		return
 	}
-	d.appliedMu.Lock()
-	delete(d.lastAppliedPeerConfigs, peer.WGPubKey)
-	d.appliedMu.Unlock()
 }
 
 func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
@@ -1479,12 +1403,9 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	log.Printf("[Health] Evicting unresponsive peer %s... from active pool; hidden from mentions for %s unless it speaks first", shortKey(peer.WGPubKey), TombstoneTTL)
 	d.markTemporarilyOffline(peer.WGPubKey)
 	d.peerStore.Withdraw(peer.WGPubKey, "evicted")
-	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
+	if err := d.removePeerFromKernel(peer.WGPubKey); err != nil {
 		log.Printf("[Health] Failed to remove evicted peer %s... from WireGuard: %v", shortKey(peer.WGPubKey), err)
 	}
-	d.appliedMu.Lock()
-	delete(d.lastAppliedPeerConfigs, peer.WGPubKey)
-	d.appliedMu.Unlock()
 	d.relayMu.Lock()
 	delete(d.relayRoutes, peer.WGPubKey)
 	delete(d.directStableCycles, peer.WGPubKey)
