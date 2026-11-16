@@ -74,7 +74,7 @@ func TestJoinTakesLockBeforeDaemonAndSocket(t *testing.T) {
 				}
 			}
 			switch name {
-			case "acquireInterfaceLock", "daemon.NewDaemon", "createRPCServer":
+			case "acquireInterfaceLock", "daemon.NewDaemon", "createRPCServer", "handleAccountFlag", "recordReferralCode":
 				if _, seen := pos[name]; !seen {
 					pos[name] = call.Pos()
 				}
@@ -86,7 +86,7 @@ func TestJoinTakesLockBeforeDaemonAndSocket(t *testing.T) {
 	if !ok {
 		t.Fatal("joinCmd does not call acquireInterfaceLock")
 	}
-	for _, later := range []string{"daemon.NewDaemon", "createRPCServer"} {
+	for _, later := range []string{"daemon.NewDaemon", "createRPCServer", "handleAccountFlag", "recordReferralCode"} {
 		p, ok := pos[later]
 		if !ok {
 			t.Fatalf("joinCmd no longer calls %s; the test needs updating", later)

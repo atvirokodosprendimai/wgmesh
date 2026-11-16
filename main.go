@@ -400,20 +400,6 @@ func joinCmd() {
 		os.Exit(1)
 	}
 
-	// Save account API key if provided
-	handleAccountFlag(*stateDir, *account)
-
-	// Validate and record referral code if provided. The code format is checked
-	// with the public referral package; recording against the backend happens
-	// out-of-band by the private backend that implements referral.Store.
-	if *referralCode != "" {
-		if err := recordReferralCode(*referralCode); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: referral code not applied: %v\n", err)
-		} else {
-			fmt.Printf("Referral applied: %s\n", *referralCode)
-		}
-	}
-
 	// Parse advertise routes
 	var routes []string
 	if *advertiseRoutes != "" {
@@ -465,6 +451,22 @@ func joinCmd() {
 		os.Exit(1)
 	}
 	defer releaseLock()
+
+	// Side effects only after the lock: a refused second join must not
+	// overwrite the running node's account file or record a referral.
+	// Save account API key if provided
+	handleAccountFlag(*stateDir, *account)
+
+	// Validate and record referral code if provided. The code format is checked
+	// with the public referral package; recording against the backend happens
+	// out-of-band by the private backend that implements referral.Store.
+	if *referralCode != "" {
+		if err := recordReferralCode(*referralCode); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: referral code not applied: %v\n", err)
+		} else {
+			fmt.Printf("Referral applied: %s\n", *referralCode)
+		}
+	}
 
 	// Create and run daemon with DHT discovery
 	d, err := daemon.NewDaemon(cfg)
