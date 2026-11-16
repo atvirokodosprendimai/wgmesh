@@ -78,3 +78,24 @@ func TestStaleCleanupTickRunsOfflineSweep(t *testing.T) {
 		t.Fatal("staleCleanupTick left an expired temporaryOffline entry")
 	}
 }
+
+// The sweep must read the daemon's clock, as markTemporarilyOffline and
+// isTemporarilyOffline do: with an injected clock far in the past, an entry
+// marked at that instant is live, whatever time.Now says.
+func TestSweepTemporaryOfflineUsesDaemonClock(t *testing.T) {
+	base := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+	d := &Daemon{
+		temporaryOffline: make(map[string]time.Time),
+		clock:            func() time.Time { return base },
+	}
+	d.markTemporarilyOffline("live")
+
+	d.sweepTemporaryOffline()
+
+	if !hasOfflineEntry(d, "live") {
+		t.Fatal("the sweep used time.Now instead of the daemon clock and dropped a live entry")
+	}
+	if !d.isTemporarilyOffline("live") {
+		t.Fatal("isTemporarilyOffline(live) = false after the sweep")
+	}
+}

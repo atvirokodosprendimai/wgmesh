@@ -34,7 +34,7 @@ Selection: tests only; they run in `go test ./pkg/wireguard`.
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/wireguard -run '^(TestSetPeerPassesPresharedKeyOnStdinNotArgv|TestSetPeerArgsOrder|TestRemovePeerArgs|TestGenerateKeyPairParsesGenkeyAndPubkey|TestGenerateKeyPairReportsFailure|TestGenerateWgQuickConfigRoutes|TestShellQuoteEscapesSingleQuote)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 7 ] && go test -race ./pkg/wireguard -count=1
+n=$(go test ./pkg/wireguard -run '^(TestSetPeerPassesPresharedKeyOnStdinNotArgv|TestSetPeerArgsOrder|TestRemovePeerArgs|TestGenerateKeyPairParsesGenkeyAndPubkey|TestGenerateKeyPairReportsFailure|TestGenerateWgQuickConfigRoutes)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 6 ] && go test -race ./pkg/wireguard -count=1
 ```
 
 ## Tests
@@ -47,9 +47,10 @@ n=$(go test ./pkg/wireguard -run '^(TestSetPeerPassesPresharedKeyOnStdinNotArgv|
 | `TestGenerateKeyPairParsesGenkeyAndPubkey` | `pkg/wireguard/keys_test.go` | the fake `genkey` output is trimmed, piped to `pubkey`, and both values returned | — | S1 |
 | `TestGenerateKeyPairReportsFailure` | `pkg/wireguard/keys_test.go` | a failing `pubkey` returns an error and empty keys | — | S1 |
 | `TestGenerateWgQuickConfigRoutes` | `pkg/wireguard/persist_test.go` | without routes there is no route `PostUp`/`PreDown` line (the `ip_forward` `PostUp` stays); with two routes each has two lines | — | S1 |
-| `TestShellQuoteEscapesSingleQuote` | `pkg/wireguard/apply_test.go` | `a'b` becomes `'a'\''b'` | — | S1 |
 | `TestGenerateKeyPairReportsGenkeyFailure` | `pkg/wireguard/keys_test.go` | a failing `genkey` returns an error and empty keys (added after review) | — | S1 |
 | `TestGenerateWgQuickConfigPeerWithoutOptionalFields` | `pkg/wireguard/persist_test.go` | a peer with only a public key writes only that line (added after review) | — | S1 |
+
+Merge note (2026-11-16): ADR-0006 deleted `shellQuote` from `pkg/wireguard/apply.go` (the SSH path uses `ssh.Quote`), so `TestShellQuoteEscapesSingleQuote` and its mutant are gone; the same quoting case is covered by `TestQuoteNeutralisesHostileValues` in `pkg/ssh/quote_test.go`. The three `TestGenerateWgQuickConfig*` tests changed only to follow `GenerateWgQuickConfig` returning `(string, error)` (ADR-0004); their assertions are unchanged.
 
 ## Reachability
 
@@ -106,3 +107,4 @@ Stop and ask if a test shows a defect in `SetPeer` or `GenerateKeyPair` that cha
 - 2026-11-15 · 5bc447c* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:0 · test-lock-sha256:d7bbfc503e9f7a0412a02eb692bc4672788cb3b73a70be9ce2a954205111dd79 · test-lock-file:docs/adr/locks/d7bbfc503e9f7a0412a02eb692bc4672788cb3b73a70be9ce2a954205111dd79.lock · test-lock-kind:replace
 - 2026-11-16 · b6554cc* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4179
 - 2026-11-16 · 7004197* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4174
+- 2026-11-16 · 820cfe4* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:0 · test-lock-sha256:80429201db54248f9c01b35ef920cf68208cea82194961238ce8938b9dfc2544 · test-lock-file:docs/adr/locks/80429201db54248f9c01b35ef920cf68208cea82194961238ce8938b9dfc2544.lock · test-lock-kind:replace
