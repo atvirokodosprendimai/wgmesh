@@ -18,7 +18,7 @@
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/discovery/dht.go` | edit | `ContactDedupWindow` (60 s) and `MaxContactedPeers` (8192) beside the other constants (`dht.go:30-45`); `markContacted` sweeps and caps (`dht.go:1460`); `sweepPeerKeyed` new; `checkStaleHandshakes` calls it first (`dht.go:888`, driven by `staleTicker`, `dht.go:841`, `:857`); a `clock()` method that returns `time.Now` unless a test sets `d.now` |
+| `pkg/discovery/dht.go` | edit | `ContactDedupWindow` (60 s) and `MaxContactedPeers` (8192) beside the other constants (`dht.go:30-45`); `markContacted` sweeps and caps (`dht.go:1460`); `sweepPeerKeyed` new; `checkStaleHandshakes` calls it first (`dht.go:888`, driven by `staleTicker`, `dht.go:841`, `:857`); a `clock()` method that returns `time.Now` unless a test stores a function in the atomic `d.now` (an `atomic.Pointer`, because goroutines read it); `queryLoop` (`dht.go:766`) calls `sweepPeerKeyed` too, because with `DisablePunching` the stale ticker never runs; line numbers in this table are those of 2026-11-15 and have drifted by 10-60 lines after ADR-0002 \|
 | `pkg/discovery/dht_bounds_test.go` | add | the tests below |
 
 Selection: `sweepPeerKeyed` is reached only through `checkStaleHandshakes`, which the 10-second `staleTicker` case calls; `TestCheckStaleHandshakesRunsPeerKeyedSweep` fails when that call is deleted, and the loop line itself is covered by the mutant in S6.
@@ -28,7 +28,7 @@ Selection: `sweepPeerKeyed` is reached only through `checkStaleHandshakes`, whic
 1. [S1] Add `dht_bounds_test.go` with the seven tests and compiling stubs (the constants, `sweepPeerKeyed` that does nothing, the `now` field) so the first run fails on assertions. Run red.
 2. [S2] Add the two constants and the clock seam. `ContactDedupWindow` is the longest interval any `markContacted` caller passes (`dht.go:825` passes 60 s); the test in S1 reads every call.
 3. [S3] In `markContacted`: when `len(d.contactedPeers) > 256` and at least one window has passed since the last sweep, delete entries older than `ContactDedupWindow`; after that, at `MaxContactedPeers` entries return false for a new address (log once per window); an address already present keeps its normal interval check.
-4. [S4] Add `sweepPeerKeyed`: copy the keys of `controlPeers` and `rendezvousBackoff` under `d.mu.RLock`, release it, ask `d.peerStore.Get(key)` for each, then delete the keys the store lacks under `d.mu.Lock`; call it first in `checkStaleHandshakes`.
+4. [S4] Add `sweepPeerKeyed`: copy the keys of `controlPeers` and `rendezvousBackoff` under `d.mu.RLock`, release it, ask `d.peerStore.Get(key)` for each, then delete the keys the store lacks under `d.mu.Lock`; call it first in `checkStaleHandshakes` and from the `queryLoop` ticker case (a node with `DisablePunching` never starts the stale ticker, and still adds `controlPeers` entries). `PeerStore.Get` reads the peers map only, so a tombstoned peer is swept like an absent one.
 5. [S5] [proof: acceptance] Update the DHT core spec (`eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md`) with the three bounds, in the same commit.
 6. [S6] Run the mutants with `adr-verify --mutant`: the sweep threshold removed; the cap compared with `>` instead of `>=`; `sweepPeerKeyed` not called from `checkStaleHandshakes`; the window constant raised to 120 s. [proof: mutation]
 
@@ -83,6 +83,8 @@ n=$(go test ./pkg/discovery -run '^(TestMarkContactedSweepsEntriesOlderThanWindo
 
 - A peer swept from `rendezvousBackoff` while still failing restarts at 3 s backoff only if it left the store first, which is what a new peer has.
 - a key can come back between the store check and the delete; the delete is then of an entry for a peer that is present, which restarts its backoff at the minimum, the same as a new peer. `d.mu` is never held while the store lock is taken.
+- `setControlEndpoint` runs before the peer is offered to the store (`exchangeWithAddress`, `admitPunchReply`): a sweep inside that window drops the endpoint, which the next exchange re-learns; a peer the admit step refuses loses its endpoint within 10 s, which is the dead weight this task removes.
+- The cap is a fail-closed refusal for new addresses (Decision 3): an outside node that fills `get_peers` replies with 8192 distinct addresses inside one window makes new contacts wait for the next sweep (at most one window); accepted by M 2026-11-15, logged once per window.
 
 ## Stop Condition
 

@@ -76,7 +76,7 @@ Of the 19 maps, 15 are bounded today, each in its own way: replaced on every rec
 | Key kind | Rule | Members |
 |---|---|---|
 | address (`ip:port`) | dedup window, sweep by age once per window when the map is above 256 entries, hard cap that fails closed | `contactedPeers` |
-| public key | swept against `peerStore.GetAll()` on an existing tick; an entry for a key the store no longer holds is deleted | `controlPeers`, `rendezvousBackoff` |
+| public key | swept against the store membership (`peerStore.Get` per key) on an existing tick; an entry for a key the store no longer holds is deleted | `controlPeers`, `rendezvousBackoff` |
 | public key, lazy | a sweep in the existing 1-minute `staleCleanupLoop` deletes entries past their deadline | `temporaryOffline` |
 | already bounded | listed in the guard table with how (replaced per tick, active-set sweep, age sweep, hard cap, session-local, paired set and clear) | the other 15 |
 
