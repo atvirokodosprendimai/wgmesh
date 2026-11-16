@@ -188,3 +188,51 @@ func TestDHTStartFailureLeavesNotRunning(t *testing.T) {
 		t.Error("exchange still running after a failed Start")
 	}
 }
+
+// hermeticDHT makes initDHTServer succeed without the internet: one loopback
+// bootstrap node nobody listens on, and no STUN servers. Package variables are
+// set by non-parallel tests only and restored on cleanup.
+func hermeticDHT(t *testing.T) {
+	t.Helper()
+	oldNodes, oldSTUN := DHTBootstrapNodes, DefaultSTUNServers
+	DHTBootstrapNodes, DefaultSTUNServers = []string{"127.0.0.1:1"}, nil
+	t.Cleanup(func() { DHTBootstrapNodes, DefaultSTUNServers = oldNodes, oldSTUN })
+}
+
+// TestDHTStopStartWithLiveLoops runs Stop and Start at the same time while
+// the loops of the first run are live. Words: server, dhtPort, lan and gossip
+// are written by Start and read by the loops and Stop, so every access goes
+// through d.mu. Why: a restart while an old loop winds down raced on them.
+// Invariant: -race stays silent and the layer ends stopped. It is a -race
+// test: without -race it only checks that nothing hangs.
+func TestDHTStopStartWithLiveLoops(t *testing.T) {
+	hermeticDHT(t)
+	d := newRestartDHT(t, context.Background(), "wgmesh-test-restart-race-1",
+		daemon.DaemonOpts{Gossip: true, DisableIPv6: true})
+	t.Cleanup(func() { _ = d.Stop() })
+
+	for i := 0; i < 3; i++ {
+		if err := d.Start(); err != nil {
+			t.Fatalf("iteration %d: Start: %v", i, err)
+		}
+		time.Sleep(100 * time.Millisecond) // let the loops run their first pass
+
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = d.Stop()
+		}()
+		// Start is refused until Stop released the run, then restarts at once,
+		// while the loops of the stopped run are still winding down.
+		deadline := time.Now().Add(5 * time.Second)
+		for d.Start() != nil {
+			if time.Now().After(deadline) {
+				t.Fatalf("iteration %d: Start still refused 5 s after Stop", i)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		wg.Wait()
+		_ = d.Stop()
+	}
+}
