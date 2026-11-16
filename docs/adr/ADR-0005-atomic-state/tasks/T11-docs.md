@@ -33,7 +33,7 @@ The daemon support, daemon lifecycle, RPC, peer exchange and DHT core specs and 
 2. [S2] Amend the five specs.
 3. [S3] Write `docs/state-rollout.md`.
 4. [S4] Edit `docs/adr/BACKLOG.md`; run `adr-debt docs/adr` and paste that no deferred row of ADR-0005 is reported unreceipted.
-5. [S5] Run the mutants with `adr-verify --mutant`: the lifecycle spec stops naming `ErrStateCorrupt`; the note stops naming the lock; the backlog loses the `RefuseCorruptState` row. [proof: mutation]
+5. [S5] Run the mutants with `adr-verify --mutant`: the lifecycle spec stops naming `ErrStateCorrupt`; the exchange spec stops naming `registerReply` (run instead of a note-lock mutant: `adr-verify --mutant` replaces one text, the note names `.lock` three times, so one replacement cannot kill the substring check); the backlog loses the `RefuseCorruptState` row. [proof: mutation]
 
 ## Acceptance
 
@@ -100,3 +100,4 @@ Stop and ask if a spec section named here does not exist in the file (the file n
 - 2026-11-16 · 2c46f56* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:1329
 - 2026-11-16 · 2c46f56* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:1124
 - 2026-11-16 · 2c46f56* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:1678
+- 2026-11-16 · e81f899* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:1465

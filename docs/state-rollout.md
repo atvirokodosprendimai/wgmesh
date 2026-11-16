@@ -21,7 +21,7 @@ Four things change in N: state files are written atomically, `wgmesh join` and t
    - The directory must be writable: a user-owned file in a root-owned read-only directory no longer saves.
    - A single-file bind mount of a state file fails with `EBUSY` on the rename. The daemon logs the error and continues; the identity is then not persisted.
    - A leftover `<name>.tmp-*` after `kill -9` or power loss is not swept. A leftover temp file of the identity holds the private key at mode 0600; delete it by hand.
-   - On darwin `File.Sync` does not flush the drive cache (no `F_FULLFSYNC`), so the power-loss guarantee holds on linux.
+   - On darwin Go's `File.Sync` uses `F_FULLFSYNC` (plain fsync on mounts that refuse it, such as SMB); darwin is not verified.
    - An error of the directory fsync arrives after the rename: the new content is already in place, and the error is returned (M decided 2026-11-16).
 2. **The fsync costs a little.** Measured 2026-11-15 on host mars, zfs `rpool/claude`, median of 20 runs, three repeats: `saveLocalNode` 0.06 ms before, 1.44 ms now; `SavePeerCache` with 1000 peers 5.3 ms before, 6.2 ms now. On tmpfs there is no difference. The identity is saved at start and on an address change, the cache every 5 minutes.
 3. **A corrupt identity is moved aside** (see "Recovering a moved-aside identity" below). **An unreadable identity file stops the daemon.**
