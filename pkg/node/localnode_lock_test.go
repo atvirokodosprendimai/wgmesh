@@ -15,6 +15,7 @@ package node
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 )
@@ -77,21 +78,30 @@ func TestSnapshotMatchesAccessors(t *testing.T) {
 	n.SetEndpoint("198.51.100.1:51820")
 
 	s := n.Snapshot()
-	if s.MeshIP != n.GetMeshIP() || s.MeshIPv6 != n.GetMeshIPv6() || s.NATType != n.GetNATType() ||
-		s.Introducer != n.IsIntroducer() || s.Endpoint != n.GetEndpoint() ||
-		s.PubKey != "pub" || s.Hostname != "host" {
-		t.Fatalf("Snapshot %+v differs from the accessors", s)
+	want := LocalSnapshot{
+		PubKey: "pub", Hostname: "host", MeshIP: "10.0.0.1", MeshIPv6: "fd00::1",
+		NATType: "symmetric", Introducer: true, Endpoint: "198.51.100.1:51820",
+	}
+	got := s
+	got.Routes = nil
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Snapshot %+v, want %+v", got, want)
 	}
 	if len(s.Routes) != 1 || s.Routes[0] != "10.9.0.0/16" {
 		t.Fatalf("Snapshot routes = %v", s.Routes)
 	}
+	// The snapshot's slice is a copy: changing it must leave the node alone.
+	// Checked before the node's slice is replaced, so aliasing cannot hide.
 	s.Routes[0] = "changed"
-	n.SetRoutableNetworks([]string{"10.8.0.0/16"})
-	if got := n.GetRoutableNetworks(); got[0] != "10.8.0.0/16" {
-		t.Fatalf("snapshot routes alias the node: %v", got)
+	if r := n.GetRoutableNetworks(); len(r) != 1 || r[0] != "10.9.0.0/16" {
+		t.Fatalf("snapshot routes alias the node: %v", r)
 	}
+	n.SetRoutableNetworks([]string{"10.8.0.0/16"})
 	if s2 := n.Snapshot(); s2.Routes[0] != "10.8.0.0/16" {
 		t.Fatalf("second snapshot = %v", s2.Routes)
+	}
+	if s.Routes[0] != "changed" {
+		t.Fatalf("the first snapshot changed with the node: %v", s.Routes)
 	}
 }
 
@@ -102,19 +112,34 @@ func TestIdentityReadsKeyAndIPTogether(t *testing.T) {
 	if key != "pub" || ip != "10.0.0.7" {
 		t.Fatalf("Identity = %q %q", key, ip)
 	}
+
+	// One writer alternates the address between two values; the reader must
+	// always see one of the two with the key, never an empty or mixed value.
+	const a, b = "10.0.0.7", "10.0.9.9"
+	done := make(chan struct{})
 	var wg sync.WaitGroup
-	for g := 0; g < 4; g++ {
-		wg.Add(1)
-		go func(g int) {
-			defer wg.Done()
-			for i := 0; i < 200; i++ {
-				ip := fmt.Sprintf("10.0.%d.%d", g, i%250)
-				n.SetMeshIP(ip)
-				if k, got := n.Identity(); k != "pub" || got == "" {
-					t.Errorf("Identity = %q %q", k, got)
-				}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; ; i++ {
+			select {
+			case <-done:
+				return
+			default:
 			}
-		}(g)
+			if i%2 == 0 {
+				n.SetMeshIP(a)
+			} else {
+				n.SetMeshIP(b)
+			}
+		}
+	}()
+	for i := 0; i < 2000; i++ {
+		if k, got := n.Identity(); k != "pub" || (got != a && got != b) {
+			t.Errorf("Identity = %q %q, want pub and %s or %s", k, got, a, b)
+			break
+		}
 	}
+	close(done)
 	wg.Wait()
 }
