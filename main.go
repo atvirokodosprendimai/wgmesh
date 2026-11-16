@@ -332,7 +332,7 @@ func saveSecretFile(path, secretURI string) error {
 // joinCmd handles the "join --secret" subcommand
 func joinCmd() {
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (required)")
+	secret := fs.String("secret", "", "Mesh secret (required, or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory for account config")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated list of routes to advertise")
@@ -605,7 +605,7 @@ type StatusOutput struct {
 
 func statusCmd() {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (required)")
+	secret := fs.String("secret", "", "Mesh secret (required, or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	jsonOutput := fs.Bool("json", false, "Output in JSON format")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
@@ -691,7 +691,7 @@ func statusCmd() {
 	}
 }
 
-// secretFromFlagOrEnv returns the join secret: the flag value, else WGMESH_SECRET,
+// secretFromFlagOrEnv returns the mesh secret: the flag value, else WGMESH_SECRET,
 // else the trimmed content of the file named by WGMESH_SECRET_FILE.
 func secretFromFlagOrEnv(flagValue string) (string, error) {
 	if flagValue != "" {
@@ -717,7 +717,7 @@ func secretFromFlagOrEnv(flagValue string) (string, error) {
 // qrCmd handles the "qr" subcommand - displays secret as a text-based QR code
 func qrCmd() {
 	fs := flag.NewFlagSet("qr", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret to encode as QR code")
+	secret := fs.String("secret", "", "Mesh secret to encode as QR code (or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	fs.Parse(os.Args[2:])
 
 	if s, err := secretFromFlagOrEnv(*secret); err != nil {
@@ -828,7 +828,7 @@ func saveAccountAPIKey(stateDir, apiKey string) {
 // installServiceCmd handles the "install-service" subcommand
 func installServiceCmd() {
 	fs := flag.NewFlagSet("install-service", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (required)")
+	secret := fs.String("secret", "", "Mesh secret (required, or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory for account config")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")

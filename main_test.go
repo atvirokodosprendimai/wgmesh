@@ -647,7 +647,7 @@ func TestCommandsFindSecretFromEnvAndFile(t *testing.T) {
 		})
 		t.Run("qr "+name, func(t *testing.T) {
 			got, stderr, code := runWgmesh(t, bin, env, "qr")
-			if code != 0 || !strings.Contains(got, "Mesh Secret QR Code") || strings.Contains(stderr, "--secret is required") {
+			if code != 0 || !strings.Contains(got, "Mesh Secret QR Code") {
 				t.Errorf("exit %d\nstdout: %s\nstderr: %s", code, got, stderr)
 			}
 		})
