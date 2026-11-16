@@ -71,8 +71,8 @@ func TestLocalNodeOnDerivedAddressIsQuietWhenNonceAddressesAreClaimed(t *testing
 	}
 }
 
-// Two members that both derive the address: the lower key moves, once.
-func TestTwoBoundMembersOnOneAddressLowerKeyMoves(t *testing.T) {
+// Two members that both derive the address: the higher key (the local node) moves, once. The policy derive is replaced so the remote claim is bound too.
+func TestTwoBoundMembersOnOneAddressHigherKeyMovesOnce(t *testing.T) {
 	enforceIPBinding(t, false)
 	set := recordAddresses(t)
 	d, ip := boundDaemon(t, "zzz-local")
@@ -110,5 +110,21 @@ func TestLocalUnboundNodeYieldsToBoundClaim(t *testing.T) {
 
 	if want := nonceOne(d); d.localNode.GetMeshIP() != want || len(*set) != 1 {
 		t.Errorf("IP %s (want %s), addresses set %v (want one)", d.localNode.GetMeshIP(), want, *set)
+	}
+}
+
+// A collision that stands is counted once, not on every reconcile tick.
+func TestStandingCollisionIsCountedOnce(t *testing.T) {
+	enforceIPBinding(t, false)
+	recordAddresses(t)
+	d, ip := boundDaemon(t, "zzz-local")
+	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-low", MeshIP: ip}, "test")
+
+	before := winnerDiffers()
+	for tick := 0; tick < 5; tick++ {
+		d.CheckAndResolveCollisions()
+	}
+	if got := winnerDiffers() - before; got != 1 {
+		t.Errorf("winner-differs counted %v over 5 ticks, want 1", got)
 	}
 }

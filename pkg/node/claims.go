@@ -36,13 +36,18 @@ func Bound(c Claim, derive func(key string, nonce int) string, maxNonce int) boo
 	return false
 }
 
+// byKey returns the two claims as lower key, higher key.
+func byKey(a, b Claim) (lower, higher Claim) {
+	if strings.Compare(b.Key, a.Key) < 0 {
+		return b, a
+	}
+	return a, b
+}
+
 // BoundFirst orders two claims on one IP: a bound claim beats an unbound one,
 // equal classes fall to the lower key. It does not read EnforceIPBinding.
 func BoundFirst(a, b Claim, derive func(key string, nonce int) string) (winner, loser Claim) {
-	lower, higher := a, b
-	if strings.Compare(b.Key, a.Key) < 0 {
-		lower, higher = b, a
-	}
+	lower, higher := byKey(a, b)
 	if Bound(higher, derive, MaxNonce) && !Bound(lower, derive, MaxNonce) {
 		return higher, lower
 	}
@@ -53,14 +58,12 @@ func BoundFirst(a, b Claim, derive func(key string, nonce int) string) (winner, 
 // BoundFirst. Otherwise the lower key wins, and each time the bound order would
 // have chosen the other claim warn("winner-differs") is called.
 func Winner(a, b Claim, derive func(key string, nonce int) string, warn func(rule string)) (winner, loser Claim) {
+	boundWinner, boundLoser := BoundFirst(a, b, derive)
 	if EnforceIPBinding.Load() {
-		return BoundFirst(a, b, derive)
+		return boundWinner, boundLoser
 	}
-	lower, higher := a, b
-	if strings.Compare(b.Key, a.Key) < 0 {
-		lower, higher = b, a
-	}
-	if boundWinner, _ := BoundFirst(a, b, derive); boundWinner != lower && warn != nil {
+	lower, higher := byKey(a, b)
+	if boundWinner != lower && warn != nil {
 		warn("winner-differs")
 	}
 	return lower, higher

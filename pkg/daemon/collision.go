@@ -125,22 +125,38 @@ func (d *Daemon) CheckAndResolveCollisions() {
 	}
 	collisions := DetectCollisions(d.peerStore, local)
 	if len(collisions) == 0 {
+		d.collisionSeen = nil
 		return
 	}
 
 	derive, warn := policyFuncs(d.peerStore)
+	seen := make(map[string]struct{}, len(collisions))
+	defer func() { d.collisionSeen = seen }()
 	for _, collision := range collisions {
-		winner, loser := orderPeers(collision.Peer1, collision.Peer2, derive, warn)
-		log.Printf("[Collision] Mesh IP collision detected: %s claimed by %s and %s",
-			collision.MeshIP, safeKeyPrefix(winner.WGPubKey), safeKeyPrefix(loser.WGPubKey))
+		// A collision that stands is logged and counted once, not on every tick.
+		id := collision.MeshIP + "|" + collision.Peer1.WGPubKey + "|" + collision.Peer2.WGPubKey
+		_, repeat := d.collisionSeen[id]
+		seen[id] = struct{}{}
+		pairWarn := warn
+		if repeat {
+			pairWarn = nil
+		}
+		winner, loser := orderPeers(collision.Peer1, collision.Peer2, derive, pairWarn)
+		if !repeat {
+			log.Printf("[Collision] Mesh IP collision detected: %s claimed by %s and %s",
+				collision.MeshIP, safeKeyPrefix(winner.WGPubKey), safeKeyPrefix(loser.WGPubKey))
+		}
 
 		// If we are the loser, re-derive our IP
 		if loser.WGPubKey == local.Key {
 			if d.localNode.GetMeshIP() != collision.MeshIP {
 				continue // already moved by an earlier collision of this pass
 			}
-			if !d.losesBoundFirst(collision.MeshIP, derive) {
-				continue // a claim that is not bound does not move a node on an address its key derives
+			if !d.losesBoundFirst(local.Key, collision.MeshIP, derive) {
+				if !repeat {
+					log.Printf("[Collision] Keeping mesh IP %s: the other claim on it (%s) is not ahead of this node's claim, which its key derives; no move", collision.MeshIP, safeKeyPrefix(winner.WGPubKey))
+				}
+				continue // the bound-first order decides: an unbound claim does not move a node on an address its key derives
 			}
 			newIP := d.moverIP()
 			if newIP == "" {
@@ -173,8 +189,8 @@ func (d *Daemon) CheckAndResolveCollisions() {
 // stored claim on ip under the bound-first order (node.BoundFirst): a bound
 // claim beats an unbound one, between two of one class the lower key wins.
 // The lower-key order of release N alone does not make the node move.
-func (d *Daemon) losesBoundFirst(ip string, derive func(pubKey string, nonce int) string) bool {
-	self := node.Claim{Key: d.localNode.WGPubKey, IP: ip}
+func (d *Daemon) losesBoundFirst(key, ip string, derive func(pubKey string, nonce int) string) bool {
+	self := node.Claim{Key: key, IP: ip}
 	for _, p := range d.peerStore.GetAll() {
 		if p.WGPubKey == self.Key || p.MeshIP != ip {
 			continue
