@@ -56,6 +56,9 @@ n=$(go test ./pkg/daemon -run '^TestSpecNamesConverge$' -count=1 -v 2>&1 | tee /
 | 4 — it is used | the N+1 go/no-go reads the note |
 
 ## Mutation Log
+- 2026-11-16 · 6b0f7e1* · mutant killed · exit 1 · `eidos/spec - daemon reconciliation - peer config sync with relay routing fallback.md` · the dump is not named: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
+- 2026-11-16 · 6b0f7e1* · mutant killed · exit 1 · `docs/kernel-state.md` · the counter is not named: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
+- 2026-11-16 · 6b0f7e1* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · N+1 row head gone: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
 
 ## Invariants
 
@@ -77,3 +80,21 @@ Stop and ask if a spec section named here does not exist in the file (the sectio
 - Flipping the switches (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-16 · 6b0f7e1* · exit 1 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:1177 · test-lock-sha256:5de66f935ff447b2f7534d620c613376d503878eb610b6edafc0924f5e3e8736 · test-lock-file:docs/adr/locks/5de66f935ff447b2f7534d620c613376d503878eb610b6edafc0924f5e3e8736.lock
+  ```
+  --- last 10 line(s) of stderr (of 24 after folding 24 raw)
+      spec_converge_test.go:158: eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md: line starting "- A default route (" matched 0 lines, want 1
+      spec_converge_test.go:158: eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md: line starting "- A network equal to or inside one this host is attached to" matched 0 lines, want 1
+      spec_converge_test.go:158: eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md: line starting "- Linux uses `ip`; macOS reads" matched 0 lines, want 1
+      spec_converge_test.go:158: eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md: line starting "- **Forwarding is converged once:**" matched 0 lines, want 1
+      spec_converge_test.go:158: eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md: line starting "> [[pkg/daemon/converge.go]]" matched 0 lines, want 1
+      spec_converge_test.go:157: docs/kernel-state.md: cannot be read: open ../../docs/kernel-state.md: no such file or directory
+  --- FAIL: TestSpecNamesConverge (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.004s
+  FAIL
+  ```
+- 2026-11-16 · 6b0f7e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:2823
+- 2026-11-16 · 6b0f7e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:3405
+- 2026-11-16 · 6b0f7e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:2775
+- 2026-11-16 · 6b0f7e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:1355

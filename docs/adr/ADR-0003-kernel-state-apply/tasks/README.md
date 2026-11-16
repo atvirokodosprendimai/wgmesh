@@ -31,7 +31,7 @@ README must be regenerated.
 | T6 | Install peers' advertised networks on macOS (#862) | pending | — | six named tests and a human sign-off on a Mac |
 | T7 | Converge the interface address instead of writing it once | done | — | five named tests, then `-race` |
 | T8 | Undo the FORWARD rule and ip_forward at graceful exit (#872) | pending | — | four named tests, then `-race`; waits for decision 7 |
-| T9 | Amend the specs, write the operator note and the backlog rows | pending | — | `go test ./pkg/daemon -run TestSpecNamesConverge`, note exists, `adr-debt` clean |
+| T9 | Amend the specs, write the operator note and the backlog rows | done | — | `go test ./pkg/daemon -run TestSpecNamesConverge`, note exists, `adr-debt` clean |
 
 ## Contract Coupling
 
