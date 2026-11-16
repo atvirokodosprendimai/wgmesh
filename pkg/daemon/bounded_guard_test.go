@@ -45,7 +45,34 @@ var boundFiles = []string{
 	"../discovery/replay_cache.go",
 }
 
-var boundTable = []boundRow{}
+// boundTable has one row per map-typed struct field of boundFiles. The lock
+// column was read from every non-test access of the field (ADR-0007, M's rule
+// of 2026-11-16: a field touched by more than one goroutine is under a lock).
+var boundTable = []boundRow{
+	{"Daemon.lastAppliedPeerConfigs", "daemon.go", "swept-vs-active-set", "applyDesiredPeerConfigs deletes the WireGuard peers that are not desired; evictPeerFromPool and attemptPeerReconnect delete one key", "d.appliedMu"},
+	{"Daemon.relayRoutes", "daemon.go", "replaced-per-tick", "reconcile assigns a fresh map every tick; evictPeerFromPool deletes one key", "d.relayMu"},
+	{"Daemon.directStableCycles", "daemon.go", "replaced-per-tick", "reconcile assigns a fresh map every tick; evictPeerFromPool deletes one key", "d.relayMu"},
+	{"Daemon.peerHealthFailures", "daemon.go", "swept-vs-active-set", "checkPeerHealth deletes keys outside the active set at the end of every pass", "d.healthMu"},
+	{"Daemon.lastPeerTransferTotal", "daemon.go", "swept-vs-active-set", "checkPeerHealth deletes keys outside the active set at the end of every pass", "d.healthMu"},
+	{"Daemon.probeSessions", "daemon.go", "swept-vs-active-set", "cleanupProbeSessions (probePeersOverMesh, every second) closes and deletes sessions outside the active set", "d.probeMu"},
+	{"Daemon.probeFailures", "daemon.go", "swept-vs-active-set", "cleanupProbeSessions deletes keys outside the active set", "d.probeMu"},
+	{"Daemon.temporaryOffline", "daemon.go", "deadline-sweep", "sweepTemporaryOffline, called by staleCleanupTick every minute, deletes entries past their deadline", "d.offlineMu"},
+	{"desiredPeerConfig.allowed", "daemon.go", "session-local", "built and read inside one reconcile call, then dropped with the desired map", "none: never shared between goroutines"},
+	{"DHTDiscovery.contactedPeers", "../discovery/dht.go", "age-sweep-cap", "markContacted sweeps entries older than ContactDedupWindow above contactSweepThreshold and refuses new addresses at MaxContactedPeers", "d.mu"},
+	{"DHTDiscovery.controlPeers", "../discovery/dht.go", "store-membership", "sweepPeerKeyed (first step of checkStaleHandshakes) deletes keys the PeerStore no longer holds", "d.mu"},
+	{"DHTDiscovery.rendezvousBackoff", "../discovery/dht.go", "store-membership", "sweepPeerKeyed deletes keys the PeerStore no longer holds; recordRendezvousAttempt deletes on success", "d.mu"},
+	{"rendezvousState.offers", "../discovery/exchange.go", "session-local", "the session is deleted when the pair starts or after RendezvousSessionTTL (handleRendezvousOffer)", "pe.rendezvousMu"},
+	{"rendezvousState.endpoints", "../discovery/exchange.go", "session-local", "the session is deleted when the pair starts or after RendezvousSessionTTL (handleRendezvousOffer)", "pe.rendezvousMu"},
+	{"PeerExchange.pendingReplies", "../discovery/exchange.go", "paired-set-clear", "setPendingReplyChannel is paired with clearPendingReplyChannel by the caller", "pe.pendingMu"},
+	{"PeerExchange.rendezvousSessions", "../discovery/exchange.go", "age-sweep", "handleRendezvousOffer deletes sessions older than RendezvousSessionTTL on every offer", "pe.rendezvousMu"},
+	{"PeerExchange.activePunches", "../discovery/exchange.go", "age-sweep", "handleRendezvousOffer deletes entries older than twice RendezvousPunchCooldown on every offer", "pe.rendezvousMu"},
+	{"PeerExchange.rendezvousStarts", "../discovery/exchange.go", "age-sweep", "handleRendezvousOffer deletes entries older than twice RendezvousStartCooldown on every offer", "pe.rendezvousMu"},
+	{"PeerExchange.lastPacketLog", "../discovery/exchange.go", "age-sweep-cap", "allowLog sweeps stale entries once per cooldown and stops remembering at maxLogThrottleEntries", "pe.logMu"},
+	{"PeerStore.peers", "../node/store.go", "hard-cap", "Decide refuses a new key at DefaultMaxPeers (ReasonPeerCap); CleanupStale, Remove and Withdraw delete", "ps.mu"},
+	{"PeerStore.tombstones", "../node/store.go", "age-sweep-cap", "tombstone drops expired entries, then the oldest, at DefaultMaxPeers; isTombstoned drops an expired one", "ps.mu"},
+	{"PeerStore.ipHeldLogged", "../node/store.go", "hard-cap", "Offer replaces the map with an empty one when it reaches DefaultMaxPeers", "ps.mu"},
+	{"nonceCache.seen", "../discovery/replay_cache.go", "age-sweep-cap", "Seen drops entries older than ttl, then the oldest at capacity (drop)", "c.mu"},
+}
 
 // checkBoundTable lists every map-typed struct field of the files in src (path
 // to source text) and compares it with table. It is a heuristic over field
