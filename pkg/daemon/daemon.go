@@ -496,6 +496,7 @@ func (d *Daemon) initLocalNode() error {
 	// Try to load existing key from state file
 	d.stateFile = filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
 	stateFile := d.stateFile
+	quarantined := false
 	node, err := loadLocalNode(stateFile)
 	if err != nil {
 		switch {
@@ -503,17 +504,20 @@ func (d *Daemon) initLocalNode() error {
 			// No identity yet: generate one below.
 		case errors.Is(err, ErrStateCorrupt):
 			if RefuseCorruptState {
-				return fmt.Errorf("local node state file %s is corrupt and RefuseCorruptState is set; the file is left untouched: %w", stateFile, err)
+				return fmt.Errorf("local node state file %s is corrupt and RefuseCorruptState is set, so it was left untouched; to start, move the file away (a new identity is then created) or restore a good copy of it, then restart: %w", stateFile, err)
 			}
 			moved, qerr := quarantineState(stateFile)
 			if qerr != nil {
 				return fmt.Errorf("local node state file %s is corrupt and could not be moved aside: %w", stateFile, qerr)
 			}
-			log.Printf("Local node state file %s is corrupt; it was moved to %s and a NEW identity (new key, new mesh IP) is being created", stateFile, moved)
+			quarantined = true
+			log.Printf("Local node state file %s is corrupt and was replaced by a new identity (new key, new mesh IP; peers will see a new node). The old file is kept at %s; to restore it, stop the daemon and rename that file back to %s", stateFile, moved, stateFile)
 		default:
 			return fmt.Errorf("failed to read local node state file %s: %w", stateFile, err)
 		}
 	}
+	// On the missing and quarantined paths err stays non-nil, and that is what
+	// skips this load and falls through to generating a new identity.
 	if err == nil && node != nil {
 		d.localNode = node
 
@@ -585,6 +589,11 @@ func (d *Daemon) initLocalNode() error {
 
 	// Save to state file
 	if err := saveLocalNode(stateFile, d.localNode); err != nil {
+		if quarantined {
+			// The old identity was moved aside: running on a key that is not on
+			// disk would create another new identity at every start.
+			return fmt.Errorf("the new identity could not be saved to %s after the corrupt file was moved aside: %w", stateFile, err)
+		}
 		log.Printf("Warning: failed to save local node state: %v", err)
 	}
 
