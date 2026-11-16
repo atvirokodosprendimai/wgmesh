@@ -81,6 +81,17 @@ a=$(go test ./pkg/wireguard -run '^TestParseDump$' -count=1 -v 2>&1 | tee /dev/s
   ```
 - 2026-11-16 · ed18ca4* · mutant killed · exit 1 · `pkg/daemon/converge.go` · convergeMu removed from converge: TestConvergeConcurrentWithHealthWrites must go red under -race · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
 - 2026-11-16 · ed18ca4* · mutant killed · exit 1 · `pkg/daemon/converge.go` · relayed peer set directly: TestReconnectOnlyTouchesPeerWithOwnEntry must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · f2043d5* · mutant killed · exit 1 · `pkg/daemon/converge.go` · kernel set not compared: TestPlanPeersAllowedIPsDriftReapplies must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · f2043d5* · mutant killed · exit 1 · `pkg/daemon/converge.go` · growing first: TestPlanPeersFailoverMovesNetwork must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · f2043d5* · mutant killed · exit 1 · `pkg/daemon/observe.go` · error becomes empty kernel: TestObserveFailureSkipsApply must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · f2043d5* · mutant killed · exit 1 · `pkg/daemon/converge.go` · endpoint always pushed: TestEndpointPushedOnlyWhenDesiredChanges must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · f2043d5* · mutant inconclusive · exit 1 · `pkg/daemon/converge.go` · failure logged every tick: TestResultLoggedOnChangeOnly must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-16 · f2043d5* · mutant killed · exit 1 · `pkg/daemon/converge.go` · convergeMu removed from converge: TestConvergeConcurrentWithHealthWrites must go red under -race · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · f2043d5* · mutant killed · exit 1 · `pkg/daemon/converge.go` · relayed peer set directly: TestReconnectOnlyTouchesPeerWithOwnEntry must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · f2043d5* · mutant killed · exit 1 · `pkg/daemon/converge.go` · failure logged every tick: TestResultLoggedOnChangeOnly must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
 
 ## Invariants
 
@@ -127,3 +138,13 @@ Stop and ask if a peer test in `pkg/daemon` needs a changed expectation, or if `
 - 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11854
 - 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11733
 - 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:6709
+- 2026-11-16 · f2043d5* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:1 · test-lock-sha256:4700d84ba36b20bd64a89eb00ab73ddec1141b4369cc24ebcf9be776ec6ae893 · test-lock-file:docs/adr/locks/4700d84ba36b20bd64a89eb00ab73ddec1141b4369cc24ebcf9be776ec6ae893.lock · test-lock-kind:replace
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:12239
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11599
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:12177
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11762
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:10907
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:10521
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11056
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:7864
+- 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:10710

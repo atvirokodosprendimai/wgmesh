@@ -135,3 +135,4 @@ Stop and ask if a pinned test needs a changed expectation, or if `desire` cannot
 - 2026-11-16 · 9d34ffe* · exit 0 · `set -o pipefail …` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:13685
 - 2026-11-16 · 9d34ffe* · exit 0 · `set -o pipefail …` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:12426
 - 2026-11-16 · 9d34ffe* · exit 0 · `set -o pipefail …` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:8776
+- 2026-11-16 · f2043d5* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:0 · test-lock-sha256:15b64e1d1028600f5722fd1f3d66660846fedfd8dffc9ee2475acb9a0a5f3d76 · test-lock-file:docs/adr/locks/15b64e1d1028600f5722fd1f3d66660846fedfd8dffc9ee2475acb9a0a5f3d76.lock · test-lock-kind:replace
