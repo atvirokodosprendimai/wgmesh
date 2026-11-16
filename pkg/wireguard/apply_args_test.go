@@ -46,9 +46,6 @@ func TestSetPeerArgsUnchangedForExistingCallers(t *testing.T) {
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Fatalf("SetPeerArgs = %q, want %q", got, tt.want)
 			}
-			if last := got[len(got)-2:]; len(got) >= 2 && !reflect.DeepEqual(last, []string{"persistent-keepalive", "25"}) {
-				t.Fatalf("keepalive is not last: %q", got)
-			}
 		})
 	}
 }

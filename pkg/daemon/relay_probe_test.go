@@ -2,6 +2,9 @@ package daemon
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"strings"
 	"sync"
 	"testing"
@@ -86,10 +89,13 @@ func relayProbePeers(relayedKey string) (intro, relayed *PeerInfo) {
 	return intro, relayed
 }
 
-// relayCycle runs the planning half of one reconcile pass over peers and
-// stores the plan the way reconcile does.
+// relayCycle runs the planning half of one reconcile pass over peers (through
+// planPeers, as reconcile does) and stores the plan the way reconcile does.
 func relayCycle(d *Daemon, peers []*PeerInfo, handshakes map[string]int64) (map[string]*desiredPeerConfig, map[string]string) {
-	desired, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, handshakes)
+	for _, p := range peers {
+		d.peerStore.SetPeerDirectly(p.WGPubKey, p)
+	}
+	_, desired, relayRoutes, directStable := d.planPeers(handshakes, d.now())
 	d.storeRelayPlan(relayRoutes, directStable, d.now())
 	return desired, relayRoutes
 }
@@ -162,10 +168,10 @@ func TestProbeOnlyPeerCarriesNoAllowedIPs(t *testing.T) {
 	if !ok {
 		t.Fatal("the relayed peer is not in the desired set")
 	}
-	if got := allowedCSVFor(cfg); got != "-" {
-		t.Errorf("allowedCSVFor(probe-only) = %q, want %q", got, "-")
+	if got := allowedCSVFor(cfg); got != wireguard.AllowedIPsClear {
+		t.Errorf("allowedCSVFor(probe-only) = %q, want %q", got, wireguard.AllowedIPsClear)
 	}
-	if got := allowedCSVFor(desired[probeIntroKey]); got == "-" || !strings.Contains(got, peer.MeshIP+"/32") {
+	if got := allowedCSVFor(desired[probeIntroKey]); got == wireguard.AllowedIPsClear || !strings.Contains(got, peer.MeshIP+"/32") {
 		t.Errorf("allowedCSVFor(relay) = %q, want a list holding %s/32", got, peer.MeshIP)
 	}
 
@@ -177,8 +183,8 @@ func TestProbeOnlyPeerCarriesNoAllowedIPs(t *testing.T) {
 		switch c.key {
 		case peer.WGPubKey:
 			sentPeer = true
-			if c.allowed != "-" {
-				t.Errorf("the probe-only peer was sent allowed-ips %q, want %q", c.allowed, "-")
+			if c.allowed != wireguard.AllowedIPsClear {
+				t.Errorf("the probe-only peer was sent allowed-ips %q, want %q", c.allowed, wireguard.AllowedIPsClear)
 			}
 			if strings.Contains(c.allowed, peer.MeshIP) {
 				t.Errorf("the probe-only peer was sent its mesh IP: %q", c.allowed)
@@ -395,11 +401,11 @@ func TestApplySignatureIncludesProbeOnlyMode(t *testing.T) {
 		wantCalls   int
 		wantAllowed string
 	}{
-		{"probe-only first", probe, 1, "-"},
-		{"probe-only again", probe, 1, "-"},
+		{"probe-only first", probe, 1, wireguard.AllowedIPsClear},
+		{"probe-only again", probe, 1, wireguard.AllowedIPsClear},
 		{"direct, same endpoint", direct, 2, peer.MeshIP + "/32"},
 		{"direct again", direct, 2, peer.MeshIP + "/32"},
-		{"probe-only after direct", probe, 3, "-"},
+		{"probe-only after direct", probe, 3, wireguard.AllowedIPsClear},
 	}
 	for _, s := range steps {
 		if err := d.applyDesiredPeerConfigs(s.desired); err != nil {
@@ -415,6 +421,81 @@ func TestApplySignatureIncludesProbeOnlyMode(t *testing.T) {
 	}
 }
 
+func TestEvictPeerFromPoolRemovesRelayAgeSeries(t *testing.T) {
+	stubWireGuard(t)
+	d := relayProbeDaemon(t)
+	key := "evicted-age-peer"
+	label := key[:8]
+	t.Cleanup(func() { relayRouteAge.DeleteLabelValues(label) })
+	d.storeRelayPlan(map[string]string{key: probeIntroKey}, map[string]int{}, d.now())
+	if _, ok := relayAges(t)[label]; !ok {
+		t.Fatal("the relayed peer has no age series before the eviction")
+	}
+
+	d.evictPeerFromPool(&PeerInfo{WGPubKey: key, MeshIP: "10.250.0.5", Endpoint: "172.20.2.22:51820"})
+
+	if got, ok := relayAges(t)[label]; ok {
+		t.Errorf("the age series of an evicted peer is still exported: %v", got)
+	}
+	if d.isRelayRoutedPeer(key) {
+		t.Error("an evicted peer is still relay-routed")
+	}
+}
+
+func TestRelayRouteAgeIsZeroWhenClockStepsBack(t *testing.T) {
+	d := relayProbeDaemon(t)
+	key := "clamped-age-peer"
+	label := key[:8]
+	t.Cleanup(func() { relayRouteAge.DeleteLabelValues(label) })
+	t0 := time.Unix(1_700_000_000, 0)
+	routes := map[string]string{key: probeIntroKey}
+	d.storeRelayPlan(routes, map[string]int{}, t0)
+
+	d.storeRelayPlan(routes, map[string]int{}, t0.Add(-time.Hour))
+
+	if got, ok := relayAges(t)[label]; !ok || got != 0 {
+		t.Errorf("age after the clock stepped back an hour = %v (present %v), want 0", got, ok)
+	}
+}
+
+// TestReconcileStoresRelayPlan pins the wiring: reconcile builds the plan
+// through planPeers and hands it to storeRelayPlan, the only writer of the
+// relay routes, so the gauge and the health skip see what the apply step sees.
+func TestReconcileStoresRelayPlan(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "daemon.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parse daemon.go: %v", err)
+	}
+	called := map[string]bool{}
+	found := false
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Recv == nil || fn.Name.Name != "reconcile" || fn.Body == nil {
+			continue
+		}
+		found = true
+		ast.Inspect(fn.Body, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+					called[sel.Sel.Name] = true
+				}
+			}
+			return true
+		})
+	}
+	if !found {
+		t.Fatal("reconcile not found in daemon.go: the walk sees nothing")
+	}
+	for _, name := range []string{"planPeers", "storeRelayPlan", "applyDesiredPeerConfigs"} {
+		if !called[name] {
+			t.Errorf("reconcile does not call %s", name)
+		}
+	}
+}
+
+// TestProbeOnlyStateIsRaceFree runs the writers and readers of the relay
+// state from several goroutines. A dropped lock is detected only under -race,
+// which the task's fence uses.
 func TestProbeOnlyStateIsRaceFree(t *testing.T) {
 	stubWireGuard(t)
 	d := relayProbeDaemon(t) // relayRouteSince starts nil
