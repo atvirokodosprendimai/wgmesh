@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"net"
 	"strings"
 	"sync"
 	"testing"
@@ -51,16 +52,6 @@ func newRestartDHT(t *testing.T, parent context.Context, secret string, opts dae
 	return d
 }
 
-// waitLoops polls pe.loops until it equals want or 3 s pass, and returns the
-// last value read.
-func waitLoops(pe *PeerExchange, want int32) int32 {
-	deadline := time.Now().Add(3 * time.Second)
-	for pe.loops.Load() != want && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	return pe.loops.Load()
-}
-
 func TestPeerExchangeRestartKeepsOneLoop(t *testing.T) {
 	pe := newRestartExchange(t, "wgmesh-test-restart-one-loop-1")
 	if err := pe.Start(); err != nil {
@@ -72,7 +63,7 @@ func TestPeerExchangeRestartKeepsOneLoop(t *testing.T) {
 	}
 	t.Cleanup(pe.Stop)
 
-	if got := waitLoops(pe, 1); got != 1 {
+	if got := pe.loops.Load(); got != 1 {
 		t.Fatalf("live listen loops after Start, Stop, Start = %d, want 1", got)
 	}
 }
@@ -88,7 +79,7 @@ func TestPeerExchangeStopEndsTheLoop(t *testing.T) {
 	}
 	pe.Stop()
 
-	if got := waitLoops(pe, 0); got != 0 {
+	if got := pe.loops.Load(); got != 0 {
 		t.Fatalf("live listen loops after the second Stop = %d, want 0", got)
 	}
 	pe.Stop() // idempotent
@@ -124,6 +115,9 @@ func TestDHTBeginRunGivesLiveContext(t *testing.T) {
 	if err := d.runCtx().Err(); err != nil {
 		t.Fatalf("context after a restart is already done: %v", err)
 	}
+	if err := d.beginRun(); err == nil {
+		t.Fatal("second beginRun while starting returned nil, want the already-running error")
+	}
 	d.setRunning()
 	if err := d.beginRun(); err == nil {
 		t.Fatal("second beginRun while running returned nil, want the already-running error")
@@ -152,9 +146,8 @@ func TestDHTRestartContextFollowsParent(t *testing.T) {
 		t.Fatalf("restarted context is already done: %v", err)
 	}
 	cancelParent()
-	select {
-	case <-ctx.Done():
-	case <-time.After(time.Second):
+	// Cancelling a parent ends its children before cancel returns.
+	if ctx.Err() == nil {
 		t.Fatal("cancelling the parent did not end the restarted context")
 	}
 }
@@ -171,9 +164,25 @@ func TestDHTStartFailureLeavesNotRunning(t *testing.T) {
 
 	d := newRestartDHT(t, context.Background(), "wgmesh-test-restart-failure-1",
 		daemon.DaemonOpts{Gossip: true, DisableIPv6: true})
-	if err := d.Start(); err == nil {
+	err := d.Start()
+	if err == nil {
 		_ = d.Stop()
 		t.Fatal("Start succeeded, want the DHT server error")
+	}
+	if !strings.Contains(err.Error(), "failed to initialize DHT server") {
+		t.Errorf("Start error = %q, want the DHT server initialisation error", err)
+	}
+	// The LAN assertion below says something only when the LAN layer starts
+	// here; probe that, so a host without multicast shows it as skipped.
+	probe, perr := NewLANDiscovery(d.config, d.localNode, d.peerStore)
+	if perr == nil {
+		perr = probe.Start()
+		if perr == nil {
+			probe.Stop()
+		}
+	}
+	if perr != nil {
+		t.Logf("LAN layer cannot start here (%v): the LAN assertion is vacuous", perr)
 	}
 
 	d.mu.RLock()
@@ -212,29 +221,35 @@ func TestDHTStopStartWithLiveLoops(t *testing.T) {
 		daemon.DaemonOpts{Gossip: true, DisableIPv6: true})
 	t.Cleanup(func() { _ = d.Stop() })
 
+	if err := d.Start(); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
 	for i := 0; i < 3; i++ {
-		if err := d.Start(); err != nil {
-			t.Fatalf("iteration %d: Start: %v", i, err)
-		}
-		time.Sleep(100 * time.Millisecond) // let the loops run their first pass
-
 		var wg sync.WaitGroup
+		var stopErr error
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_ = d.Stop()
+			stopErr = d.Stop()
 		}()
-		// Start is refused until Stop released the run, then restarts at once,
-		// while the loops of the stopped run are still winding down.
-		deadline := time.Now().Add(5 * time.Second)
-		for d.Start() != nil {
-			if time.Now().After(deadline) {
-				t.Fatalf("iteration %d: Start still refused 5 s after Stop", i)
-			}
-			time.Sleep(time.Millisecond)
-		}
+		// Either Start ran first (already running, Stop then stops the run) or
+		// Stop did (Start restarts at once while the old loops wind down).
+		err := d.Start()
 		wg.Wait()
-		_ = d.Stop()
+		if stopErr != nil {
+			t.Fatalf("iteration %d: Stop: %v", i, stopErr)
+		}
+		if err != nil && !strings.Contains(err.Error(), "already running") {
+			t.Fatalf("iteration %d: Start: %v", i, err)
+		}
+		if err != nil {
+			if err := d.Start(); err != nil {
+				t.Fatalf("iteration %d: restart: %v", i, err)
+			}
+		}
+	}
+	if err := d.Stop(); err != nil {
+		t.Fatalf("final Stop: %v", err)
 	}
 }
 
@@ -505,5 +520,40 @@ func TestDHTNoStaleGossip(t *testing.T) {
 	}
 	if _, gossip := dhtLayers(d); gossip != nil {
 		t.Error("run with Gossip off holds the gossip of the previous run")
+	}
+}
+
+// TestListenLoopUsesItsArguments: a listen loop ends on the channel it was
+// given, not on pe.stopCh.
+// Why: a restart replaces pe.stopCh and pe.conn, and a loop reading them from
+// the struct raced with that and could outlive its Stop. Invariant: a loop
+// started by hand with a fresh channel and connection (the exchange itself
+// never started, so pe.stopCh is nil) ends when only that channel is closed.
+func TestListenLoopUsesItsArguments(t *testing.T) {
+	pe := newRestartExchange(t, "wgmesh-test-restart-loop-args-1")
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatalf("ListenUDP: %v", err)
+	}
+	t.Cleanup(func() { conn.Close() })
+
+	stop := make(chan struct{})
+	wg := oneLoopGroup()
+	pe.loops.Add(1)
+	go pe.listenLoop(stop, conn, wg)
+	close(stop)
+
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("listenLoop did not end when its own channel was closed")
+	}
+	if got := pe.loops.Load(); got != 0 {
+		t.Fatalf("loops = %d after the loop ended, want 0", got)
 	}
 }
