@@ -119,8 +119,9 @@ func TestResumeLoopCallsHooks(t *testing.T) {
 	if got := testutil.ToFloat64(resumeDetected) - before; got != 1 {
 		t.Errorf("wgmesh_resume_detected_total rose by %v, want 1", got)
 	}
-	if at := d.peerStore.ResumedAt(); at.IsZero() || at.Before(time.Now().Add(-time.Minute)) {
-		t.Errorf("ResumedAt = %v after a wake, want about now", at)
+	// NoteResume clamps to the store's clock, so only its bounds are known.
+	if at := d.peerStore.ResumedAt(); at.IsZero() || at.After(time.Now()) {
+		t.Errorf("ResumedAt = %v after a wake, want non-zero and not after now", at)
 	}
 	if got := len(d.resumeCh); got != 1 {
 		t.Errorf("%d signals on the reconcile channel, want 1", got)
@@ -295,12 +296,13 @@ func TestNoGraceWhileLivenessNotEnforced(t *testing.T) {
 	tests := []struct {
 		name string
 		run  func(t *testing.T, d *Daemon)
+		want float64
 	}{
 		{"health", func(t *testing.T, d *Daemon) {
 			staleHealthCycle(d, "peer-grace")
 			staleHealthCycle(d, "peer-grace")
-		}},
-		{"probe", func(t *testing.T, d *Daemon) { failingProbeCycle(t, d, "peer-grace") }},
+		}, 2},
+		{"probe", func(t *testing.T, d *Daemon) { failingProbeCycle(t, d, "peer-grace") }, 1},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -312,8 +314,8 @@ func TestNoGraceWhileLivenessNotEnforced(t *testing.T) {
 			if peerStored(d, "peer-grace") {
 				t.Error("with the switch off the grace blocked the eviction")
 			}
-			if got := disagreeCount(SiteResumeGrace) - before; got < 1 {
-				t.Errorf("resume-grace disagreements rose by %v, want at least 1", got)
+			if got := disagreeCount(SiteResumeGrace) - before; got != tt.want {
+				t.Errorf("resume-grace disagreements rose by %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -361,27 +363,43 @@ func TestResumeGraceStaleHandshakeRelayChoice(t *testing.T) {
 }
 
 func TestResumeKeepsAllPeersAlive(t *testing.T) {
-	enforceLiveness(t)
-	d := resumeDaemon(t)
-	old := time.Now().Add(-5 * time.Hour)
-	for i, key := range []string{"peer-a", "peer-b", "peer-c"} {
-		seedLivenessPeer(d, key, "10.250.0."+string(rune('2'+i)), old)
-		d.peerStore.ObserveDataPlane(key, old)
+	tests := []struct {
+		name    string
+		enforce bool
+		want    int // peers in GetActive after the wake
+	}{
+		{"enforced: the wake is evidence for every peer", true, 3},
+		{"not enforced: the legacy LastSeen age decides, as before", false, 0},
 	}
-	if got := len(d.peerStore.GetActive()); got != 0 {
-		t.Fatalf("%d peers Alive before the wake, want 0", got)
-	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.enforce {
+				enforceLiveness(t)
+			}
+			d := resumeDaemon(t)
+			old := time.Now().Add(-5 * time.Hour)
+			for i, key := range []string{"peer-a", "peer-b", "peer-c"} {
+				seedLivenessPeer(d, key, "10.250.0."+string(rune('2'+i)), old)
+				d.peerStore.ObserveDataPlane(key, old)
+			}
+			if got := len(d.peerStore.GetActive()); got != 0 {
+				t.Fatalf("%d peers active before the wake, want 0", got)
+			}
 
-	runResumeJump(t, d)
+			runResumeJump(t, d)
 
-	got := d.peerStore.GetActive()
-	if len(got) != 3 {
-		t.Fatalf("%d peers Alive after the wake, want 3", len(got))
-	}
-	for _, p := range got {
-		if v := p.Alive(time.Now()); v != node.Alive {
-			t.Errorf("%s is %v after the wake, want Alive", p.WGPubKey, v)
-		}
+			got := d.peerStore.GetActive()
+			if len(got) != tt.want {
+				t.Fatalf("%d peers active after the wake, want %d", len(got), tt.want)
+			}
+			if tt.enforce {
+				for _, p := range got {
+					if v := p.Alive(time.Now()); v != node.Alive {
+						t.Errorf("%s is %v after the wake, want Alive", p.WGPubKey, v)
+					}
+				}
+			}
+		})
 	}
 }
 
@@ -390,6 +408,7 @@ func TestResumeKeepsAllPeersAlive(t *testing.T) {
 // run in other goroutines; it is meaningful under -race.
 func TestResumeLoopStateIsRaceFree(t *testing.T) {
 	enforceLiveness(t)
+	before := testutil.ToFloat64(resumeDetected)
 	d := graceDaemon(t, "peer-race", 0)
 	d.dhtDiscovery = &resumerLayer{}
 	base := time.Now()
@@ -431,6 +450,20 @@ func TestResumeLoopStateIsRaceFree(t *testing.T) {
 	case <-loopDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the resume loop did not stop on cancel")
+	}
+	// Every tick reads a clock at least an hour past the previous reading, so
+	// every one of the 100 is a wake.
+	if got := testutil.ToFloat64(resumeDetected) - before; got != 100 {
+		t.Errorf("wgmesh_resume_detected_total rose by %v, want 100", got)
+	}
+}
+
+func TestHandleResumeWithoutPeerStore(t *testing.T) {
+	t.Parallel()
+	d := &Daemon{resumeCh: make(chan struct{}, 1)}
+	d.handleResume(time.Now(), time.Hour)
+	if got := len(d.resumeCh); got != 1 {
+		t.Errorf("%d signals on the reconcile channel, want 1", got)
 	}
 }
 
