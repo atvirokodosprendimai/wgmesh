@@ -104,9 +104,7 @@ func TestCacheExpiration(t *testing.T) {
 		t.Errorf("Expected 1 active peer, got %d", len(active))
 	}
 
-	// With the restore grace in place an entry older than the expiry is still
-	// not restored, and one inside it is.
-	enforceLiveness(t)
+	// An entry older than the expiry is not restored, one inside it is.
 	cache := &PeerCache{Peers: []PeerCacheEntry{
 		{WGPubKey: "expired", MeshIP: "10.0.0.3", LastSeen: time.Now().Add(-CacheExpiration - time.Hour).Unix()},
 		{WGPubKey: "inside", MeshIP: "10.0.0.4", LastSeen: time.Now().Add(-CacheExpiration + time.Hour).Unix()},
