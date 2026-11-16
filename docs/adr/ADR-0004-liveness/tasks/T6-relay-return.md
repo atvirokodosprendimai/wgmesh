@@ -84,6 +84,15 @@ a=$(go test ./pkg/daemon -run '^(TestBuildDesiredKeepsRelayedPeerProbeOnly|TestP
 - 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · reconnect does not skip relay-path peers · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
 - 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/daemon/relay_probe.go` · probe-only peer sends no clear · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
 - 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · SetPeerArgs drops the clear · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · probe-only entry carries the mesh IP · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · apply step skips an empty list again · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · switch read inverted · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · health evaluation does not skip relay-routed peers · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · reconnect does not skip relay-routed peers · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/daemon/relay_probe.go` · probe-only peer sends no clear · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · SetPeerArgs drops the clear · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · probe-only without a usable endpoint · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 16e6483* · mutant killed · exit 1 · `pkg/daemon/relay_probe.go` · gauge labelled with the full key · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
 
 ## Invariants
 
@@ -132,3 +141,14 @@ Stop and ask if S2 shows that an empty AllowedIPs list still lets WireGuard acce
 - 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:24464
 - 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:15151
 - 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:11388
+- 2026-11-16 · 16e6483* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:1 · test-lock-sha256:ba758076690261cdd8379f4321d39af65af8359baeef30ce215b4637fe479816 · test-lock-file:docs/adr/locks/ba758076690261cdd8379f4321d39af65af8359baeef30ce215b4637fe479816.lock · test-lock-kind:replace
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:14978
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:12951
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:13093
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:14716
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:13618
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:14659
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:13859
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:13840
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:14043
+- 2026-11-16 · 16e6483* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:9834
