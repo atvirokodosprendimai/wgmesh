@@ -1,12 +1,16 @@
 package ssh
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
@@ -22,17 +26,100 @@ const (
 	EnvInsecureHostKey = "WGMESH_SSH_INSECURE_HOST_KEY"
 )
 
+// knownHostsPath returns the known_hosts file named by the environment.
+func knownHostsPath() (string, error) {
+	if path := os.Getenv(EnvKnownHosts); path != "" {
+		return path, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot locate known_hosts (no home directory: %v): set %s", err, EnvKnownHosts)
+	}
+	return filepath.Join(home, ".ssh", "known_hosts"), nil
+}
+
 // defaultHostKeyCallback builds the verifier from the environment.
 func defaultHostKeyCallback() (ssh.HostKeyCallback, error) {
-	path := os.Getenv(EnvKnownHosts)
-	if path == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, fmt.Errorf("cannot locate known_hosts (no home directory: %v): set %s", err, EnvKnownHosts)
-		}
-		path = filepath.Join(home, ".ssh", "known_hosts")
+	path, err := knownHostsPath()
+	if err != nil {
+		return nil, err
 	}
 	return newHostKeyCallback(path, os.Getenv(EnvInsecureHostKey) == "1", os.Stderr)
+}
+
+// defaultHostKeyAlgorithms returns the host key algorithms to offer when
+// dialing addr ("host:port"), or nil for the library default.
+func defaultHostKeyAlgorithms(addr string) []string {
+	if os.Getenv(EnvInsecureHostKey) == "1" {
+		return nil
+	}
+	path, err := knownHostsPath()
+	if err != nil {
+		return nil
+	}
+	return knownHostKeyAlgorithms(path, addr)
+}
+
+// knownHostKeyAlgorithms lists the host key algorithms for the key types the
+// known_hosts file at path holds for addr, followed by the other supported
+// ones. Without it the library offers ECDSA first, and a host recorded only
+// by its Ed25519 key (what "ssh once and accept" stores) looks changed.
+// The fallback algorithms only matter when no known type is offered; the
+// strict callback then reports the changed key instead of a bare
+// "no common algorithm". It returns nil (library default) when the host is
+// unknown or matched by an @cert-authority line.
+func knownHostKeyAlgorithms(path, addr string) []string {
+	verify, err := knownhosts.New(path)
+	if err != nil {
+		return nil
+	}
+	// A throwaway key never matches, so the error lists every known key.
+	pub, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return nil
+	}
+	probe, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		return nil
+	}
+	var keyErr *knownhosts.KeyError
+	if !errors.As(verify(addr, &net.TCPAddr{IP: net.IPv4zero}, probe), &keyErr) || len(keyErr.Want) == 0 {
+		return nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	lines := strings.Split(string(data), "\n")
+
+	// Promote only algorithms the library enables by default, so a saved
+	// ssh-rsa or ssh-dss key never brings back SHA-1 RSA or DSA signatures.
+	supported := ssh.SupportedAlgorithms().HostKeys
+	var algos []string
+	for _, known := range keyErr.Want {
+		// Want also holds matching @cert-authority keys. Those vouch for
+		// certificates of any type, so keep the library default.
+		if known.Line >= 1 && known.Line <= len(lines) &&
+			strings.HasPrefix(strings.TrimSpace(lines[known.Line-1]), "@cert-authority") {
+			return nil
+		}
+		types := []string{known.Key.Type()}
+		if types[0] == ssh.KeyAlgoRSA {
+			types = []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}
+		}
+		for _, t := range types {
+			if slices.Contains(supported, t) && !slices.Contains(algos, t) {
+				algos = append(algos, t)
+			}
+		}
+	}
+	for _, t := range supported {
+		if !slices.Contains(algos, t) {
+			algos = append(algos, t)
+		}
+	}
+	return algos
 }
 
 // newHostKeyCallback verifies host keys against the known_hosts file at path.

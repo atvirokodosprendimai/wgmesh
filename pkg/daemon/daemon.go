@@ -48,6 +48,7 @@ type peerProbeSession struct {
 
 // Daemon manages the mesh node lifecycle
 type Daemon struct {
+	stateFile              string // local node state file, set by initLocalNode
 	config                 *Config
 	localNode              *LocalNode
 	peerStore              *PeerStore
@@ -98,7 +99,9 @@ type RPCServer interface {
 
 // LocalNode represents our local WireGuard node.
 // The WG endpoint is accessed via GetEndpoint/SetEndpoint to allow
-// concurrent updates from discovery goroutines.
+// concurrent updates from discovery goroutines. RoutableNetworks changes on
+// SIGHUP reload, so once the node is shared it must be accessed only via
+// GetRoutableNetworks/SetRoutableNetworks.
 type LocalNode struct {
 	WGPubKey         string
 	WGPrivateKey     string
@@ -111,6 +114,12 @@ type LocalNode struct {
 
 	endpointMu sync.RWMutex
 	wgEndpoint string
+	// pendingSTUN is the STUN value waiting for its third identical
+	// observation; both fields are guarded by endpointMu.
+	pendingSTUN      string
+	pendingSTUNCount int
+
+	routesMu sync.RWMutex // guards RoutableNetworks
 }
 
 // GetEndpoint returns the current WireGuard endpoint (thread-safe).
@@ -125,6 +134,79 @@ func (n *LocalNode) SetEndpoint(ep string) {
 	n.endpointMu.Lock()
 	defer n.endpointMu.Unlock()
 	n.wgEndpoint = ep
+}
+
+// EndpointSource names where an endpoint observation came from.
+type EndpointSource string
+
+const (
+	// EndpointInterface is a global IPv6 address read from a local interface.
+	EndpointInterface EndpointSource = "interface"
+	// EndpointReflection is the address a peer reflected back to us.
+	EndpointReflection EndpointSource = "reflection"
+	// EndpointSTUN is the answer of a STUN server.
+	EndpointSTUN EndpointSource = "stun"
+)
+
+// stunConfirmations is how many identical STUN observations in a row replace
+// a usable endpoint (#828: dual-egress networks flapped between a STUN answer
+// and a peer reflection).
+const stunConfirmations = 3
+
+// ObserveEndpoint applies an observed endpoint and reports whether the
+// announced endpoint changed. While the current endpoint is empty or
+// unspecified any source applies at once. An interface address or a peer
+// reflection applies at once and discards a pending STUN value. A STUN answer
+// that differs from the current endpoint applies only on its third identical
+// observation in a row; one equal to it discards the pending value.
+// It sets the field itself under endpointMu and does not call SetEndpoint:
+// SetEndpoint takes endpointMu too, so calling it here would deadlock.
+func (n *LocalNode) ObserveEndpoint(source EndpointSource, endpoint string) bool {
+	n.endpointMu.Lock()
+	defer n.endpointMu.Unlock()
+	if source == EndpointSTUN && endpoint != n.wgEndpoint && !endpointUnspecified(n.wgEndpoint) {
+		if endpoint == n.pendingSTUN {
+			n.pendingSTUNCount++
+		} else {
+			n.pendingSTUN, n.pendingSTUNCount = endpoint, 1
+		}
+		if n.pendingSTUNCount < stunConfirmations {
+			return false
+		}
+	}
+	n.pendingSTUN, n.pendingSTUNCount = "", 0
+	changed := n.wgEndpoint != endpoint
+	n.wgEndpoint = endpoint
+	return changed
+}
+
+// endpointUnspecified reports whether ep is empty or has an unspecified
+// host (0.0.0.0, ::).
+func endpointUnspecified(ep string) bool {
+	if ep == "" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(ep)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsUnspecified()
+}
+
+// GetRoutableNetworks returns a copy of the advertised networks (thread-safe).
+func (n *LocalNode) GetRoutableNetworks() []string {
+	n.routesMu.RLock()
+	defer n.routesMu.RUnlock()
+	return append([]string(nil), n.RoutableNetworks...)
+}
+
+// SetRoutableNetworks stores a copy of the advertised networks (thread-safe).
+func (n *LocalNode) SetRoutableNetworks(networks []string) {
+	networks = append([]string(nil), networks...)
+	n.routesMu.Lock()
+	defer n.routesMu.Unlock()
+	n.RoutableNetworks = networks
 }
 
 // DiscoveryLayer is the interface for discovery implementations
@@ -202,7 +284,60 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		cancel:                 cancel,
 	}
 
+	d.peerStore.SetPolicy(d.admitPolicy())
+
 	return d, nil
+}
+
+// admitPolicy is what the daemon lends the peer store: the local claim, read
+// when a decision is made, the derivation of a key's mesh IP, and the warning counter.
+func (d *Daemon) admitPolicy() *Policy {
+	return &Policy{
+		Local: func() (key, ip string) {
+			if d.localNode == nil {
+				return "", ""
+			}
+			return d.localNode.WGPubKey, d.localNode.MeshIP
+		},
+		MeshNet:      d.meshNet(),
+		Derive:       d.deriveMeshIP,
+		OnWarn:       RecordAdmitWarning,
+		AcceptRoutes: d.acceptRoutes,
+	}
+}
+
+// meshNet is the mesh network: the custom subnet, or 10.<b0>.0.0/16 from the
+// first byte Keys.MeshSubnet holds (the default derivation fills the other
+// two octets of every address).
+func (d *Daemon) meshNet() *net.IPNet {
+	if s := d.config.CustomSubnet; s != nil {
+		return &net.IPNet{IP: s.IP.Mask(s.Mask), Mask: s.Mask}
+	}
+	return &net.IPNet{IP: net.IPv4(10, d.config.Keys.MeshSubnet[0], 0, 0).To4(), Mask: net.CIDRMask(16, 32)}
+}
+
+// deriveMeshIP is the address a key derives for a nonce: 0 is the natural
+// derivation, 1 and up the collision-nonce one (a different hash input, see
+// DeriveMeshIPWithNonce). It returns "" when the custom subnet is unusable.
+func (d *Daemon) deriveMeshIP(pubKey string, nonce int) string {
+	secret, subnet := d.config.Secret, d.config.CustomSubnet
+	if subnet != nil {
+		var ip string
+		var err error
+		if nonce == 0 {
+			ip, err = crypto.DeriveMeshIPInSubnet(subnet, pubKey, secret)
+		} else {
+			ip, err = crypto.DeriveMeshIPInSubnetWithNonce(subnet, pubKey, secret, nonce)
+		}
+		if err != nil {
+			return ""
+		}
+		return ip
+	}
+	if nonce == 0 {
+		return crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, pubKey, secret)
+	}
+	return DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, pubKey, secret, nonce)
 }
 
 // SetDHTDiscovery sets the DHT discovery layer
@@ -358,7 +493,8 @@ func (d *Daemon) initLocalNode() error {
 	hostname = announceableHostname(hostname)
 
 	// Try to load existing key from state file
-	stateFile := filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
+	d.stateFile = filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
+	stateFile := d.stateFile
 	node, err := loadLocalNode(stateFile)
 	if err == nil && node != nil {
 		d.localNode = node
@@ -394,7 +530,7 @@ func (d *Daemon) initLocalNode() error {
 			}
 		}
 
-		d.localNode.RoutableNetworks = d.config.AdvertiseRoutes
+		d.localNode.SetRoutableNetworks(d.config.AdvertiseRoutes)
 		d.localNode.Introducer = d.config.Introducer
 		d.localNode.Hostname = hostname
 		return nil
@@ -590,6 +726,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 
 	prevRelayRoutes := d.currentRelayRoutesSnapshot()
 	prevDirectStable := d.directStableCyclesSnapshot()
+	ownNetworks := d.ownRoutableNetworks()
 
 	for _, p := range peers {
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" || p.MeshIP == "" {
@@ -622,7 +759,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 				if p.MeshIPv6 != "" {
 					d.addAllowedIP(desired, relay, p.MeshIPv6+"/128")
 				}
-				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
+				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, ownNetworks) {
 					network = strings.TrimSpace(network)
 					if network != "" {
 						d.addAllowedIP(desired, relay, network)
@@ -636,7 +773,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 		if p.MeshIPv6 != "" {
 			d.addAllowedIP(desired, p, p.MeshIPv6+"/128")
 		}
-		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, d.localNode.RoutableNetworks) {
+		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, ownNetworks) {
 			network = strings.TrimSpace(network)
 			if network != "" {
 				d.addAllowedIP(desired, p, network)
@@ -1379,7 +1516,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	allowedCSV := reconnectAllowedCSV(peer, d.localNode.RoutableNetworks)
+	allowedCSV := reconnectAllowedCSV(peer, d.ownRoutableNetworks())
 	if allowedCSV == "" {
 		return
 	}
@@ -1397,9 +1534,9 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
 	}
-	log.Printf("[Health] Evicting unresponsive peer %s... from active pool", shortKey(peer.WGPubKey))
+	log.Printf("[Health] Evicting unresponsive peer %s... from active pool; hidden from mentions for %s unless it speaks first", shortKey(peer.WGPubKey), TombstoneTTL)
 	d.markTemporarilyOffline(peer.WGPubKey)
-	d.peerStore.Remove(peer.WGPubKey)
+	d.peerStore.Withdraw(peer.WGPubKey, "evicted")
 	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
 		log.Printf("[Health] Failed to remove evicted peer %s... from WireGuard: %v", shortKey(peer.WGPubKey), err)
 	}
@@ -1670,7 +1807,7 @@ func (d *Daemon) handleSIGHUP() {
 	opts, err := LoadReloadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes or log-level)", path)
+			log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes, accept-routes or log-level)", path)
 		} else {
 			log.Printf("[Reload] Failed to load reload file %s: %v", path, err)
 		}
@@ -1689,6 +1826,29 @@ func (d *Daemon) GetAdvertiseRoutes() []string {
 	return out
 }
 
+// acceptRoutes is the operator's accept list as networks (R9), read under the
+// config lock; nil means no list. The entries were validated when they were set.
+func (d *Daemon) acceptRoutes() []*net.IPNet {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
+	var out []*net.IPNet
+	for _, s := range d.config.AcceptRoutes {
+		if _, n, err := net.ParseCIDR(s); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// ownRoutableNetworks returns a copy of the local node's RoutableNetworks,
+// which SIGHUP reload replaces.
+func (d *Daemon) ownRoutableNetworks() []string {
+	if d.localNode == nil {
+		return nil
+	}
+	return d.localNode.GetRoutableNetworks()
+}
+
 // GetLogLevel returns the current log level (thread-safe).
 func (d *Daemon) GetLogLevel() string {
 	d.configMu.RLock()
@@ -1700,6 +1860,8 @@ func (d *Daemon) GetLogLevel() string {
 // the WireGuard interface or DHT connections.  It updates:
 //   - AdvertiseRoutes (triggers immediate reconcile on next tick)
 //   - LogLevel
+//   - AcceptRoutes (judges later offers; routes already stored change when the
+//     peer next announces)
 //
 // Non-reloadable fields (Secret, InterfaceName, WGListenPort, Privacy, Gossip)
 // are silently ignored.
@@ -1716,8 +1878,15 @@ func (d *Daemon) reloadConfig(opts DaemonOpts) {
 		log.Printf("[Reload] AdvertiseRoutes: %v → %v", d.config.AdvertiseRoutes, opts.AdvertiseRoutes)
 		d.config.AdvertiseRoutes = opts.AdvertiseRoutes
 		if d.localNode != nil {
-			d.localNode.RoutableNetworks = opts.AdvertiseRoutes
+			d.localNode.SetRoutableNetworks(opts.AdvertiseRoutes)
 		}
+	}
+
+	// nil = the key is absent from the reload file (no change); non-nil and
+	// empty = "accept-routes=" (clear the list, open the node).
+	if opts.AcceptRoutes != nil && !routeSlicesEqual(d.config.AcceptRoutes, opts.AcceptRoutes) {
+		log.Printf("[Reload] AcceptRoutes: %v → %v", d.config.AcceptRoutes, opts.AcceptRoutes)
+		d.config.AcceptRoutes = opts.AcceptRoutes
 	}
 }
 

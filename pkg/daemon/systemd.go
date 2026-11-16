@@ -44,6 +44,7 @@ type SystemdServiceConfig struct {
 	InterfaceName       string
 	ListenPort          int
 	AdvertiseRoutes     []string
+	AcceptRoutes        []string
 	Privacy             bool
 	Gossip              bool
 	DisableLANDiscovery bool
@@ -83,6 +84,9 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	}
 	if len(cfg.AdvertiseRoutes) > 0 {
 		args = append(args, "--advertise-routes", strings.Join(cfg.AdvertiseRoutes, ","))
+	}
+	if len(cfg.AcceptRoutes) > 0 {
+		args = append(args, "--accept-routes", strings.Join(cfg.AcceptRoutes, ","))
 	}
 	if cfg.Privacy {
 		args = append(args, "--privacy")

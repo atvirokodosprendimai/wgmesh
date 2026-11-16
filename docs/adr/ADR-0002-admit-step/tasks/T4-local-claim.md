@@ -17,7 +17,7 @@ A mesh IP collision between the local node and a remote peer is detected and dec
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/node/claims.go` | add | `Claim{Key, IP string}`, `Bound(claim, derive, maxNonce)`, `Winner(a, b Claim, derive, warn func(rule string))`, `ResolveClaims(local Claim, peers []*PeerInfo, derive) []Collision`; `maxNonce` is 10, the loop bound of `DeriveMeshIPWithCollisionCheck` (`pkg/daemon/collision.go:160`) |
+| `pkg/node/claims.go` | add | `Claim{Key, IP string}`, `Bound(claim, derive, maxNonce)`, `Winner(a, b Claim, derive, warn func(rule string))`, `ResolveClaims(local Claim, peers []*PeerInfo, derive) []Collision`; `maxNonce` is 10, the loop bound of `DeriveMeshIPWithCollisionCheck` (`pkg/daemon/collision.go:171`) |
 | `pkg/node/admit.go` | edit | `EnforceIPBinding` variable (false) |
 | `pkg/daemon/daemon.go` | edit | build the `Policy` (`Local` closure over `localNode`, `Derive` closure, `OnWarn`) and call `peerStore.SetPolicy` before discovery starts. `Derive(key, 0)` is the natural derivation (`crypto.DeriveMeshIP`, or `DeriveMeshIPInSubnet` with a custom subnet) and `Derive(key, n)` for n of 1 or more is `DeriveMeshIPWithNonce` (or `DeriveMeshIPInSubnetWithNonce`): the two families hash different inputs (`derive.go:155-156` against `collision.go:75-76`) |
 | `pkg/daemon/metrics.go` | edit | counter `wgmesh_admit_warnings_total{rule}` and the function `OnWarn` calls |
@@ -53,8 +53,8 @@ a=$(go test ./pkg/node -run '^(TestClaimOrderBoundBeatsUnbound|TestClaimOrderFal
 | `TestBoundAcceptsNonceOneToTen` | `pkg/node/claims_test.go` | an IP derived with nonce 1 and with nonce 10 is bound, nonce 11 is not | — | S1, S2 |
 | `TestLocalNodeLosesCollisionAgainstRemote` | `pkg/daemon/collision_test.go` | the daemon re-derives the local IP when the local key is the loser against a remote peer in the store (red today) | — | S1, S4 |
 | `TestLegacyWinnerAtReleaseN` | `pkg/daemon/collision_test.go` | with `EnforceIPBinding` false the lower key moves, and a `winner-differs` warning is counted when the bound order would choose the other | — | S1, S2, S4 |
-| `TestMixedWinnerRulesConverge` | `pkg/daemon/collision_test.go` | a legacy-order node and a bound-order node with two unbound or two bound claims both re-derive and end on different addresses | — | S1, S4 |
-| `TestMixedWinnerNeitherMovesIsNotWorse` | `pkg/daemon/collision_test.go` | old node with the lower key and an unbound address against a new node with a bound address: neither moves, which is what the legacy rule alone does, and the warning is counted | — | S1, S4 |
+| `TestMixedWinnerRulesConverge` | `pkg/daemon/collision_test.go` | an old-order node with the higher key and a bound address against a bound-order node with the lower key and an unbound address: both re-derive and end on different addresses; two claims of one class make the rules agree and only the higher key moves | — | S1, S4 |
+| `TestMixedWinnerNeitherMovesIsNotWorse` | `pkg/daemon/collision_test.go` | old node with the lower key and an unbound address against a new node with a bound address: neither moves, which is what main does today where the local node is not in the table (#856), and the old node counts one warning | — | S1, S4 |
 | `TestDaemonInstallsAdmitPolicy` | `pkg/daemon/daemon_test.go` | after daemon construction the store has a policy whose `Local` returns the local key and IP | — | S1, S4 |
 | `TestPolicyDeriveZeroIsNaturalDerivation` | `pkg/daemon/daemon_test.go` | `Derive(key, 0)` equals `crypto.DeriveMeshIP` (and the custom-subnet form), `Derive(key, 1)` equals `DeriveMeshIPWithNonce(.., 1)` | — | S1, S4 |
 | `TestAdmitWarningCounterCounts` | `pkg/daemon/metrics_test.go` | `OnWarn("winner-differs")` increments `wgmesh_admit_warnings_total{rule="winner-differs"}` | — | S1, S4 |
@@ -66,9 +66,15 @@ a=$(go test ./pkg/node -run '^(TestClaimOrderBoundBeatsUnbound|TestClaimOrderFal
 | 1 — exists | the seven tests |
 | 2 — something selects it | `reconcile` calls `CheckAndResolveCollisions`, which calls `ResolveClaims`; dropping the local claim turns `TestLocalNodeLosesCollisionAgainstRemote` red |
 | 3 — the caller can discover it | doc comments; T11 amends the daemon support spec |
-| 4 — it is used | the `[Collision]` log lines and the `winner-differs` counter registered by T6 |
+| 4 — it is used | the `[Collision]` log lines and the `winner-differs` counter registered by T4 in `RegisterMetrics` (T6 registers nothing) |
 
 ## Mutation Log
+- 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · the local claim is dropped from ResolveClaims: TestResolveClaimsIncludesLocal and TestLocalNodeLosesCollisionAgainstRemote must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · Winner ignores EnforceIPBinding: TestClaimOrderBoundBeatsUnbound must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 45f695e* · mutant killed · exit 1 · `pkg/node/claims.go` · Bound tries only nonce 0: TestBoundAcceptsNonceOneToTen must go red · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 97cd984* · mutant killed · exit 1 · `pkg/node/claims.go` · round 2: the local claim is dropped from ResolveClaims · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 97cd984* · mutant killed · exit 1 · `pkg/node/claims.go` · round 2: Winner ignores EnforceIPBinding · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
+- 2026-11-15 · 97cd984* · mutant killed · exit 1 · `pkg/node/claims.go` · round 2: Bound tries only nonce 0 · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837
 
 ## Invariants
 
@@ -91,3 +97,27 @@ Stop and ask if the daemon cannot build a local claim without a lock the daemon 
 - Refusing a claim (T6): this task orders claims, it does not refuse them.
 
 ## Verification Log
+- 2026-11-15 · 45f695e* · exit 1 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:946 · test-lock-sha256:993eb20d5df4fefcad4448536e2a595c404bebcc15c78b94cff8fe8dc799eb16 · test-lock-file:docs/adr/locks/993eb20d5df4fefcad4448536e2a595c404bebcc15c78b94cff8fe8dc799eb16.lock
+  ```
+  --- last 10 line(s) of stderr (of 35 after folding 35 raw)
+      claims_test.go:141: an address derived with nonce 5 is not bound
+      claims_test.go:141: an address derived with nonce 6 is not bound
+      claims_test.go:141: an address derived with nonce 7 is not bound
+      claims_test.go:141: an address derived with nonce 8 is not bound
+      claims_test.go:141: an address derived with nonce 9 is not bound
+      claims_test.go:141: an address derived with nonce 10 is not bound
+  --- FAIL: TestBoundAcceptsNonceOneToTen (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.004s
+  FAIL
+  ```
+- 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:8695
+- 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:9592
+- 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:8206
+- 2026-11-15 · 45f695e* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:5663
+- 2026-11-15 · 97cd984* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:0 · test-lock-sha256:d693381a04b89e7873b51f80903f911a6beb2359a0ad8c652a9604db0b38e37b · test-lock-file:docs/adr/locks/d693381a04b89e7873b51f80903f911a6beb2359a0ad8c652a9604db0b38e37b.lock · test-lock-kind:replace
+- 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6804
+- 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6977
+- 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6996
+- 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:5019
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:4567

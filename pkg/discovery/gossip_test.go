@@ -3,6 +3,7 @@ package discovery
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/json"
 	"net"
 	"testing"
 	"time"
@@ -202,6 +203,33 @@ func TestHandleAnnouncementDropsWildcardEndpointWithoutSender(t *testing.T) {
 	}
 }
 
+// A gossip announcement without an endpoint, heard from a sender, stores the
+// sender IP with the default port, marked guessed.
+func TestHandleAnnouncementEmptyEndpointStoresGuess(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+
+	gossip, err := NewMeshGossip(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gossip.HandleAnnounceFrom(&crypto.PeerAnnouncement{
+		Protocol:  crypto.ProtocolVersion,
+		WGPubKey:  "remote-key",
+		MeshIP:    "10.0.0.2",
+		Timestamp: time.Now().Unix(),
+	}, &net.UDPAddr{IP: net.ParseIP("192.168.1.44"), Port: 50000})
+
+	peer, ok := store.Get("remote-key")
+	if !ok {
+		t.Fatal("expected remote-key in peer store")
+	}
+	if peer.Endpoint != "192.168.1.44:51820" || !peer.EndpointGuessed {
+		t.Fatalf("stored endpoint %q guessed=%v, want 192.168.1.44:51820 guessed=true", peer.Endpoint, peer.EndpointGuessed)
+	}
+}
+
 func TestNewMeshGossipWithExchangeSetsExchange(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
@@ -375,4 +403,108 @@ func TestMeshGossipExchangeModeRestartAfterStop(t *testing.T) {
 	default:
 	}
 	stopTwice(t, g)
+}
+
+// TestGossipTransitiveOffersSecondHand verifies that a gossip KnownPeers
+// mention cannot rewrite the named peer's mesh IP, while the peer's own
+// announcement can.
+func TestGossipTransitiveOffersSecondHand(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+
+	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode.SetEndpoint("127.0.0.1:51820")
+	gossip, err := NewMeshGossip(cfg, localNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	announce := func(from, meshIP string, known ...crypto.KnownPeer) {
+		gossip.HandleAnnounceFrom(&crypto.PeerAnnouncement{
+			Protocol:   crypto.ProtocolVersion,
+			WGPubKey:   from,
+			MeshIP:     meshIP,
+			WGEndpoint: "192.168.1.10:51820",
+			Timestamp:  time.Now().Unix(),
+			KnownPeers: known,
+		}, nil)
+	}
+	meshIP := func(key string) string {
+		t.Helper()
+		peer, ok := store.Get(key)
+		if !ok {
+			t.Fatalf("expected %s in peer store", key)
+		}
+		return peer.MeshIP
+	}
+
+	announce("remote-B", "10.0.0.3")
+	announce("remote-A", "10.0.0.2", crypto.KnownPeer{WGPubKey: "remote-B", MeshIP: "10.0.0.66", WGEndpoint: "192.168.1.20:51820"})
+	if got := meshIP("remote-B"); got != "10.0.0.3" {
+		t.Errorf("after a mention by remote-A, remote-B MeshIP = %q, want 10.0.0.3", got)
+	}
+	announce("remote-B", "10.0.0.4")
+	if got := meshIP("remote-B"); got != "10.0.0.4" {
+		t.Errorf("after its own announcement, remote-B MeshIP = %q, want 10.0.0.4", got)
+	}
+}
+
+// The standalone announce lists a guessed endpoint with an empty address and
+// keeps the peer's key, like getKnownPeers (#839).
+func TestStandaloneAnnounceSkipsGuessedEndpoint(t *testing.T) {
+	cfg := newTestConfig(t)
+	store := daemon.NewPeerStore()
+	now := time.Now()
+	key := func(b byte) string { return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{b}, 32)) }
+	targetKey, guessedKey, advertisedKey, localKey := key(1), key(2), key(3), key(4)
+	store.SetPeerDirectly(targetKey, &daemon.PeerInfo{WGPubKey: targetKey, MeshIP: "127.0.0.1", LastSeen: now})
+	store.SetPeerDirectly(guessedKey, &daemon.PeerInfo{WGPubKey: guessedKey, Endpoint: "203.0.113.1:51820", EndpointGuessed: true, LastSeen: now})
+	store.SetPeerDirectly(advertisedKey, &daemon.PeerInfo{WGPubKey: advertisedKey, Endpoint: "198.51.100.7:51821", LastSeen: now})
+
+	gossip, err := NewMeshGossip(cfg, &daemon.LocalNode{WGPubKey: localKey, MeshIP: "10.0.0.1"}, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recv, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Skipf("no loopback UDP: %v", err)
+	}
+	defer recv.Close()
+	send, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Skipf("no loopback UDP: %v", err)
+	}
+	defer send.Close()
+	gossip.port = uint16(recv.LocalAddr().(*net.UDPAddr).Port)
+
+	gossip.exchangeWithRandomPeer(send)
+
+	buf := make([]byte, 65535)
+	if err := recv.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	n, _, err := recv.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("no announce received: %v", err)
+	}
+	// Raw open: the receiver's validation would reject the peers listed
+	// without a mesh IP, which only keeps them out of the target choice.
+	_, plaintext, err := crypto.OpenEnvelopeRaw(buf[:n], cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ann crypto.PeerAnnouncement
+	if err := json.Unmarshal(plaintext, &ann); err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, kp := range ann.KnownPeers {
+		got[kp.WGPubKey] = kp.WGEndpoint
+	}
+	if ep, ok := got[guessedKey]; !ok || ep != "" {
+		t.Errorf("guessed peer listed = %v with endpoint %q; want listed with an empty endpoint", ok, ep)
+	}
+	if got[advertisedKey] != "198.51.100.7:51821" {
+		t.Errorf("advertised peer endpoint = %q, want 198.51.100.7:51821", got[advertisedKey])
+	}
 }

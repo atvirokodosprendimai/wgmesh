@@ -8,17 +8,29 @@ type PeerInfo = node.PeerInfo
 type PeerStore = node.PeerStore
 type PeerEvent = node.PeerEvent
 type PeerEventKind = node.PeerEventKind
+type Candidate = node.Candidate
+type Hand = node.Hand
+type Source = node.Source
+type Decision = node.Decision
+type Policy = node.Policy
 
 const (
 	PeerDeadTimeout   = node.PeerDeadTimeout
 	PeerRemoveTimeout = node.PeerRemoveTimeout
 	PeerEventBufSize  = node.PeerEventBufSize
 	DefaultMaxPeers   = node.DefaultMaxPeers
+	TombstoneTTL      = node.TombstoneTTL
 	PeerEventNew      = node.PeerEventNew
 	PeerEventUpdated  = node.PeerEventUpdated
 
 	LANMethod        = node.LANMethod
 	RendezvousMethod = node.RendezvousMethod
+)
+
+const (
+	FirstHand  = node.FirstHand
+	SecondHand = node.SecondHand
+	Restored   = node.Restored
 )
 
 func NewPeerStore() *PeerStore { return node.NewPeerStore() }

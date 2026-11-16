@@ -29,6 +29,7 @@ type Config struct {
 	InterfaceName   string
 	WGListenPort    int
 	AdvertiseRoutes []string
+	AcceptRoutes    []string
 	LogLevel        string
 	Privacy         bool
 	Gossip          bool
@@ -46,6 +47,7 @@ type DaemonOpts struct {
 	InterfaceName       string
 	WGListenPort        int
 	AdvertiseRoutes     []string
+	AcceptRoutes        []string
 	LogLevel            string
 	Privacy             bool
 	Gossip              bool
@@ -117,9 +119,14 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		}
 	}
 
-	advertiseRoutes, err := normalizeRoutes(opts.AdvertiseRoutes)
+	advertiseRoutes, err := NormalizeRoutes(opts.AdvertiseRoutes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid advertise-routes: %w", err)
+	}
+
+	acceptRoutes, err := parseAcceptRoutes(opts.AcceptRoutes)
+	if err != nil {
+		return nil, err
 	}
 
 	return &Config{
@@ -128,6 +135,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		InterfaceName:   ifaceName,
 		WGListenPort:    listenPort,
 		AdvertiseRoutes: advertiseRoutes,
+		AcceptRoutes:    acceptRoutes,
 		LogLevel:        logLevel,
 		Privacy:         opts.Privacy,
 		Gossip:          opts.Gossip,
@@ -140,12 +148,12 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 	}, nil
 }
 
-// normalizeRoutes trims and validates advertised routes. Empty entries are
-// dropped, each entry must be a CIDR (a bare IP is rejected), host bits are
-// cleared (192.168.1.10/24 -> 192.168.1.0/24, with a warning) and duplicates
-// are removed. Peers drop announcements carrying invalid CIDRs, so a bad entry
+// NormalizeRoutes trims and validates advertised routes. Empty entries are
+// dropped, each entry must be a CIDR or a bare IP (taken as a /32 or /128 host
+// route), host bits are cleared (192.168.1.10/24 -> 192.168.1.0/24), any
+// rewrite is logged as a warning, and duplicates are removed. Peers drop announcements carrying invalid CIDRs, so a bad entry
 // must fail here rather than make this node silently invisible.
-func normalizeRoutes(routes []string) ([]string, error) {
+func NormalizeRoutes(routes []string) ([]string, error) {
 	if routes == nil {
 		return nil, nil
 	}
@@ -156,7 +164,16 @@ func normalizeRoutes(routes []string) ([]string, error) {
 		if r == "" {
 			continue
 		}
-		_, ipnet, err := net.ParseCIDR(r)
+		cidr := r
+		if ip := net.ParseIP(r); ip != nil {
+			// Releases before #849 accepted a bare IP unvalidated; take it
+			// as a host route so their systemd units still start.
+			cidr = r + "/32"
+			if strings.Contains(r, ":") {
+				cidr = r + "/128"
+			}
+		}
+		_, ipnet, err := net.ParseCIDR(cidr)
 		if err != nil {
 			return nil, fmt.Errorf("%q is not a CIDR (expected e.g. 192.168.1.0/24 or 10.0.0.5/32)", r)
 		}
@@ -172,6 +189,23 @@ func normalizeRoutes(routes []string) ([]string, error) {
 	}
 	if len(out) > crypto.MaxRoutableNetworks {
 		return nil, fmt.Errorf("too many routes (%d, max %d)", len(out), crypto.MaxRoutableNetworks)
+	}
+	return out, nil
+}
+
+// parseAcceptRoutes validates the operator's accept-routes list. It is the one
+// place the list is parsed, for the flag, the config and the reload file; it
+// shares the parser of advertise-routes. The single empty string is the empty
+// list (unset on the flag, clear on the reload file); a list that had entries
+// but none survived (",", " , ") is an error, because it would silently become
+// the empty list and open the node.
+func parseAcceptRoutes(routes []string) ([]string, error) {
+	out, err := NormalizeRoutes(routes)
+	if err != nil {
+		return nil, fmt.Errorf("invalid accept-routes: %w", err)
+	}
+	if len(out) == 0 && len(routes) > 0 && !(len(routes) == 1 && routes[0] == "") {
+		return nil, fmt.Errorf("invalid accept-routes: no network in %q", strings.Join(routes, ","))
 	}
 	return out, nil
 }
@@ -210,6 +244,7 @@ func FormatSecretURI(secret string) string {
 // and contains lines of the form KEY=VALUE.  Currently supported keys:
 //
 //	advertise-routes   comma-separated CIDR list
+//	accept-routes      comma-separated CIDR list of approved non-mesh networks
 //	log-level          debug|info|warn|error
 func ReloadConfigPath(ifaceName string) string {
 	return fmt.Sprintf("/var/lib/wgmesh/%s.reload", ifaceName)
@@ -242,11 +277,17 @@ func LoadReloadFile(path string) (DaemonOpts, error) {
 		val = strings.TrimSpace(val)
 		switch key {
 		case "advertise-routes":
-			routes, err := normalizeRoutes(strings.Split(val, ","))
+			routes, err := NormalizeRoutes(strings.Split(val, ","))
 			if err != nil {
 				return DaemonOpts{}, fmt.Errorf("invalid advertise-routes: %w", err)
 			}
 			opts.AdvertiseRoutes = routes
+		case "accept-routes":
+			routes, err := parseAcceptRoutes(strings.Split(val, ","))
+			if err != nil {
+				return DaemonOpts{}, err
+			}
+			opts.AcceptRoutes = routes
 		case "log-level":
 			opts.LogLevel = val
 		}

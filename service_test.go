@@ -12,6 +12,7 @@ import (
 
 	lighthouse "github.com/atvirokodosprendimai/lighthouse-go"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/mesh"
 )
 
@@ -352,6 +353,31 @@ func TestDeriveMeshIPForServiceUsesPersistedState(t *testing.T) {
 				t.Errorf("got %s, want %s", got, want)
 			}
 		})
+	}
+}
+
+// TestServiceAddReadsResolvedIP: after the daemon lost a collision it wrote
+// the nonce-derived address into the state file (T5); service registration
+// reports that address, not the natural one.
+func TestServiceAddReadsResolvedIP(t *testing.T) {
+	secret := "wgmesh://v1/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	keys, err := crypto.DeriveKeys(secret)
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	natural := crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)
+	resolved := daemon.DeriveMeshIPWithNonce(keys.MeshSubnet, "PUBKEY", secret, 1)
+	if resolved == natural {
+		t.Fatalf("test needs distinct addresses, both %s", natural)
+	}
+
+	dir := t.TempDir()
+	state := fmt.Sprintf(`{"wg_pubkey":"PUBKEY","wg_private_key":"x","mesh_ip":%q}`, resolved)
+	if err := os.WriteFile(filepath.Join(dir, "wg0.json"), []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := deriveMeshIPForService(keys, secret, nil, dir); got != resolved {
+		t.Errorf("got %s, want the resolved address %s (natural %s)", got, resolved, natural)
 	}
 }
 

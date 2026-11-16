@@ -1,0 +1,2 @@
+check@2	absent
+body	pkg/node/spec_admit_test.go	TestSpecNamesAdmit	d2beffdb8f24b5634562bdf1e0af206815e7163ff4a9125b625236accc9a179b

@@ -17,6 +17,7 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 
 	desired := make([]routes.Entry, 0)
 	relayRoutes := d.currentRelayRoutesSnapshot()
+	ownNetworks := d.ownRoutableNetworks()
 	meshIPByPubKey := make(map[string]string, len(peers))
 	for _, p := range peers {
 		if p != nil && p.WGPubKey != "" && p.MeshIP != "" {
@@ -36,7 +37,7 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 				gateway = relayIP
 			}
 		}
-		for _, network := range routes.ExcludeOwn(peer.RoutableNetworks, d.localNode.RoutableNetworks) {
+		for _, network := range routes.ExcludeOwn(peer.RoutableNetworks, ownNetworks) {
 			network = strings.TrimSpace(network)
 			if network == "" {
 				continue
@@ -55,7 +56,7 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 	// Removals run before adds, so restore even if an add failed. Only a
 	// removed route can be replaced by the connected route.
 	for _, r := range removed {
-		if len(routes.ExcludeOwn([]string{r.Network}, d.localNode.RoutableNetworks)) == 0 {
+		if len(routes.ExcludeOwn([]string{r.Network}, ownNetworks)) == 0 {
 			restoreConnectedRoute(r.Network)
 		}
 	}
