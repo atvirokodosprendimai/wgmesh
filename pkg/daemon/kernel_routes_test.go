@@ -737,3 +737,45 @@ func TestAttachedRuleIgnoresMeshIPv6AndLinkLocal(t *testing.T) {
 		}
 	})
 }
+
+// `ip route replace` swaps a route atomically, so a gateway change is one
+// replace and no del: a failed replace leaves the old route in the table. A
+// network that is no longer desired is still deleted.
+func TestGatewayChangeIsOneReplaceNoDel(t *testing.T) {
+	peers := []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "192.168.7.0/24")}
+	newHost := func() *routeHost {
+		rh := convergedHost()
+		rh.add("192.168.7.0/24", "10.99.0.9", "wg0")
+		rh.add("192.168.8.0/24", "10.99.0.9", "wg0")
+		return rh
+	}
+
+	t.Run("happy path", func(t *testing.T) {
+		rh := newHost()
+		d := newRouteDaemon(t, rh, &logSink{}, newFakeKernel())
+		got := ticks(t, d, rh, peers, 2)
+		want := []string{"ip route del 192.168.8.0/24 via 10.99.0.9 dev wg0", replaceCmd("192.168.7.0/24", "10.99.0.2")}
+		if !sameLines(got[0], want) || len(got[1]) != 0 {
+			t.Errorf("route writes per tick = %q, want one replace for the changed gateway and one del for the stale network on tick 1, nothing on tick 2", got)
+		}
+		if !rh.has("192.168.7.0/24", "10.99.0.2", "wg0") || rh.has("192.168.7.0/24", "10.99.0.9", "wg0") {
+			t.Error("the route did not move to the new gateway")
+		}
+	})
+
+	t.Run("failed replace keeps the old route", func(t *testing.T) {
+		rh := newHost()
+		rh.replaceErr["192.168.7.0/24"] = errors.New("exit status 2")
+		d := newRouteDaemon(t, rh, &logSink{}, newFakeKernel())
+		ticks(t, d, rh, peers, 1)
+		if !rh.has("192.168.7.0/24", "10.99.0.9", "wg0") {
+			t.Errorf("the failed replace left the network without a route: %q", rh.routeWrites())
+		}
+		if n := rh.count("ip route del 192.168.7.0/24"); n != 0 {
+			t.Errorf("the old route was deleted before its replacement: %q", rh.routeWrites())
+		}
+		if rh.has("192.168.8.0/24", "10.99.0.9", "wg0") {
+			t.Error("a network that is no longer desired was not removed")
+		}
+	})
+}

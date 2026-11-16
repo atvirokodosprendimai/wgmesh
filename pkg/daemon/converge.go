@@ -227,7 +227,10 @@ type routePlan struct {
 
 // planRoutes is pure: per family, the difference between the observed
 // canonical routes and the wanted ones (routes.CalculateDiff). A family whose
-// observe failed plans nothing, so it removes nothing.
+// observe failed plans nothing, so it removes nothing. A network that is
+// added is not removed: `ip route replace` swaps its gateway atomically, and
+// a delete first would leave the network without a route when the replace
+// fails.
 func planRoutes(want []routes.Entry, k kernelObserved) routePlan {
 	var plan routePlan
 	for _, f := range []struct {
@@ -246,7 +249,11 @@ func planRoutes(want []routes.Entry, k kernelObserved) routePlan {
 		}
 		add, remove := routes.CalculateDiff(f.current, desired)
 		plan.Add = append(plan.Add, add...)
-		plan.Remove = append(plan.Remove, remove...)
+		for _, r := range remove {
+			if !hasNetwork(add, routes.Canonical(r.Network, f.ipv6)) {
+				plan.Remove = append(plan.Remove, r)
+			}
+		}
 	}
 	return plan
 }
