@@ -124,9 +124,30 @@ func (d *Daemon) observeRoutes(obs *kernelObserved) {
 }
 
 // parseAddresses reads the output of `ip -o addr show dev <if>`: one
-// netip.Prefix per inet and inet6 line.
+// netip.Prefix per inet and inet6 line. The family word is the third field
+// (`5: wg0    inet 10.99.0.1/16 scope global wg0\ ...`); a point-to-point
+// address printed without a prefix length is a host address.
 func parseAddresses(out []byte) ([]netip.Prefix, error) {
-	return nil, nil
+	var addrs []netip.Prefix
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || (fields[2] != "inet" && fields[2] != "inet6") {
+			continue
+		}
+		if len(fields) < 4 {
+			return nil, fmt.Errorf("parse address line %q: no address", line)
+		}
+		p, err := netip.ParsePrefix(fields[3])
+		if err != nil {
+			a, aerr := netip.ParseAddr(fields[3])
+			if aerr != nil {
+				return nil, fmt.Errorf("parse address line %q: %w", line, err)
+			}
+			p = netip.PrefixFrom(a, a.BitLen())
+		}
+		addrs = append(addrs, p)
+	}
+	return addrs, nil
 }
 
 // observeAddresses reads the addresses of the mesh interface, both families,
@@ -134,6 +155,20 @@ func parseAddresses(out []byte) ([]netip.Prefix, error) {
 // an unparsable line is an entry in obs.Errs for this target; it is never read
 // as "no addresses".
 func (d *Daemon) observeAddresses(want addressDesired, obs *kernelObserved) {
+	if !want.Wanted {
+		return
+	}
+	out, err := cmdExecutor.Command("ip", "-o", "addr", "show", "dev", d.config.InterfaceName).Output()
+	if err != nil {
+		obs.fail(targetAddress, fmt.Errorf("read addresses: %w", commandFailure(out, err)))
+		return
+	}
+	addrs, err := parseAddresses(out)
+	if err != nil {
+		obs.fail(targetAddress, err)
+		return
+	}
+	obs.Addrs = addrs
 }
 
 // hostDefaultElsewhere reads the host's default routes of one family and

@@ -312,9 +312,28 @@ func (d *Daemon) desireForward() forwardDesired {
 }
 
 // desireAddresses is what this node wants of the addresses of the mesh
-// interface.
+// interface: its mesh IPv4 with the prefix length of the mesh, and its mesh
+// IPv6 with /64 unless IPv6 is disabled, as setupWireGuard sets them. It reads
+// the node's addresses once each: collision resolution, which writes them,
+// runs on the same path (reconcile) after the tick. Not wanted off Linux, or
+// without a valid mesh IPv4.
 func (d *Daemon) desireAddresses() addressDesired {
-	return addressDesired{}
+	if d.osName() != "linux" || d.localNode == nil {
+		return addressDesired{}
+	}
+	meshIP, meshIPv6 := d.localNode.MeshIP, d.localNode.MeshIPv6
+	ip, err := netip.ParseAddr(meshIP)
+	v4 := netip.PrefixFrom(ip, d.config.PrefixLen())
+	if err != nil || !ip.Is4() || !v4.IsValid() {
+		return addressDesired{}
+	}
+	want := addressDesired{Wanted: true, Addrs: []netip.Prefix{v4}}
+	if meshIPv6 != "" && !d.config.DisableIPv6 {
+		if ip6, err := netip.ParseAddr(meshIPv6); err == nil && ip6.Is6() {
+			want.Addrs = append(want.Addrs, netip.PrefixFrom(ip6, 64))
+		}
+	}
+	return want
 }
 
 // isOwnNetwork reports whether this node advertises network itself.
