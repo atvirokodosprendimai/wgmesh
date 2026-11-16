@@ -1,0 +1,2 @@
+check@2	absent
+body	pkg/daemon/localnode_alias_test.go	TestLocalNodeIsOneType	252173a5333155f44e12ca4f6b8dd62db830c556143199dfa393aa75bc535518

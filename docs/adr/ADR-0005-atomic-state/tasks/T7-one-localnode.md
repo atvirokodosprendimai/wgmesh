@@ -55,6 +55,7 @@ n=$(go test ./pkg/daemon -run '^TestLocalNodeIsOneType$' -count=1 -v 2>&1 | tee 
 | 4 — it is used | T8; ADR-0002 T9's `ObserveEndpoint` after the move |
 
 ## Mutation Log
+- 2026-11-16 · b848ddf* · mutant killed · exit 1 · `pkg/daemon/peerstore_compat.go` · the alias is replaced by a second struct: TestLocalNodeIsOneType must go red · acceptance-sha256:ad61c9da5e52ff36801db753b2127f4bc844bdd26901757dc9c264e55f11251a
 
 ## Invariants
 
@@ -76,3 +77,15 @@ Stop and ask if ADR-0002 T9 is not merged (there is nothing to move yet), if the
 - `ObserveEndpoint` (ADR-0002 T9; permanent: boundary: owned by ADR-0002).
 
 ## Verification Log
+- 2026-11-16 · b848ddf* · exit 1 · `set -o pipefail …` · acceptance-sha256:ad61c9da5e52ff36801db753b2127f4bc844bdd26901757dc9c264e55f11251a · ms:1179 · test-lock-sha256:761002d792e8d15db32d25adad6f4f206ac03e23c17a3b4a8e6d33685f0f18ee · test-lock-file:docs/adr/locks/761002d792e8d15db32d25adad6f4f206ac03e23c17a3b4a8e6d33685f0f18ee.lock
+  ```
+  --- last 6 line(s) of stderr
+  === RUN   TestLocalNodeIsOneType
+      localnode_alias_test.go:16: daemon.LocalNode (daemon.LocalNode) and node.LocalNode (node.LocalNode) are different types
+  --- FAIL: TestLocalNodeIsOneType (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.004s
+  FAIL
+  ```
+- 2026-11-16 · b848ddf* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad61c9da5e52ff36801db753b2127f4bc844bdd26901757dc9c264e55f11251a · ms:31307
+- 2026-11-16 · b848ddf* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad61c9da5e52ff36801db753b2127f4bc844bdd26901757dc9c264e55f11251a · ms:22996
