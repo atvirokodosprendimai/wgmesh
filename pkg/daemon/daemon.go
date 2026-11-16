@@ -671,12 +671,17 @@ func (d *Daemon) reconcile() {
 	start := time.Now()
 
 	peers := d.peerStore.GetActive()
-	desired, relayRoutes, directStable := d.buildDesiredPeerConfigs(peers)
+	// reconcile decides on data read in this tick: always a fresh fork (maxAge 0), shared by the build and the removal step.
+	st, err := wireguard.ReadState(d.config.InterfaceName, 0)
+	if err != nil {
+		st = nil
+	}
+	desired, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, st.Handshakes())
 	d.relayMu.Lock()
 	d.relayRoutes = relayRoutes
 	d.directStableCycles = directStable
 	d.relayMu.Unlock()
-	if err := d.applyDesiredPeerConfigs(desired); err != nil {
+	if err := d.applyDesiredPeerConfigs(desired, st); err != nil {
 		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
 	}
 
@@ -700,8 +705,9 @@ type desiredPeerConfig struct {
 }
 
 func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
-	return d.buildDesiredPeerConfigsWithHandshakes(peers, handshakes)
+	// Fresh read (maxAge 0): the caller decides on this tick's data. reconcile reads once itself.
+	st, _ := wireguard.ReadState(d.config.InterfaceName, 0)
+	return d.buildDesiredPeerConfigsWithHandshakes(peers, st.Handshakes())
 }
 
 func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handshakes map[string]int64) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
@@ -907,10 +913,11 @@ func (d *Daemon) addAllowedIP(desired map[string]*desiredPeerConfig, peer *PeerI
 	entry.allowed[cidr] = struct{}{}
 }
 
-func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) error {
-	existing, err := wireguard.GetPeers(d.config.InterfaceName)
-	if err == nil {
-		for _, current := range existing {
+// applyDesiredPeerConfigs removes the peers of st that are not desired and
+// sets the desired ones; a nil st (the read failed) skips the removal step.
+func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig, st *wireguard.State) error {
+	if st != nil {
+		for _, current := range st.Peers {
 			if _, ok := desired[current.PublicKey]; !ok {
 				if err := wireguard.RemovePeer(d.config.InterfaceName, current.PublicKey); err != nil {
 					log.Printf("Failed to remove obsolete peer %s...: %v", shortKey(current.PublicKey), err)
@@ -1202,7 +1209,9 @@ func (d *Daemon) meshProbeLoop() {
 func (d *Daemon) probePeersOverMesh() {
 	peers := d.peerStore.GetActive()
 	activeSet := make(map[string]struct{}, len(peers))
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	// Up to ReconcileInterval (5 s) old: ts is compared with HandshakeStaleAfter (150 s) below.
+	st, _ := wireguard.ReadState(d.config.InterfaceName, ReconcileInterval)
+	handshakes := st.Handshakes()
 
 	for _, p := range peers {
 		if p == nil || p.WGPubKey == "" || p.WGPubKey == d.localNode.WGPubKey || p.MeshIP == "" {
@@ -1419,13 +1428,14 @@ func (d *Daemon) probeLocalAddrForRemote(remote string) net.Addr {
 }
 
 func (d *Daemon) checkPeerHealth() {
-	handshakes, err := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	// Up to ReconcileInterval (5 s) old: the handshake is compared with HandshakeStaleAfter (150 s) in shouldTreatPeerAsStale.
+	st, err := wireguard.ReadState(d.config.InterfaceName, ReconcileInterval)
 	if err != nil {
 		return
 	}
-	transfers, err := wireguard.GetPeerTransfers(d.config.InterfaceName)
-	if err != nil {
-		return
+	byKey := make(map[string]wireguard.StatePeer, len(st.Peers))
+	for _, sp := range st.Peers {
+		byKey[sp.PublicKey] = sp
 	}
 
 	peers := d.peerStore.GetActive()
@@ -1438,9 +1448,9 @@ func (d *Daemon) checkPeerHealth() {
 		}
 		activeSet[p.WGPubKey] = struct{}{}
 
-		ts := handshakes[p.WGPubKey]
-		transfer := transfers[p.WGPubKey]
-		currentTotal := transfer.RxBytes + transfer.TxBytes
+		sp := byKey[p.WGPubKey]
+		ts := sp.LatestHandshake
+		currentTotal := sp.RxBytes + sp.TxBytes
 
 		d.healthMu.Lock()
 		prevTotal := d.lastPeerTransferTotal[p.WGPubKey]

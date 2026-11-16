@@ -311,3 +311,14 @@ func TestLegacyReadersPropagateErrors(t *testing.T) {
 		t.Errorf("GetPeerTransfers: want an error from the failing wg, got %v", tr)
 	}
 }
+
+func TestStateHandshakesMapsKeysAndToleratesNil(t *testing.T) {
+	st := &State{Peers: []StatePeer{{PublicKey: "a", LatestHandshake: 7}, {PublicKey: "b"}}}
+	got := st.Handshakes()
+	if len(got) != 2 || got["a"] != 7 || got["b"] != 0 {
+		t.Fatalf("Handshakes() = %v, want a:7 b:0", got)
+	}
+	if (*State)(nil).Handshakes() != nil {
+		t.Fatal("a nil State must give a nil map")
+	}
+}

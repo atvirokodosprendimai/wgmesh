@@ -101,6 +101,19 @@ func (st *State) clone() *State {
 	return &State{Peers: append([]StatePeer(nil), st.Peers...)}
 }
 
+// Handshakes maps each peer's public key to its latest handshake (Unix
+// seconds, 0 = never). A nil State gives a nil map, which reads as no handshakes.
+func (st *State) Handshakes() map[string]int64 {
+	if st == nil {
+		return nil
+	}
+	m := make(map[string]int64, len(st.Peers))
+	for _, p := range st.Peers {
+		m[p.PublicKey] = p.LatestHandshake
+	}
+	return m
+}
+
 // parseState reads dump output: the first line is the interface, each other
 // line with at least 7 columns is a peer. A non-numeric handshake, rx or tx
 // column counts as 0 (the old Sscanf readers ignored the error the same way).
