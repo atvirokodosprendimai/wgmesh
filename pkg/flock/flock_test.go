@@ -253,3 +253,26 @@ func TestTryLockReleaseIsSafeConcurrently(t *testing.T) {
 	}
 	release2()
 }
+
+// A symlink planted at the lock path (a shared directory) is not followed:
+// TryLock fails and the target is not truncated or written.
+func TestTryLockRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "victim")
+	if err := os.WriteFile(target, []byte("precious\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	lock := filepath.Join(dir, "x.lock")
+	if err := os.Symlink(target, lock); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+	release, _, err := TryLock(lock)
+	if err == nil {
+		release()
+		t.Fatal("TryLock followed a symlink at the lock path")
+	}
+	got, rerr := os.ReadFile(target)
+	if rerr != nil || string(got) != "precious\n" {
+		t.Errorf("symlink target changed: %q, %v", got, rerr)
+	}
+}
