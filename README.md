@@ -291,6 +291,7 @@ wgmesh version
 
 - **Message type authentication** and replay handling of peer messages are rolled out in three releases; see [Envelope rollout](docs/envelope-rollout.md).
 - **Admit step** (which peer claims a node accepts: mesh IP, routes, endpoints, the 5-minute tombstone, the `--accept-routes` list) is rolled out in three releases; see [Admit step rollout](docs/admit-rollout.md).
+- **State files, locks and the local node** (atomic state files, the `wgmesh join` interface lock, the RPC socket lock, the moved-aside corrupt identity, what to do when a second `join` is refused) change in release N and one release later; see [State rollout](docs/state-rollout.md).
 ## Architecture
 
 ```
