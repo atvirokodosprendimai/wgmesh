@@ -246,3 +246,35 @@ func TestCheckStaleHandshakesRunsPeerKeyedSweep(t *testing.T) {
 		t.Error("checkStaleHandshakes left a rendezvousBackoff key the store lacks")
 	}
 }
+
+// With DisablePunching transitiveConnectLoop never starts, so
+// checkStaleHandshakes never runs; queryLoop always runs and must sweep too.
+func TestQueryLoopRunsPeerKeyedSweep(t *testing.T) {
+	f, err := parser.ParseFile(token.NewFileSet(), "dht.go", nil, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, swept := false, false
+	ast.Inspect(f, func(n ast.Node) bool {
+		fn, ok := n.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "queryLoop" {
+			return true
+		}
+		found = true
+		ast.Inspect(fn.Body, func(m ast.Node) bool {
+			if c, ok := m.(*ast.CallExpr); ok {
+				if sel, ok := c.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "sweepPeerKeyed" {
+					swept = true
+				}
+			}
+			return true
+		})
+		return false
+	})
+	if !found {
+		t.Fatal("queryLoop not found in dht.go: the parse is looking in the wrong place")
+	}
+	if !swept {
+		t.Error("queryLoop does not call sweepPeerKeyed: nodes with DisablePunching grow controlPeers without bound")
+	}
+}
