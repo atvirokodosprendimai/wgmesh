@@ -20,7 +20,7 @@ README must be regenerated.
 
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
-| T1 | Add the pure `Assess` and make the store's three liveness readers use it | pending | — | `go test ./pkg/node` eleven named tests, then `-race` on node, daemon, discovery |
+| T1 | Add the pure `Assess` and make the store's three liveness readers use it | done | — | `go test ./pkg/node` eleven named tests, then `-race` on node, daemon, discovery |
 | T2 | Feed the handshake and the probe into the store and move every liveness reader to `Alive` (#850) | pending | — | eight named tests in two packages, `LastSeen` age grep count is 0 outside `pkg/node`, then `-race` |
 | T3 | Treat a restored cache entry as dialable for `PeerDeadTimeout` (#851) | pending | — | five named tests in two packages plus the existing cache tests, then `-race` |
 | T4 | Detect a wake from sleep and give the peers a grace period (#829) | pending | — | nine named tests, then `-race`; a human step times a real wake |

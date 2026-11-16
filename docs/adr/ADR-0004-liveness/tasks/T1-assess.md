@@ -68,6 +68,14 @@ n=$(go test ./pkg/node -run '^(TestAssessThresholds|TestAssessNewestEvidenceWins
 | 4 — it is used | every `GetActive` caller (13 sites) from N+1; the disagreement hook is wired to a metric in T2 |
 
 ## Mutation Log
+- 2026-11-16 · 51b9fd2* · mutant killed · exit 1 · `pkg/node/liveness.go` · newest ignores LastDataPlane: TestAssessNewestEvidenceWins and TestGetActiveUsesAssessWhenEnforced must go red · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 51b9fd2* · mutant killed · exit 1 · `pkg/node/liveness.go` · boundary 5m must be Suspect: TestAssessThresholds must go red · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 51b9fd2* · mutant killed · exit 1 · `pkg/node/liveness.go` · switch inverted: TestGetActiveUsesAssessWhenEnforced and TestLegacyAgeStillActsAndReportsDisagreement must go red · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 51b9fd2* · mutant killed · exit 1 · `pkg/node/liveness.go` · GetProbeable drops Suspect: TestGetProbeableIncludesSuspect must go red · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 51b9fd2* · mutant survived · exit 0 · `pkg/node/liveness.go` · ref keeps monotonic reading: TestAssessIgnoresMonotonicReading · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
 
 ## Invariants
 
@@ -92,3 +100,23 @@ Stop and ask if an existing store test needs a changed expectation with the swit
 - Any change to `LastSeen` merge rules (ADR-0002).
 
 ## Verification Log
+- 2026-11-16 · 51b9fd2* · exit 1 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:865 · test-lock-sha256:d2f33a96f17e47010c2a1e63886591cf3c5656e98ac9c1eb2ac854ea42fddd8c · test-lock-file:docs/adr/locks/d2f33a96f17e47010c2a1e63886591cf3c5656e98ac9c1eb2ac854ea42fddd8c.lock
+  ```
+  --- last 10 line(s) of stderr (of 131 after folding 131 raw)
+  --- FAIL: TestLastAliveIsNewestEvidence (0.00s)
+      --- FAIL: TestLastAliveIsNewestEvidence/resumed (0.00s)
+      --- FAIL: TestLastAliveIsNewestEvidence/restored (0.00s)
+      --- FAIL: TestLastAliveIsNewestEvidence/last_seen (0.00s)
+      --- PASS: TestLastAliveIsNewestEvidence/none (0.00s)
+      --- FAIL: TestLastAliveIsNewestEvidence/one_only (0.00s)
+      --- FAIL: TestLastAliveIsNewestEvidence/data_plane (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.005s
+  FAIL
+  ```
+- 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:9572
+- 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:9719
+- 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:10448
+- 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:11754
+- 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:10180
+- 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:7387
