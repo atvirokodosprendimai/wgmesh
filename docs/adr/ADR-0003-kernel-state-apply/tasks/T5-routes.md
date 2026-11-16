@@ -11,13 +11,13 @@
 
 ## Goal
 
-The route target reads `ip -4 route show dev <if>` and `ip -6 route show dev <if>`, compares canonical networks, changes only the difference with one result per item (an IPv6 route with no usable gateway no longer aborts the others), no longer issues forwarding commands, skips or warns about a route to an attached network, warns once when a default route is installed over a host default on another device, and a steady node issues no writes at all.
+The route target reads `ip route show dev <if>` (IPv4, the default family of ip; built as `readRoutes` in `observe.go`) and `ip -6 route show dev <if>`, compares canonical networks, changes only the difference with one result per item (an IPv6 route with no usable gateway no longer aborts the others), no longer issues forwarding commands, skips or warns about a route to an attached network, warns once when a default route is installed over a host default on another device, and a steady node issues no writes at all.
 
 ## Affected Files
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/routes.go` | edit | `getCurrentRoutes` runs both families and canonicalises (`default` per family); `applyRouteDiff` loses the `sysctl` and `ensureWGForwardingRule` calls (`:172-175`, `:180-192` deleted) and returns one result per route instead of stopping at the first failed add (`:167-169`); `syncPeerRoutes` becomes the route target of `converge` |
+| `pkg/daemon/routes.go` | edit | `getCurrentRoutes` is replaced by `readRoutes` in `observe.go` (both families, canonical, `default` per family) and the route target is `convergeRoutes` in `converge.go` (`syncPeerRoutes` stays only as a test wrapper); `applyRouteDiff` loses the `sysctl` and `ensureWGForwardingRule` calls (`:172-175`, `:180-192` deleted) and returns one result per route instead of stopping at the first failed add (`:167-169`); `syncPeerRoutes` becomes the route target of `converge` |
 | `pkg/daemon/desired.go` | edit | an IPv6 route uses the peer's `MeshIPv6` as gateway; a peer without one is skipped with one log line; routes equal to or inside an attached network (`getLocalSubnets`, `daemon.go:860`) get the rule `attached-network`: counted at N on Linux and dropped from routes and AllowedIPs when `EnforceRouteGuard` is true |
 | `pkg/daemon/converge.go` | edit | `EnforceRouteGuard` (`atomic.Bool`, `false`; every access `Load`/`Store`); the rule `host-default`: before adding `0.0.0.0/0` or `::/0` one `ip -4 route show default` (or `-6`), and a default on another device is logged once and counted, the route is installed as today (decision 6, recommendation A) |
 | `pkg/daemon/converge_guard_test.go` | edit | the pattern list gains `ip route` and `applyRouteDiff`; the route commands now live in `converge.go` (writes) and `observe.go` (reads), `routes.go` keeps `restoreConnectedRoute` called only from `converge.go`; the exception for `routes.go` is removed |
@@ -94,7 +94,7 @@ Stop and ask if the observe cannot tell a route we installed from a foreign rout
 
 ## Out of Scope
 
-- macOS (T6).
+- macOS (T6). T6 cannot reuse `routes.CalculateDiff` and the Linux `applyRouteDiff` as they are: macOS routes carry no gateway, `CalculateDiff` only removes routes with a gateway and keys on network and gateway, and the result key and command form are Linux-shaped; T6 needs its own plan and apply (or a managed-route predicate) behind the `goos` seam, and `convergeRoutes`, `observeRoutes` and `attachedSubnet` each return early on non-Linux today, three places to switch.
 - Any transport exemption for a default route (deferred: docs/adr/BACKLOG.md).
 - Policy routing and route metrics (permanent: boundary: decision 6 keeps today's `replace`).
 
