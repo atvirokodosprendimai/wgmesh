@@ -145,9 +145,10 @@ func planForward(want forwardDesired, k kernelObserved) forwardPlan {
 
 // applyForward writes the forwarding plan, one item at a time; a failure of
 // one is a result, never an abort. A missing iptables is logged once, not
-// every tick, and is not a result. The caller holds convergeMu.
-func (d *Daemon) applyForward(plan forwardPlan) []itemResult {
-	if plan.NoIptables != d.forwardNoIptables {
+// every tick, and is not a result; the flag that remembers it is touched only
+// on a tick that observed the target. The caller holds convergeMu.
+func (d *Daemon) applyForward(plan forwardPlan, observed bool) []itemResult {
+	if observed && plan.NoIptables != d.forwardNoIptables {
 		d.forwardNoIptables = plan.NoIptables
 		if plan.NoIptables {
 			d.logf("iptables not found: the FORWARD rule for %s is not managed on this node", d.config.InterfaceName)
@@ -226,7 +227,7 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	d.noteForwardObserve(obs.Errs[targetForward])
 	plan := planKernel(ds.Peers, obs, d.pushedLocked(), d.config.DisableIPv6)
 	results := d.applyKernel(plan)
-	results = append(results, d.applyForward(planForward(ds.Forward, obs))...)
+	results = append(results, d.applyForward(planForward(ds.Forward, obs), ds.Forward.Wanted && obs.Errs[targetForward] == nil)...)
 	d.logResults(results)
 	return ds
 }

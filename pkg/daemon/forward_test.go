@@ -464,3 +464,22 @@ func TestForwardLookPathErrorIsObserveError(t *testing.T) {
 		t.Errorf("an unobserved forward target was written: %q", got)
 	}
 }
+
+// The "iptables not found" line is logged once per stretch of ticks in which
+// the target was observed: an unobserved tick (the /proc read failed) does not
+// reset it.
+func TestForwardNoIptablesLogOnceAcrossReadError(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: false}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+
+	tick(t, d, 1)
+	h.set(func(h *fakeHost) { h.readErr = errors.New("permission denied") })
+	tick(t, d, 1)
+	h.set(func(h *fakeHost) { h.readErr = nil })
+	tick(t, d, 1)
+	if got := ls.count("iptables not found"); got != 1 {
+		t.Errorf("a missing iptables was logged %d times over 3 ticks with a read error on tick 2, want 1; log: %q", got, ls.lines)
+	}
+}
