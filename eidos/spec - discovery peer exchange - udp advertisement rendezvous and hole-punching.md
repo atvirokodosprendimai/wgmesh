@@ -47,7 +47,7 @@ On receiving a REPLY:
     Won't overwrite an existing global IPv6 endpoint with an IPv4 reflection.
     Won't apply private/loopback addresses.
 2. Offer the sender (`"dht"`, first hand) to the peer store.
-3. Route to the pending reply channel if a concurrent `ExchangeWithPeer` is waiting.
+3. Deliver the reply to every concurrent `ExchangeWithPeer` waiting on that address: each call registers its own reply channel with `registerReply(remote)` (capacity 1, keyed by the dialled address string) and removes only its own registration; `handleReply` sends each registered caller a copy of the peer info and skips a full channel. Punch, rendezvous and transitive callers to one address may therefore share one reply (ADR-0005 M5, #855). A reply from a source port that differs from the dialled port misses the registry (BACKLOG).
 
 ### Goodbye
 
@@ -104,6 +104,11 @@ node (introducer) coordinates synchronized hole-punching.
 
 `PeerExchange.UDPConn()` exposes the UDP connection so DHT can share the same port/socket.
 DHT messages will fail decryption and are silently discarded by PeerExchange.
+
+### Start, Stop and restart (ADR-0005 T10)
+
+- `Start` binds the socket and starts one `listenLoop` that receives its own stop channel, connection and wait group as arguments, so a restart cannot change what an old loop uses. `Start` while running is an error.
+- `Stop` closes the connection and waits up to 3 seconds (`exchangeStopTimeout`) for the loop; it is safe to call twice and from several goroutines (a second caller waits for the same loop), and a loop that does not end logs a warning instead of hanging the daemon. After `Stop` returns the loop is gone and `Start` may be called again.
 
 ## Design
 

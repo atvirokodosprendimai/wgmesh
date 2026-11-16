@@ -51,6 +51,12 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
 - On `Stop()`: sends `GOODBYE` to all known peers' control endpoints before shutting down,
   allowing peers to remove this node immediately rather than waiting for dead timeout.
 
+### Run lifecycle (ADR-0005 T10)
+
+- `NewDHTDiscovery` keeps the daemon's context as `parentCtx`. Every `Start` goes through `beginRun`, which refuses a second `Start` while a run is live or starting, fails when `parentCtx` has ended, and derives a fresh context from `parentCtx` (a context cancelled by an earlier `Stop` is never reused). Each run builds its own LAN and gossip layers.
+- `running` is set only after the exchange, gossip, LAN and DHT server started. When a layer fails to start, `Start` returns the error and stops the layers already started (`abortRun`), so a failed `Start` leaves nothing listening and may be retried.
+- `Start` and `Stop` are serialized by one mutex, the bounded waits included: a `Stop` issued during a `Start` waits for it and then stops it. `Stop` waits up to 3 seconds (`dhtStopTimeout`) for the announce, query, persist, transitive-connect and STUN loops, and logs a warning instead of hanging when one does not end.
+
 ### External endpoint detection
 
 - On startup: tries IPv6 first, then STUN-over-IPv4.
@@ -62,7 +68,7 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
   - -5 penalty for EUI-64 addresses (bytes 11–12 are `ff:fe` — embeds MAC, less stable)
   - Deterministic tiebreak: lexicographic
   - IPv6 is preferred: implies no NAT, so `NATType = "unknown"` is set (not `cone` or `symmetric`)
-- **STUN (IPv4 fallback)**: `DetectNATType` with two servers; reports the STUN-derived external IP + WG listen port to `LocalNode.ObserveEndpoint` and sets `localNode.NATType`.
+- **STUN (IPv4 fallback)**: `DetectNATType` with two servers; reports the STUN-derived external IP + WG listen port to `LocalNode.ObserveEndpoint` and calls `LocalNode.SetNATType`.
 - **`ObserveEndpoint(source, endpoint)`** (ADR-0002 R7, `pkg/daemon/daemon.go`) is the one place the announced endpoint changes. Sources: `interface` (global IPv6 from an interface), `reflection` (a peer's `ObservedEndpoint`), `stun`. An `interface` or `reflection` observation applies at once and discards a pending STUN value; any source applies at once while the current endpoint is empty or unspecified; a STUN answer that differs from a usable endpoint applies on its third identical observation in a row (about two minutes after the first differing answer at the 60 s refresh), and one equal to the current endpoint discards the pending value. Not damped: reflection against reflection (second half of #828, `docs/adr/BACKLOG.md`).
 
 ### STUN refresh loop (every 60 seconds)
@@ -89,7 +95,7 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
 - `PeerExchange.ExchangeWithPeer` — contact each DHT-discovered peer address.
 - `pkg/daemon.PeerStore.Offer(peer, "dht")` — offer discovered peers.
 - `DetectNATType`, `DiscoverExternalEndpoint` — STUN queries.
-- `pkg/daemon.LocalNode.ObserveEndpoint`, `.NATType` — update local state.
+- `pkg/daemon.LocalNode.ObserveEndpoint`, `.SetNATType` — update local state.
 
 ## Mapping
 
