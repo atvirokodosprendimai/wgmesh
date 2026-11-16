@@ -77,6 +77,11 @@ func (h *fakeHost) exec(name string, args ...string) ([]byte, error) {
 			return []byte("sysctl: denied"), h.sysctlErr
 		}
 		h.ipForward = true
+	case name == "sysctl" && line == "sysctl -w net.ipv4.ip_forward=0":
+		if h.sysctlErr != nil {
+			return []byte("sysctl: denied"), h.sysctlErr
+		}
+		h.ipForward = false
 	case name == "iptables" && !h.iptablesPresent:
 		return nil, errors.New("executable file not found")
 	case strings.HasPrefix(line, "iptables -C FORWARD "):
@@ -88,6 +93,11 @@ func (h *fakeHost) exec(name string, args ...string) ([]byte, error) {
 		}
 	case strings.HasPrefix(line, "iptables -A FORWARD "):
 		h.ruleInstalled = true
+	case strings.HasPrefix(line, "iptables -D FORWARD "):
+		if !h.ruleInstalled {
+			return []byte("iptables: Bad rule"), exitError{1}
+		}
+		h.ruleInstalled = false
 	default:
 		return nil, fmt.Errorf("fake host: unexpected command %q", line)
 	}
@@ -108,7 +118,7 @@ func (h *fakeHost) writes() []string {
 	defer h.mu.Unlock()
 	var out []string
 	for _, c := range h.cmds {
-		if strings.HasPrefix(c, "sysctl -w") || strings.HasPrefix(c, "iptables -A") {
+		if strings.HasPrefix(c, "sysctl -w") || strings.HasPrefix(c, "iptables -A") || strings.HasPrefix(c, "iptables -D") {
 			out = append(out, c)
 		}
 	}

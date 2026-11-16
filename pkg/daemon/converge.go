@@ -136,6 +136,16 @@ var EnforceRouteGuard atomic.Bool
 // Load or Store.
 var EnforceAddressRemoval atomic.Bool
 
+// EnforceRevertOnExit is the release switch of the rule revert-on-exit: false
+// (release N) only logs, once, what a graceful exit will undo from N+1 and
+// issues no command; true (N+1) deletes the FORWARD rule this run added and
+// restores ip_forward to 0 if this run changed it from 0. Every access is Load
+// or Store.
+var EnforceRevertOnExit atomic.Bool
+
+// revertKernel is the graceful-exit revert (stub).
+func (d *Daemon) revertKernel() {}
+
 // forwardRuleArgs is the FORWARD rule of a mesh interface as iptables
 // arguments after the -C or -A that checks or appends it.
 func forwardRuleArgs(iface string) []string {
