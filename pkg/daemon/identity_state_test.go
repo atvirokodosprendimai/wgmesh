@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,19 +13,14 @@ import (
 	"time"
 )
 
-// Words: the identity file (<iface>.json) holds the node's WireGuard key and
-// mesh IP. initLocalNode generates a key only when that file is MISSING. A file
-// that exists but cannot be used (not JSON, empty, `{}`, a key missing) is
-// CORRUPT: at release N it is renamed to <file>.corrupt-<unix> and a new
-// identity is created; with RefuseCorruptState (N+1) the daemon refuses to
-// start. Any other read error (permission) is neither: it is returned.
-// Why: an unreadable file was treated as absent and a new key and mesh IP were
-// written over it (#870).
-// Invariants: the corrupt bytes are never deleted or overwritten; the new
-// identity goes to the original path; no log or error prints key material.
+// Invariants (the rule text lives in helpers.go and ADR-0005): a file that is
+// MISSING gets a new identity; one that is CORRUPT is moved aside, never
+// deleted or overwritten, and replaced (or refused with RefuseCorruptState);
+// any other read error is neither and is returned. No log or error prints key
+// material.
 //
-// These tests point localNodeStateDir at a temp dir and set RefuseCorruptState,
-// so none of them runs in parallel.
+// These tests point localNodeStateDir at a temp dir, set RefuseCorruptState
+// and capture the log, so none of them runs in parallel.
 
 // identityTestDaemon returns a daemon whose state file will live in a fresh
 // temp dir, and that file's path.
@@ -57,21 +53,30 @@ func corruptCopies(t *testing.T, path string) []string {
 	return m
 }
 
+// corruptSamples are the inputs every corrupt-state test shares: loadLocalNode
+// must call each one ErrStateCorrupt and initLocalNode must move each aside.
+var corruptSamples = []struct{ name, content string }{
+	{"garbage", "not json at all"},
+	{"truncated json", `{"wg_pubkey": "abc`},
+	{"zero bytes", ""},
+	{"empty object", "{}"},
+	{"no private key", `{"wg_pubkey":"pub"}`},
+	{"no public key", `{"wg_private_key":"priv"}`},
+}
+
 func TestLoadLocalNodeDistinguishesMissingAndCorrupt(t *testing.T) {
 	dir := t.TempDir()
-	cases := []struct {
+	type tcase struct {
 		name    string
 		content *string // nil: no file
 		want    error   // nil: loads
-	}{
+	}
+	cases := []tcase{
 		{"no file", nil, ErrStateMissing},
-		{"garbage", strPtr("not json at all"), ErrStateCorrupt},
-		{"truncated json", strPtr(`{"wg_pubkey": "abc`), ErrStateCorrupt},
-		{"zero bytes", strPtr(""), ErrStateCorrupt},
-		{"empty object", strPtr("{}"), ErrStateCorrupt},
-		{"no private key", strPtr(`{"wg_pubkey":"pub"}`), ErrStateCorrupt},
-		{"no public key", strPtr(`{"wg_private_key":"priv"}`), ErrStateCorrupt},
 		{"good file", strPtr(`{"wg_pubkey":"pub","wg_private_key":"priv"}`), nil},
+	}
+	for _, s := range corruptSamples {
+		cases = append(cases, tcase{s.name, strPtr(s.content), ErrStateCorrupt})
 	}
 	for i, tc := range cases {
 		path := filepath.Join(dir, string(rune('a'+i))+".json")
@@ -108,6 +113,16 @@ func TestLoadLocalNodeDistinguishesMissingAndCorrupt(t *testing.T) {
 
 func strPtr(s string) *string { return &s }
 
+// captureLog returns what log.Printf writes until the test ends.
+func captureLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	old := log.Writer()
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(old) })
+	return &buf
+}
+
 // The corrupt file may hold a private key: no error may carry the text of the
 // JSON decoder, which can quote an input byte.
 func TestCorruptStateErrorsCarryNoFileContent(t *testing.T) {
@@ -143,17 +158,22 @@ func TestCorruptStateErrorsCarryNoFileContent(t *testing.T) {
 
 func TestInitLocalNodeCorruptMovesAside(t *testing.T) {
 	setRefuseCorruptState(t, false)
-	for _, bad := range []string{"not json at all", "", "{}", `{"wg_pubkey":"pub"}`} {
+	for _, s := range corruptSamples {
+		bad := s.content
 		d, path := identityTestDaemon(t)
 		if err := os.WriteFile(path, []byte(bad), 0600); err != nil {
 			t.Fatal(err)
 		}
+		logged := captureLog(t)
 		if err := d.initLocalNode(); err != nil {
 			t.Fatalf("%q: initLocalNode: %v", bad, err)
 		}
 		moved := corruptCopies(t, path)
 		if len(moved) != 1 {
 			t.Fatalf("%q: corrupt copies = %v, want exactly one", bad, moved)
+		}
+		if !strings.Contains(logged.String(), path) || !strings.Contains(logged.String(), moved[0]) {
+			t.Errorf("%q: log %q names neither the original path %s nor the moved file %s", bad, logged, path, moved[0])
 		}
 		got, err := os.ReadFile(moved[0])
 		if err != nil || !bytes.Equal(got, []byte(bad)) {
