@@ -64,6 +64,15 @@ a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResume
 | 4 — it is used | every wake; the S6 step of T4 times it |
 
 ## Mutation Log
+- 2026-11-16 · 1ccb7e8* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume passes EndpointSTUN · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d
+- 2026-11-16 · 1ccb7e8* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume skips the announce · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d
+- 2026-11-16 · 1ccb7e8* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume does not reset the back-off · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d
+- 2026-11-16 · 1ccb7e8* · mutant survived · exit 0 · `pkg/discovery/dht.go` · refreshSTUNOnce drops stunMu · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-16 · 1ccb7e8* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · GetNATType reads without the lock · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d
+- 2026-11-16 · 1ccb7e8* · mutant killed · exit 1 · `pkg/discovery/dht.go` · OnResume runs before Start · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d
 
 ## Invariants
 
@@ -88,3 +97,24 @@ Stop and ask if the `NATType` accessors turn out to need a lock order against `e
 - The multi-candidate local endpoint (permanent: boundary: ADR-0002 backlog row).
 
 ## Verification Log
+- 2026-11-16 · 1ccb7e8* · exit 1 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:6138 · test-lock-sha256:3eba1d9befd4b8efb74c932afd8c6b8625bdc1397668bf8d8a30e55d9fb2c8ff · test-lock-file:docs/adr/locks/3eba1d9befd4b8efb74c932afd8c6b8625bdc1397668bf8d8a30e55d9fb2c8ff.lock
+  ```
+  --- last 10 line(s) of stderr (of 49 after folding 50 raw)
+  --- PASS: TestOnResumeBeforeStartAndAfterStopIsSafe (0.00s)
+      --- PASS: TestOnResumeBeforeStartAndAfterStopIsSafe/never_started (0.00s)
+      --- PASS: TestOnResumeBeforeStartAndAfterStopIsSafe/stopped (0.00s)
+  === RUN   TestOnResumeRacesWithStunRefreshLoop
+  2026/11/16 12:20:47 [WARN] Secret does not use wgmesh:// format — it may have low entropy. Use 'wgmesh init --secret' to generate a cryptographically strong secret.
+      dht_resume_test.go:248: stunRefreshLoop never refreshed on its ticker
+  --- FAIL: TestOnResumeRacesWithStunRefreshLoop (5.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery	5.011s
+  FAIL
+  ```
+- 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:12738
+- 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:12364
+- 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:13313
+- 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:13227
+- 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:12750
+- 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:13617
+- 2026-11-16 · 1ccb7e8* · exit 0 · `set -o pipefail …` · acceptance-sha256:576986cfc655550ae8f98308a0171ec8b8a34f7478835ae2f80a5b8056b36d0d · ms:8261
