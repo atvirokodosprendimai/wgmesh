@@ -80,8 +80,12 @@ type PeerExchange struct {
 	running bool
 	stopCh  chan struct{}
 
+	// pendingMu guards pendingReplies and pendingSeq (every access, reads
+	// included). pendingReplies: remote address -> registration id -> the
+	// reply channel of one ExchangeWithPeer call (see registerReply).
 	pendingMu      sync.Mutex
-	pendingReplies map[string]chan *daemon.PeerInfo
+	pendingReplies map[string]map[uint64]chan *daemon.PeerInfo
+	pendingSeq     uint64
 
 	announceHandler func(*crypto.PeerAnnouncement, *net.UDPAddr)
 
@@ -115,7 +119,7 @@ func NewPeerExchange(config *daemon.Config, localNode *daemon.LocalNode, peerSto
 		peerStore:          peerStore,
 		limiter:            ratelimit.NewDefault(),
 		stopCh:             make(chan struct{}),
-		pendingReplies:     make(map[string]chan *daemon.PeerInfo),
+		pendingReplies:     make(map[string]map[uint64]chan *daemon.PeerInfo),
 		rendezvousSessions: make(map[string]*rendezvousState),
 		activePunches:      make(map[string]time.Time),
 		rendezvousStarts:   make(map[string]time.Time),
@@ -429,10 +433,14 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 	// even when we also route this reply to a pending ExchangeWithPeer caller.
 	pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod, Hand: daemon.FirstHand})
 
-	if ch, ok := pe.getPendingReplyChannel(remoteAddr.String()); ok {
-		select {
-		case ch <- peerInfo:
-		default:
+	if chans := pe.pendingReplyChannels(remoteAddr.String()); len(chans) > 0 {
+		// Every caller exchanging with this address gets the reply; a full
+		// channel is skipped, never waited on.
+		for _, ch := range chans {
+			select {
+			case ch <- peerInfo:
+			default:
+			}
 		}
 		return
 	}
@@ -535,9 +543,8 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		}
 	}
 
-	replyCh := make(chan *daemon.PeerInfo, 1)
-	pe.setPendingReplyChannel(remoteAddr.String(), replyCh)
-	defer pe.clearPendingReplyChannel(remoteAddr.String())
+	replyCh, unregister := pe.registerReply(remoteAddr.String())
+	defer unregister()
 
 	// Build list of known peers for transitive discovery
 	knownPeers := pe.getKnownPeers()
@@ -1019,29 +1026,53 @@ func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
 	}
 }
 
-func (pe *PeerExchange) setPendingReplyChannel(remote string, ch chan *daemon.PeerInfo) {
-	pe.pendingMu.Lock()
-	defer pe.pendingMu.Unlock()
-	pe.pendingReplies[remote] = ch
-}
-
-func (pe *PeerExchange) clearPendingReplyChannel(remote string) {
-	pe.pendingMu.Lock()
-	defer pe.pendingMu.Unlock()
-	delete(pe.pendingReplies, remote)
-}
-
-func (pe *PeerExchange) getPendingReplyChannel(remote string) (chan *daemon.PeerInfo, bool) {
-	pe.pendingMu.Lock()
-	defer pe.pendingMu.Unlock()
-	ch, ok := pe.pendingReplies[remote]
-	return ch, ok
-}
-// registerReply: RED STUB over the old single slot (ADR-0005 T9 S1); replaced in S2.
+// registerReply registers one reply channel (capacity 1) for an
+// ExchangeWithPeer call to remote and returns it with an unregister func.
+// Every caller registered for an address gets the reply: handleReply delivers
+// to all of them, so concurrent exchanges to one address (punch, rendezvous,
+// transitive connect) do not take each other's reply (#855, ADR-0005 M5).
+// unregister removes only this registration, and the address entry with the
+// last one; it is safe to call twice and from several goroutines.
 func (pe *PeerExchange) registerReply(remote string) (chan *daemon.PeerInfo, func()) {
 	ch := make(chan *daemon.PeerInfo, 1)
-	pe.setPendingReplyChannel(remote, ch)
-	return ch, func() { pe.clearPendingReplyChannel(remote) }
+
+	pe.pendingMu.Lock()
+	pe.pendingSeq++
+	id := pe.pendingSeq
+	regs := pe.pendingReplies[remote]
+	if regs == nil {
+		regs = make(map[uint64]chan *daemon.PeerInfo)
+		pe.pendingReplies[remote] = regs
+	}
+	regs[id] = ch
+	pe.pendingMu.Unlock()
+
+	unregister := func() {
+		pe.pendingMu.Lock()
+		defer pe.pendingMu.Unlock()
+		regs := pe.pendingReplies[remote]
+		if _, ok := regs[id]; !ok {
+			return
+		}
+		delete(regs, id)
+		if len(regs) == 0 {
+			delete(pe.pendingReplies, remote)
+		}
+	}
+	return ch, unregister
+}
+
+// pendingReplyChannels returns a copy of the channels registered for remote,
+// taken under pendingMu so the caller can send without holding the lock.
+func (pe *PeerExchange) pendingReplyChannels(remote string) []chan *daemon.PeerInfo {
+	pe.pendingMu.Lock()
+	defer pe.pendingMu.Unlock()
+	regs := pe.pendingReplies[remote]
+	chans := make([]chan *daemon.PeerInfo, 0, len(regs))
+	for _, ch := range regs {
+		chans = append(chans, ch)
+	}
+	return chans
 }
 
 // resolvePeerEndpoint applies the exchange endpoint rules (node.ResolveEndpoint)

@@ -96,9 +96,7 @@ func TestHandleReply_UpdatesLocalEndpoint(t *testing.T) {
 	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: int(cfg.Keys.GossipPort)}
 
 	// Register a pending reply so handleReply doesn't log "unsolicited"
-	pe.pendingMu.Lock()
-	pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
-	pe.pendingMu.Unlock()
+	pe.registerReply(remoteAddr.String())
 
 	pe.handleReply(reply, remoteAddr)
 
@@ -134,9 +132,7 @@ func TestHandleReply_IgnoresEmptyObservedEndpoint(t *testing.T) {
 
 	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: int(cfg.Keys.GossipPort)}
 
-	pe.pendingMu.Lock()
-	pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
-	pe.pendingMu.Unlock()
+	pe.registerReply(remoteAddr.String())
 
 	pe.handleReply(reply, remoteAddr)
 
@@ -183,9 +179,7 @@ func TestHandleReply_SkipsSelfReflection(t *testing.T) {
 			}
 			remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
 
-			pe.pendingMu.Lock()
-			pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
-			pe.pendingMu.Unlock()
+			pe.registerReply(remoteAddr.String())
 
 			pe.handleReply(reply, remoteAddr)
 
@@ -280,9 +274,7 @@ func TestHandleReply_DoesNotDowngradePublicIPv6ToIPv4Observed(t *testing.T) {
 	}
 	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
 
-	pe.pendingMu.Lock()
-	pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
-	pe.pendingMu.Unlock()
+	pe.registerReply(remoteAddr.String())
 
 	pe.handleReply(reply, remoteAddr)
 
