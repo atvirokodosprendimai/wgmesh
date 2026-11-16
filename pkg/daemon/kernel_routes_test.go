@@ -34,10 +34,12 @@ type routeHost struct {
 	replaceErr map[string]error  // canonical network -> what `ip route replace` fails with
 	addrs      map[string]string // network -> `ip -o addr show to <network>` output
 	delErr     map[string]error  // canonical network -> what `ip route del` fails with
+	ifAddrs    []string          // addresses on the mesh interface, as `ip addr add` takes them
+	addrHidden bool              // `ip -o addr show dev` prints nothing, whatever is held
 }
 
 func newRouteHost(h *fakeHost) *routeHost {
-	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}, delErr: map[string]error{}}
+	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}, delErr: map[string]error{}, ifAddrs: []string{"10.99.0.1/16"}}
 }
 
 // canonRoute is the canonical network of a printed or canonical one.
@@ -118,6 +120,9 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 			defer r.mu.Unlock()
 			return []byte(r.addrs[network]), nil
 		}
+	}
+	if ok, out, err := r.addrExec(line, args); ok {
+		return out, err
 	}
 	family := 4
 	a := args
@@ -203,7 +208,7 @@ func (r *routeHost) allWrites() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, c := range r.log {
-		if strings.HasPrefix(c, "sysctl -w") || strings.HasPrefix(c, "iptables -A") {
+		if strings.HasPrefix(c, "sysctl -w") || strings.HasPrefix(c, "iptables -A") || strings.HasPrefix(c, "ip addr add ") || strings.HasPrefix(c, "ip addr del ") {
 			out = append(out, c)
 		}
 	}
@@ -586,6 +591,8 @@ func TestConvergeSteadyStateIssuesNoWrites(t *testing.T) {
 	rh := newRouteHost(&fakeHost{iptablesPresent: true}) // forwarding is not set yet: tick 1 writes it
 	k := newFakeKernel()
 	d := newRouteDaemon(t, rh, &logSink{}, k)
+	d.localNode.MeshIPv6 = "fd99::1"
+	rh.ifAddrs = []string{"10.99.0.1/16", "fd99::1/64"} // the interface already holds the node's addresses
 	a := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "192.168.50.0/24", "0.0.0.0/0", "fd00:5::/64")
 	a.MeshIPv6 = "fd99::2"
 	b := testPeer("keyB", "10.99.0.3", "203.0.113.3:51820", "192.168.50.0/24", "192.168.60.0/24")

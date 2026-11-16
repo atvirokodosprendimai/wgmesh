@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"log"
+	"net/netip"
 	"os"
 	"runtime"
 	"sort"
@@ -385,6 +386,23 @@ func applyRouteDiff(iface string, toAdd, toRemove []routes.Entry) ([]routes.Entr
 	return removed, results
 }
 
+// addressPlan is what one tick will write for addresses: the adds, then the
+// removals.
+type addressPlan struct {
+	Add, Remove []netip.Prefix
+}
+
+// planAddresses is pure.
+func planAddresses(want addressDesired, k kernelObserved) addressPlan {
+	return addressPlan{}
+}
+
+// applyAddresses writes the address plan, one item at a time. The caller holds
+// convergeMu.
+func (d *Daemon) applyAddresses(plan addressPlan) []itemResult {
+	return nil
+}
+
 // converge runs one tick against the kernel and returns the desired state it
 // applied, or nil when the observe failed and nothing was decided or written.
 // The caller holds reconcileMu.
@@ -404,6 +422,8 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	d.noteForwardScope(ds.Forward)
 	d.observeForward(ds.Forward, &obs)
 	d.observeRoutes(&obs)
+	ds.Addresses = d.desireAddresses()
+	d.observeAddresses(ds.Addresses, &obs)
 	if ds.Forward.Wanted {
 		d.noteForwardObserve(obs.Errs[targetForward])
 	}
@@ -411,6 +431,7 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	results := d.applyKernel(plan)
 	results = append(results, d.applyForward(planForward(ds.Forward, obs), ds.Forward.Wanted && obs.Errs[targetForward] == nil)...)
 	results = append(results, d.convergeRoutes(ds, obs)...)
+	results = append(results, d.applyAddresses(planAddresses(ds.Addresses, obs))...)
 	d.logResults(results)
 	return ds
 }

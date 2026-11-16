@@ -20,12 +20,22 @@ type forwardDesired struct {
 	Wanted, Needed bool
 }
 
+// addressDesired is what a tick wants of the addresses on the mesh interface:
+// Addrs, each with its prefix length, and the mesh networks (the masked
+// prefixes of Addrs) inside which any other address is stale. Wanted: Linux
+// and the node has a valid mesh IP.
+type addressDesired struct {
+	Wanted bool
+	Addrs  []netip.Prefix
+}
+
 // desiredState is what one reconcile tick wants: the AllowedIPs of every
 // peer and the kernel routes, both read from the same owner choice.
 type desiredState struct {
 	Peers        map[string]*desiredPeerConfig
 	Routes       []routes.Entry
 	Forward      forwardDesired
+	Addresses    addressDesired
 	relayRoutes  map[string]string
 	directStable map[string]int
 	// routeWarned is the set of rule cases this desire warned about and that
@@ -299,6 +309,12 @@ func (d *Daemon) desireForward() forwardDesired {
 		Needed: needed,
 		Wanted: linux && (needed || !EnforceForwardScope.Load()),
 	}
+}
+
+// desireAddresses is what this node wants of the addresses of the mesh
+// interface.
+func (d *Daemon) desireAddresses() addressDesired {
+	return addressDesired{}
 }
 
 // isOwnNetwork reports whether this node advertises network itself.

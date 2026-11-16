@@ -3,6 +3,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"net/netip"
 	"os/exec"
 	"strings"
 
@@ -40,6 +41,10 @@ const (
 	targetRoutes6 = "route-6"
 )
 
+// targetAddress names the addresses of the mesh interface in an observe
+// error, an item result and a metric label.
+const targetAddress = "address"
+
 // kernelObserved is what one tick read from the kernel. A target that could
 // not be read has an entry in Errs and must not be read as empty. Routes4 and
 // Routes6 are the canonical gateway routes of the mesh interface, per family.
@@ -48,7 +53,10 @@ type kernelObserved struct {
 	Forward observedForward
 	Routes4 []routes.Entry
 	Routes6 []routes.Entry
-	Errs    map[string]error
+	// Addrs are the addresses on the mesh interface, both families, each with
+	// the prefix length the kernel holds it with.
+	Addrs []netip.Prefix
+	Errs  map[string]error
 }
 
 // fail records that one target could not be read.
@@ -113,6 +121,19 @@ func (d *Daemon) observeRoutes(obs *kernelObserved) {
 	} else {
 		obs.Routes6 = entries
 	}
+}
+
+// parseAddresses reads the output of `ip -o addr show dev <if>`: one
+// netip.Prefix per inet and inet6 line.
+func parseAddresses(out []byte) ([]netip.Prefix, error) {
+	return nil, nil
+}
+
+// observeAddresses reads the addresses of the mesh interface, both families,
+// on Linux only and only when the address target is wanted. A failed read or
+// an unparsable line is an entry in obs.Errs for this target; it is never read
+// as "no addresses".
+func (d *Daemon) observeAddresses(want addressDesired, obs *kernelObserved) {
 }
 
 // hostDefaultElsewhere reads the host's default routes of one family and
