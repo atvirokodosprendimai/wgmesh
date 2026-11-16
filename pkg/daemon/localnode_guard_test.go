@@ -66,18 +66,41 @@ func isLocalNodeExpr(e ast.Expr) bool {
 }
 
 // localNodeWrites returns "file:line field" for every flagged assignment in
-// the file.
+// the file. The target of an assignment is looked through parentheses and
+// index expressions (localNode.RoutableNetworks[0] = x writes the field's
+// backing array); a store through a pointer to the node (*d.localNode = ...)
+// replaces every field at once and is flagged as "*".
 func localNodeWrites(fset *token.FileSet, f *ast.File, rel string) []string {
 	var found []string
+	flag := func(lhs ast.Expr, name, fn string) {
+		found = append(found, rel+":"+strconv.Itoa(fset.Position(lhs.Pos()).Line)+" "+name+" in "+fn)
+	}
 	check := func(lhs ast.Expr, fn string) {
-		sel, ok := lhs.(*ast.SelectorExpr)
+		target := lhs
+		for {
+			switch x := target.(type) {
+			case *ast.ParenExpr:
+				target = x.X
+				continue
+			case *ast.IndexExpr:
+				target = x.X
+				continue
+			}
+			break
+		}
+		if star, ok := target.(*ast.StarExpr); ok {
+			if isLocalNodeExpr(star.X) {
+				flag(lhs, "*", fn)
+			}
+			return
+		}
+		sel, ok := target.(*ast.SelectorExpr)
 		if !ok || !isLocalNodeExpr(sel.X) {
 			return
 		}
 		name := sel.Sel.Name
-		bad := localNodeStateFields[name] || (localNodeWriteOnceFields[name] && !localNodeWriteOnceWriters[fn])
-		if bad {
-			found = append(found, rel+":"+strconv.Itoa(fset.Position(lhs.Pos()).Line)+" "+name+" in "+fn)
+		if localNodeStateFields[name] || (localNodeWriteOnceFields[name] && !localNodeWriteOnceWriters[fn]) {
+			flag(lhs, name, fn)
 		}
 	}
 	walk := func(root ast.Node, fn string) {
@@ -101,6 +124,44 @@ func localNodeWrites(fset *token.FileSet, f *ast.File, rel string) []string {
 		}
 	}
 	return found
+}
+
+// TestLocalNodeWriteScannerFlagsViolations runs the scanner over inline
+// source: a guard that flags nothing would pass the walk below for the wrong
+// reason.
+func TestLocalNodeWriteScannerFlagsViolations(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want []string // "field in func", empty = not flagged
+	}{
+		{"state field assigned", "func f() { localNode.MeshIP = x }", []string{"MeshIP in f"}},
+		{"counter incremented", "func f() { d.localNode.NATType++ }", []string{"NATType in f"}},
+		{"write-once field outside its writers", "func f() { d.localNode.Hostname = x }", []string{"Hostname in f"}},
+		{"element of the routes", "func f() { localNode.RoutableNetworks[0] = x }", []string{"RoutableNetworks in f"}},
+		{"whole node through a pointer", "func f() { *d.localNode = LocalNode{} }", []string{"* in f"}},
+		{"a peer is not the local node", "func f() { peer.MeshIP = x }", nil},
+		{"write-once field in initLocalNode", "func initLocalNode() { d.localNode.Hostname = x }", nil},
+		{"write-once field in loadLocalNode", "func loadLocalNode() { localNode.WGPubKey = x }", nil},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fset := token.NewFileSet()
+			f, err := parser.ParseFile(fset, "x.go", "package p\n"+tc.src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := localNodeWrites(fset, f, "x.go")
+			if len(got) != len(tc.want) {
+				t.Fatalf("flagged %q, want %d finding(s) %q", got, len(tc.want), tc.want)
+			}
+			for i, w := range tc.want {
+				if !strings.HasSuffix(got[i], " "+w) {
+					t.Errorf("flagged %q, want it to end with %q", got[i], w)
+				}
+			}
+		})
+	}
 }
 
 func TestLocalNodeFieldsNotWrittenDirectly(t *testing.T) {
