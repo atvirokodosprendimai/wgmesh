@@ -27,12 +27,14 @@ func DetectResume(prev, now time.Time, threshold time.Duration) bool {
 }
 
 // now is the daemon's clock: time.Now unless a test injected one, so a
-// &Daemon{...} literal keeps working.
+// &Daemon{...} literal keeps working. The instant is wall-clock only: a
+// monotonic reading stops while the machine sleeps, so comparing two readings
+// would not see the time asleep.
 func (d *Daemon) now() time.Time {
 	if d.clock != nil {
-		return d.clock()
+		return d.clock().Round(0)
 	}
-	return time.Now()
+	return time.Now().Round(0)
 }
 
 // inResumeGrace reports whether now is within ResumeGrace of the store's last
