@@ -34,7 +34,7 @@ README must be regenerated.
 |----------|----------|-------------|---------------|
 | T1 | `Assess`, `PeerInfo.Alive`, `PeerInfo.LastAlive`, `ObserveDataPlane`, `NoteResume`, `ResumedAt`, `GetProbeable`, `EnforceLiveness`, `SetLivenessDisagreeHook` | T2, T3, T4, T6 | T1 before each |
 | T2 | evidence writers, every reader on `Alive`, `TestNoDirectLastSeenAge` | T3, T4, T6 | T2 before each (same files: `daemon.go`, `store.go`) |
-| T3 | `RestoredAt` set by the `Restored` merge, `LastAlive` written to the cache file | T7 | T3 before T7 |
+| T3 | `RestoredAt` set by the `Restored` merge, `LastContact` written to the cache file | T7 | T3 before T7 |
 | T4 | `DetectResume`, `ResumeGrace`, `node.Resumer` | T5, T7 | T4 before T5 |
 | T5 | `DHTDiscovery.OnResume`, `daemon.EndpointSTUNResume` | T7 | T5 before T7 |
 | T6 | `probeOnly`, `SetPeerArgs`, `setPeer` seam, `EnforceRelayProbe`, `wgmesh_relay_route_age_seconds` | T7 | T6 before T7 |
