@@ -58,6 +58,12 @@ n=$(go test ./pkg/node -run '^TestSpecNamesLiveness$' -count=1 -v 2>&1 | tee /de
 | 4 — it is used | the N+1 and N+2 releases read the note and the rows |
 
 ## Mutation Log
+- 2026-11-16 · 7f1fddd* · mutant killed · exit 1 · `eidos/spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md` · peer store spec stops naming Assess · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea
+- 2026-11-16 · 7f1fddd* · mutant killed · exit 1 · `docs/liveness-rollout.md` · note stops naming the disagreement counter · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea
+- 2026-11-16 · 7f1fddd* · mutant survived · exit 0 · `docs/adr/BACKLOG.md` · backlog loses the ADR-0004 N+2 row · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
 
 ## Invariants
 
@@ -78,3 +84,21 @@ Stop and ask if T3, T5 or T6 renamed a symbol this task's test names, or if ADR-
 - ADR-0002's own spec amendments (permanent: boundary: ADR-0002 T11 owns them; this task edits other sections of the same files). The one exception is the wording of the `stun-resume` sentence in `BACKLOG.md:19` and `docs/admit-rollout.md:24` (S4).
 
 ## Verification Log
+- 2026-11-16 · 7f1fddd* · exit 1 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:721 · test-lock-sha256:a8e79a739b4336db45aa758ea1c5c1062ac81d7257c1724064e1ae050a1e54e3 · test-lock-file:docs/adr/locks/a8e79a739b4336db45aa758ea1c5c1062ac81d7257c1724064e1ae050a1e54e3.lock
+  ```
+  --- last 10 line(s) of stderr (of 15 after folding 15 raw)
+      spec_liveness_test.go:33: eidos/spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md does not name "GetProbeable"
+      spec_liveness_test.go:33: eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md does not name "ResumeGrace"
+      spec_liveness_test.go:33: eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md does not name "probeOnly"
+      spec_liveness_test.go:33: eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md does not name "EndpointSTUNResume"
+      spec_liveness_test.go:33: eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md does not name "OnResume"
+      spec_liveness_test.go:28: docs/liveness-rollout.md: open ../../docs/liveness-rollout.md: no such file or directory
+  --- FAIL: TestSpecNamesLiveness (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.003s
+  FAIL
+  ```
+- 2026-11-16 · 7f1fddd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:1747
+- 2026-11-16 · 7f1fddd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:2615
+- 2026-11-16 · 7f1fddd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:1586
+- 2026-11-16 · 7f1fddd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:988
