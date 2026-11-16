@@ -335,7 +335,7 @@ func saveSecretFile(path, secretURI string) error {
 // names the lock file and that process's pid.
 func acquireInterfaceLock(path string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("create lock directory: %w", err)
+		return nil, fmt.Errorf("create lock directory: %w%s", err, permissionHint(err))
 	}
 	release, holder, err := flock.TryLock(path)
 	if err != nil {
@@ -343,11 +343,20 @@ func acquireInterfaceLock(path string) (func(), error) {
 			if holder == "" {
 				holder = "unknown"
 			}
-			return nil, fmt.Errorf("another wgmesh join holds the lock %s (pid %s); stop it first", path, holder)
+			return nil, fmt.Errorf("another wgmesh join holds the lock %s (pid %s); stop it first (systemctl stop wgmesh, or brew services stop wgmesh)", path, holder)
 		}
-		return nil, fmt.Errorf("interface lock %s: %w", path, err)
+		return nil, fmt.Errorf("interface lock %s: %w%s", path, err, permissionHint(err))
 	}
 	return release, nil
+}
+
+// permissionHint tells the operator what to do about a permission error on
+// the lock directory or file, and is empty for any other error.
+func permissionHint(err error) string {
+	if errors.Is(err, os.ErrPermission) {
+		return "; run wgmesh join as root (or as the user that owns /var/lib/wgmesh)"
+	}
+	return ""
 }
 
 // joinCmd handles the "join --secret" subcommand

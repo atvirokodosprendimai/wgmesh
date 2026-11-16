@@ -33,7 +33,7 @@ func TestAcquireInterfaceLockMessage(t *testing.T) {
 	for _, want := range []string{
 		"another wgmesh join holds the lock " + lock,
 		"pid " + strconv.Itoa(os.Getpid()),
-		"stop it first",
+		"stop it first (systemctl stop wgmesh, or brew services stop wgmesh)",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q lacks %q", err, want)
@@ -87,6 +87,25 @@ func TestJoinTakesLockBeforeDaemonAndSocket(t *testing.T) {
 		}
 		if lock >= p {
 			t.Errorf("acquireInterfaceLock (%v) does not precede %s (%v)", fset.Position(lock), later, fset.Position(p))
+		}
+	}
+}
+
+func TestAcquireInterfaceLockPermissionHint(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root is not denied by directory modes")
+	}
+	dir := filepath.Join(t.TempDir(), "ro")
+	if err := os.Mkdir(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	_, err := acquireInterfaceLock(filepath.Join(dir, "wg0.lock"))
+	if err == nil {
+		t.Fatal("acquire succeeded in a read-only directory")
+	}
+	for _, want := range []string{"permission denied", "run wgmesh join as root"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
 		}
 	}
 }
