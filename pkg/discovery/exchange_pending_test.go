@@ -254,3 +254,93 @@ func TestHandleReplyGivesEveryCallerItsOwnCopy(t *testing.T) {
 		t.Fatalf("caller B's RoutableNetworks changed to %q by caller A's write", b.RoutableNetworks[0])
 	}
 }
+
+// Words: two ExchangeWithPeer calls to one address at the same time both
+// return the peer's announcement when the peer sends ONE reply.
+// Why: with one reply slot per address (#855) the second call replaced the
+// first's channel, so only one caller got the reply and the other timed out
+// after ExchangeTimeout (4 s). The test fails on that code by reasoning from
+// it, not by a run: the old registerReply stored one channel per address and
+// the second call's registration (and its deferred clear) dropped the first's.
+// Invariant: one REPLY from the address reaches every call in flight to it.
+func TestConcurrentExchangeWithPeerBothGetTheReply(t *testing.T) {
+	pe, _, cfg := newAADExchange(t, "wgmesh-test-concurrent-exchange-1", aadKey(9), "")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pe.listenLoop()
+	}()
+	t.Cleanup(func() {
+		close(pe.stopCh)
+		pe.conn.Close()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			t.Error("listenLoop did not stop")
+		}
+	})
+
+	// The loopback socket that plays the remote peer.
+	peer, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer peer.Close()
+	peerAddr := peer.LocalAddr().(*net.UDPAddr)
+
+	type result struct {
+		info *daemon.PeerInfo
+		err  error
+	}
+	results := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			info, err := pe.ExchangeWithPeer(peerAddr.String())
+			results <- result{info, err}
+		}()
+	}
+
+	// Both calls register before they send, so once two registrations exist
+	// the peer's single reply meets both of them.
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pe.pendingMu.Lock()
+		n := len(pe.pendingReplies[peerAddr.String()])
+		pe.pendingMu.Unlock()
+		if n == 2 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d registrations for the peer's address after 5 s, want 2", n)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	buf := make([]byte, MaxExchangeSize)
+	peer.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_, from, err := peer.ReadFromUDP(buf)
+	if err != nil {
+		t.Fatalf("the peer got no HELLO: %v", err)
+	}
+	ann := announcementFor(aadKey(7))
+	reply, err := crypto.SealEnvelopeAAD(crypto.MessageTypeReply, ann, cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := peer.WriteToUDP(reply, from); err != nil {
+		t.Fatal(err)
+	}
+
+	// The peer sends no second reply: each caller must have the first one.
+	// Bounded below ExchangeTimeout so a caller left waiting fails the test.
+	for i := 0; i < 2; i++ {
+		select {
+		case r := <-results:
+			if r.err != nil || r.info == nil || r.info.WGPubKey != aadKey(7) {
+				t.Fatalf("call %d: info=%+v err=%v, want the peer's announcement", i, r.info, r.err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatalf("only %d of 2 concurrent calls got the reply", i)
+		}
+	}
+}
