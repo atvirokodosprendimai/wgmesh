@@ -221,10 +221,7 @@ func TestControlEndpointForPeer_RejectsSelf(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey-self",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey-self", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	d, err := NewDHTDiscovery(context.Background(), cfg, localNode, daemon.NewPeerStore())
@@ -378,7 +375,7 @@ func TestPunchReplyIsFirstHand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	localNode := &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	for _, source := range []daemon.Source{DHTMethod, "dht-ipv6-sync"} {
@@ -422,7 +419,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 	}
 
 	serverKey := aadKey(2)
-	serverNode := &daemon.LocalNode{WGPubKey: serverKey, MeshIP: "10.0.0.2"}
+	serverNode := daemon.NewLocalNode(serverKey, "", "", "10.0.0.2", "")
 	serverNode.SetEndpoint("203.0.113.42:51820")
 	server := NewPeerExchange(cfg, serverNode, daemon.NewPeerStore())
 	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -440,7 +437,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 	// caught only by the dht-ipv6-sync subtest.
 	for _, method := range []string{DHTMethod, DHTMethod + "-ipv6-sync"} {
 		t.Run(method, func(t *testing.T) {
-			clientNode := &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}
+			clientNode := daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", "")
 			store := daemon.NewPeerStore()
 			seen := time.Now().Add(-4 * time.Minute)
 			store.SetPeerDirectly(serverKey, &daemon.PeerInfo{WGPubKey: serverKey, MeshIP: "10.0.0.99", LastSeen: seen})
@@ -510,7 +507,7 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverNode := &daemon.LocalNode{WGPubKey: serverKey, MeshIP: "10.0.0.2"}
+	serverNode := daemon.NewLocalNode(serverKey, "", "", "10.0.0.2", "")
 	serverNode.SetEndpoint("203.0.113.42:51820")
 	server := NewPeerExchange(cfg, serverNode, daemon.NewPeerStore())
 	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -522,7 +519,7 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
 	serverAddr := serverConn.LocalAddr().String()
 
-	clientNode := &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}
+	clientNode := daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", "")
 	store := daemon.NewPeerStore()
 	d, err := NewDHTDiscovery(context.Background(), cfg, clientNode, store)
 	if err != nil {

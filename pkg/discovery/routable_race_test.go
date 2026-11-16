@@ -15,7 +15,7 @@ func TestSetRoutableNetworksConcurrentWithSendAnnounce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 	localNode.SetRoutableNetworks([]string{"192.168.10.0/24"})
 
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})

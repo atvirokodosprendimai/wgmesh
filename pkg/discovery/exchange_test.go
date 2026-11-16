@@ -79,10 +79,7 @@ func TestHandleReply_UpdatesLocalEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -122,10 +119,7 @@ func TestHandleReply_IgnoresEmptyObservedEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -161,10 +155,7 @@ func TestHandleReply_SkipsSelfReflection(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -214,10 +205,7 @@ func TestSendReply_PopulatesObservedEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("1.2.3.4:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -278,10 +266,7 @@ func TestHandleReply_DoesNotDowngradePublicIPv6ToIPv4Observed(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("[2a01:4f9:c012:2c15::1]:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -368,7 +353,7 @@ func TestHandleHelloEmptyEndpointStoresGuess(t *testing.T) {
 		t.Fatal(err)
 	}
 	peerStore := daemon.NewPeerStore()
-	pe := NewPeerExchange(cfg, &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}, peerStore)
+	pe := NewPeerExchange(cfg, daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", ""), peerStore)
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Skipf("no loopback UDP: %v", err)
@@ -420,10 +405,7 @@ func TestHandleGoodbye_RejectsStaleMessage(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	_ = NewPeerExchange(cfg, localNode, peerStore)
@@ -487,10 +469,7 @@ func TestHandleGoodbye_AcceptsFreshMessage(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	_ = NewPeerExchange(cfg, localNode, peerStore)
@@ -551,10 +530,7 @@ func TestHandleGoodbye_RejectsFutureTimestamp(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	_ = NewPeerExchange(cfg, localNode, peerStore)
@@ -654,10 +630,7 @@ func TestExchangeWithPeer_LogsWarningForOwnIP(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -687,10 +660,7 @@ func TestExchangeWithPeer_AllowsDifferentIP(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -719,10 +689,7 @@ func TestGetKnownPeers_ExcludesSelfAndEmpty(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey-abc",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey-abc", "", "", "10.0.0.1", "")
 
 	// Add local node, an empty-key entry, and a remote peer to the peer store
 	peerStore.Update(&daemon.PeerInfo{
@@ -810,7 +777,7 @@ func TestHandleMessage_ValidatesAnnouncements(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			peerStore := daemon.NewPeerStore()
-			localNode := &daemon.LocalNode{WGPubKey: validKey(9), MeshIP: "10.0.0.1"}
+			localNode := daemon.NewLocalNode(validKey(9), "", "", "10.0.0.1", "")
 			pe := NewPeerExchange(cfg, localNode, peerStore)
 			conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 			if err != nil {
@@ -865,7 +832,7 @@ func TestHandleReplyOffersFirstHand(t *testing.T) {
 		t.Fatal(err)
 	}
 	peerStore := daemon.NewPeerStore()
-	localNode := &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 	pe := NewPeerExchange(cfg, localNode, peerStore)
 
@@ -917,7 +884,7 @@ func TestGuessedEndpointNotAnnounced(t *testing.T) {
 		WGPubKey: "advertised-pubkey", MeshIP: "10.0.0.3", Endpoint: "198.51.100.7:51821",
 	}, Source: DHTMethod, Hand: daemon.FirstHand})
 
-	pe := NewPeerExchange(cfg, &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}, peerStore)
+	pe := NewPeerExchange(cfg, daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", ""), peerStore)
 
 	got := map[string]string{}
 	for _, kp := range pe.getKnownPeers() {

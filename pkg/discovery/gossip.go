@@ -87,7 +87,7 @@ func (g *MeshGossip) Start() error {
 
 	// Bind to mesh IP on gossip port
 	addr := &net.UDPAddr{
-		IP:   net.ParseIP(g.localNode.MeshIP),
+		IP:   net.ParseIP(g.localNode.GetMeshIP()),
 		Port: int(g.port),
 	}
 
@@ -228,16 +228,11 @@ func (g *MeshGossip) exchangeWithRandomPeer(conn *net.UDPConn) {
 		}
 	}
 
+	s := g.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		g.localNode.WGPubKey,
-		g.localNode.MeshIP,
-		g.localNode.GetEndpoint(),
-		g.localNode.Introducer,
-		g.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		knownPeers,
-		g.localNode.Hostname,
-		g.localNode.MeshIPv6,
-		string(g.localNode.NATType),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, g.gossipKey)

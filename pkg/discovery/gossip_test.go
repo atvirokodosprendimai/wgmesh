@@ -27,7 +27,7 @@ func TestHandleAnnouncementUpdatesPeerStore(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("127.0.0.1:51820")
 	gossip, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestHandleAnnouncementIgnoresOwnKey(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{WGPubKey: "my-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("my-key", "", "", "10.0.0.1", "")
 	gossip, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +97,7 @@ func TestHandleAnnouncementIgnoresNil(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 	gossip, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)
@@ -115,7 +115,7 @@ func TestHandleAnnouncementSkipsOwnKeyInTransitivePeers(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{WGPubKey: "my-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("my-key", "", "", "10.0.0.1", "")
 	gossip, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)
@@ -148,7 +148,7 @@ func TestHandleAnnounceFromResolvesWildcardEndpoint(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 	gossip, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)
@@ -178,7 +178,7 @@ func TestHandleAnnouncementDropsWildcardEndpointWithoutSender(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 	gossip, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)
@@ -209,7 +209,7 @@ func TestHandleAnnouncementEmptyEndpointStoresGuess(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	gossip, err := NewMeshGossip(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, store)
+	gossip, err := NewMeshGossip(cfg, daemon.NewLocalNode("local-key", "", "", "10.0.0.1", ""), store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +233,7 @@ func TestHandleAnnouncementEmptyEndpointStoresGuess(t *testing.T) {
 func TestNewMeshGossipWithExchangeSetsExchange(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 
 	exchange := NewPeerExchange(cfg, localNode, store)
 	gossip, err := NewMeshGossipWithExchange(cfg, localNode, store, exchange)
@@ -253,7 +253,7 @@ func TestMeshGossipRestartAfterStop(t *testing.T) {
 	cfg := newTestConfig(t)
 	cfg.Keys.GossipPort = 0
 	store := daemon.NewPeerStore()
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "127.0.0.1", "")
 	g, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)
@@ -312,7 +312,7 @@ func TestMeshGossipStopStartRaceOnPort(t *testing.T) {
 	store := daemon.NewPeerStore()
 	peerKey := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{9}, 32))
 	store.Update(&daemon.PeerInfo{WGPubKey: peerKey, MeshIP: "127.0.0.1"}, "test")
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "127.0.0.1", "")
 	g, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)
@@ -338,7 +338,7 @@ func TestMeshGossipStopStartRaceOnPort(t *testing.T) {
 func TestMeshGossipConcurrentStopWaitsForLoops(t *testing.T) {
 	cfg := newTestConfig(t)
 	cfg.Keys.GossipPort = 0
-	g, err := NewMeshGossip(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "127.0.0.1"}, daemon.NewPeerStore())
+	g, err := NewMeshGossip(cfg, daemon.NewLocalNode("local-key", "", "", "127.0.0.1", ""), daemon.NewPeerStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -382,7 +382,7 @@ func stopTwice(t *testing.T, s interface{ Stop() error }) {
 func TestMeshGossipExchangeModeRestartAfterStop(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 	g, err := NewMeshGossipWithExchange(cfg, localNode, store, NewPeerExchange(cfg, localNode, store))
 	if err != nil {
 		t.Fatal(err)
@@ -412,7 +412,7 @@ func TestGossipTransitiveOffersSecondHand(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("127.0.0.1:51820")
 	gossip, err := NewMeshGossip(cfg, localNode, store)
 	if err != nil {
@@ -461,7 +461,7 @@ func TestStandaloneAnnounceSkipsGuessedEndpoint(t *testing.T) {
 	store.SetPeerDirectly(guessedKey, &daemon.PeerInfo{WGPubKey: guessedKey, Endpoint: "203.0.113.1:51820", EndpointGuessed: true, LastSeen: now})
 	store.SetPeerDirectly(advertisedKey, &daemon.PeerInfo{WGPubKey: advertisedKey, Endpoint: "198.51.100.7:51821", LastSeen: now})
 
-	gossip, err := NewMeshGossip(cfg, &daemon.LocalNode{WGPubKey: localKey, MeshIP: "10.0.0.1"}, store)
+	gossip, err := NewMeshGossip(cfg, daemon.NewLocalNode(localKey, "", "", "10.0.0.1", ""), store)
 	if err != nil {
 		t.Fatal(err)
 	}

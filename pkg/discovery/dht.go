@@ -253,7 +253,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
 			log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
 			d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint)
-			d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
+			d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
 			return
 		}
 	}
@@ -269,7 +269,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 		log.Printf("[STUN] External endpoint discovered: %s (NAT type unknown — need 2 servers)", endpoint)
 		d.localNode.ObserveEndpoint(daemon.EndpointSTUN, endpoint)
-		d.localNode.NATType = string(NATUnknown)
+		d.localNode.SetNATType(string(NATUnknown))
 		return
 	}
 
@@ -282,7 +282,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 	endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 	log.Printf("[STUN] External endpoint: %s, NAT type: %s", endpoint, natType)
 	d.localNode.ObserveEndpoint(daemon.EndpointSTUN, endpoint)
-	d.localNode.NATType = string(natType)
+	d.localNode.SetNATType(string(natType))
 }
 
 func (d *DHTDiscovery) discoverIPv6Endpoint() string {
@@ -418,7 +418,7 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 					if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
 						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
 					}
-					d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
+					d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
 					continue
 				}
 			}
@@ -433,14 +433,14 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 				}
 				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 				currentEP := d.localNode.GetEndpoint()
-				oldNAT := d.localNode.NATType
+				oldNAT := d.localNode.GetNATType()
 				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
 					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
 				}
 				if string(natType) != oldNAT {
 					log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
 				}
-				d.localNode.NATType = string(natType)
+				d.localNode.SetNATType(string(natType))
 			} else {
 				// Fallback: single-server IP-only refresh
 				ip, _, err := DiscoverExternalEndpoint(0)

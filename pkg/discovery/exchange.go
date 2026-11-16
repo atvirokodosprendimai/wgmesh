@@ -495,16 +495,11 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 	// Build list of known peers for transitive discovery
 	knownPeers := pe.getKnownPeers()
 
+	s := pe.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
-		pe.localNode.GetEndpoint(),
-		pe.localNode.Introducer,
-		pe.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		knownPeers,
-		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 	announcement.ObservedEndpoint = remoteAddr.String()
 
@@ -548,16 +543,11 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	knownPeers := pe.getKnownPeers()
 
 	// Create HELLO message
+	s := pe.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
-		pe.localNode.GetEndpoint(),
-		pe.localNode.Introducer,
-		pe.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		knownPeers,
-		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
@@ -673,7 +663,7 @@ func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr
 		// We are a participant, not an introducer for this pair.
 		return
 	}
-	if !pe.localNode.Introducer {
+	if !pe.localNode.IsIntroducer() {
 		// Only designated introducers relay offers between other peers.
 		return
 	}
@@ -1163,16 +1153,11 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 	knownPeers := pe.getKnownPeers()
 
+	s := pe.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
-		pe.localNode.GetEndpoint(),
-		pe.localNode.Introducer,
-		pe.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		knownPeers,
-		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)
