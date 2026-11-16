@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -89,6 +90,30 @@ func TestJoinTakesLockBeforeDaemonAndSocket(t *testing.T) {
 			t.Errorf("acquireInterfaceLock (%v) does not precede %s (%v)", fset.Position(lock), later, fset.Position(p))
 		}
 	}
+	// The release must be a top-level `defer releaseLock()` of joinCmd that
+	// follows the acquire: a plain call would drop the lock at once. Like the
+	// order check above, this only sees calls written in joinCmd itself.
+	var deferPos token.Pos
+	for _, decl := range f.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Name.Name != "joinCmd" {
+			continue
+		}
+		for _, stmt := range fn.Body.List {
+			d, ok := stmt.(*ast.DeferStmt)
+			if !ok {
+				continue
+			}
+			if id, ok := d.Call.Fun.(*ast.Ident); ok && id.Name == "releaseLock" {
+				deferPos = d.Pos()
+			}
+		}
+	}
+	if deferPos == token.NoPos {
+		t.Error("joinCmd has no top-level `defer releaseLock()`")
+	} else if deferPos <= lock {
+		t.Errorf("defer releaseLock (%v) does not follow acquireInterfaceLock (%v)", fset.Position(deferPos), fset.Position(lock))
+	}
 }
 
 func TestAcquireInterfaceLockPermissionHint(t *testing.T) {
@@ -107,5 +132,38 @@ func TestAcquireInterfaceLockPermissionHint(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error %q lacks %q", err, want)
 		}
+	}
+}
+
+func TestAcquireInterfaceLockCreatesDirectory0700(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a", "b")
+	release, err := acquireInterfaceLock(filepath.Join(dir, "wg0.lock"))
+	if err != nil {
+		t.Fatalf("acquire: %v", err)
+	}
+	defer release()
+	fi, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fi.IsDir() || fi.Mode().Perm() != 0o700 {
+		t.Errorf("lock directory mode = %v, want a directory with 0700", fi.Mode())
+	}
+}
+
+// A holder that locked but has not written its pid yet is reported as unknown.
+func TestAcquireInterfaceLockHolderWithoutPid(t *testing.T) {
+	lock := filepath.Join(t.TempDir(), "wg0.lock")
+	f, err := os.OpenFile(lock, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	_, err = acquireInterfaceLock(lock)
+	if err == nil || !strings.Contains(err.Error(), "pid unknown") {
+		t.Errorf("error = %v, want it to say pid unknown", err)
 	}
 }
