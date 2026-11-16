@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"text/template"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 )
 
 const systemdUnitTemplate = `[Unit]
@@ -132,6 +134,16 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	return buf.String(), nil
 }
 
+// writeSecretEnv writes the systemd environment file that carries the secret.
+// The file is replaced through atomicfile, not rewritten in place: that is
+// what makes the 0600 mode apply to a file that already exists.
+// The value is quoted for safe systemd environment file parsing.
+func writeSecretEnv(path, secret string) error {
+	escaped := strings.ReplaceAll(secret, `\`, `\\`)
+	escaped = strings.ReplaceAll(escaped, `"`, `\"`)
+	return atomicfile.WriteFile(path, []byte(fmt.Sprintf("WGMESH_SECRET=\"%s\"\n", escaped)), 0600)
+}
+
 // InstallSystemdService installs and enables the wgmesh systemd service
 func InstallSystemdService(cfg SystemdServiceConfig) error {
 	unit, err := GenerateSystemdUnit(cfg)
@@ -152,12 +164,8 @@ func InstallSystemdService(cfg SystemdServiceConfig) error {
 		return fmt.Errorf("failed to create secret directory (run as root?): %w", err)
 	}
 
-	// Quote the secret value for safe systemd environment file parsing
-	escapedSecret := strings.ReplaceAll(cfg.Secret, `\`, `\\`)
-	escapedSecret = strings.ReplaceAll(escapedSecret, `"`, `\"`)
-	secretEnv := fmt.Sprintf("WGMESH_SECRET=\"%s\"\n", escapedSecret)
 	secretPath := filepath.Join(secretDir, "secret.env")
-	if err := os.WriteFile(secretPath, []byte(secretEnv), 0600); err != nil {
+	if err := writeSecretEnv(secretPath, cfg.Secret); err != nil {
 		return fmt.Errorf("failed to write secret file (run as root?): %w", err)
 	}
 

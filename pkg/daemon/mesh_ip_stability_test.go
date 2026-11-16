@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -48,12 +49,19 @@ func startWithPersisted(t *testing.T, persisted localNodeState, opts DaemonOpts)
 
 func defaultPersisted(t *testing.T) localNodeState {
 	t.Helper()
+	cfg, err := NewConfig(DaemonOpts{Secret: testConfigSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if derived := crypto.DeriveMeshIP(cfg.Keys.MeshSubnet, stabilityPubKey, testConfigSecret); derived == fmt.Sprintf("10.%d.5.9", cfg.Keys.MeshSubnet[0]) {
+		t.Fatal("test setup: derived IP equals the persisted one")
+	}
 	return localNodeState{
 		WGPubKey:     stabilityPubKey,
 		WGPrivateKey: "stability-test-private",
-		// Inside 10.0.0.0/8 but not what the derivation would pick, so a
-		// re-derivation is visible as a change.
-		MeshIP: "10.77.5.9",
+		// Inside the current secret's /16 but not what the derivation would
+		// pick, so a re-derivation is visible as a change.
+		MeshIP: fmt.Sprintf("10.%d.5.9", cfg.Keys.MeshSubnet[0]),
 		// Likewise not the derived IPv6, so a re-derivation shows up.
 		MeshIPv6: "fd77::5",
 	}
@@ -141,14 +149,38 @@ func TestPersistedMeshIPOutsideCustomSubnetIsRederived(t *testing.T) {
 	}
 }
 
-// TestPersistedMeshIPKeptWhenCustomSubnetDropped: a node that joined with
-// --mesh-subnet and is restarted without the flag must keep its address.
-func TestPersistedMeshIPKeptWhenCustomSubnetDropped(t *testing.T) {
+// TestPersistedMeshIPRederivedWhenCustomSubnetDropped: a node that joined with
+// --mesh-subnet and is restarted without the flag is back in the secret's
+// /16: an address outside it is replaced (#890) and the new value is saved.
+func TestPersistedMeshIPRederivedWhenCustomSubnetDropped(t *testing.T) {
 	p := defaultPersisted(t)
 	p.MeshIP = "192.168.100.7"
+	cfg, err := NewConfig(DaemonOpts{Secret: testConfigSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := crypto.DeriveMeshIP(cfg.Keys.MeshSubnet, p.WGPubKey, testConfigSecret)
 
 	node, disk := startWithPersisted(t, p, DaemonOpts{})
-	if node.GetMeshIP() != p.MeshIP || disk.MeshIP != p.MeshIP {
-		t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.GetMeshIP(), disk.MeshIP, p.MeshIP)
+	if node.GetMeshIP() != want || disk.MeshIP != want {
+		t.Errorf("MeshIP memory=%q disk=%q, want re-derived %q", node.GetMeshIP(), disk.MeshIP, want)
+	}
+}
+
+// TestPersistedMeshIPOutsideSecretSubnetIsRederived: the persisted IP lies in
+// another /16 than the current secret derives (a secret change, #890), so
+// initLocalNode replaces it and saves the new value.
+func TestPersistedMeshIPOutsideSecretSubnetIsRederived(t *testing.T) {
+	p := defaultPersisted(t)
+	cfg, err := NewConfig(DaemonOpts{Secret: testConfigSecret})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.MeshIP = fmt.Sprintf("10.%d.5.9", cfg.Keys.MeshSubnet[0]^1)
+	want := crypto.DeriveMeshIP(cfg.Keys.MeshSubnet, p.WGPubKey, testConfigSecret)
+
+	node, disk := startWithPersisted(t, p, DaemonOpts{})
+	if node.GetMeshIP() != want || disk.MeshIP != want {
+		t.Errorf("MeshIP memory=%q disk=%q, want re-derived %q", node.GetMeshIP(), disk.MeshIP, want)
 	}
 }

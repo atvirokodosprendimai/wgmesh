@@ -44,7 +44,7 @@ var allowedWriteFile = map[string]int{
 	"main.go":                1, // --output report, not state read again
 	"pkg/pilot/report.go":    1, // report output
 	"pkg/pilot/config.go":    1, // pilot config template
-	"pkg/daemon/systemd.go":  2, // secret.env and unit at install time; BACKLOG: install-service writing secret.env and the unit atomically (re-running repairs a short file)
+	"pkg/daemon/systemd.go":  1, // unit at install time; BACKLOG: install-service writing the unit atomically (re-running repairs a short file)
 	"cmd/status-gen/main.go": 1, // generated STATUS.md
 }
 

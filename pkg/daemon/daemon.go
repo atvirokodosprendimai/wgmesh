@@ -278,10 +278,16 @@ func (d *Daemon) admitPolicy() *Policy {
 // first byte Keys.MeshSubnet holds (the default derivation fills the other
 // two octets of every address).
 func (d *Daemon) meshNet() *net.IPNet {
-	if s := d.config.CustomSubnet; s != nil {
-		return &net.IPNet{IP: s.IP.Mask(s.Mask), Mask: s.Mask}
+	return MeshNetwork(d.config.Keys, d.config.CustomSubnet)
+}
+
+// MeshNetwork is the network node addresses belong to: the explicit
+// --mesh-subnet when there is one, else the /16 the secret derives.
+func MeshNetwork(keys *crypto.DerivedKeys, customSubnet *net.IPNet) *net.IPNet {
+	if customSubnet != nil {
+		return &net.IPNet{IP: customSubnet.IP.Mask(customSubnet.Mask), Mask: customSubnet.Mask}
 	}
-	return &net.IPNet{IP: net.IPv4(10, d.config.Keys.MeshSubnet[0], 0, 0).To4(), Mask: net.CIDRMask(16, 32)}
+	return &net.IPNet{IP: net.IPv4(10, keys.MeshSubnet[0], 0, 0).To4(), Mask: net.CIDRMask(16, 32)}
 }
 
 // deriveMeshIP is the address a key derives for a nonce: 0 is the natural
@@ -426,27 +432,23 @@ func (d *Daemon) Shutdown() {
 // MeshIPKept returns true when a persisted mesh IP may be kept. It is the one
 // rule for the daemon and for service registration.
 //
-// With an explicit --mesh-subnet the address must lie inside it, so changing
-// the subnet moves the node. Without one the persisted address came from this
-// node's own earlier derivation (default /16 from a secret, possibly an older
-// secret, or a --mesh-subnet used on an earlier run) and stays authoritative:
-// the operator changed an option, not the address, and peers, DNS and firewall
-// rules refer to it (issue #827). Any usable unicast IPv4 address is kept.
-func MeshIPKept(meshIP string, customSubnet *net.IPNet) bool {
+// The address must lie inside meshNet (see MeshNetwork): the explicit
+// --mesh-subnet, or else the /16 the current secret derives. A persisted
+// address outside it is re-derived: after a secret change a node that kept
+// its old /16 would sit in another subnet than the nodes that derive from the
+// new secret, and no route joins the two (issue #890). Within the network the
+// address stays authoritative (issue #827): the operator changed an option,
+// not the address, and peers, DNS and firewall rules refer to it.
+func MeshIPKept(meshIP string, meshNet *net.IPNet) bool {
 	ip := net.ParseIP(meshIP)
 	if ip == nil || ip.To4() == nil {
 		return false
 	}
-	if customSubnet != nil {
-		return customSubnet.Contains(ip)
-	}
-	// Without a subnet any usable unicast address is kept; addresses that
-	// cannot be a node address are re-derived.
-	return !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsMulticast() && !ip.Equal(net.IPv4bcast)
+	return meshNet.Contains(ip)
 }
 
 func meshIPInSubnet(meshIP string, cfg *Config) bool {
-	return MeshIPKept(meshIP, cfg.CustomSubnet)
+	return MeshIPKept(meshIP, MeshNetwork(cfg.Keys, cfg.CustomSubnet))
 }
 
 // announceableHostname returns hostname if peers will accept it in an
@@ -522,6 +524,7 @@ func (d *Daemon) initLocalNode() error {
 			} else {
 				d.localNode.SetMeshIP(crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret))
 			}
+			log.Printf("Persisted mesh IP %s is outside the mesh network %s; re-derived %s", cur, d.meshNet(), d.localNode.GetMeshIP())
 			// Persist the newly derived IP so subsequent starts reuse it.
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
 				log.Printf("Warning: failed to save local node state: %v", err)

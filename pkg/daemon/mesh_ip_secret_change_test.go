@@ -8,11 +8,12 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
 
-// TestPersistedMeshIPSurvivesSecretChange pins the operator-visible contract:
-// rotating the mesh secret (for example after a leak) must not move a node to
-// another address. In the default derivation the /16 comes from the secret, so
-// a persisted IP has to stay valid under a secret that derives another /16.
-func TestPersistedMeshIPSurvivesSecretChange(t *testing.T) {
+// TestPersistedMeshIPOutsideCurrentSecretSubnetIsRederived pins the contract
+// of #890: in the default derivation the /16 comes from the secret, so a
+// persisted IP that lies outside the current secret's /16 is not kept. Keeping
+// it would split the mesh into two /16s with no route between them. A
+// persisted IP inside the current /16 is kept.
+func TestPersistedMeshIPOutsideCurrentSecretSubnetIsRederived(t *testing.T) {
 	t.Parallel()
 
 	cfgOld, err := NewConfig(DaemonOpts{Secret: "rotation-test-secret-old-0000000000"})
@@ -38,8 +39,8 @@ func TestPersistedMeshIPSurvivesSecretChange(t *testing.T) {
 	if !meshIPInSubnet(ip, cfgOld) {
 		t.Fatalf("freshly derived IP %s not accepted under its own secret", ip)
 	}
-	if !meshIPInSubnet(ip, cfgNew) {
-		t.Errorf("persisted IP %s rejected after the secret changed: the node would re-derive and lose its address", ip)
+	if meshIPInSubnet(ip, cfgNew) {
+		t.Errorf("persisted IP %s kept after the secret changed to another /16: the node would sit outside the mesh /16", ip)
 	}
 }
 

@@ -456,6 +456,77 @@ func TestInstallSystemdService_ExecCommands(t *testing.T) {
 	}
 }
 
+// TestWriteSecretEnvEnforcesMode: a secret.env left by an earlier install with
+// a looser mode ends up 0600, and its content is replaced.
+func TestWriteSecretEnvEnforcesMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret.env")
+	if err := os.WriteFile(path, []byte("WGMESH_SECRET=\"old\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile applies the umask on create only; make the mode exact and
+	// prove the precondition, or the test would pass on the old code.
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(path); err != nil || info.Mode().Perm() != 0644 {
+		t.Fatalf("test setup: want a 0644 file, got %v (err %v)", info, err)
+	}
+
+	if err := writeSecretEnv(path, `a"b\c`); err != nil {
+		t.Fatalf("writeSecretEnv: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Errorf("secret.env mode = %o, want 600", got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "WGMESH_SECRET=\"a\\\"b\\\\c\"\n"; string(data) != want {
+		t.Errorf("secret.env = %q, want %q", data, want)
+	}
+}
+
+// TestWriteSecretEnvReplacesSymlinkAndLeavesNoTemp: a symlink at the path is
+// replaced by a regular 0600 file and its target is left alone; no temp file
+// remains in the directory.
+func TestWriteSecretEnvReplacesSymlinkAndLeavesNoTemp(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target.env")
+	if err := os.WriteFile(target, []byte("keep\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "secret.env")
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSecretEnv(path, "s"); err != nil {
+		t.Fatalf("writeSecretEnv: %v", err)
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !info.Mode().IsRegular() || info.Mode().Perm() != 0600 {
+		t.Errorf("secret.env mode = %v, want a regular 0600 file", info.Mode())
+	}
+	if data, err := os.ReadFile(target); err != nil || string(data) != "keep\n" {
+		t.Errorf("symlink target = %q (err %v), want it unchanged", data, err)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("directory holds %d entries, want secret.env and target.env only", len(entries))
+	}
+}
+
 // TestUninstallSystemdService_ExecCommands verifies that UninstallSystemdService issues
 // the expected systemctl commands via cmdExecutor.
 func TestUninstallSystemdService_ExecCommands(t *testing.T) {

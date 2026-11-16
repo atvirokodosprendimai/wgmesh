@@ -338,9 +338,9 @@ func TestDeriveMeshIPForServiceUsesPersistedState(t *testing.T) {
 		subnet *net.IPNet
 		want   string // "" means: derived from wg_pubkey in the custom subnet
 	}{
-		{"persisted mesh_ip kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, nil, "10.200.3.4"},
-		{"non-10/8 mesh_ip without custom subnet is kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.100.7"}`, nil, "192.168.100.7"},
-		{"IPv4-mapped mesh_ip is normalized", `{"wg_pubkey":"PUBKEY","mesh_ip":"::ffff:10.0.0.5"}`, nil, "10.0.0.5"},
+		{"persisted mesh_ip inside the secret /16 kept", fmt.Sprintf(`{"wg_pubkey":"PUBKEY","mesh_ip":"10.%d.3.4"}`, keys.MeshSubnet[0]), nil, fmt.Sprintf("10.%d.3.4", keys.MeshSubnet[0])},
+		{"mesh_ip outside the secret /16 is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.100.7"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},
+		{"IPv4-mapped mesh_ip is normalized", fmt.Sprintf(`{"wg_pubkey":"PUBKEY","mesh_ip":"::ffff:10.%d.0.5"}`, keys.MeshSubnet[0]), nil, fmt.Sprintf("10.%d.0.5", keys.MeshSubnet[0])},
 		{"mesh_ip outside custom subnet is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, custom, ""},
 		{"mesh_ip inside custom subnet kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.50.9"}`, custom, "192.168.50.9"},
 		{"no mesh_ip derives from wg_pubkey", `{"wg_pubkey":"PUBKEY"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},
