@@ -253,3 +253,32 @@ func TestSavePeerCacheDropsGuessedEndpoint(t *testing.T) {
 		t.Errorf("restored advertised peer = %+v, want endpoint 198.51.100.7:51821", adv)
 	}
 }
+
+// A cache entry stamped in the future (the clock jumped back since the save)
+// is clamped to now, so it cannot outlive the expiry.
+func TestRestoreClampsFutureLastSeen(t *testing.T) {
+	cache := &PeerCache{Peers: []PeerCacheEntry{{WGPubKey: "k", MeshIP: "10.0.0.2", LastSeen: time.Now().AddDate(100, 0, 0).Unix()}}}
+	ps := NewPeerStore()
+	if n := restorePeers(cache, ps); n != 1 {
+		t.Fatalf("restorePeers = %d, want 1", n)
+	}
+	after := time.Now()
+	got, ok := ps.Get("k")
+	if !ok {
+		t.Fatal("expected k in peer store")
+	}
+	if got.LastSeen.After(after) {
+		t.Fatalf("LastSeen = %v, want it clamped to now (not after %v)", got.LastSeen, after)
+	}
+}
+
+// A peer whose LastSeen lies in the future is not saved with a future time.
+func TestSaveDoesNotWriteFutureTime(t *testing.T) {
+	ps := NewPeerStore()
+	ps.SetPeerDirectly("k", &PeerInfo{WGPubKey: "k", MeshIP: "10.0.0.2", LastSeen: time.Now().Add(time.Hour)})
+	cache := buildPeerCache(ps)
+	after := time.Now().Unix()
+	if len(cache.Peers) != 1 || cache.Peers[0].LastSeen > after {
+		t.Fatalf("cache peers = %+v, want last_seen not after %d", cache.Peers, after)
+	}
+}
