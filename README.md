@@ -105,7 +105,7 @@ node3 <----> node4
 
 ### NAT Traversal
 
-Nodes with public IPs are configured as endpoints for other nodes. Nodes behind NAT use persistent keepalive to maintain connections. NAT status is detected automatically by comparing the SSH host with the detected public IP.
+Nodes with public IPs are configured as endpoints for other nodes. Nodes behind NAT use persistent keepalive to maintain connections. In centralized mode an endpoint you wrote (`public_endpoint`) wins; when every node's SSH host is a private IP address each node gets `<ssh host>:<listen port>`; otherwise a node whose detected public IP equals its SSH host is an endpoint and any other node is treated as behind NAT. See [centralized-mode.md](docs/centralized-mode.md) and the [rollout note](docs/centralized-rollout.md).
 
 ### Online Updates
 
@@ -292,6 +292,8 @@ wgmesh version
 - **Message type authentication** and replay handling of peer messages are rolled out in three releases; see [Envelope rollout](docs/envelope-rollout.md).
 - **Admit step** (which peer claims a node accepts: mesh IP, routes, endpoints, the 5-minute tombstone, the `--accept-routes` list) is rolled out in three releases; see [Admit step rollout](docs/admit-rollout.md).
 - **State files, locks and the local node** (atomic state files, the `wgmesh join` interface lock, the RPC socket lock, the moved-aside corrupt identity, what to do when a second `join` is refused) change in release N and one release later; see [State rollout](docs/state-rollout.md).
+- **Kernel state** (how the daemon reads the kernel and writes only the difference: one owner per shared network, forwarding scope, routes on Linux and macOS, the `wgmesh_kernel_warnings_total` counter) is rolled out in two releases; see [Kernel state](docs/kernel-state.md).
+- **Liveness** (how a node judges a peer alive: handshakes and probes as evidence, wake from sleep, relayed peers kept probe-only) is rolled out in three releases; see [Liveness rollout](docs/liveness-rollout.md).
 ## Architecture
 
 ```

@@ -15,6 +15,8 @@ type Decision = node.Decision
 type Policy = node.Policy
 type LocalNode = node.LocalNode
 type EndpointSource = node.EndpointSource
+type Liveness = node.Liveness
+type Evidence = node.Evidence
 
 const (
 	PeerDeadTimeout   = node.PeerDeadTimeout
@@ -39,6 +41,7 @@ const (
 	EndpointInterface  = node.EndpointInterface
 	EndpointReflection = node.EndpointReflection
 	EndpointSTUN       = node.EndpointSTUN
+	EndpointSTUNResume = node.EndpointSTUNResume
 )
 
 func NewPeerStore() *PeerStore { return node.NewPeerStore() }

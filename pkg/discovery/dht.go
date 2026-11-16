@@ -20,6 +20,7 @@ import (
 	"github.com/anacrolix/dht/v2/krpc"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -44,6 +45,18 @@ const (
 	IPv6SyncWindow            = 8 * time.Second
 	IPv6SyncPhase             = 2 * time.Second
 )
+const (
+	// ContactDedupWindow is the longest interval any markContacted caller
+	// passes. An entry older than it can no longer block a contact, so
+	// markContacted sweeps it (ADR-0007 Decision 3).
+	ContactDedupWindow = 60 * time.Second
+	// MaxContactedPeers is the hard cap on the contacted-address map. At the
+	// cap a new address is refused (fail closed) until a sweep frees room.
+	MaxContactedPeers = 8192
+	// contactSweepThreshold is the map size above which markContacted looks
+	// for expired entries; below it the map is too small to matter.
+	contactSweepThreshold = 256
+)
 
 type backoffEntry struct {
 	nextAttempt time.Time
@@ -64,6 +77,12 @@ type DHTDiscovery struct {
 	localNode *daemon.LocalNode
 	peerStore *daemon.PeerStore
 	exchange  *PeerExchange
+	// gossip, lan, server and dhtPort are assigned by Start while Stop and the
+	// loops read them from other goroutines: never a bare value.
+	gossip  atomic.Pointer[MeshGossip]
+	lan     atomic.Pointer[LANDiscovery]
+	server  atomic.Pointer[dht.Server]
+	dhtPort atomic.Int32
 
 	// loops counts live DHT loop goroutines. It is a test seam: while the
 	// layer runs it is above 0, after Stop returns it must be 0.
@@ -75,15 +94,11 @@ type DHTDiscovery struct {
 	// runMu first, then mu; code holding mu never calls Start or Stop.
 	runMu sync.Mutex
 
-	// mu guards every field below, reads included (ADR-0005 T10): Start writes
-	// server, dhtPort, lan and gossip, while the loops of a stopped run, Stop
-	// and the next Start read them. Read server and dhtPort through dhtServer
-	// and dhtPortNow, lan and gossip under mu.
+	// mu guards every field below, reads included (ADR-0005 T10); gossip, lan,
+	// server and dhtPort above are atomic (#904, ADR-0007) and read without it:
+	// Start stores them, Stop and the loops of a stopped run load them. Read
+	// the run's context through runCtx.
 	mu                sync.RWMutex
-	gossip            *MeshGossip
-	lan               *LANDiscovery
-	server            *dht.Server
-	dhtPort           int
 	running           bool
 	starting          bool // beginRun done, sub-layers not all started yet (guarded by mu like running)
 	parentCtx         context.Context
@@ -93,6 +108,31 @@ type DHTDiscovery struct {
 	contactedPeers    map[string]time.Time    // Dedup: don't spam same IP
 	controlPeers      map[string]string       // peer pubkey -> exchange/control endpoint
 	rendezvousBackoff map[string]backoffEntry // peer pubkey -> backoff state
+	// now is the test seam for the clock; nil means time.Now. Atomic because
+	// goroutines read it without d.mu.
+	now atomic.Pointer[func() time.Time]
+	// lastContactSweep and lastCapLog are touched only with d.mu held.
+	lastContactSweep time.Time
+	lastCapLog       time.Time
+
+	// stunMu serialises refreshSTUNOnce: the ticker and OnResume both call it.
+	stunMu sync.Mutex
+	// stunInterval is the ticker period of stunRefreshLoop; set before Start.
+	stunInterval time.Duration
+	// The three hooks below are set in NewDHTDiscovery and replaced only by
+	// tests before the layer runs: the STUN query, the announce to the
+	// infohash and the one-address announce.
+	stunFn         func() (NATType, net.IP, error)
+	announceFn     func()
+	sendAnnounceFn func(*net.UDPAddr) error
+	// resumable is true from the end of Start to the start of Stop (guarded by
+	// mu): OnResume acts only then, so it never reads fields Start is still
+	// writing. resumeWG tracks the goroutine OnResume starts; resumeBusy (also
+	// guarded by mu) is true while that goroutine runs, so a burst of wake
+	// events starts one pass, not one per event.
+	resumable  bool
+	resumeBusy bool
+	resumeWG   sync.WaitGroup
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance.
@@ -111,10 +151,14 @@ func NewDHTDiscovery(parentCtx context.Context, config *daemon.Config, localNode
 		contactedPeers:    make(map[string]time.Time),
 		controlPeers:      make(map[string]string),
 		rendezvousBackoff: make(map[string]backoffEntry),
+		stunInterval:      60 * time.Second,
 	}
 
 	// Create peer exchange handler
 	d.exchange = NewPeerExchange(config, localNode, peerStore)
+	d.stunFn = d.queryStun
+	d.announceFn = func() { d.announce(d.runCtx()) }
+	d.sendAnnounceFn = d.exchange.SendAnnounce
 
 	return d, nil
 }
@@ -135,7 +179,8 @@ func (d *DHTDiscovery) beginRun() error {
 	d.cancel() // release the previous context (cancelled by Stop, or the initial one)
 	d.ctx, d.cancel = context.WithCancel(d.parentCtx)
 	d.starting = true
-	d.lan, d.gossip = nil, nil // each run builds its own layers
+	d.lan.Store(nil) // each run builds its own layers
+	d.gossip.Store(nil)
 	d.loopWG = &sync.WaitGroup{}
 	return nil
 }
@@ -169,6 +214,9 @@ func (d *DHTDiscovery) goLoop(fn func()) {
 
 // waitDHTLoops waits for the group of a stopped run, at most dhtStopTimeout.
 func waitDHTLoops(wg *sync.WaitGroup) {
+	if wg == nil {
+		return // no run was opened (a test sets running by hand): no loops to wait for
+	}
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -197,9 +245,7 @@ func (d *DHTDiscovery) abortRun() {
 	d.mu.Lock()
 	d.starting = false
 	cancel := d.cancel
-	lan, gossip := d.lan, d.gossip
-	d.lan = nil
-	d.gossip = nil
+	lan, gossip := d.lan.Swap(nil), d.gossip.Swap(nil)
 	d.mu.Unlock()
 	cancel()
 
@@ -220,18 +266,14 @@ func (d *DHTDiscovery) runCtx() context.Context {
 }
 
 // dhtServer returns the DHT server of the current run (nil before the first
-// Start), under d.mu.
+// Start); the pointer is atomic (#904), so it needs no lock.
 func (d *DHTDiscovery) dhtServer() *dht.Server {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.server
+	return d.server.Load()
 }
 
-// dhtPortNow returns the bound DHT port of the current run, under d.mu.
+// dhtPortNow returns the bound DHT port of the current run (atomic).
 func (d *DHTDiscovery) dhtPortNow() int {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.dhtPort
+	return int(d.dhtPort.Load())
 }
 
 // Start begins DHT discovery. It is restart-safe: after Stop it may be called
@@ -269,9 +311,7 @@ func (d *DHTDiscovery) Start() error {
 			return fmt.Errorf("failed to create gossip: %w", err)
 		}
 		gossip = g
-		d.mu.Lock()
-		d.gossip = gossip
-		d.mu.Unlock()
+		d.gossip.Store(gossip)
 		d.exchange.SetAnnounceHandler(gossip.HandleAnnounceFrom)
 	}
 
@@ -285,14 +325,10 @@ func (d *DHTDiscovery) Start() error {
 		if err != nil {
 			log.Printf("[LAN] Failed to initialize LAN discovery: %v", err)
 		} else {
-			d.mu.Lock()
-			d.lan = lan
-			d.mu.Unlock()
+			d.lan.Store(lan)
 			if err := lan.Start(); err != nil {
 				log.Printf("[LAN] Failed to start LAN discovery: %v", err)
-				d.mu.Lock()
-				d.lan = nil
-				d.mu.Unlock()
+				d.lan.CompareAndSwap(lan, nil)
 			}
 		}
 	} else {
@@ -327,6 +363,11 @@ func (d *DHTDiscovery) Start() error {
 	d.setRunning()
 	started = true
 
+	// From here OnResume may act: everything it reads has been written.
+	d.mu.Lock()
+	d.resumable = true
+	d.mu.Unlock()
+
 	log.Printf("[DHT] Discovery started, listening on port %d", d.exchange.Port())
 	return nil
 }
@@ -342,8 +383,9 @@ func (d *DHTDiscovery) Stop() error {
 		return nil
 	}
 	d.running = false
+	d.resumable = false
 	cancel := d.cancel
-	server, lan, gossip := d.server, d.lan, d.gossip
+	server, lan, gossip := d.server.Load(), d.lan.Load(), d.gossip.Load()
 	wg := d.loopWG
 	d.mu.Unlock()
 
@@ -403,8 +445,8 @@ func (d *DHTDiscovery) broadcastGoodbye() {
 }
 
 // discoverExternalEndpoint queries two STUN servers to find this node's
-// server-reflexive address and detect NAT type. Updates the local node's
-// endpoint and NAT type (SetEndpoint, SetNATType). Falls back to the existing endpoint if STUN fails.
+// server-reflexive address and detect NAT type. Records the endpoint with
+// ObserveEndpoint and the NAT type with SetNATType. Keeps the existing endpoint if STUN fails.
 // Also discovers IPv6 endpoint if available (no NAT, preferred for direct connection).
 func (d *DHTDiscovery) discoverExternalEndpoint() {
 	if d.config.DisableIPv6 {
@@ -568,57 +610,154 @@ func isPublicIPv6(ip net.IP) bool {
 // up-to-date, falling back to single-server DiscoverExternalEndpoint when
 // fewer than two servers are available.
 func (d *DHTDiscovery) stunRefreshLoop(ctx context.Context) {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(d.stunInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			if !d.config.DisableIPv6 {
-				// Prefer IPv6 if available
-				if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
-					if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
-						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
-					}
-					d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
-					continue
-				}
-			}
-
-			servers := DefaultSTUNServers
-			if len(servers) >= 2 {
-				// Full NAT type re-detection with two servers
-				natType, ip, _, err := DetectNATType(servers[0], servers[1], 0, 3000)
-				if err != nil {
-					log.Printf("[STUN] Refresh failed: %v", err)
-					continue
-				}
-				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
-				currentEP := d.localNode.GetEndpoint()
-				oldNAT := d.localNode.GetNATType()
-				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
-					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
-				}
-				if string(natType) != oldNAT {
-					log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
-				}
-				d.localNode.SetNATType(string(natType))
-			} else {
-				// Fallback: single-server IP-only refresh
-				ip, _, err := DiscoverExternalEndpoint(0)
-				if err != nil {
-					log.Printf("[STUN] Refresh failed: %v", err)
-					continue
-				}
-				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
-				currentEP := d.localNode.GetEndpoint()
-				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
-					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
-				}
-			}
+			d.refreshSTUNOnce(daemon.EndpointSTUN)
 		case <-ctx.Done():
 			return
 		}
 	}
+}
+
+// refreshSTUNOnce is one pass of the STUN refresh: the ticker calls it with
+// EndpointSTUN (a changed answer waits for three observations, ADR-0002 R7),
+// OnResume with EndpointSTUNResume (applied at once). stunMu keeps the two
+// callers from running it together.
+func (d *DHTDiscovery) refreshSTUNOnce(src daemon.EndpointSource) {
+	d.stunMu.Lock()
+	defer d.stunMu.Unlock()
+
+	if !d.config.DisableIPv6 {
+		// Prefer IPv6 if available. The endpoint is applied at once whatever
+		// src is: ObserveEndpoint(EndpointInterface) takes no confirmation.
+		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
+			if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
+				log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
+			}
+			d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
+			return
+		}
+	}
+
+	natType, ip, err := d.stunFn()
+	if d.ctx.Err() != nil {
+		return // the layer was stopped during the query: its answer is stale
+	}
+	if err != nil {
+		log.Printf("[STUN] Refresh failed: %v", err)
+		return
+	}
+	newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+	currentEP := d.localNode.GetEndpoint()
+	if d.localNode.ObserveEndpoint(src, newEndpoint) {
+		log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
+	}
+	if natType == "" {
+		return // one server only: the NAT type is not re-classified
+	}
+	oldNAT := d.localNode.GetNATType()
+	if string(natType) != oldNAT {
+		log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
+	}
+	d.localNode.SetNATType(string(natType))
+}
+
+// queryStun is the default stunFn: the STUN servers' view of our external
+// address. With two servers it also classifies the NAT; with one the NAT type
+// comes back empty and the caller leaves it as it was.
+func (d *DHTDiscovery) queryStun() (NATType, net.IP, error) {
+	servers := DefaultSTUNServers
+	if len(servers) >= 2 {
+		natType, ip, _, err := DetectNATType(servers[0], servers[1], 0, 3000)
+		return natType, ip, err
+	}
+	ip, _, err := DiscoverExternalEndpoint(0)
+	return "", ip, err
+}
+
+// announceNow announces at once what the periodic loops announce one by one:
+// announce() to the infohash, and SendAnnounce to the mesh IP and gossip port
+// of every active peer (what gossipLoop sends to one random peer per tick). The
+// peer sends need gossip on and an open exchange socket; no new message type.
+func (d *DHTDiscovery) announceNow() {
+	d.announceFn()
+
+	gossip := d.gossip.Load()
+	if !d.config.Gossip || gossip == nil || !d.exchange.hasConn() {
+		return
+	}
+	gossip.mu.RLock()
+	port := int(gossip.port)
+	gossip.mu.RUnlock()
+	failed, skipped := 0, 0
+	var firstErr error
+	for _, p := range d.peerStore.GetActive() {
+		if p.WGPubKey == d.localNode.WGPubKey || p.MeshIP == "" {
+			continue
+		}
+		ip := net.ParseIP(p.MeshIP)
+		if ip == nil {
+			skipped++
+			continue
+		}
+		if err := d.sendAnnounceFn(&net.UDPAddr{IP: ip, Port: port}); err != nil {
+			if failed == 0 {
+				firstErr = err
+			}
+			failed++
+		}
+	}
+	// one line per wake, however many peers are down
+	if failed > 0 || skipped > 0 {
+		log.Printf("[Resume] Announce failed for %d peers (first error: %v), %d skipped for an invalid mesh IP", failed, firstErr, skipped)
+	}
+}
+
+var _ node.Resumer = (*DHTDiscovery)(nil)
+
+// OnResume runs the wake actions once (the daemon calls it from the resume
+// goroutine, beside the discovery loops): it clears the rendezvous back-off so
+// the next cycle may punch, then refreshes STUN with the stun-resume source
+// (applied at once) and announces. The two network steps run in a goroutine
+// counted by resumeWG, so the caller never waits on them; each step has its own
+// timeout (STUN 3 s per probe, announce 30 s, cancelled with the layer), and
+// Stop does not wait for them. While such a goroutine is running a further call
+// only clears the back-off. Before Start and after Stop it does nothing.
+func (d *DHTDiscovery) OnResume() {
+	d.mu.Lock()
+	if !d.resumable || d.ctx.Err() != nil {
+		d.mu.Unlock()
+		return
+	}
+	clear(d.rendezvousBackoff)
+	if d.resumeBusy {
+		d.mu.Unlock()
+		return
+	}
+	d.resumeBusy = true
+	d.resumeWG.Add(1)
+	d.mu.Unlock()
+
+	log.Printf("[Resume] Wake detected: refreshing STUN endpoint and announcing")
+	go func() {
+		defer d.resumeWG.Done()
+		defer func() {
+			d.mu.Lock()
+			d.resumeBusy = false
+			d.mu.Unlock()
+		}()
+		if d.ctx.Err() != nil {
+			return
+		}
+		d.refreshSTUNOnce(daemon.EndpointSTUNResume)
+		if d.ctx.Err() != nil {
+			return
+		}
+		d.announceNow()
+	}()
 }
 
 // initDHTServer initializes the BitTorrent DHT server; ctx is this run's
@@ -670,10 +809,8 @@ func (d *DHTDiscovery) initDHTServer(ctx context.Context) error {
 		return fmt.Errorf("failed to create DHT server: %w", err)
 	}
 
-	d.mu.Lock()
-	d.server = server
-	d.dhtPort = boundPort
-	d.mu.Unlock()
+	d.server.Store(server)
+	d.dhtPort.Store(int32(boundPort))
 	d.loadPersistedNodes(server)
 
 	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", boundPort)
@@ -707,7 +844,7 @@ func (d *DHTDiscovery) attemptBootstrapLookup(parent context.Context) bool {
 	if server == nil {
 		return false
 	}
-	a, err := server.Announce(randomID, 0, false)
+	a, err := server.AnnounceTraversal(randomID)
 	if err != nil {
 		log.Printf("[DHT] Bootstrap lookup failed: %v", err)
 		return false
@@ -878,7 +1015,7 @@ func (d *DHTDiscovery) announceToInfohash(callCtx context.Context, infohash [20]
 	ctx, cancel := context.WithTimeout(callCtx, 30*time.Second)
 	defer cancel()
 
-	announce, err := server.Announce(infohash, port, false)
+	announce, err := server.AnnounceTraversal(infohash, announceOpts(port)...)
 	if err != nil {
 		log.Printf("[DHT] Failed to start announce: %v", err)
 		return
@@ -918,6 +1055,7 @@ func (d *DHTDiscovery) queryLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			d.sweepPeerKeyed()
 			d.queryPeers(ctx)
 
 			// Slow down queries once we have enough peers
@@ -962,7 +1100,7 @@ func (d *DHTDiscovery) queryInfohash(callCtx context.Context, infohash [20]byte)
 	ctx, cancel := context.WithTimeout(callCtx, 30*time.Second)
 	defer cancel()
 
-	peers, err := server.Announce(infohash, 0, false) // port=0, false = get_peers only, no announce
+	peers, err := server.AnnounceTraversal(infohash) // no announce option: get_peers only
 	if err != nil {
 		log.Printf("[DHT] Failed to query peers: %v", err)
 		return
@@ -1050,7 +1188,8 @@ func (d *DHTDiscovery) handlePeerEvent(ev daemon.PeerEvent) {
 	}
 
 	// Skip if recently established via rendezvous
-	if hasDiscoveryMethod(peer.DiscoveredVia, "dht-rendezvous") && time.Since(peer.LastSeen) < 2*time.Minute {
+	now := time.Now()
+	if hasDiscoveryMethod(peer.DiscoveredVia, "dht-rendezvous") && daemon.DecideByLiveness(daemon.SiteRendezvousSkip, peer, now, func(age time.Duration) bool { return age < 2*time.Minute }) {
 		return
 	}
 
@@ -1063,7 +1202,51 @@ func (d *DHTDiscovery) handlePeerEvent(ev daemon.PeerEvent) {
 	d.tryRendezvousForPeer(peer)
 }
 
+// clock returns the current time, from the test seam when one is set.
+func (d *DHTDiscovery) clock() time.Time {
+	if f := d.now.Load(); f != nil {
+		return (*f)()
+	}
+	return time.Now()
+}
+
+// sweepPeerKeyed deletes controlPeers and rendezvousBackoff entries whose key
+// the PeerStore no longer holds (ADR-0007 Decision 3). A key the store lacks
+// is a key not in its peers map: a tombstone is not a peer, so a withdrawn
+// peer is swept like any absent one. d.mu is released before the PeerStore
+// lock is taken. A key that returns between the check and the delete loses
+// its entry, which restarts its backoff at the minimum, as for a new peer.
+func (d *DHTDiscovery) sweepPeerKeyed() {
+	d.mu.RLock()
+	keys := make([]string, 0, len(d.controlPeers)+len(d.rendezvousBackoff))
+	for k := range d.controlPeers {
+		keys = append(keys, k)
+	}
+	for k := range d.rendezvousBackoff {
+		keys = append(keys, k)
+	}
+	d.mu.RUnlock()
+
+	var gone []string
+	for _, k := range keys {
+		if _, ok := d.peerStore.Get(k); !ok {
+			gone = append(gone, k)
+		}
+	}
+	if len(gone) == 0 {
+		return
+	}
+
+	d.mu.Lock()
+	for _, k := range gone {
+		delete(d.controlPeers, k)
+		delete(d.rendezvousBackoff, k)
+	}
+	d.mu.Unlock()
+}
+
 func (d *DHTDiscovery) checkStaleHandshakes() {
+	d.sweepPeerKeyed()
 	peers := d.peerStore.GetActive()
 	for _, peer := range peers {
 		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
@@ -1135,7 +1318,8 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 	}
 
 	// Skip peers we already have a recent WG handshake with — no rendezvous needed.
-	hs := getPeerHandshakeTS(d.config.InterfaceName, peer.WGPubKey)
+	// Up to ReconcileInterval (5 s) old: hs is compared with the 2 minute window below, so one snapshot serves every peer of the sweep.
+	hs := getPeerHandshakeTS(d.config.InterfaceName, peer.WGPubKey, daemon.ReconcileInterval)
 	if hs > 0 && time.Since(time.Unix(hs, 0)) < 2*time.Minute {
 		return
 	}
@@ -1221,7 +1405,8 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 	log.Printf("[NAT] Event-driven punch: %s via %s (no introducer)", shortKey(peer.WGPubKey), targetControlEndpoint)
 
 	go func(endpoint string, target *daemon.PeerInfo) {
-		baseline := getPeerHandshakeTS(d.config.InterfaceName, target.WGPubKey)
+		// Punch baseline: fresh read (maxAge 0), a stale one could count an old handshake as new.
+		baseline := getPeerHandshakeTS(d.config.InterfaceName, target.WGPubKey, 0)
 		peerInfo, err := d.exchange.ExchangeWithPeer(endpoint)
 		if err != nil {
 			if !strings.Contains(err.Error(), "timeout") {
@@ -1231,7 +1416,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			return
 		}
 		if peerInfo != nil {
-			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, handshakeWaitTimeout)
+			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, time.Duration(handshakeWaitTimeout.Load()))
 			if newHandshake <= baseline {
 				log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(target.WGPubKey), endpoint)
 				d.recordRendezvousAttempt(target.WGPubKey, false)
@@ -1314,18 +1499,36 @@ func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.
 	d.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: source, Hand: daemon.FirstHand})
 }
 
-// peerHandshakes and handshakeWaitTimeout are test seams: production values are
-// wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
+// readWGState and handshakeWaitTimeout are test seams: production values are
+// wireguard.ReadState and HandshakeWaitTimeout. Production goroutines read
+// them while a test may write, so both are atomic.
 var (
-	peerHandshakes       = wireguard.GetLatestHandshakes
-	handshakeWaitTimeout = HandshakeWaitTimeout
+	readWGState          atomic.Pointer[func(iface string, maxAge time.Duration) (*wireguard.State, error)]
+	handshakeWaitTimeout atomic.Int64 // nanoseconds
 )
 
-func getPeerHandshakeTS(iface, peerPubKey string) int64 {
+func init() {
+	f := wireguard.ReadState
+	readWGState.Store(&f)
+	handshakeWaitTimeout.Store(int64(HandshakeWaitTimeout))
+}
+
+// readHandshakes returns the latest handshake of every peer from one
+// snapshot no older than maxAge (0 = fork now). Each caller names its own
+// staleness at the call.
+func readHandshakes(iface string, maxAge time.Duration) (map[string]int64, error) {
+	st, err := (*readWGState.Load())(iface, maxAge)
+	if err != nil {
+		return nil, err
+	}
+	return st.Handshakes(), nil
+}
+
+func getPeerHandshakeTS(iface, peerPubKey string, maxAge time.Duration) int64 {
 	if iface == "" || peerPubKey == "" {
 		return 0
 	}
-	hs, err := peerHandshakes(iface)
+	hs, err := readHandshakes(iface, maxAge)
 	if err != nil {
 		return 0
 	}
@@ -1335,13 +1538,14 @@ func getPeerHandshakeTS(iface, peerPubKey string) int64 {
 func waitForPeerHandshake(iface, peerPubKey string, baseline int64, timeout time.Duration) int64 {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		current := getPeerHandshakeTS(iface, peerPubKey)
+		// Punch wait: fresh read (maxAge 0) on each poll, a new handshake must show within one HandshakePollInterval.
+		current := getPeerHandshakeTS(iface, peerPubKey, 0)
 		if current > baseline {
 			return current
 		}
 		time.Sleep(HandshakePollInterval)
 	}
-	return getPeerHandshakeTS(iface, peerPubKey)
+	return getPeerHandshakeTS(iface, peerPubKey, 0)
 }
 
 func (d *DHTDiscovery) setControlEndpoint(peerPubKey, endpoint string) {
@@ -1448,7 +1652,8 @@ func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo, handshakes 
 	if p == nil {
 		return false
 	}
-	if time.Since(p.LastSeen) > 2*time.Minute {
+	now := time.Now()
+	if daemon.DecideByLiveness(daemon.SiteIntroducerCandidate, p, now, func(age time.Duration) bool { return age > 2*time.Minute }) {
 		return false
 	}
 	d.mu.RLock()
@@ -1486,8 +1691,10 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		isExplicit      bool
 	}
 
-	// Fetch handshakes once for all candidates (D6: avoid forking wg show per peer)
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	// Fetch handshakes once for all candidates (D6: avoid forking wg show per peer).
+	// Up to ReconcileInterval (5 s) old: ts is compared with the 2 minute window in isAutoIntroducerCandidate.
+	st, _ := wireguard.ReadState(d.config.InterfaceName, daemon.ReconcileInterval)
+	handshakes := st.Handshakes()
 
 	candidates := make([]introducerCandidate, 0, len(peers))
 	for _, p := range peers {
@@ -1652,13 +1859,44 @@ func hasAnyDHTReachability(methods []string) bool {
 func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	now := d.clock()
 
-	if lastContact, ok := d.contactedPeers[addr]; ok {
-		if time.Since(lastContact) < minInterval {
-			return false
+	// Sweep entries a caller can no longer need (ADR-0007 Decision 3), at most
+	// once per window. lastContactSweep and lastCapLog are read and written
+	// only here, under d.mu.
+	if len(d.contactedPeers) > contactSweepThreshold && now.Sub(d.lastContactSweep) >= ContactDedupWindow {
+		for a, at := range d.contactedPeers {
+			if now.Sub(at) >= ContactDedupWindow {
+				delete(d.contactedPeers, a)
+			}
 		}
+		d.lastContactSweep = now
 	}
 
-	d.contactedPeers[addr] = time.Now()
+	if lastContact, ok := d.contactedPeers[addr]; ok {
+		if now.Sub(lastContact) < minInterval {
+			return false
+		}
+	} else if len(d.contactedPeers) >= MaxContactedPeers {
+		// Fail closed: a new address is refused until a sweep frees room.
+		if now.Sub(d.lastCapLog) >= ContactDedupWindow {
+			log.Printf("[DHT] contacted-address map is at its cap of %d, refusing new addresses until entries expire", MaxContactedPeers)
+			d.lastCapLog = now
+		}
+		return false
+	}
+
+	d.contactedPeers[addr] = now
 	return true
+}
+
+// announceOpts returns the announce option for port: one AnnouncePeer option
+// when port is non-zero (exactly the old Announce: announced iff port != 0,
+// ImpliedPort false), none for a query-only traversal. The port comes from the
+// uint16 GossipPort.
+func announceOpts(port int) []dht.AnnounceOpt {
+	if port != 0 {
+		return []dht.AnnounceOpt{dht.AnnouncePeer(dht.AnnouncePeerOpts{Port: port})}
+	}
+	return nil
 }

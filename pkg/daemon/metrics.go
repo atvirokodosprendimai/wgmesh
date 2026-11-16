@@ -1,10 +1,10 @@
 package daemon
 
 import (
-	"time"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
+	"sync"
+	"time"
 )
 
 var (
@@ -58,21 +58,41 @@ var (
 		Help: "Cases where an admit rule would act once enforced, by rule; counted each time an offer or a collision comparison meets the case, so a standing case counts again on every announcement and every collision pass, per observer",
 	}, []string{"rule"})
 
+	kernelChanges = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_kernel_changes_total",
+		Help: "Writes that changed the kernel state of this node, by target; flat in a steady state",
+	}, []string{"target"})
+	kernelWarnings = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_kernel_warnings_total",
+		Help: "Cases where a kernel rule would act once enforced, by rule",
+	}, []string{"rule"})
+	livenessDisagree = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_liveness_disagree_total",
+		Help: "Cases where the decision a reader site takes from LastSeen differs from the decision by the liveness evidence; counted on every call, not once per distinct peer, so a standing case counts again on each pass",
+	}, []string{"site"})
+
+	resumeDetected = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "wgmesh_resume_detected_total",
+		Help: "Wakes from sleep the resume loop detected: the wall clock advanced by more than ResumeGapThreshold between two checks",
+	})
+
+	relayRouteAge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "wgmesh_relay_route_age_seconds",
+		Help: "Seconds since this daemon first saw the peer relayed; restarts at 0 after a daemon restart; one series per relayed peer, labelled with the first 8 characters of its key",
+	}, []string{"peer"})
+
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 )
 
-// metricsRegistered ensures RegisterMetrics is called at most once.
-var metricsRegistered bool
+// metricsOnce ensures RegisterMetrics registers at most once.
+var metricsOnce sync.Once
 
 // RegisterMetrics registers all wgmesh Prometheus metrics with the default
-// registry. It is safe to call multiple times; subsequent calls are no-ops.
+// registry. It is safe to call multiple times, from any goroutine; subsequent
+// calls are no-ops.
 func RegisterMetrics() {
-	if metricsRegistered {
-		return
-	}
-	metricsRegistered = true
-	registerMetrics(prometheus.DefaultRegisterer)
+	metricsOnce.Do(func() { registerMetrics(prometheus.DefaultRegisterer) })
 }
 
 // registerMetrics registers the metrics with reg. The admit warning counter
@@ -90,6 +110,15 @@ func registerMetrics(reg prometheus.Registerer) {
 	reg.MustRegister(natTraversalSuccesses)
 	reg.MustRegister(admitWarnings)
 	admitWarnings.WithLabelValues("winner-differs")
+	reg.MustRegister(kernelChanges)
+	kernelChanges.WithLabelValues("peer")
+	reg.MustRegister(kernelWarnings)
+	reg.MustRegister(livenessDisagree)
+	for _, site := range LivenessDisagreeSites {
+		livenessDisagree.WithLabelValues(site)
+	}
+	reg.MustRegister(resumeDetected)
+	reg.MustRegister(relayRouteAge)
 	reg.MustRegister(goCollector)
 	reg.MustRegister(processCollector)
 }
@@ -134,6 +163,15 @@ func RecordDiscoveryEvent(layer string) {
 	discoveryEvents.WithLabelValues(layer).Inc()
 }
 
+// peerLabel is the value of a per-peer metric label: the first 8 characters of
+// the WireGuard public key, as the probe metrics use.
+func peerLabel(key string) string {
+	if len(key) > 8 {
+		return key[:8]
+	}
+	return key
+}
+
 // ObserveProbeRTT records the round-trip time for a mesh probe to the given peer.
 // peerKey should be the first 8 characters of the WireGuard public key.
 func ObserveProbeRTT(peerKey string, start time.Time) {
@@ -158,7 +196,45 @@ func RecordNATTraversalSuccess(method string) {
 	natTraversalSuccesses.WithLabelValues(method).Inc()
 }
 
+// RecordKernelWarning counts one case where a kernel rule would act once enforced.
+func RecordKernelWarning(rule string) {
+	kernelWarnings.WithLabelValues(rule).Inc()
+}
+
+// RecordKernelChange counts one write that changed the kernel, by target.
+func RecordKernelChange(target string) {
+	kernelChanges.WithLabelValues(target).Inc()
+}
+
 // RecordAdmitWarning counts one case where an admit rule would act once enforced.
 func RecordAdmitWarning(rule string) {
 	admitWarnings.WithLabelValues(rule).Inc()
+}
+
+// recordLivenessDisagree counts one case where the legacy age test drops a
+// peer that the liveness verdict keeps; it is the body of the store's hook.
+func recordLivenessDisagree(site string) {
+	livenessDisagree.WithLabelValues(site).Inc()
+}
+
+// The sites of wgmesh_liveness_disagree_total: the three store readers (named
+// in pkg/node), the four readers outside it and the wake grace.
+const (
+	SiteRelayCandidate      = "relay-candidate"
+	SiteProbeEnforce        = "probe-enforce"
+	SiteRendezvousSkip      = "rendezvous-skip"
+	SiteIntroducerCandidate = "introducer-candidate"
+	// SiteResumeGrace counts an eviction or a stale-handshake relay choice the
+	// wake grace would have blocked while EnforceLiveness is false.
+	SiteResumeGrace = "resume-grace"
+)
+
+// LivenessDisagreeSites lists every site label of the counter; registerMetrics
+// pre-seeds each at 0 and the tests walk the same list.
+var LivenessDisagreeSites = []string{"get-active", "cleanup", "is-dead", SiteRelayCandidate, SiteProbeEnforce, SiteRendezvousSkip, SiteIntroducerCandidate, SiteResumeGrace}
+
+// LivenessDisagreeCounter returns the counter series of site, for tests of
+// readers in other packages.
+func LivenessDisagreeCounter(site string) prometheus.Counter {
+	return livenessDisagree.WithLabelValues(site)
 }

@@ -296,3 +296,278 @@ func TestConnectedRouteCmd(t *testing.T) {
 		}
 	}
 }
+
+// --- Canonical, Resolve, deterministic CalculateDiff (ADR-0003 T1) ---
+
+func TestCanonicalDefaultPerFamily(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in   string
+		ipv6 bool
+		want string
+	}{
+		{"default", false, "0.0.0.0/0"},
+		{"default", true, "::/0"},
+		{" default ", false, "0.0.0.0/0"},
+		{"0.0.0.0/0", false, "0.0.0.0/0"},
+		{"::/0", true, "::/0"},
+		{"192.168.5.5", false, "192.168.5.5/32"},
+		{"fd00::1", true, "fd00::1/128"},
+		{"10.1.2.3/24", false, "10.1.2.0/24"},
+		{"fd00:1::5/64", true, "fd00:1::/64"},
+	}
+	for _, tt := range tests {
+		if got := Canonical(tt.in, tt.ipv6); got != tt.want {
+			t.Errorf("Canonical(%q, %v) = %q, want %q", tt.in, tt.ipv6, got, tt.want)
+		}
+	}
+}
+
+// permutations returns every ordering of adv.
+func permutations(adv []Advertiser) [][]Advertiser {
+	if len(adv) <= 1 {
+		return [][]Advertiser{append([]Advertiser(nil), adv...)}
+	}
+	var out [][]Advertiser
+	for i := range adv {
+		rest := make([]Advertiser, 0, len(adv)-1)
+		rest = append(rest, adv[:i]...)
+		rest = append(rest, adv[i+1:]...)
+		for _, p := range permutations(rest) {
+			out = append(out, append([]Advertiser{adv[i]}, p...))
+		}
+	}
+	return out
+}
+
+// resolveAll runs Resolve on every permutation and fails if the results differ.
+func resolveAll(t *testing.T, adv []Advertiser, own []string, current map[string]string) map[string]string {
+	t.Helper()
+	var first map[string]string
+	for i, p := range permutations(adv) {
+		got := Resolve(p, own, current)
+		if i == 0 {
+			first = got
+			continue
+		}
+		if len(got) != len(first) {
+			t.Fatalf("permutation %d: Resolve = %v, first = %v", i, got, first)
+		}
+		for n, o := range first {
+			if got[n] != o {
+				t.Fatalf("permutation %d: Resolve = %v, first = %v", i, got, first)
+			}
+		}
+	}
+	return first
+}
+
+const sharedNet = "192.168.50.0/24"
+
+func TestResolveSharedSubnetOneOwner(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "a", MeshIP: "10.99.0.3", Fresh: true, Networks: []string{sharedNet}},
+		{Key: "b", MeshIP: "10.99.0.2", Fresh: true, Networks: []string{sharedNet}},
+		{Key: "c", MeshIP: "10.99.0.4", Fresh: true, Networks: []string{"192.168.50.7/24"}},
+	}
+	got := resolveAll(t, adv, nil, nil)
+	if len(got) != 1 || got[sharedNet] != "b" {
+		t.Errorf("Resolve = %v, want {%s: b}", got, sharedNet)
+	}
+}
+
+func TestResolveKeepsFreshObservedOwner(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "a", MeshIP: "10.99.0.3", Fresh: true, Networks: []string{sharedNet}},
+		{Key: "b", MeshIP: "10.99.0.2", Fresh: true, Networks: []string{sharedNet}},
+	}
+	current := map[string]string{sharedNet: "a"}
+	got := resolveAll(t, adv, nil, current)
+	if got[sharedNet] != "a" {
+		t.Errorf("Resolve = %v, want owner a (observed and fresh)", got)
+	}
+	if len(current) != 1 || current[sharedNet] != "a" {
+		t.Errorf("current was mutated: %v", current)
+	}
+}
+
+func TestResolveFailoverWhenOwnerStale(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "a", MeshIP: "10.99.0.2", Fresh: false, Networks: []string{sharedNet}},
+		{Key: "b", MeshIP: "10.99.0.3", Fresh: true, Networks: []string{sharedNet}},
+	}
+	got := resolveAll(t, adv, nil, map[string]string{sharedNet: "a"})
+	if got[sharedNet] != "b" {
+		t.Errorf("Resolve = %v, want failover to fresh b", got)
+	}
+}
+
+func TestResolveAllStaleLowestIPNumeric(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "x", MeshIP: "10.99.0.10", Networks: []string{sharedNet}},
+		{Key: "y", MeshIP: "10.99.0.9", Networks: []string{sharedNet}},
+		{Key: "z", MeshIP: "!bogus", Networks: []string{sharedNet}},
+	}
+	if got := resolveAll(t, adv, nil, nil); got[sharedNet] != "y" {
+		t.Errorf("Resolve = %v, want y (10.99.0.9 < 10.99.0.10, unparsable last)", got)
+	}
+	ties := []Advertiser{
+		{Key: "q", MeshIP: "10.99.0.5", Networks: []string{sharedNet}},
+		{Key: "p", MeshIP: "10.99.0.5", Networks: []string{sharedNet}},
+	}
+	if got := resolveAll(t, ties, nil, nil); got[sharedNet] != "p" {
+		t.Errorf("Resolve = %v, want p (equal IP, lowest key)", got)
+	}
+	v6 := []Advertiser{
+		{Key: "m", MeshIP: "10.99.0.2", MeshIPv6: "fd00::10", Networks: []string{"fd01::/64"}},
+		{Key: "n", MeshIP: "10.99.0.3", MeshIPv6: "fd00::9", Networks: []string{"fd01::/64"}},
+	}
+	if got := resolveAll(t, v6, nil, nil); got["fd01::/64"] != "n" {
+		t.Errorf("Resolve = %v, want n (lowest mesh IPv6 for an IPv6 network)", got)
+	}
+}
+
+func TestResolveDropsOwnNetworkAndHADefault(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "a", MeshIP: "10.99.0.2", Fresh: true, Networks: []string{sharedNet, "0.0.0.0/0", "10.0.0.0/8", " "}},
+		{Key: "b", MeshIP: "10.99.0.3", Fresh: true, Networks: []string{"default", sharedNet}},
+	}
+	own := []string{sharedNet, "0.0.0.0/0"}
+	got := resolveAll(t, adv, own, nil)
+	if len(got) != 1 || got["10.0.0.0/8"] != "a" {
+		t.Errorf("Resolve = %v, want only {10.0.0.0/8: a}", got)
+	}
+}
+
+func TestCalculateDiffDefaultNoChurn(t *testing.T) {
+	t.Parallel()
+	current := []Entry{{Network: "default", Gateway: "10.99.0.2"}}
+	desired := []Entry{{Network: "0.0.0.0/0", Gateway: "10.99.0.2"}}
+	add, remove := CalculateDiff(current, desired)
+	if len(add) != 0 || len(remove) != 0 {
+		t.Errorf("add=%v remove=%v, want empty diff", add, remove)
+	}
+}
+
+func TestCalculateDiffDuplicateDesiredStable(t *testing.T) {
+	t.Parallel()
+	const n = "192.168.50.0/24"
+	orders := [][]Entry{
+		{{Network: n, Gateway: "10.99.0.9"}, {Network: n, Gateway: "10.99.0.10"}},
+		{{Network: n, Gateway: "10.99.0.10"}, {Network: n, Gateway: "10.99.0.9"}},
+	}
+	for _, desired := range orders {
+		for _, start := range [][]Entry{nil, {{Network: n, Gateway: "10.99.0.10"}}} {
+			add, remove := CalculateDiff(start, desired)
+			if len(add) != 1 || add[0].Gateway != "10.99.0.9" {
+				t.Fatalf("cycle 1 add = %v, want one add via 10.99.0.9", add)
+			}
+			wantRemove := len(start)
+			if len(remove) != wantRemove {
+				t.Fatalf("cycle 1 remove = %v, want %d", remove, wantRemove)
+			}
+			// Apply cycle 1 and diff again: nothing may change.
+			applied := append([]Entry(nil), add...)
+			add2, remove2 := CalculateDiff(applied, desired)
+			if len(add2) != 0 || len(remove2) != 0 {
+				t.Fatalf("cycle 2 add=%v remove=%v, want empty", add2, remove2)
+			}
+		}
+	}
+}
+
+func TestResolveUnobservedNetworkIgnoresEmptyKey(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "", MeshIP: "10.99.0.99", Fresh: true, Networks: []string{sharedNet}},
+		{Key: "b", MeshIP: "10.99.0.1", Fresh: true, Networks: []string{sharedNet}},
+	}
+	if got := resolveAll(t, adv, nil, nil); got[sharedNet] != "b" {
+		t.Errorf("Resolve = %v, want b (an unobserved network must not match an empty key)", got)
+	}
+}
+
+func TestResolveKeepsObservedIPv6Default(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "A", MeshIP: "10.99.0.1", MeshIPv6: "fd00::1", Fresh: true, Networks: []string{"::/0"}},
+		{Key: "B", MeshIP: "10.99.0.2", MeshIPv6: "fd00::2", Fresh: true, Networks: []string{"::/0"}},
+	}
+	got := resolveAll(t, adv, nil, map[string]string{"default": "B"})
+	if got["::/0"] != "B" {
+		t.Errorf("Resolve = %v, want B (kernel prints the IPv6 default as the word default)", got)
+	}
+}
+
+func TestCalculateDiffRemovesEveryStaleGatewayOfDesiredNetwork(t *testing.T) {
+	t.Parallel()
+	const n = "192.168.50.0/24"
+	table := map[string]Entry{}
+	for _, e := range []Entry{{n, "10.99.0.1"}, {n, "10.99.0.3"}} {
+		table[MakeKey(e.Network, e.Gateway)] = e
+	}
+	desired := []Entry{{Network: n, Gateway: "10.99.0.2"}}
+	snapshot := func() []Entry {
+		var out []Entry
+		for _, e := range table {
+			out = append(out, e)
+		}
+		return out
+	}
+	add, remove := CalculateDiff(snapshot(), desired)
+	for _, e := range remove {
+		delete(table, MakeKey(e.Network, e.Gateway))
+	}
+	for _, e := range add {
+		table[MakeKey(e.Network, e.Gateway)] = e
+	}
+	add2, remove2 := CalculateDiff(snapshot(), desired)
+	if len(add2) != 0 || len(remove2) != 0 {
+		t.Errorf("cycle 2 add=%v remove=%v, want empty", add2, remove2)
+	}
+	if _, ok := table[MakeKey(n, "10.99.0.2")]; len(table) != 1 || !ok {
+		t.Errorf("table = %v, want exactly the desired route", table)
+	}
+}
+
+func TestResolveIPv6NetworkIgnoresPeerWithoutMeshIPv6(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "X", MeshIP: "10.99.0.1", Fresh: true, Networks: []string{"fd01::/64"}},
+		{Key: "Y", MeshIP: "10.99.0.2", MeshIPv6: "fd00::5", Fresh: true, Networks: []string{"fd01::/64"}},
+	}
+	if got := resolveAll(t, adv, nil, nil); got["fd01::/64"] != "Y" {
+		t.Errorf("Resolve = %v, want Y (X has no MeshIPv6 and cannot be an IPv6 gateway)", got)
+	}
+}
+
+func TestCalculateDiffIPv6DefaultReadsGatewayFamily(t *testing.T) {
+	t.Parallel()
+	current := []Entry{{Network: "default", Gateway: "fd00::1"}}
+	desired := []Entry{{Network: "::/0", Gateway: "fd00::1"}}
+	add, remove := CalculateDiff(current, desired)
+	if len(add) != 0 || len(remove) != 0 {
+		t.Errorf("add=%v remove=%v, want empty diff", add, remove)
+	}
+}
+
+func TestCalculateDiffResultsSortedByNetwork(t *testing.T) {
+	t.Parallel()
+	const lo, hi = "192.168.50.0/24", "192.168.60.0/24"
+	desired := []Entry{{Network: hi, Gateway: "10.99.0.1"}, {Network: lo, Gateway: "10.99.0.1"}}
+	current := []Entry{{Network: "172.16.9.0/24", Gateway: "10.99.0.1"}, {Network: "172.16.1.0/24", Gateway: "10.99.0.1"}}
+	for i := 0; i < 20; i++ {
+		add, remove := CalculateDiff(current, desired)
+		if len(add) != 2 || add[0].Network != lo || add[1].Network != hi {
+			t.Fatalf("add = %v, want %s before %s", add, lo, hi)
+		}
+		if len(remove) != 2 || remove[0].Network != "172.16.1.0/24" || remove[1].Network != "172.16.9.0/24" {
+			t.Fatalf("remove = %v, want 172.16.1.0/24 before 172.16.9.0/24", remove)
+		}
+	}
+}

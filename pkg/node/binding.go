@@ -1,12 +1,15 @@
 package node
 
-import "net"
+import (
+	"net"
+	"sync/atomic"
+)
 
 // EnforceRouteBinding switches the route drop of R5: a route entry equal to or
 // inside the mesh network, or equal to another member's mesh IP, is removed from
 // the candidate. It is false until release N+2 (ADR-0002 decision 4); until then
 // each such entry is a warning and the offer is applied as today.
-var EnforceRouteBinding = false
+var EnforceRouteBinding atomic.Bool
 
 // holders lists the claims on ip of the members in the store; the caller holds
 // ps.mu.
@@ -86,7 +89,7 @@ func bindClaim(s Snapshot, c Candidate) Decision {
 	if c.Hand == FirstHand && !s.Known && info.MeshIP != "" &&
 		!Bound(Claim{Key: info.WGPubKey, IP: info.MeshIP}, p.Derive, MaxNonce) &&
 		ipHeldByBound(s, info.WGPubKey, info.MeshIP) {
-		if EnforceIPBinding {
+		if EnforceIPBinding.Load() {
 			return Decision{Verdict: Refuse, Reason: ReasonIPHeld}
 		}
 		warn(string(ReasonIPHeld))
@@ -107,7 +110,7 @@ func bindClaim(s Snapshot, c Candidate) Decision {
 		}
 		switch {
 		case rule == "":
-		case EnforceRouteBinding:
+		case EnforceRouteBinding.Load():
 			d.Dropped = append(d.Dropped, r)
 		default:
 			warn(rule)

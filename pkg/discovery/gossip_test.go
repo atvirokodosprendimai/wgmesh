@@ -303,9 +303,9 @@ func TestMeshGossipRestartAfterStop(t *testing.T) {
 }
 
 func TestMeshGossipStopStartRaceOnPort(t *testing.T) {
-	old := gossipInterval
-	gossipInterval = 50 * time.Microsecond
-	defer func() { gossipInterval = old }()
+	old := gossipInterval.Load()
+	gossipInterval.Store(int64(50 * time.Microsecond))
+	defer gossipInterval.Store(old)
 
 	cfg := newTestConfig(t)
 	cfg.Keys.GossipPort = 0

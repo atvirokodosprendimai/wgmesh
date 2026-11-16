@@ -14,9 +14,9 @@ func fakeDerive(key string, nonce int) string {
 
 func setEnforce(t *testing.T, on bool) {
 	t.Helper()
-	old := EnforceIPBinding
-	EnforceIPBinding = on
-	t.Cleanup(func() { EnforceIPBinding = old })
+	old := EnforceIPBinding.Load()
+	EnforceIPBinding.Store(on)
+	t.Cleanup(func() { EnforceIPBinding.Store(old) })
 }
 
 func TestClaimOrderBoundBeatsUnbound(t *testing.T) {

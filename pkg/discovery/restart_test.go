@@ -186,8 +186,9 @@ func TestDHTStartFailureLeavesNotRunning(t *testing.T) {
 	}
 
 	d.mu.RLock()
-	running, lan := d.running, d.lan
+	running := d.running
 	d.mu.RUnlock()
+	lan := d.lan.Load()
 	if running {
 		t.Error("running is true after a failed Start")
 	}
@@ -475,11 +476,9 @@ func TestDHTStartAfterParentCancelled(t *testing.T) {
 	}
 }
 
-// dhtLayers reads the lan and gossip layers under d.mu.
+// dhtLayers reads the lan and gossip layers (atomic pointers).
 func dhtLayers(d *DHTDiscovery) (*LANDiscovery, *MeshGossip) {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.lan, d.gossip
+	return d.lan.Load(), d.gossip.Load()
 }
 
 // TestDHTNoStaleGossip: every run builds its own gossip and LAN layers, and a

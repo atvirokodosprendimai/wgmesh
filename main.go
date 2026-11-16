@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -37,18 +38,13 @@ func versionOutput() string {
 }
 
 func main() {
-	// Check for version flags first (--version or -v)
-	for _, arg := range os.Args[1:] {
-		if arg == "--version" || arg == "-v" {
-			fmt.Println(versionOutput())
-			return
-		}
-	}
-
-	// Check for subcommands first
+	// The first argument alone picks a subcommand; --version and -v count only here, so a subcommand's own flags are its own
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
-		case "version":
+		case "help", "-h", "--help":
+			printUsage(os.Stdout)
+			return
+		case "version", "--version", "-v":
 			fmt.Println(versionOutput())
 			return
 		case "join":
@@ -91,6 +87,15 @@ func main() {
 			referralCmd()
 			return
 		}
+	}
+
+	// A first word that is not a flag and matched no subcommand is a typo, not legacy mode
+	if len(os.Args) == 1 || !strings.HasPrefix(os.Args[1], "-") {
+		if len(os.Args) > 1 {
+			fmt.Fprintf(os.Stderr, "wgmesh: unknown command %q (run 'wgmesh help' for usage)\n", os.Args[1])
+		}
+		printUsage(os.Stderr)
+		os.Exit(2)
 	}
 
 	// Original CLI mode
@@ -184,17 +189,17 @@ func main() {
 		fmt.Println("Deployment completed successfully")
 
 	default:
-		printUsage()
+		printUsage(os.Stdout)
 		os.Exit(1)
 	}
 }
 
-func printUsage() {
-	fmt.Println(`wgmesh - WireGuard mesh network builder
+func printUsage(w io.Writer) {
+	fmt.Fprintln(w, `wgmesh - WireGuard mesh network builder
 
 FLAGS:
   --version, -v               Show version information
-  -state <file>    Path to mesh state file (default: ` + filepath.Join(defaultStateDir, "mesh-state.json") + `)
+  -state <file>    Path to mesh state file (default: `+filepath.Join(defaultStateDir, "mesh-state.json")+`)
   -add <spec>      Add node (format: hostname:ip:ssh_host[:ssh_port])
   -remove <name>   Remove node by hostname
   -list            List all nodes
@@ -362,7 +367,7 @@ func permissionHint(err error) string {
 // joinCmd handles the "join --secret" subcommand
 func joinCmd() {
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (required)")
+	secret := fs.String("secret", "", "Mesh secret (required, or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory for account config")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated list of routes to advertise")
@@ -385,17 +390,11 @@ func joinCmd() {
 	fs.Parse(os.Args[2:])
 
 	// If secret not provided via flag, try environment variables
-	if *secret == "" {
-		if envSecret := os.Getenv("WGMESH_SECRET"); envSecret != "" {
-			*secret = envSecret
-		} else if secretFile := os.Getenv("WGMESH_SECRET_FILE"); secretFile != "" {
-			secretBytes, err := os.ReadFile(secretFile)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading secret file %s: %v\n", secretFile, err)
-				os.Exit(1)
-			}
-			*secret = strings.TrimSpace(string(secretBytes))
-		}
+	if s, err := secretFromFlagOrEnv(*secret); err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
+	} else {
+		*secret = s
 	}
 
 	if *secret == "" {
@@ -652,15 +651,23 @@ type StatusOutput struct {
 
 func statusCmd() {
 	fs := flag.NewFlagSet("status", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (required)")
+	secret := fs.String("secret", "", "Mesh secret (required, or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	jsonOutput := fs.Bool("json", false, "Output in JSON format")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	fs.Parse(os.Args[2:])
 
+	if s, err := secretFromFlagOrEnv(*secret); err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
+	} else {
+		*secret = s
+	}
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh status --secret <SECRET>")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET environment variable")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET_FILE environment variable")
 		os.Exit(1)
 	}
 
@@ -730,15 +737,46 @@ func statusCmd() {
 	}
 }
 
+// secretFromFlagOrEnv returns the mesh secret: the flag value, else WGMESH_SECRET,
+// else the trimmed content of the file named by WGMESH_SECRET_FILE.
+func secretFromFlagOrEnv(flagValue string) (string, error) {
+	if flagValue != "" {
+		return flagValue, nil
+	}
+	if envSecret := strings.TrimSpace(os.Getenv("WGMESH_SECRET")); envSecret != "" {
+		return envSecret, nil
+	}
+	if secretFile := os.Getenv("WGMESH_SECRET_FILE"); secretFile != "" {
+		secretBytes, err := os.ReadFile(secretFile)
+		if err != nil {
+			return "", fmt.Errorf("reading secret file %s: %w", secretFile, err)
+		}
+		secret := strings.TrimSpace(string(secretBytes))
+		if secret == "" {
+			return "", fmt.Errorf("secret file %s is empty", secretFile)
+		}
+		return secret, nil
+	}
+	return "", nil
+}
+
 // qrCmd handles the "qr" subcommand - displays secret as a text-based QR code
 func qrCmd() {
 	fs := flag.NewFlagSet("qr", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret to encode as QR code")
+	secret := fs.String("secret", "", "Mesh secret to encode as QR code (or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	fs.Parse(os.Args[2:])
 
+	if s, err := secretFromFlagOrEnv(*secret); err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
+	} else {
+		*secret = s
+	}
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh qr --secret <SECRET>")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET environment variable")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET_FILE environment variable")
 		os.Exit(1)
 	}
 
@@ -836,7 +874,7 @@ func saveAccountAPIKey(stateDir, apiKey string) {
 // installServiceCmd handles the "install-service" subcommand
 func installServiceCmd() {
 	fs := flag.NewFlagSet("install-service", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (required)")
+	secret := fs.String("secret", "", "Mesh secret (required, or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory for account config")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
@@ -853,9 +891,17 @@ func installServiceCmd() {
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	fs.Parse(os.Args[2:])
 
+	if s, err := secretFromFlagOrEnv(*secret); err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
+	} else {
+		*secret = s
+	}
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh install-service --secret <SECRET>")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET environment variable")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET_FILE environment variable")
 		os.Exit(1)
 	}
 

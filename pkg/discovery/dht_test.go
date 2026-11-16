@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -493,17 +492,17 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 // Mutants: label DHTMethod+"-transitive" -> DHTMethod, or FirstHand ->
 // SecondHand in admitPunchReply, turn it red.
 func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
-	oldHS, oldWait := peerHandshakes, handshakeWaitTimeout
-	t.Cleanup(func() { peerHandshakes, handshakeWaitTimeout = oldHS, oldWait })
-	var calls atomic.Int32
+	oldWait := handshakeWaitTimeout.Load()
+	t.Cleanup(func() { handshakeWaitTimeout.Store(oldWait) })
 	serverKey := aadKey(2)
-	peerHandshakes = func(string) (map[string]int64, error) {
-		if calls.Add(1) <= 2 { // the skip check, then the baseline
-			return map[string]int64{serverKey: 0}, nil
+	// the skip check, then the baseline, read 0; the waits read 100
+	rec := installReadWGState(t, serverKey, func(call int) int64 {
+		if call <= 2 {
+			return 0
 		}
-		return map[string]int64{serverKey: 100}, nil
-	}
-	handshakeWaitTimeout = 2 * time.Second
+		return 100
+	})
+	handshakeWaitTimeout.Store(int64(2 * time.Second))
 
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-punch-transitive-1"})
 	if err != nil {
@@ -568,5 +567,15 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 	}
 	if !got.LastSeen.After(seen) {
 		t.Errorf("LastSeen = %v, want it refreshed past %v", got.LastSeen, seen)
+	}
+	// Skip check at ReconcileInterval, punch baseline and every wait poll fresh (0).
+	ages := rec.all()
+	if len(ages) < 3 || ages[0] != daemon.ReconcileInterval {
+		t.Fatalf("maxAges = %v, want the skip check at %v first, then at least the baseline and one poll", ages, daemon.ReconcileInterval)
+	}
+	for i, age := range ages[1:] {
+		if age != 0 {
+			t.Errorf("punch read %d used maxAge %v, want 0", i+2, age)
+		}
 	}
 }

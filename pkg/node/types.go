@@ -24,6 +24,9 @@ type PeerInfo struct {
 	Introducer       bool
 	RoutableNetworks []string
 	LastSeen         time.Time
+	LastDataPlane    time.Time      // newest WireGuard handshake or successful mesh probe, measured by this node; never a claim (ADR-0004)
+	RestoredAt       time.Time      // when the cache restored the entry (ADR-0004)
+	resumedAt        time.Time      // store-wide wake time stamped into every copy the store returns; memory only
 	DiscoveredVia    []string       // ["lan", "dht", "gossip"]
 	Latency          *time.Duration // measured via WG handshake
 	NATType          string         // "cone", "symmetric", or "unknown"
@@ -109,6 +112,15 @@ func (n *LocalNode) SetMeshIPv6(ip string) {
 	n.meshIPv6 = ip
 }
 
+// GetMeshIPs returns the IPv4 and IPv6 mesh addresses as one pair, both read
+// under one hold of stateMu (a reader never sees one address of a pair the
+// node did not hold).
+func (n *LocalNode) GetMeshIPs() (v4, v6 string) {
+	n.stateMu.RLock()
+	defer n.stateMu.RUnlock()
+	return n.meshIP, n.meshIPv6
+}
+
 // GetNATType returns the detected NAT type (thread-safe).
 func (n *LocalNode) GetNATType() string {
 	n.stateMu.RLock()
@@ -169,6 +181,10 @@ const (
 	EndpointReflection EndpointSource = "reflection"
 	// EndpointSTUN is the answer of a STUN server.
 	EndpointSTUN EndpointSource = "stun"
+	// EndpointSTUNResume is a STUN answer fetched on purpose right after a
+	// wake from sleep (ADR-0004 M5). The node's mapping is known to be stale,
+	// so unlike EndpointSTUN it applies at once and discards a pending value.
+	EndpointSTUNResume EndpointSource = "stun-resume"
 )
 
 // stunConfirmations is how many identical STUN observations in a row replace

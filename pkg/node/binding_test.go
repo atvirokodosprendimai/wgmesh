@@ -12,9 +12,10 @@ import (
 
 func setSwitches(t *testing.T, ip, route bool) {
 	t.Helper()
-	oldIP, oldRoute := EnforceIPBinding, EnforceRouteBinding
-	EnforceIPBinding, EnforceRouteBinding = ip, route
-	t.Cleanup(func() { EnforceIPBinding, EnforceRouteBinding = oldIP, oldRoute })
+	oldIP, oldRoute := EnforceIPBinding.Load(), EnforceRouteBinding.Load()
+	EnforceIPBinding.Store(ip)
+	EnforceRouteBinding.Store(route)
+	t.Cleanup(func() { EnforceIPBinding.Store(oldIP); EnforceRouteBinding.Store(oldRoute) })
 }
 
 func mustCIDR(t *testing.T, s string) *net.IPNet {

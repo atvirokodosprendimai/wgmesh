@@ -954,11 +954,12 @@ func (pe *PeerExchange) getLatestHandshake(peerPubKey string) int64 {
 	if peerPubKey == "" {
 		return 0
 	}
-	hs, err := wireguard.GetLatestHandshakes(pe.config.InterfaceName)
+	// Punch wait: fresh read (maxAge 0), a new handshake must show within one HandshakePollInterval.
+	st, err := wireguard.ReadState(pe.config.InterfaceName, 0)
 	if err != nil {
 		return 0
 	}
-	return hs[peerPubKey]
+	return st.Handshakes()[peerPubKey]
 }
 
 func (pe *PeerExchange) waitForHandshake(peerPubKey string, baseline int64, timeout time.Duration) int64 {
@@ -1286,6 +1287,14 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to send announce: %w", err)
 	}
 	return nil
+}
+
+// hasConn reports whether Start has opened the exchange socket. After Stop the
+// socket is closed but still set, so it still reports true.
+func (pe *PeerExchange) hasConn() bool {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	return pe.conn != nil
 }
 
 // SendGoodbye sends a shutdown notification to a specific peer exchange endpoint.

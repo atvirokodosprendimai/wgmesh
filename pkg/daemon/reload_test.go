@@ -301,11 +301,10 @@ func newMinimalDaemon(t *testing.T) *Daemon {
 		t.Fatalf("NewConfig: %v", err)
 	}
 	d := &Daemon{
-		config:                 cfg,
-		peerStore:              NewPeerStore(),
-		relayRoutes:            make(map[string]string),
-		temporaryOffline:       make(map[string]time.Time),
-		lastAppliedPeerConfigs: make(map[string]string),
+		config:           cfg,
+		peerStore:        NewPeerStore(),
+		relayRoutes:      make(map[string]string),
+		temporaryOffline: make(map[string]time.Time),
 	}
 	return d
 }
@@ -313,9 +312,9 @@ func newMinimalDaemon(t *testing.T) *Daemon {
 // TestAcceptRoutesReloadApplies: the reload file sets accept-routes and a later
 // offer is judged by the new list; an empty value opens the node again.
 func TestAcceptRoutesReloadApplies(t *testing.T) {
-	old := node.EnforceRouteBinding
-	node.EnforceRouteBinding = true
-	t.Cleanup(func() { node.EnforceRouteBinding = old })
+	old := node.EnforceRouteBinding.Load()
+	node.EnforceRouteBinding.Store(true)
+	t.Cleanup(func() { node.EnforceRouteBinding.Store(old) })
 
 	d := newMinimalDaemon(t)
 	d.peerStore.SetPolicy(d.admitPolicy())

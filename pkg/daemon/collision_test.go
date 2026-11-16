@@ -211,9 +211,9 @@ func ownIP(t *testing.T, key string) string {
 
 func enforceIPBinding(t *testing.T, on bool) {
 	t.Helper()
-	old := node.EnforceIPBinding
-	node.EnforceIPBinding = on
-	t.Cleanup(func() { node.EnforceIPBinding = old })
+	old := node.EnforceIPBinding.Load()
+	node.EnforceIPBinding.Store(on)
+	t.Cleanup(func() { node.EnforceIPBinding.Store(old) })
 }
 
 // recordAddresses replaces the interface call so a test sees what the daemon
@@ -221,12 +221,13 @@ func enforceIPBinding(t *testing.T, on bool) {
 func recordAddresses(t *testing.T) *[]string {
 	t.Helper()
 	var set []string
-	old := applyInterfaceAddress
-	applyInterfaceAddress = func(name, address string) error {
+	old := applyInterfaceAddress.Load()
+	rec := func(name, address string) error {
 		set = append(set, address)
 		return nil
 	}
-	t.Cleanup(func() { applyInterfaceAddress = old })
+	applyInterfaceAddress.Store(&rec)
+	t.Cleanup(func() { applyInterfaceAddress.Store(old) })
 	return &set
 }
 
@@ -236,9 +237,9 @@ func winnerDiffers() float64 {
 
 // checkAs runs one collision check of a node that applies the given order.
 func checkAs(d *Daemon, enforce bool) {
-	old := node.EnforceIPBinding
-	node.EnforceIPBinding = enforce
-	defer func() { node.EnforceIPBinding = old }()
+	old := node.EnforceIPBinding.Load()
+	node.EnforceIPBinding.Store(enforce)
+	defer func() { node.EnforceIPBinding.Store(old) }()
 	d.CheckAndResolveCollisions()
 }
 

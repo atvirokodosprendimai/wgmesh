@@ -23,12 +23,13 @@ func TestCheckAndResolveCollisionsIsSerialized(t *testing.T) {
 	// The seam is set once here, before any goroutine starts, and restored
 	// after they end; the counter is atomic.
 	var applied atomic.Int64
-	old := applyInterfaceAddress
-	applyInterfaceAddress = func(name, address string) error {
+	old := applyInterfaceAddress.Load()
+	seam := func(name, address string) error {
 		applied.Add(1)
 		return nil
 	}
-	t.Cleanup(func() { applyInterfaceAddress = old })
+	applyInterfaceAddress.Store(&seam)
+	t.Cleanup(func() { applyInterfaceAddress.Store(old) })
 
 	const rounds, runners = 40, 4
 	for round := 0; round < rounds; round++ {

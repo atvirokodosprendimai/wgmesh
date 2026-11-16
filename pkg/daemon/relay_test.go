@@ -335,12 +335,11 @@ func TestBuildDesiredPeerConfigs_RelayRouting(t *testing.T) {
 			Keys:          keys,
 			ForceRelay:    true,
 		},
-		localNode:              nodeWithNAT("local-pubkey", "cone"),
-		lastAppliedPeerConfigs: make(map[string]string),
-		relayRoutes:            make(map[string]string),
-		directStableCycles:     make(map[string]int),
-		localSubnetsFn:         func() []*net.IPNet { return nil },
-		temporaryOffline:       make(map[string]time.Time),
+		localNode:          nodeWithNAT("local-pubkey", "cone"),
+		relayRoutes:        make(map[string]string),
+		directStableCycles: make(map[string]int),
+		localSubnetsFn:     func() []*net.IPNet { return nil },
+		temporaryOffline:   make(map[string]time.Time),
 	}
 
 	introducer := &PeerInfo{
@@ -403,6 +402,13 @@ func makeTestKeys(t *testing.T) *crypto.DerivedKeys {
 // state fields are unexported, so a test sets them through the setters.
 func nodeWithNAT(pubKey, nat string) *LocalNode {
 	n := &LocalNode{WGPubKey: pubKey}
+	n.SetNATType(nat)
+	return n
+}
+
+// nodeWithAddr builds a local node with a public key, a mesh IPv4 and a NAT type.
+func nodeWithAddr(pubKey, meshIP, nat string) *LocalNode {
+	n := NewLocalNode(pubKey, "", "", meshIP, "")
 	n.SetNATType(nat)
 	return n
 }

@@ -1,0 +1,3 @@
+(none)	(none)	51899	off
+PRkiAlzVWkUp1JfrtygDbjkXjGMJ/sxESxQt+rYuAkM=	(none)	203.0.113.7:51820	10.99.0.2/32,192.168.50.0/24	0	0	0	25
+NfLtlc9KgzZVeNg6mkON8vFbfs+zkJEY6Junb0+o70Q=	(none)	(none)	(none)	0	0	0	off
