@@ -183,25 +183,46 @@ func TestRevertDoesNotRunWhenNoForwardingWanted(t *testing.T) {
 	}
 }
 
-// revertKernel takes convergeMu, and is race-free against ticks and a health
-// path that write under it.
+// revertKernel takes convergeMu: while a tick holds it inside a kernel write,
+// the exit does not run. No sleep decides the outcome: the write is held on a
+// channel inside the fake host, the exit gets a bounded wait to (wrongly)
+// return, then the write is released.
+func TestRevertKernelWaitsForConvergeLock(t *testing.T) {
+	enforceForwardScope(t, false)
+	enforceRevert(t, true)
+	h := &fakeHost{iptablesPresent: true}
+	d := newForwardDaemon(t, h, &logSink{})
+	tick(t, d, 1)
+	gate := &execGate{entered: make(chan struct{}), release: make(chan struct{})}
+	h.set(func(h *fakeHost) { h.ipForward = false; h.gate = gate })
+
+	tickDone := make(chan struct{})
+	go func() { d.converge(nil); close(tickDone) }()
+	<-gate.entered // the tick holds convergeMu, inside its ip_forward write
+
+	revertDone := make(chan struct{})
+	go func() { d.revertKernel(); close(revertDone) }()
+	select {
+	case <-revertDone:
+		t.Fatal("revertKernel returned while a tick held convergeMu inside a kernel write")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(gate.release)
+	<-tickDone
+	<-revertDone
+	if h.ipForward || h.ruleInstalled {
+		t.Errorf("host ends with rule=%v ip_forward=%v, want the exit to have run after the tick and undone both", h.ruleInstalled, h.ipForward)
+	}
+}
+
+// revertKernel is race-free against ticks and a health path that write under
+// convergeMu (run with -race), and the host ends where one more tick puts it.
 func TestRevertKernelRaceFree(t *testing.T) {
 	enforceForwardScope(t, false)
 	enforceRevert(t, true)
 	h := &fakeHost{iptablesPresent: true}
 	d := newForwardDaemon(t, h, &logSink{})
 	tick(t, d, 1)
-
-	d.convergeMu.Lock()
-	done := make(chan struct{})
-	go func() { d.revertKernel(); close(done) }()
-	select {
-	case <-done:
-		t.Fatal("revertKernel returned while convergeMu was held")
-	case <-time.After(50 * time.Millisecond):
-	}
-	d.convergeMu.Unlock()
-	<-done
 
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -221,6 +242,132 @@ func TestRevertKernelRaceFree(t *testing.T) {
 		d.revertKernel()
 	}
 	wg.Wait()
+
+	tick(t, d, 1)
+	if !h.ipForward || !h.ruleInstalled {
+		t.Errorf("after a final tick the host has rule=%v ip_forward=%v, want both forwarding", h.ruleInstalled, h.ipForward)
+	}
+	for _, w := range h.writes() {
+		switch w {
+		case wantSysctl, wantRule, wantDelete, wantRestore:
+		default:
+			t.Errorf("unexpected write %q", w)
+		}
+	}
+}
+
+// A node with nothing to undo says nothing at release N: no record because
+// forwarding was never wanted, or because both items were found in place.
+func TestRevertSilentAtNWithNothingToUndo(t *testing.T) {
+	enforceRevert(t, false)
+	t.Run("forwarding not wanted", func(t *testing.T) {
+		enforceForwardScope(t, true)
+		h := &fakeHost{iptablesPresent: true}
+		ls := &logSink{}
+		d := newForwardDaemon(t, h, ls)
+		tick(t, d, 3)
+		d.revertKernel()
+		if got := ls.count("revert-on-exit"); got != 0 || len(h.writes()) != 0 {
+			t.Errorf("revert-on-exit lines %d, writes %q; want none", got, h.writes())
+		}
+	})
+	t.Run("both found in place", func(t *testing.T) {
+		enforceForwardScope(t, false)
+		h := &fakeHost{iptablesPresent: true, ipForward: true, ruleInstalled: true}
+		ls := &logSink{}
+		d := newForwardDaemon(t, h, ls)
+		tick(t, d, 3)
+		d.revertKernel()
+		if got := ls.count("revert-on-exit"); got != 0 || len(h.writes()) != 0 {
+			t.Errorf("revert-on-exit lines %d, writes %q; want none", got, h.writes())
+		}
+	})
+}
+
+// A write that failed does not make the item ours: only a later success does,
+// and only that one is undone. A write that fails on every tick is never undone.
+func TestRevertOwnershipFollowsSuccessfulWrite(t *testing.T) {
+	enforceForwardScope(t, false)
+	enforceRevert(t, true)
+	cases := []struct {
+		name      string
+		fail      func(h *fakeHost, on bool)
+		undo      string
+		wantAfter int // undo commands after a failing tick then a succeeding one
+	}{
+		{"sysctl", func(h *fakeHost, on bool) {
+			if on {
+				h.sysctlErr = errors.New("denied")
+			} else {
+				h.sysctlErr = nil
+			}
+		}, wantRestore, 1},
+		{"rule", func(h *fakeHost, on bool) {
+			if on {
+				h.appendErr = errors.New("denied")
+			} else {
+				h.appendErr = nil
+			}
+		}, wantDelete, 1},
+	}
+	for _, c := range cases {
+		t.Run(c.name+" fails once, then succeeds", func(t *testing.T) {
+			h := &fakeHost{iptablesPresent: true}
+			d := newForwardDaemon(t, h, &logSink{})
+			h.set(func(h *fakeHost) { c.fail(h, true) })
+			tick(t, d, 1)
+			h.set(func(h *fakeHost) { c.fail(h, false) })
+			tick(t, d, 1)
+			d.revertKernel()
+			if got := h.count(c.undo); got != c.wantAfter {
+				t.Errorf("%q ran %d times, want %d; writes %q", c.undo, got, c.wantAfter, h.writes())
+			}
+		})
+		t.Run(c.name+" fails on every tick", func(t *testing.T) {
+			h := &fakeHost{iptablesPresent: true}
+			d := newForwardDaemon(t, h, &logSink{})
+			h.set(func(h *fakeHost) { c.fail(h, true) })
+			tick(t, d, 3)
+			d.revertKernel()
+			if got := h.count(c.undo); got != 0 {
+				t.Errorf("%q ran %d times for an item this run never wrote; writes %q", c.undo, got, h.writes())
+			}
+		})
+	}
+}
+
+// A failed -D or restore is a logged result; the records are cleared, so a
+// second call does not retry it.
+func TestRevertFailedUndoIsLoggedAndNotRetried(t *testing.T) {
+	enforceForwardScope(t, false)
+	enforceRevert(t, true)
+	h := &fakeHost{iptablesPresent: true}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+	tick(t, d, 1)
+	h.set(func(h *fakeHost) { h.deleteErr = errors.New("denied"); h.sysctlErr = errors.New("denied") })
+
+	d.revertKernel()
+	d.revertKernel()
+	if h.count(wantDelete) != 1 || h.count(wantRestore) != 1 {
+		t.Errorf("-D ran %d times and the restore %d times over two exits, want 1 and 1", h.count(wantDelete), h.count(wantRestore))
+	}
+	if ls.count("Failed to delete forward FORWARD") != 1 || ls.count("Failed to restore forward ip_forward") != 1 {
+		t.Errorf("failures not logged once each: %q", ls.lines)
+	}
+}
+
+// A host without iptables: the rule is unknown, only ip_forward is ours.
+func TestRevertWithoutIptablesRestoresOnlyIPForward(t *testing.T) {
+	enforceForwardScope(t, false)
+	enforceRevert(t, true)
+	h := &fakeHost{}
+	d := newForwardDaemon(t, h, &logSink{})
+	tick(t, d, 2)
+	d.revertKernel()
+	if got, want := h.writes(), []string{wantSysctl, wantRestore}; !sameLines(got, want) {
+		t.Errorf("writes = %q, want %q", got, want)
+	}
 }
 
 // Both entry points stop the goroutines and then revert, in that order; the

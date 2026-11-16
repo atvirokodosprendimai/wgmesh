@@ -26,8 +26,17 @@ type fakeHost struct {
 	lookPathErr     error // what LookPath fails with, whatever the binary
 	readErr         error // what reading ip_forward fails with
 	procValue       *string
-	reads           int // reads of ip_forward
+	appendErr       error // what `iptables -A` fails with
+	deleteErr       error // what `iptables -D` fails with
+	reads           int   // reads of ip_forward
+	// gate, when set, holds the next `sysctl -w ...=1` inside the command (the
+	// host lock is not held) until release is closed; entered is closed on arrival.
+	gate *execGate
 }
+
+// execGate stops one command mid-flight, for the tests that need a write to
+// be in progress.
+type execGate struct{ entered, release chan struct{} }
 
 // exitError is a command that ended with an exit status, as exec.ExitError.
 type exitError struct{ code int }
@@ -68,6 +77,16 @@ func (h *fakeHost) lookPath(file string) (string, error) {
 
 func (h *fakeHost) exec(name string, args ...string) ([]byte, error) {
 	h.mu.Lock()
+	var gate *execGate
+	if h.gate != nil && name == "sysctl" && strings.Join(args, " ") == "-w net.ipv4.ip_forward=1" {
+		gate, h.gate = h.gate, nil
+	}
+	h.mu.Unlock()
+	if gate != nil {
+		close(gate.entered)
+		<-gate.release
+	}
+	h.mu.Lock()
 	defer h.mu.Unlock()
 	line := name + " " + strings.Join(args, " ")
 	h.cmds = append(h.cmds, line)
@@ -92,8 +111,14 @@ func (h *fakeHost) exec(name string, args ...string) ([]byte, error) {
 			return []byte("iptables: Bad rule"), exitError{1}
 		}
 	case strings.HasPrefix(line, "iptables -A FORWARD "):
+		if h.appendErr != nil {
+			return []byte("iptables: denied"), h.appendErr
+		}
 		h.ruleInstalled = true
 	case strings.HasPrefix(line, "iptables -D FORWARD "):
+		if h.deleteErr != nil {
+			return []byte("iptables: denied"), h.deleteErr
+		}
 		if !h.ruleInstalled {
 			return []byte("iptables: Bad rule"), exitError{1}
 		}
