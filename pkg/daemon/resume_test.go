@@ -232,7 +232,7 @@ func TestResumeGraceBlocksProbeEviction(t *testing.T) {
 }
 
 func TestResumeGraceExpires(t *testing.T) {
-	tests := []struct {
+	runs := []struct {
 		name string
 		run  func(t *testing.T, d *Daemon)
 	}{
@@ -242,15 +242,49 @@ func TestResumeGraceExpires(t *testing.T) {
 		}},
 		{"probe", func(t *testing.T, d *Daemon) { failingProbeCycle(t, d, "peer-grace") }},
 	}
+	afters := []struct {
+		name  string
+		after time.Duration
+	}{
+		{"one second after the grace", ResumeGrace + time.Second},
+		{"exactly the grace", ResumeGrace},
+		{"the clock stepped back an hour", -time.Hour},
+	}
+	for _, r := range runs {
+		for _, a := range afters {
+			t.Run(r.name+"/"+a.name, func(t *testing.T) {
+				enforceLiveness(t)
+				d := graceDaemon(t, "peer-grace", a.after)
+
+				r.run(t, d)
+
+				if peerStored(d, "peer-grace") {
+					t.Error("the same inputs outside the grace did not evict the peer")
+				}
+			})
+		}
+	}
+}
+
+func TestInResumeGraceBounds(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		after time.Duration
+		want  bool
+	}{
+		{"at the wake", 0, true},
+		{"just inside", ResumeGrace - time.Nanosecond, true},
+		{"exactly the grace", ResumeGrace, false},
+		{"before the wake", -time.Second, false},
+		{"an hour before the wake", -time.Hour, false},
+	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			enforceLiveness(t)
-			d := graceDaemon(t, "peer-grace", ResumeGrace+time.Second)
-
-			tt.run(t, d)
-
-			if peerStored(d, "peer-grace") {
-				t.Error("the same inputs after the grace did not evict the peer")
+			d := graceDaemon(t, "peer-grace", 0)
+			at := d.peerStore.ResumedAt()
+			if got := d.inResumeGrace(at.Add(tt.after)); got != tt.want {
+				t.Errorf("inResumeGrace(wake%+v) = %v, want %v", tt.after, got, tt.want)
 			}
 		})
 	}
