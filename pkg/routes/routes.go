@@ -104,13 +104,17 @@ func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 	return toAdd, toRemove
 }
 
-// canonicalNetwork returns the canonical CIDR form of network (a bare host
-// becomes /32 or /128, the kernel's "default" becomes 0.0.0.0/0), or the
-// normalized input when it does not parse. The kernel prints "default" for
-// both families, so only the IPv4 default is mapped.
-func canonicalNetwork(network string) string {
+// Canonical returns the canonical CIDR form of network for one address
+// family: a bare host becomes /32 or /128, host bits are masked, and the
+// kernel's "default" becomes 0.0.0.0/0 for IPv4 and ::/0 for IPv6 (the kernel
+// prints "default" for both, so the caller says which family it reads). An
+// input that does not parse is returned trimmed and normalized.
+func Canonical(network string, ipv6 bool) string {
 	network = NormalizeNetwork(strings.TrimSpace(network))
 	if network == "default" {
+		if ipv6 {
+			return "::/0"
+		}
 		return "0.0.0.0/0"
 	}
 	if _, ipnet, err := net.ParseCIDR(network); err == nil {
@@ -119,10 +123,10 @@ func canonicalNetwork(network string) string {
 	return network
 }
 
-// Canonical returns the canonical CIDR form of network for one address
-// family.
-func Canonical(network string, ipv6 bool) string {
-	return network
+// familyOf reports whether network is written as an IPv6 network. A bare
+// "default" carries no family and counts as IPv4.
+func familyOf(network string) bool {
+	return strings.Contains(network, ":")
 }
 
 // Advertiser is one peer that advertises networks.
@@ -147,11 +151,11 @@ func Resolve(adv []Advertiser, own []string, current map[string]string) map[stri
 func ExcludeOwn(networks, own []string) []string {
 	ownSet := make(map[string]struct{}, len(own))
 	for _, n := range own {
-		ownSet[canonicalNetwork(n)] = struct{}{}
+		ownSet[Canonical(n, familyOf(n))] = struct{}{}
 	}
 	out := make([]string, 0, len(networks))
 	for _, n := range networks {
-		if _, ok := ownSet[canonicalNetwork(n)]; !ok {
+		if _, ok := ownSet[Canonical(n, familyOf(n))]; !ok {
 			out = append(out, n)
 		}
 	}
