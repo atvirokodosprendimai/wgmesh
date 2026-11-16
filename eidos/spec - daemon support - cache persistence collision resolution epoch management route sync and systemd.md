@@ -48,7 +48,7 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 - A network equal to or inside one this host is attached to is not routed from the first release on macOS; on Linux it is warned about (rule `attached-network`) and, once `EnforceRouteGuard` is on, left out. A supernet is kept.
 - Skips peers that are temporarily offline.
 - Linux uses `ip`; macOS reads `netstat -rn` and writes with `route` (the formats are not yet verified on a real Mac); no other OS has routes.
-- **Forwarding is converged once:** on Linux `ip_forward` is written only when it reads 0 and the iptables `FORWARD ACCEPT` rule for the WireGuard interface (which lets relay traffic pass through) is appended only when `iptables -C` says it is absent. A missing `iptables` is logged once. At release N every Linux node still forwards; once `EnforceForwardScope` is on only an introducer or a node with `advertise-routes` does.
+- **Forwarding is converged once:** on Linux `ip_forward` is written only when it reads 0 and the iptables `FORWARD ACCEPT` rule for the WireGuard interface (which lets relay traffic pass through) is appended only when `iptables -C` says it is absent. A missing `iptables` is logged once. At release N forwarding is still forced on every Linux node; once `EnforceForwardScope` is on only an introducer or a node with `advertise-routes` does.
 
 ### Systemd integration
 
