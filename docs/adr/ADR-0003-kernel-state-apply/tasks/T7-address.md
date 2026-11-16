@@ -12,7 +12,7 @@
 
 ## Goal
 
-Each tick compares the addresses on the mesh interface with the local node's mesh IP and mesh IPv6, adds a missing one, removes a stale one inside the mesh network, and never flushes the family, so an address lost to an external change, or left behind by a collision-resolved IP, converges without touching an address an operator added.
+Each tick compares the addresses on the mesh interface with the local node's mesh IP and mesh IPv6, adds a missing one, never flushes the family, and finds a stale one inside the mesh network (removed behind `EnforceAddressRemoval`, `false` at N: at N one log line and `wgmesh_kernel_warnings_total{rule="stale-address"}`, no delete; removals run before adds because of how the kernel treats a same-address add and a deleted primary), so an address lost to an external change, or left behind by a collision-resolved IP, converges without touching an address an operator added.
 
 ## Affected Files
 
