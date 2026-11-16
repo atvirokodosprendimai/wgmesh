@@ -63,6 +63,11 @@ n=$(go test ./pkg/routes -run '^(TestCanonicalDefaultPerFamily|TestResolveShared
 | 4 — it is used | `reconcile` through T2 |
 
 ## Mutation Log
+- 2026-11-16 · 7de5aff* · mutant killed · exit 1 · `pkg/routes/routes.go` · string compare of mesh IPs: TestResolveAllStaleLowestIPNumeric must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 7de5aff* · mutant killed · exit 1 · `pkg/routes/routes.go` · Fresh ignored: TestResolveFailoverWhenOwnerStale must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 7de5aff* · mutant killed · exit 1 · `pkg/routes/routes.go` · observed owner ignored: TestResolveKeepsFreshObservedOwner must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 7de5aff* · mutant killed · exit 1 · `pkg/routes/routes.go` · last duplicate wins: TestCalculateDiffDuplicateDesiredStable must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
+- 2026-11-16 · 7de5aff* · mutant killed · exit 1 · `pkg/routes/routes.go` · default kept as a word: TestCanonicalDefaultPerFamily and TestCalculateDiffDefaultNoChurn must go red · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2
 
 ## Invariants
 
@@ -86,3 +91,23 @@ Stop and ask if an existing test in `pkg/ssh` or `pkg/mesh` needs a changed expe
 - Any change to `pkg/ssh` or `pkg/mesh` code (permanent: boundary: the centralized pipeline belongs to another group).
 
 ## Verification Log
+- 2026-11-16 · 7de5aff* · exit 1 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:688 · test-lock-sha256:2785b39506e9c89686241d2712dd1c1d04091b67d2ed426b902a3c007c9f4a54 · test-lock-file:docs/adr/locks/2785b39506e9c89686241d2712dd1c1d04091b67d2ed426b902a3c007c9f4a54.lock
+  ```
+  --- last 10 line(s) of stderr (of 58 after folding 58 raw)
+  --- FAIL: TestResolveKeepsFreshObservedOwner (0.00s)
+  === CONT  TestResolveDropsOwnNetworkAndHADefault
+      routes_test.go:443: Resolve = map[], want only {10.0.0.0/8: a}
+  --- FAIL: TestResolveDropsOwnNetworkAndHADefault (0.00s)
+  === CONT  TestCalculateDiffDuplicateDesiredStable
+      routes_test.go:468: cycle 1 add = [{192.168.50.0/24 10.99.0.10} {192.168.50.0/24 10.99.0.9}], want one add via 10.99.0.9
+  --- FAIL: TestCalculateDiffDuplicateDesiredStable (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/routes	0.003s
+  FAIL
+  ```
+- 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:6843
+- 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:6296
+- 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:5610
+- 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:5945
+- 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:6456
+- 2026-11-16 · 7de5aff* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:5597
