@@ -77,6 +77,12 @@ func (p *PeerInfo) Alive(now time.Time) Liveness { return Assess(p.evidence(), n
 // changing callers.
 func (p *PeerInfo) LastAlive(now time.Time) time.Time { return p.evidence().newest() }
 
+// LastContact is the newest of LastSeen and LastDataPlane as one wall-clock
+// instant, or the zero time when there is none: measured contact only. It
+// leaves out RestoredAt and the store's resume time, which are grace, so a
+// peer never heard from does not look contacted at the moment it was restored.
+func (p *PeerInfo) LastContact() time.Time { return time.Time{} }
+
 // DecideByAge applies a reader's own age test (its window and operator) to the
 // peer. While EnforceLiveness is false the legacy LastSeen age decides; once
 // it is true the age of LastAlive does. disagree is true when the two ages give

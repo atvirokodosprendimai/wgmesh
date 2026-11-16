@@ -156,9 +156,9 @@ func TestRestoreGivesGrace(t *testing.T) {
 	})
 }
 
-// The saved last_seen is the newest evidence, so a node connected by
-// handshakes saves a fresh time.
-func TestSaveWritesLastAlive(t *testing.T) {
+// The saved last_seen is the newest measured contact (LastSeen or the data
+// plane), so a node connected by handshakes saves a fresh time.
+func TestSaveWritesLastContact(t *testing.T) {
 	ps := NewPeerStore()
 	ps.SetPeerDirectly("k", &PeerInfo{WGPubKey: "k", MeshIP: "10.0.0.2", LastSeen: time.Now().Add(-3 * time.Hour)})
 	handshake := time.Now().Add(-30 * time.Second).Truncate(time.Second)
@@ -167,6 +167,31 @@ func TestSaveWritesLastAlive(t *testing.T) {
 	cache := buildPeerCache(ps)
 	if len(cache.Peers) != 1 || cache.Peers[0].LastSeen != handshake.Unix() {
 		t.Fatalf("cache peers = %+v, want last_seen %d (the handshake)", cache.Peers, handshake.Unix())
+	}
+}
+
+// A restored peer that never spoke is saved with its original cache time, not
+// the restore time, so the 24 h expiry does not restart on every restart.
+func TestRestoredNeverHeardKeepsCacheTime(t *testing.T) {
+	cacheTime := time.Now().Add(-5 * time.Hour).Truncate(time.Second)
+	cache := &PeerCache{Peers: []PeerCacheEntry{{WGPubKey: "k", MeshIP: "10.0.0.2", LastSeen: cacheTime.Unix()}}}
+
+	first := NewPeerStore()
+	if n := restorePeers(cache, first); n != 1 {
+		t.Fatalf("restorePeers = %d, want 1", n)
+	}
+	saved := buildPeerCache(first)
+	if len(saved.Peers) != 1 || saved.Peers[0].LastSeen != cacheTime.Unix() {
+		t.Fatalf("saved after restore = %+v, want last_seen %d (the original cache time)", saved.Peers, cacheTime.Unix())
+	}
+
+	second := NewPeerStore()
+	if n := restorePeers(saved, second); n != 1 {
+		t.Fatalf("second restorePeers = %d, want 1", n)
+	}
+	again := buildPeerCache(second)
+	if len(again.Peers) != 1 || again.Peers[0].LastSeen != cacheTime.Unix() {
+		t.Fatalf("saved after two restores = %+v, want last_seen %d", again.Peers, cacheTime.Unix())
 	}
 }
 

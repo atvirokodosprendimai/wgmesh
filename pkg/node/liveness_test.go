@@ -346,6 +346,38 @@ func TestLastAliveIsNewestEvidence(t *testing.T) {
 	}
 }
 
+func TestLastContactIsMeasuredContactOnly(t *testing.T) {
+	t.Parallel()
+	a := livenessNow.Add(-4 * time.Hour)
+	b := livenessNow.Add(-3 * time.Hour)
+	c := livenessNow.Add(-2 * time.Hour)
+	d := livenessNow.Add(-time.Hour)
+	tests := []struct {
+		name string
+		p    PeerInfo
+		want time.Time
+	}{
+		{"last seen", PeerInfo{LastSeen: d, LastDataPlane: c, RestoredAt: livenessNow, resumedAt: livenessNow}, d},
+		{"data plane", PeerInfo{LastSeen: a, LastDataPlane: b, RestoredAt: livenessNow, resumedAt: livenessNow}, b},
+		{"restored only", PeerInfo{RestoredAt: livenessNow}, time.Time{}},
+		{"resumed only", PeerInfo{resumedAt: livenessNow}, time.Time{}},
+		{"none", PeerInfo{}, time.Time{}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := tc.p.LastContact(); !got.Equal(tc.want) {
+				t.Fatalf("LastContact = %v, want %v", got, tc.want)
+			}
+		})
+	}
+
+	// A reading with a monotonic clock is returned as a wall-clock instant.
+	if got := (&PeerInfo{LastSeen: time.Now()}).LastContact(); got.Round(0) != got {
+		t.Fatalf("LastContact keeps a monotonic reading: %v", got)
+	}
+}
+
 func TestLivenessUsesStoreClock(t *testing.T) {
 	enforceLiveness(t, false)
 	// livenessNow is years before the real clock: a reader that calls
