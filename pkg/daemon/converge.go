@@ -193,8 +193,18 @@ func (d *Daemon) noteForwardObserve(err error) {
 	}
 }
 
-// noteForwardScope is a stub.
-func (d *Daemon) noteForwardScope(f forwardDesired) {}
+// noteForwardScope counts the rule forward-scope: a Linux node that is forced
+// to forward although it neither relays nor advertises routes (possible only
+// while EnforceForwardScope is off). One log line and one counter increment
+// per transition into that state, not per tick. The caller holds convergeMu.
+func (d *Daemon) noteForwardScope(f forwardDesired) {
+	warn := f.Wanted && !f.Needed
+	if warn && !d.forwardScopeWarned {
+		d.logf("forward-scope: this node neither relays nor advertises routes, yet ip_forward and the FORWARD rule are still forced on it; the next release stops (EnforceForwardScope)")
+		RecordKernelWarning("forward-scope")
+	}
+	d.forwardScopeWarned = warn
+}
 
 // converge runs one tick against the kernel and returns the desired state it
 // applied, or nil when the observe failed and nothing was decided or written.

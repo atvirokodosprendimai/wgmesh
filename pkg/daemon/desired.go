@@ -51,6 +51,7 @@ type desiredMember struct {
 func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observedOwners map[string]string) *desiredState {
 	ds := &desiredState{
 		Peers:        make(map[string]*desiredPeerConfig),
+		Forward:      d.desireForward(),
 		relayRoutes:  make(map[string]string),
 		directStable: make(map[string]int),
 	}
@@ -161,6 +162,19 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 
 	d.logSharedOwners(claimants, owners)
 	return ds
+}
+
+// desireForward is what this node wants of forwarding. Needed is an
+// introducer (immutable) or a node with an advertised route (read under the
+// config lock: a reload writes it). At release N every Linux node is wanted;
+// with EnforceForwardScope only a needed one is; elsewhere none is.
+func (d *Daemon) desireForward() forwardDesired {
+	needed := d.config.Introducer || len(d.GetAdvertiseRoutes()) > 0
+	linux := d.osName() == "linux"
+	return forwardDesired{
+		Needed: needed,
+		Wanted: linux && (needed || !EnforceForwardScope.Load()),
+	}
 }
 
 // isOwnNetwork reports whether this node advertises network itself.
