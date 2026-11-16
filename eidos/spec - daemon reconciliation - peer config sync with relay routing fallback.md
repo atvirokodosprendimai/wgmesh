@@ -3,7 +3,7 @@ status: implemented
 compat-dimensions: []
 tracking-issue:
 since: ""
-tldr: Every 5 seconds, the daemon builds desired WireGuard peer configs from active peers and applies them; relay routing redirects unreachable peers through an introducer node.
+tldr: Every 5 seconds, the daemon observes the kernel, computes one desired state from active peers and applies only the difference; relay routing redirects unreachable peers through an introducer node.
 category: core
 ---
 
@@ -17,12 +17,13 @@ and the relay routing decision that handles peers unreachable by direct path.
 ## Behaviour
 
 - The reconciliation loop runs every 5 seconds and on SIGHUP.
-- Each cycle: read active peers → build desired WireGuard peer configs → apply changes → sync kernel routes → check IP collisions.
+- Each cycle (`converge`): read active peers → observe the kernel → compute one desired state → plan the difference → apply it one item at a time → check IP collisions.
+- Observe reads the kernel once per target: the peers with one `wg show <iface> dump` (peers, endpoints, AllowedIPs and handshakes in one fork), the routes of both families, the interface addresses and, when forwarding is wanted, `ip_forward` and the FORWARD rule. A target that cannot be read is skipped for that tick and never read as empty: a failed or unparsable `wg show dump` skips the whole tick, routes and relay table included.
 - A peer is configured as a WireGuard peer only if it has a non-empty endpoint.
   IPv6 endpoints are skipped when `--no-ipv6` is set.
 - AllowedIPs per peer: mesh IPv4 `/32` always, mesh IPv6 `/128` if present, plus any advertised routable networks.
-- Changes are applied only when endpoint or AllowedIPs change — a signature check (`endpoint|allowedIPs`) prevents redundant `wg set` calls.
-- Obsolete peers (in WireGuard but not in desired config) are removed via `wg set peer … remove`.
+- The desired state is computed once per cycle and feeds both the peers' AllowedIPs and the kernel routes, so the two cannot disagree. A network that several peers advertise has one owner, chosen by `routes.Resolve`.
+- Only the difference between the dump and the desired state is written. A peer is set when it is missing in the kernel, when its AllowedIPs set differs, or when its desired endpoint differs from the one last pushed (`pushedEndpoint`, in memory, so a restart pushes every endpoint once; a set that only repairs AllowedIPs carries no endpoint, so a roamed endpoint is not overwritten). Shrinking peers are set before growing ones. A peer in the kernel that is not desired is removed via `wg set peer … remove`.
 
 ### Relay routing
 
@@ -48,18 +49,20 @@ Relay selection: deterministic hash of `(local pubkey, peer pubkey)` over sorted
 ## Design
 
 - Relay candidates: introducers seen within the last 90 seconds with a known endpoint.
-- `applyDesiredPeerConfigs` uses an optimistic lock pattern: mark signature before applying, roll back on failure, to prevent stale cache entries.
+- Apply writes one item at a time and an error on one item never skips the others; each item has one result, and a result is logged only when it differs from the last one of that item (a failure once, a recovery once). Every kernel write of a tick, and the health paths (reconnect, eviction, stale cleanup), run under one converge lock; `reconcile` itself is serialised, so the ticker and SIGHUP never overlap.
 - `configMu` read lock is held when reading `AdvertiseRoutes` and `DisableIPv6` inside reconcile.
 - Peers marked temporarily offline (by the mesh probe) are excluded from both the desired config and route sync.
 
 ## Interactions
 
 - `PeerStore.GetActive()` — source of truth for which peers to configure.
-- `wireguard.GetPeers`, `wireguard.SetPeer`, `wireguard.RemovePeer` — apply live WireGuard changes.
-- `wireguard.GetLatestHandshakes` — read per-peer handshake times to inform relay decision.
-- `routes.go syncPeerRoutes` — called after peer config is applied; uses relay table for gateway selection.
+- `wireguard.Dump` (`wg show <iface> dump`) — the observe of peers, endpoints, AllowedIPs and the handshakes that inform the relay decision; `wireguard.SetPeer`, `wireguard.RemovePeer` — apply live WireGuard changes.
+- `converge.go`, `observe.go`, `desired.go` — observe, desired state, plan and apply of peers, routes, forwarding and addresses; the relay table is a product of the desired state and is used for the kernel gateway.
 - `collision.go CheckAndResolveCollisions` — called at end of each reconcile cycle.
 
 ## Mapping
 
 > [[pkg/daemon/daemon.go]]
+> [[pkg/daemon/converge.go]]
+> [[pkg/daemon/observe.go]]
+> [[pkg/daemon/desired.go]]

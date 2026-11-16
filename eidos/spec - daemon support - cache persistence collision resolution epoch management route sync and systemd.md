@@ -41,12 +41,14 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 
 ### Route sync
 
-- After each WireGuard peer sync, kernel routes are reconciled for all peers' routable networks.
+- Kernel routes of the mesh interface are converged in every reconcile cycle with the same observe, desired state and apply as the peers (`converge.go`): both families are read back (`ip route show dev <iface>` and `ip -6 …` on Linux), one diff is computed and applied one route at a time, and a failed route never skips the others.
+- **One owner per network:** a network that several peers advertise has one owner, chosen by `routes.Resolve`, and the route and the owner's AllowedIPs come from that one choice. A peer with a handshake newer than `HandshakeStaleAfter` beats one without; among fresh peers the owner read back from the kernel keeps the network; otherwise the lowest mesh IP wins, compared as a number, then the lowest key. The choice is local to the node. A network this node advertises itself is owned by nobody, so two HA exit nodes each drop the other's default route (`routes.ExcludeOwn`).
 - **Relay-aware:** if a peer is relay-routed, its network gateway is set to the relay's mesh IP (not the peer's mesh IP).
+- **Both families:** an IPv4 route uses the carrier's mesh IPv4 as gateway, an IPv6 route its mesh IPv6; a peer without a mesh IPv6 is skipped for that network, and with `--no-ipv6` IPv6 networks are not routed.
+- A network equal to or inside one this host is attached to is not routed from the first release on macOS; on Linux it is warned about (rule `attached-network`) and, once `EnforceRouteGuard` is on, left out. A supernet is kept.
 - Skips peers that are temporarily offline.
-- Only runs on Linux (no-op on other platforms).
-- Installs an iptables `FORWARD ACCEPT` rule for the WireGuard interface to allow relay traffic to pass through.
-- `sysctl net.ipv4.ip_forward=1` is set after each route apply.
+- Linux uses `ip`; macOS reads `netstat -rn` and writes with `route` (the formats are not yet verified on a real Mac); no other OS has routes.
+- **Forwarding is converged once:** on Linux `ip_forward` is written only when it reads 0 and the iptables `FORWARD ACCEPT` rule for the WireGuard interface (which lets relay traffic pass through) is appended only when `iptables -C` says it is absent. A missing `iptables` is logged once. At release N every Linux node still forwards; once `EnforceForwardScope` is on only an introducer or a node with `advertise-routes` does.
 
 ### Systemd integration
 
@@ -59,14 +61,14 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 
 - Cache file path: `/var/lib/wgmesh/<iface>-peers.json` (state directory, not config directory).
 - Collision nonce: nonces 1 to `node.MaxNonce` are tried, the first address nobody claims is taken.
-- `CommandExecutor` interface (`executor.go`) wraps `os/exec` — injected globally (`cmdExecutor`), replaceable with a mock for testing. All `systemd.go` and `routes.go` shell-outs use this interface.
+- `CommandExecutor` interface (`executor.go`) wraps `os/exec` — injected globally (`cmdExecutor`), replaceable with a mock for testing. The `systemd.go`, `observe.go` and `converge.go` shell-outs use this interface.
 
 ## Interactions
 
 - `cache.go` ↔ `PeerStore` — `GetAll()` for save, `Offer(…, Restored)` for restore.
 - `collision.go` ↔ `node.ResolveClaims` + `PeerStore.Policy()` + `pkg/crypto.DeriveMeshIP`; `applyInterfaceAddress` is the seam that sets the interface address.
 - `epoch.go` ↔ `pkg/privacy.DandelionRouter`.
-- `routes.go` ↔ `PeerStore` (via reconcile) + relay routes map + `pkg/routes.CalculateDiff`.
+- `desired.go`, `observe.go`, `converge.go` ↔ `PeerStore` (via reconcile) + relay routes map + `pkg/routes.Resolve` and `pkg/routes.CalculateDiff`; `routes.go` keeps the connected-route restore and the relay table snapshots.
 - `systemd.go` ↔ `cmdExecutor` (system commands).
 
 ## Mapping
@@ -75,5 +77,8 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 > [[pkg/daemon/collision.go]]
 > [[pkg/daemon/epoch.go]]
 > [[pkg/daemon/routes.go]]
+> [[pkg/daemon/desired.go]]
+> [[pkg/daemon/observe.go]]
+> [[pkg/daemon/converge.go]]
 > [[pkg/daemon/systemd.go]]
 > [[pkg/daemon/executor.go]]
