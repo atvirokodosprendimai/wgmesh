@@ -731,6 +731,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 	relayCandidates := make([]*PeerInfo, 0)
 	now := time.Now()
 	localSubnets := d.getLocalSubnets()
+	probeRelayed := EnforceRelayProbe.Load()
 
 	for _, p := range peers {
 		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" {
@@ -775,6 +776,12 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 			relay := d.selectRelayForPeer(p, relayCandidates)
 			if relay != nil {
 				relayRoutes[p.WGPubKey] = relay.WGPubKey
+				if probeRelayed {
+					// Kept on the interface with its endpoint and no AllowedIPs: WireGuard
+					// drops its direct data packets, and its handshake attempts keep
+					// running, so a fresh handshake can bring it back (#852).
+					desired[p.WGPubKey] = &desiredPeerConfig{peer: p, allowed: make(map[string]struct{}), probeOnly: true}
+				}
 				d.addAllowedIP(desired, relay, p.MeshIP+"/32")
 				if p.MeshIPv6 != "" {
 					d.addAllowedIP(desired, relay, p.MeshIPv6+"/128")
@@ -936,11 +943,11 @@ func (d *Daemon) addAllowedIP(desired map[string]*desiredPeerConfig, peer *PeerI
 }
 
 func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) error {
-	existing, err := wireguard.GetPeers(d.config.InterfaceName)
+	existing, err := getPeers(d.config.InterfaceName)
 	if err == nil {
 		for _, current := range existing {
 			if _, ok := desired[current.PublicKey]; !ok {
-				if err := wireguard.RemovePeer(d.config.InterfaceName, current.PublicKey); err != nil {
+				if err := wgRemovePeer(d.config.InterfaceName, current.PublicKey); err != nil {
 					log.Printf("Failed to remove obsolete peer %s...: %v", shortKey(current.PublicKey), err)
 				}
 				d.appliedMu.Lock()
@@ -959,12 +966,11 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		if d.config.DisableIPv6 && isIPv6Endpoint(cfg.peer.Endpoint) {
 			continue
 		}
-		allowed := mapKeysSorted(cfg.allowed)
-		if len(allowed) == 0 {
+		if len(cfg.allowed) == 0 && !cfg.probeOnly {
 			continue
 		}
-		allowedCSV := strings.Join(allowed, ",")
-		signature := cfg.peer.Endpoint + "|" + allowedCSV
+		allowedCSV := allowedCSVFor(cfg)
+		signature := cfg.peer.Endpoint + "|" + allowedCSV + "|" + applyMode(cfg)
 
 		// Check-and-mark under the same lock to avoid TOCTOU (W4)
 		d.appliedMu.Lock()
@@ -976,7 +982,7 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 		d.lastAppliedPeerConfigs[pubKey] = signature
 		d.appliedMu.Unlock()
 
-		if err := wireguard.SetPeer(d.config.InterfaceName, pubKey, d.config.Keys.PSK, cfg.peer.Endpoint, allowedCSV); err != nil {
+		if err := setPeer(d.config.InterfaceName, pubKey, d.config.Keys.PSK, cfg.peer.Endpoint, allowedCSV); err != nil {
 			// Rollback the optimistic write on failure
 			d.appliedMu.Lock()
 			delete(d.lastAppliedPeerConfigs, pubKey)
@@ -1577,7 +1583,7 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	if err := wireguard.SetPeer(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, peer.Endpoint, allowedCSV); err != nil {
+	if err := setPeer(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, peer.Endpoint, allowedCSV); err != nil {
 		log.Printf("[Health] Failed to reconnect peer %s...: %v", shortKey(peer.WGPubKey), err)
 		return
 	}
@@ -1593,7 +1599,7 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	log.Printf("[Health] Evicting unresponsive peer %s... from active pool; hidden from mentions for %s unless it speaks first", shortKey(peer.WGPubKey), TombstoneTTL)
 	d.markTemporarilyOffline(peer.WGPubKey)
 	d.peerStore.Withdraw(peer.WGPubKey, "evicted")
-	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
+	if err := wgRemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
 		log.Printf("[Health] Failed to remove evicted peer %s... from WireGuard: %v", shortKey(peer.WGPubKey), err)
 	}
 	d.appliedMu.Lock()
@@ -1602,6 +1608,7 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	d.relayMu.Lock()
 	delete(d.relayRoutes, peer.WGPubKey)
 	delete(d.directStableCycles, peer.WGPubKey)
+	delete(d.probeOnlyPeers, peer.WGPubKey)
 	d.relayMu.Unlock()
 	d.healthMu.Lock()
 	delete(d.peerHealthFailures, peer.WGPubKey)

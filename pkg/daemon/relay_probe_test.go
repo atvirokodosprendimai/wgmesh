@@ -13,7 +13,7 @@ import (
 )
 
 // These tests read and write the process-wide EnforceRelayProbe and the
-// setPeer/getPeers/removePeer seams, so none of them calls t.Parallel.
+// setPeer/getPeers/wgRemovePeer seams, so none of them calls t.Parallel.
 
 const probeIntroKey = "intro-pubkey"
 
@@ -50,7 +50,7 @@ func (r *wgRecorder) removeCalls() []string {
 func stubWireGuard(t *testing.T) *wgRecorder {
 	t.Helper()
 	r := &wgRecorder{}
-	oldSet, oldGet, oldRemove := setPeer, getPeers, removePeer
+	oldSet, oldGet, oldRemove := setPeer, getPeers, wgRemovePeer
 	setPeer = func(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -58,13 +58,13 @@ func stubWireGuard(t *testing.T) *wgRecorder {
 		return nil
 	}
 	getPeers = func(string) ([]wireguard.WGPeer, error) { return nil, nil }
-	removePeer = func(iface, pubKey string) error {
+	wgRemovePeer = func(iface, pubKey string) error {
 		r.mu.Lock()
 		defer r.mu.Unlock()
 		r.removes = append(r.removes, pubKey)
 		return nil
 	}
-	t.Cleanup(func() { setPeer, getPeers, removePeer = oldSet, oldGet, oldRemove })
+	t.Cleanup(func() { setPeer, getPeers, wgRemovePeer = oldSet, oldGet, oldRemove })
 	return r
 }
 
@@ -333,7 +333,7 @@ func TestHealthCheckSkipsRelayRoutedAndProbeOnlyPeers(t *testing.T) {
 		t.Errorf("setPeer calls = %+v, want exactly one, for direct-peer", sets)
 	}
 	if removed := rec.removeCalls(); len(removed) != 1 || removed[0] != "direct-peer" {
-		t.Errorf("removePeer calls = %v, want exactly direct-peer", removed)
+		t.Errorf("wgRemovePeer calls = %v, want exactly direct-peer", removed)
 	}
 	for _, key := range []string{"relayed-peer", "probe-only-peer"} {
 		got, ok := d.peerStore.Get(key)
