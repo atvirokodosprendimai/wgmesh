@@ -4,8 +4,8 @@
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
-**Produces:** `DetectResume`, `ResumeGrace`, `ResumeCheckInterval`, `ResumeGapThreshold`, the resume loop, `node.Resumer`, `wgmesh_resume_detected_total`
-**Consumes:** `Assess` and `PeerStore.NoteResume`, `EnforceLiveness` (T1); the evidence writers (T2)
+**Produces:** `DetectResume`, `ResumeGrace`, `ResumeCheckInterval`, `ResumeGapThreshold`, the resume loop (started in both run paths), `node.Resumer`, `wgmesh_resume_detected_total`, a clock seam for the grace sites
+**Consumes:** `Assess`, `PeerStore.NoteResume`, `PeerStore.ResumedAt`, `EnforceLiveness` (T1); the evidence writers (T2)
 **Data dependency:** hermetic
 **Proof map:** v1
 
@@ -17,28 +17,28 @@ The daemon notices within about two seconds that the machine slept, marks every 
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/resume.go` | add | `DetectResume(prev, now, threshold) bool` (pure: wall gap with the monotonic reading stripped), `ResumeCheckInterval = 2 * time.Second`, `ResumeGapThreshold = 10 * time.Second`, `ResumeGrace = 60 * time.Second`, `resumeLoop`, `inResumeGrace` |
+| `pkg/daemon/resume.go` | add | `DetectResume(prev, now, threshold) bool` (pure: wall gap with the monotonic reading stripped), `ResumeCheckInterval = 2 * time.Second`, `ResumeGapThreshold = 10 * time.Second`, `ResumeGrace = 60 * time.Second`, `resumeLoop`, `startResumeLoop`, `inResumeGrace(now)`, `d.now()` (the clock seam: returns `time.Now()` when the daemon's clock field is nil, so `&Daemon{...}` literals keep working) |
 | `pkg/node/liveness.go` | edit | `Resumer` interface (`OnResume()`) |
-| `pkg/daemon/daemon.go` | edit | `RunWithDHTDiscovery` (`:1525-1650`) starts `resumeLoop` next to the other loops (`:1614-1620`); on a resume it calls `PeerStore.NoteResume`, `reconcile()` and `OnResume()` on each layer that implements `Resumer`; `checkPeerHealth` (`:1284-1341`) and `probePeersOverMesh` (`:1112-1115`) skip eviction and `shouldRelayPeerWithSubnets` (`:683-703`) skips the stale-handshake branch while `inResumeGrace` and `node.EnforceLiveness` are true |
-| `pkg/daemon/metrics.go` | edit | `wgmesh_resume_detected_total` |
-| `pkg/daemon/resume_test.go` | add | tests below |
+| `pkg/daemon/daemon.go` | edit | **two run paths start loops**: `Run()` (`:349-431`, loops `:387-407`) and `RunWithDHTDiscovery` (`:1662-1782`, loops `:1736-1757`); both call `startResumeLoop` (factored once, not copied). On a resume the loop calls `PeerStore.NoteResume`, signals the reconcile loop through a buffered channel (capacity 1, non-blocking send; `reconcileLoop`, `:655-667`, selects on it), and calls `OnResume()` on the one discovery field `d.dhtDiscovery` (`:78`) when it implements `Resumer` (one type assertion; LAN and gossip live inside `DHTDiscovery` and are driven by its `OnResume`, T5). `reconcile()` is never called from the resume goroutine: it would run concurrently with `reconcileLoop` and the apply step is not serialised. **Grace sites**: `attemptPeerReconnect` (`:1462`) and `evictPeerFromPool` (`:1466`) in `checkPeerHealth` (`:1421`), probe eviction (`:1251`), and the stale-handshake branch of `shouldRelayPeerWithSubnets` (`:819-840`) skip while `inResumeGrace` and `node.EnforceLiveness` are true. `markTemporarilyOffline` / `isTemporarilyOffline` (`:1560`, `:1578`) and `checkPeerHealth`'s `now := time.Now()` (`:1432`) read `d.now()` so the loop's injected clock reaches them |
+| `pkg/daemon/metrics.go` | edit | `wgmesh_resume_detected_total`, following `admitWarnings` (`:56`), registered in `registerMetrics` (`:81-95`); the `resume-grace` site of `wgmesh_liveness_disagree_total` is pre-seeded like `winner-differs` (`:92`); do not duplicate `wgmesh_admit_warnings_total` |
+| `pkg/daemon/resume_test.go` | add | tests below; the daemon-literal style is `TestEvictionLeavesTombstone` (`health_test.go:37`) |
 
-Selection: `RunWithDHTDiscovery` starts the loop; a mutant that does not start it turns `TestResumeLoopCallsHooks` red; the eviction call sites check `inResumeGrace`, and a mutant that drops the check turns the two grace tests red.
+Selection: `Run` and `RunWithDHTDiscovery` start the loop; a mutant that does not start it turns `TestResumeLoopCallsHooks` or `TestBothRunPathsStartResumeLoop` red; the eviction call sites check `inResumeGrace`, and a mutant that drops the check turns the two grace tests red.
 
 ## Ordered Steps
 
-1. [S1] Add the tests below with compiling stubs (a `DetectResume` that returns false) so the first run fails on assertions; run red. The loop takes an injected clock and tick source so the test does not sleep.
-2. [S2] Implement `DetectResume` and the loop; count `wgmesh_resume_detected_total` and log one line `[Resume] wall clock jumped <gap>`.
-3. [S3] Call `NoteResume`, `reconcile()` and the `Resumer` layers from the loop; these act from N (additive, local).
-4. [S4] Add the grace to the three sites, active only with `node.EnforceLiveness`; with the switch off, count `wgmesh_liveness_disagree_total{site="resume-grace"}` when the grace would have blocked an eviction.
-5. [S5] Run the mutants with `adr-verify --mutant`: `DetectResume` uses the monotonic reading; the grace is never applied; the grace never ends; the loop does not call `NoteResume`. [proof: mutation]
+1. [S1] Add the tests below with compiling stubs (a `DetectResume` that returns false) so the first run fails on assertions; run red. The loop takes an injected clock (`d.now`) and tick source so the test does not sleep.
+2. [S2] Implement `DetectResume`, the loop and `startResumeLoop`; count `wgmesh_resume_detected_total` and log one line `[Resume] wall clock jumped <gap>`. Call `startResumeLoop` from both `Run` and `RunWithDHTDiscovery`.
+3. [S3] From the loop call `NoteResume`, signal the reconcile channel and call the `Resumer` on `d.dhtDiscovery`; these act from N (additive, local).
+4. [S4] Add the grace to the four sites, active only with `node.EnforceLiveness`; with the switch off, count `wgmesh_liveness_disagree_total{site="resume-grace"}` when the grace would have blocked an eviction.
+5. [S5] Run the mutants with `adr-verify --mutant`: `DetectResume` uses the monotonic reading; the grace is never applied; the grace never ends; the loop does not call `NoteResume`; the loop calls `reconcile()` directly instead of signalling; one run path does not start the loop. [proof: mutation]
 6. [S6] On a Mac with an established mesh link, run `pmset sleepnow`, wake, and time to the first successful ping to a peer; record the time and the host. [proof: human: the sleep path cannot be reproduced hermetically; adr-verify cannot see this number and the ADR states none]
 
 ## Acceptance
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestResumeGraceBlocksHealthEviction|TestResumeGraceBlocksProbeEviction|TestResumeGraceExpires|TestNoGraceWhileLivenessNotEnforced|TestResumeKeepsAllPeersAlive)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 7 ] && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
+a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestBothRunPathsStartResumeLoop|TestResumeGraceBlocksHealthEviction|TestResumeGraceBlocksProbeEviction|TestResumeGraceExpires|TestNoGraceWhileLivenessNotEnforced|TestResumeKeepsAllPeersAlive|TestResumeLoopStateIsRaceFree)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 9 ] && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
 ```
 
 ## Tests
@@ -46,19 +46,21 @@ a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestR
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
 | `TestDetectResume` | `pkg/daemon/resume_test.go` | a table: gap 2 s false, 10 s false, 11 s true, a negative gap (clock stepped back) false, a `prev` with a monotonic reading and a `now` that is 8 hours later by wall clock only gives true | — | S1, S2 |
-| `TestResumeLoopCallsHooks` | `pkg/daemon/resume_test.go` | with an injected clock that jumps one hour, the loop calls `NoteResume`, `reconcile` and the `Resumer` once each | — | S1, S3 |
+| `TestResumeLoopCallsHooks` | `pkg/daemon/resume_test.go` | with an injected clock that jumps one hour, the loop calls `NoteResume`, sends one signal on the reconcile channel (it does not call `reconcile`) and calls the `Resumer` on `d.dhtDiscovery` once each | — | S1, S3 |
+| `TestBothRunPathsStartResumeLoop` | `pkg/daemon/resume_test.go` | a go/parser walk of `daemon.go` finds a call to `startResumeLoop` in the bodies of both `Run` and `RunWithDHTDiscovery` | — | S1, S2 |
 | `TestResumeGraceBlocksHealthEviction` | `pkg/daemon/resume_test.go` | within `ResumeGrace` of a resume, a peer with a stale handshake and no transfer growth is not reconnected or evicted on two health cycles | — | S1, S4 |
 | `TestResumeGraceBlocksProbeEviction` | `pkg/daemon/resume_test.go` | within the grace, `MeshProbeFailLimit` failed probes do not evict | — | S1, S4 |
 | `TestResumeGraceExpires` | `pkg/daemon/resume_test.go` | after the grace the same inputs evict as before | — | S1, S4 |
 | `TestNoGraceWhileLivenessNotEnforced` | `pkg/daemon/resume_test.go` | with the switch off the eviction happens and the counter `resume-grace` is incremented | — | S1, S4 |
-| `TestResumeKeepsAllPeersAlive` | `pkg/daemon/resume_test.go` | after `NoteResume`, every stored peer is `Alive` for `PeerDeadTimeout` even if its other evidence is hours old | — | S1, S3 |
+| `TestResumeKeepsAllPeersAlive` | `pkg/daemon/resume_test.go` | after `NoteResume`, every stored peer, as a copy from `GetActive`, is `Alive` for `PeerDeadTimeout` even if its other evidence is hours old | — | S1, S3 |
+| `TestResumeLoopStateIsRaceFree` | `pkg/daemon/resume_test.go` | the loop runs with a jumping clock while `checkPeerHealth`, `inResumeGrace`, `reconcileLoop`'s signal receiver and `NoteResume` run in other goroutines; the final fence runs it under `-race` | — | S1, S3 |
 
 ## Reachability
 
 | Rung | How this task shows it |
 |------|------------------------|
-| 1 — exists | the seven tests |
-| 2 — something selects it | `RunWithDHTDiscovery` starts `resumeLoop`; the mutant that does not start it turns `TestResumeLoopCallsHooks` red |
+| 1 — exists | the nine tests |
+| 2 — something selects it | `Run` and `RunWithDHTDiscovery` start `resumeLoop`; the mutant that does not start it turns `TestResumeLoopCallsHooks` or `TestBothRunPathsStartResumeLoop` red |
 | 3 — the caller can discover it | the log line and `wgmesh_resume_detected_total`; T7 documents them |
 | 4 — it is used | a wake on a laptop; S6 records the time to the first ping |
 
@@ -69,12 +71,14 @@ a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestR
 - The watcher reads only the wall clock and starts no process; nothing is written to disk.
 - Outside the grace, health, probe and relay decisions are the ones of T2.
 - A detection never removes a peer or a WireGuard configuration by itself.
+- `reconcile()` has one caller at a time: the resume loop only signals `reconcileLoop`.
+- No field, variable or counter accessed by more than one goroutine is bare: `atomic.*` or a lock on every access (M 2026-11-16); the task has a `-race` test for each such field it adds. Here: the clock field read through `d.now()` is set before the loops start and never written after (or is guarded); the reconcile signal is a channel; the resume counter follows the `admitWarnings` pattern; `ResumedAt` is read through the store's lock. `TestResumeLoopStateIsRaceFree` covers them.
 
 ## Risks
 
 - A false positive (a long pause or an NTP step forward) causes one reconcile, one announce and a 60-second grace; accepted (M3).
 - A real peer death during the sleep is noticed 60 seconds later than it could be; accepted (M6).
-- `daemon.go` conflicts with ADR-0002 T3 (`evictPeerFromPool`) and T4; see Ordering.
+- `daemon.go` is shared with the health, probe and reconcile code; see Ordering.
 
 ## Stop Condition
 

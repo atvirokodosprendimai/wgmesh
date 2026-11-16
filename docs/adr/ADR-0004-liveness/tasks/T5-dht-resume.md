@@ -1,12 +1,11 @@
 # Task ADR-0004-T5: Make the DHT layer refresh its endpoint and announce at once on a wake (#829)
 
 **Depends-on:** T4
-**External prerequisite:** ADR-0002 T9 merged on main (it adds `LocalNode.ObserveEndpoint`)
 **Covers:** none — no spec
 **Estimated scope:** S (few files)
 **Owner:** unassigned
-**Produces:** `DHTDiscovery.OnResume`, the `stun-resume` source accepted by `ObserveEndpoint`
-**Consumes:** `node.Resumer`, `ResumeGrace` (T4); `LocalNode.ObserveEndpoint`, added by the ADR-0002 task named in the prerequisite line
+**Produces:** `DHTDiscovery.OnResume`, `daemon.EndpointSTUNResume` accepted by `ObserveEndpoint`, a serialised `refreshSTUNOnce`, a guarded `NATType`
+**Consumes:** `node.Resumer`, `ResumeGrace` (T4); `LocalNode.ObserveEndpoint` and the `EndpointSource` constants (added by ADR-0002, merged)
 **Data dependency:** hermetic
 **Proof map:** v1
 
@@ -18,27 +17,27 @@ Within seconds of a wake the node runs one STUN refresh, applies the new externa
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/discovery/dht.go` | edit | `OnResume()` on `DHTDiscovery`; the body of one `stunRefreshLoop` pass (`:409-464`) becomes `refreshSTUNOnce(source string)` that the ticker and `OnResume` both call, with source `stun` or `stun-resume`; `OnResume` also clears the rendezvous back-off state (`recordRendezvousAttempt`, `canAttemptRendezvous`) |
-| `pkg/discovery/exchange.go` | edit | an exported `AnnounceNow()` that runs the same send the periodic announce runs; no new message type |
-| `pkg/node/types.go` | edit | `ObserveEndpoint` applies the source `stun-resume` at once (the one case added to ADR-0002's R7) |
+| `pkg/daemon/daemon.go` | edit | add `EndpointSTUNResume EndpointSource = "stun-resume"` with a doc comment beside `EndpointInterface`, `EndpointReflection`, `EndpointSTUN` (`:139-149`); `ObserveEndpoint` (`:164`) already applies any source other than `EndpointSTUN` at once and clears the pending STUN observations (`:167-179`), so the code change is the constant and its doc. `NATType` (a `LocalNode` field, written unlocked today, see S4) gets a lock-guarded setter and getter on `LocalNode` under `endpointMu`; the reader in `shouldRelayPeerWithSubnets` (`:849`) uses the getter |
+| `pkg/discovery/dht.go` | edit | `stunRefreshLoop` (`:409-461`) has no `refreshSTUNOnce` yet: its body becomes `refreshSTUNOnce(src daemon.EndpointSource)`, which the ticker and `OnResume` both call (the type is `EndpointSource`, not string). The IPv6 branch (`:415-423`, which uses `EndpointInterface` and `continue`s) stays inside the extracted function, and the two `ObserveEndpoint(daemon.EndpointSTUN, ...)` calls (`:437`, `:453`) take `src`; `discoverExternalEndpoint` at `Start` (`:255`, `:271`, `:284`) is not changed except for the `NATType` setter. `refreshSTUNOnce` takes a mutex (`stunMu`) so `OnResume` and the 60-second ticker cannot run it at once. `OnResume()`: safe before `Start` and after `Stop` (it reads `d.ctx` and `d.running` under `d.mu` and returns when not running); calls `refreshSTUNOnce(daemon.EndpointSTUNResume)`, `announceNow()`, and clears `d.rendezvousBackoff` under `d.mu` (`:77`, `:917-946`; `canAttemptRendezvous` is `:906`). **`announceNow()` is defined here**, because no single "announce now" exists: `announce()` (`:680`) goes to the infohash, `PeerExchange.SendAnnounce(remoteAddr)` (`exchange.go:1163`) goes to one address, and gossip (`gossip.go:166`) sends to one random peer per tick through `SendAnnounce`. `announceNow()` = `announce()` plus `SendAnnounce` to the mesh IP and gossip port (`g.port`) of every `GetActive` peer, guarded by `pe.conn == nil` and `!d.config.Gossip`; no new message type |
+| `pkg/daemon/local_endpoint_test.go` | edit | `TestObserveEndpointAppliesStunResumeAtOnce` and `TestNATTypeAccessIsRaceFree` (the first test moved here from the `pkg/node` file of the first draft: `ObserveEndpoint` is in `pkg/daemon`, `node.LocalNode`, `pkg/node/types.go:36`, has no such method) |
 | `pkg/discovery/dht_resume_test.go` | add | tests below |
 
-Selection: the daemon finds `OnResume` by the `node.Resumer` type assertion in T4's loop; a mutant that removes the method turns `TestDHTImplementsResumer` red.
+Selection: the daemon finds `OnResume` by the `node.Resumer` type assertion on `d.dhtDiscovery` in T4's loop; a mutant that removes the method turns `TestDHTImplementsResumer` red.
 
 ## Ordered Steps
 
-1. [S1] Add the tests below with compiling stubs; run red. The STUN call is a field (`stunFn`) that the test replaces, so no network is used.
-2. [S2] Extract `refreshSTUNOnce(source)` from the loop body without changing what the loop does (the loop test of ADR-0002 T9 stays green). [proof: acceptance]
-3. [S3] Implement `OnResume`: `refreshSTUNOnce("stun-resume")`, `AnnounceNow()`, reset the back-off.
-4. [S4] Add the `stun-resume` case to `ObserveEndpoint`; add `var _ node.Resumer = (*DHTDiscovery)(nil)`.
-5. [S5] Run the mutants with `adr-verify --mutant`: `OnResume` passes source `stun`; it skips the announce; it does not reset the back-off. [proof: mutation]
+1. [S1] Add the tests below with compiling stubs; run red. The STUN call is a field (`stunFn`) that the test replaces, and the announce sends are fields the test replaces, so no network is used.
+2. [S2] Extract `refreshSTUNOnce(src daemon.EndpointSource)` from the loop body without changing what the loop does (the loop test of ADR-0002 T9 stays green). [proof: acceptance]
+3. [S3] Implement `OnResume`, `announceNow` and the back-off reset as described above; add `var _ node.Resumer = (*DHTDiscovery)(nil)`.
+4. [S4] Add the `EndpointSTUNResume` constant and its doc. **The `NATType` race**: `d.localNode.NATType` is written unlocked at `dht.go:256`, `:272`, `:285`, `:421`, `:443` and read in `shouldRelayPeerWithSubnets` (`daemon.go:849`; `BACKLOG.md:18` records it as a known limit). `OnResume` now runs concurrently with the 60-second `stunRefreshLoop`, so the task serialises `refreshSTUNOnce` with `stunMu` **and** moves every access of `NATType` (the writers above and the reader; re-grep `\.NATType` and move every site found) behind a setter and getter under `endpointMu`. [proof: acceptance]
+5. [S5] Run the mutants with `adr-verify --mutant`: `OnResume` passes `EndpointSTUN`; it skips the announce; it does not reset the back-off; `refreshSTUNOnce` drops `stunMu`; the getter reads the field without the lock. [proof: mutation]
 
 ## Acceptance
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResumeAnnouncesNow|TestOnResumeResetsRendezvousBackoff|TestDHTImplementsResumer)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 4 ] \
- && b=$(go test ./pkg/node -run '^TestObserveEndpointAppliesStunResumeAtOnce$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$b" -ge 1 ] \
+a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResumeAnnouncesNow|TestOnResumeResetsRendezvousBackoff|TestDHTImplementsResumer|TestOnResumeBeforeStartAndAfterStopIsSafe|TestOnResumeRacesWithStunRefreshLoop)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 6 ] \
+ && b=$(go test ./pkg/daemon -run '^(TestObserveEndpointAppliesStunResumeAtOnce|TestNATTypeAccessIsRaceFree)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$b" -ge 2 ] \
  && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
 ```
 
@@ -47,17 +46,20 @@ a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResume
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
 | `TestOnResumeRefreshesSTUNAtOnce` | `pkg/discovery/dht_resume_test.go` | with a stubbed STUN that returns a new endpoint, `OnResume` changes the local endpoint at once; the ticker path with the same value does not (R7 stays) | — | S1, S3 |
-| `TestOnResumeAnnouncesNow` | `pkg/discovery/dht_resume_test.go` | `OnResume` causes one announce send | — | S1, S3 |
+| `TestOnResumeAnnouncesNow` | `pkg/discovery/dht_resume_test.go` | `OnResume` causes one `announce()` and one `SendAnnounce` per `GetActive` peer; none when `pe.conn == nil` or `Gossip` is off | — | S1, S3 |
 | `TestOnResumeResetsRendezvousBackoff` | `pkg/discovery/dht_resume_test.go` | a peer in back-off may attempt a rendezvous after `OnResume` | — | S1, S3 |
-| `TestDHTImplementsResumer` | `pkg/discovery/dht_resume_test.go` | the type satisfies `node.Resumer` and T4's assertion finds it | — | S1, S4 |
-| `TestObserveEndpointAppliesStunResumeAtOnce` | `pkg/node/liveness_test.go` | `ObserveEndpoint("stun-resume", ep)` applies at once; `ObserveEndpoint("stun", ep)` still waits for three equal values | — | S1, S4 |
+| `TestDHTImplementsResumer` | `pkg/discovery/dht_resume_test.go` | the type satisfies `node.Resumer` and T4's assertion on the discovery field finds it | — | S1, S3 |
+| `TestOnResumeBeforeStartAndAfterStopIsSafe` | `pkg/discovery/dht_resume_test.go` | `OnResume` on a never-started layer and on a stopped one returns without panic, STUN call or announce | — | S1, S3 |
+| `TestOnResumeRacesWithStunRefreshLoop` | `pkg/discovery/dht_resume_test.go` | `OnResume` called repeatedly while the `stunRefreshLoop` ticker path runs (stubbed STUN, short tick); the final fence runs it under `-race`, and a mutant without `stunMu` turns it red | — | S1, S3, S4 |
+| `TestObserveEndpointAppliesStunResumeAtOnce` | `pkg/daemon/local_endpoint_test.go` | `ObserveEndpoint(EndpointSTUNResume, ep)` applies at once; `ObserveEndpoint(EndpointSTUN, ep)` still waits for three equal values | — | S1, S4 |
+| `TestNATTypeAccessIsRaceFree` | `pkg/daemon/local_endpoint_test.go` | concurrent setter and getter calls of `NATType` complete under `-race` | — | S1, S4 |
 
 ## Reachability
 
 | Rung | How this task shows it |
 |------|------------------------|
-| 1 — exists | the five tests |
-| 2 — something selects it | T4's loop type-asserts `node.Resumer`; the mutant that drops the method turns `TestDHTImplementsResumer` red |
+| 1 — exists | the eight tests |
+| 2 — something selects it | T4's loop type-asserts `node.Resumer` on `d.dhtDiscovery`; the mutant that drops the method turns `TestDHTImplementsResumer` red |
 | 3 — the caller can discover it | the log lines `[STUN] External endpoint changed` and `[Resume]` |
 | 4 — it is used | every wake; the S6 step of T4 times it |
 
@@ -66,17 +68,19 @@ a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResume
 ## Invariants
 
 - The ticker path of `stunRefreshLoop` behaves as ADR-0002 T9 leaves it: three equal observations for a STUN-only change.
-- No new message type and no new wire byte; `AnnounceNow` sends what the periodic announce sends.
+- No new message type and no new wire byte; `announceNow` sends what the periodic announce and `SendAnnounce` send.
 - `pkg/daemon` does not import `pkg/discovery`.
+- No field, variable or counter accessed by more than one goroutine is bare: `atomic.*` or a lock on every access (M 2026-11-16); the task has a `-race` test for each such field it adds. Here: `NATType` (setter and getter under `endpointMu`), `refreshSTUNOnce` (`stunMu`), `rendezvousBackoff` (`d.mu`); `TestOnResumeRacesWithStunRefreshLoop` and `TestNATTypeAccessIsRaceFree` are the `-race` tests.
 
 ## Risks
 
 - Applying a STUN result at once after a wake can publish a wrong endpoint if the network is not up yet; the next ticker pass and any peer reflection correct it (ADR-0002 R7 rank order).
-- The `stun-resume` case is an amendment of ADR-0002's R7 and is decided in M5; M confirms it when accepting this ADR, and T5 does not start before that.
+- Moving `NATType` behind accessors touches every reader of the field in `pkg/daemon`, `pkg/discovery` and tests; the grep in S4 finds them, and `BACKLOG.md:18` (the known limit) is closed or reworded by T7's release note.
+- `BACKLOG.md:18` says ADR-0005 owns the local node; the `NATType` accessors here are the minimal guard for the one new concurrent writer (`OnResume`) and are handed to ADR-0005 as they are.
 
 ## Stop Condition
 
-Stop and ask if ADR-0002 T9 shipped `ObserveEndpoint` with no source parameter that can carry `stun-resume`, or if M declines the R7 amendment when accepting this ADR (M5).
+Stop and ask if the `NATType` accessors turn out to need a lock order against `endpointMu` that `ObserveEndpoint` cannot keep, or if `ObserveEndpoint` no longer applies a non-`EndpointSTUN` source at once.
 
 ## Out of Scope
 
