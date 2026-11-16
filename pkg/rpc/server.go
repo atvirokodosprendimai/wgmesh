@@ -50,7 +50,7 @@ type ServerConfig struct {
 // Server implements an RPC server using Unix domain sockets
 type Server struct {
 	socketPath      string
-	listener        net.Listener
+	listener        net.Listener // guarded by mu: Start writes it, Stop reads it
 	version         string
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -59,11 +59,19 @@ type Server struct {
 	getPeerCountsFn func() (active, total, dead int)
 	getStatusFn     func() *StatusData
 
+	// mu guards listener and stopped (Start and Stop run on different
+	// goroutines); stopped is set once Stop or a failed Start began.
+	mu      sync.Mutex
+	stopped bool
+
 	// releaseLock frees <socketPath>.lock; set once in NewServer, never
-	// written again, so concurrent Stop calls only read it.
+	// written again, so concurrent Stop calls only read it. Nil on a Server
+	// not made by NewServer.
 	releaseLock func()
-	stopOnce    sync.Once
-	stopErr     error // written inside stopOnce.Do, read after it returns
+	// stopOnce: a second Stop, after a new owner took the path, would unlink
+	// that owner's socket.
+	stopOnce sync.Once
+	stopErr  error // written inside stopOnce.Do, read after it returns
 }
 
 // NewServer creates a new RPC server.
@@ -139,12 +147,19 @@ func NewServer(config ServerConfig) (*Server, error) {
 // Why: the caller defers Stop only after a successful Start, so a failed
 // Start left <socketPath>.lock held for the life of the process.
 func (s *Server) Start() error {
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return errors.New("RPC server is stopped")
+	}
 	listener, err := net.Listen("unix", s.socketPath)
 	if err != nil {
+		s.mu.Unlock()
 		_ = s.stop(false) // no socket of ours exists
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}
 	s.listener = listener
+	s.mu.Unlock()
 
 	// Set socket permissions to 0600 (owner only)
 	if err := os.Chmod(s.socketPath, 0600); err != nil {
@@ -155,15 +170,15 @@ func (s *Server) Start() error {
 	log.Printf("RPC server listening on %s", s.socketPath)
 
 	// Accept connections
-	go s.acceptLoop()
+	go s.acceptLoop(listener)
 
 	return nil
 }
 
 // acceptLoop accepts incoming connections
-func (s *Server) acceptLoop() {
+func (s *Server) acceptLoop(listener net.Listener) {
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			select {
 			case <-s.ctx.Done():
@@ -397,16 +412,20 @@ func (s *Server) Stop() error {
 	return s.stop(true)
 }
 
-// stop is the one shutdown path of Stop and of a failed Start.
-//
-// stopOnce: a second Stop, after a new owner took the path, would unlink
-// that owner's socket.
+// stop is the one shutdown path of Stop and of a failed Start. It marks the
+// server stopped first, so a later Start cannot bind a socket without the lock.
 func (s *Server) stop(removeSocket bool) error {
 	s.stopOnce.Do(func() {
-		s.cancel()
+		s.mu.Lock()
+		s.stopped = true
+		listener := s.listener
+		s.mu.Unlock()
 
-		if s.listener != nil {
-			s.listener.Close()
+		if s.cancel != nil {
+			s.cancel()
+		}
+		if listener != nil {
+			listener.Close()
 		}
 
 		// Remove socket file, then free the path for the next owner
@@ -415,7 +434,9 @@ func (s *Server) stop(removeSocket bool) error {
 				s.stopErr = fmt.Errorf("failed to remove socket: %w", err)
 			}
 		}
-		s.releaseLock()
+		if s.releaseLock != nil {
+			s.releaseLock()
+		}
 
 		log.Printf("RPC server stopped")
 	})
