@@ -1180,11 +1180,25 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal announce: %w", err)
 	}
 
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	// Stop and a restart replace the socket under pe.mu.
+	pe.mu.RLock()
+	conn := pe.conn
+	pe.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("peer exchange has no socket")
+	}
+	_, err = conn.WriteToUDP(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send announce: %w", err)
 	}
 	return nil
+}
+
+// hasConn reports whether the exchange socket is open.
+func (pe *PeerExchange) hasConn() bool {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	return pe.conn != nil
 }
 
 // SendGoodbye sends a shutdown notification to a specific peer exchange endpoint.

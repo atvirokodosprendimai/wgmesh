@@ -196,6 +196,11 @@ func (d *DHTDiscovery) Start() error {
 	}
 	go d.stunRefreshLoop()
 
+	// From here OnResume may act: everything it reads has been written.
+	d.mu.Lock()
+	d.resumable = true
+	d.mu.Unlock()
+
 	log.Printf("[DHT] Discovery started, listening on port %d", d.exchange.Port())
 	return nil
 }
@@ -208,6 +213,7 @@ func (d *DHTDiscovery) Stop() error {
 		return nil
 	}
 	d.running = false
+	d.resumable = false
 	d.mu.Unlock()
 
 	d.broadcastGoodbye()
@@ -492,13 +498,63 @@ func (d *DHTDiscovery) queryStun() (NATType, net.IP, error) {
 	return "", ip, err
 }
 
-// announceNow announces to the infohash and to every active peer (stub).
-func (d *DHTDiscovery) announceNow() {}
+// announceNow announces at once what the periodic loops announce one by one:
+// announce() to the infohash, and SendAnnounce to the mesh IP and gossip port
+// of every active peer (what gossipLoop sends to one random peer per tick). The
+// peer sends need gossip on and an open exchange socket; no new message type.
+func (d *DHTDiscovery) announceNow() {
+	d.announceFn()
+
+	if !d.config.Gossip || d.gossip == nil || !d.exchange.hasConn() {
+		return
+	}
+	d.gossip.mu.RLock()
+	port := int(d.gossip.port)
+	d.gossip.mu.RUnlock()
+	for _, p := range d.peerStore.GetActive() {
+		if p.WGPubKey == d.localNode.WGPubKey || p.MeshIP == "" {
+			continue
+		}
+		ip := net.ParseIP(p.MeshIP)
+		if ip == nil {
+			log.Printf("[Resume] Invalid mesh IP for peer %s: %s", p.WGPubKey, p.MeshIP)
+			continue
+		}
+		if err := d.sendAnnounceFn(&net.UDPAddr{IP: ip, Port: port}); err != nil {
+			log.Printf("[Resume] Failed to announce to %s: %v", p.MeshIP, err)
+		}
+	}
+}
 
 var _ node.Resumer = (*DHTDiscovery)(nil)
 
-// OnResume runs the wake actions (stub).
-func (d *DHTDiscovery) OnResume() {}
+// OnResume runs the wake actions once (the daemon calls it from the resume
+// goroutine, beside the discovery loops): it clears the rendezvous back-off so
+// the next cycle may punch, then refreshes STUN with the stun-resume source
+// (applied at once) and announces. The two network steps run in a goroutine
+// counted by resumeWG, so the caller never waits on them; each step has its own
+// timeout (STUN 3 s per probe, announce 30 s, cancelled with the layer), and
+// Stop does not wait for them. Before Start and after Stop it does nothing.
+func (d *DHTDiscovery) OnResume() {
+	d.mu.Lock()
+	if !d.resumable || d.ctx.Err() != nil {
+		d.mu.Unlock()
+		return
+	}
+	clear(d.rendezvousBackoff)
+	d.resumeWG.Add(1)
+	d.mu.Unlock()
+
+	log.Printf("[Resume] Wake detected: refreshing STUN endpoint and announcing")
+	go func() {
+		defer d.resumeWG.Done()
+		d.refreshSTUNOnce(daemon.EndpointSTUNResume)
+		if d.ctx.Err() != nil {
+			return
+		}
+		d.announceNow()
+	}()
+}
 
 // initDHTServer initializes the BitTorrent DHT server
 func (d *DHTDiscovery) initDHTServer() error {
