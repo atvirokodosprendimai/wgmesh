@@ -670,8 +670,11 @@ func (d *Daemon) reconcileLoop() {
 func (d *Daemon) reconcile() {
 	start := time.Now()
 
-	peers := d.peerStore.GetActive()
-	desired, relayRoutes, directStable := d.buildDesiredPeerConfigs(peers)
+	// One wg show per pass: the handshakes are recorded as evidence first, so a
+	// peer whose only sign of life is a handshake is already Alive when the
+	// active set and the desired set are built.
+	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	peers, desired, relayRoutes, directStable := d.planPeers(handshakes, start)
 	d.relayMu.Lock()
 	d.relayRoutes = relayRoutes
 	d.directStableCycles = directStable
@@ -697,11 +700,6 @@ func (d *Daemon) reconcile() {
 type desiredPeerConfig struct {
 	peer    *PeerInfo
 	allowed map[string]struct{}
-}
-
-func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
-	return d.buildDesiredPeerConfigsWithHandshakes(peers, handshakes)
 }
 
 func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handshakes map[string]int64) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
