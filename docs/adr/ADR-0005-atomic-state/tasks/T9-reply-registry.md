@@ -63,6 +63,9 @@ n=$(go test ./pkg/discovery -run '^(TestRegisterReplyKeepsBothCallers|TestHandle
 | 4 — it is used | every punch and rendezvous exchange |
 
 ## Mutation Log
+- 2026-11-16 · 628d7ec* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · handleReply delivers to one channel only: TestHandleReplyReachesEveryRegisteredCaller must go red · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95
+- 2026-11-16 · 628d7ec* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · unregister removes every registration of the address: TestUnregisterRemovesOnlyOwnRegistration must go red · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95
+- 2026-11-16 · 628d7ec* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the address entry is never removed: TestUnregisterLastRemovesAddressEntry must go red · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95
 
 ## Invariants
 
@@ -85,3 +88,21 @@ Stop and ask if ADR-0002 T8 or T9 changed the signature of `handleReply`, or if 
 - Retry and backoff policy of the callers in `dht.go` (permanent: boundary: owned by the discovery liveness group).
 
 ## Verification Log
+- 2026-11-16 · 628d7ec* · exit 1 · `set -o pipefail …` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:601934 · test-lock-sha256:4a5a2ae1ec3be95f2614e28edd3c5a1bf719a3cb33973cee47a9f436b92f48b2 · test-lock-file:docs/adr/locks/4a5a2ae1ec3be95f2614e28edd3c5a1bf719a3cb33973cee47a9f436b92f48b2.lock
+  ```
+  --- last 10 line(s) of stderr (of 66 after folding 76 raw)
+
+  goroutine 90 [chan receive, 9 minutes]:
+  github.com/atvirokodosprendimai/wgmesh/pkg/discovery.TestHandleReplyGivesEveryCallerItsOwnCopy(0x2e11e2682008)
+  	/claude/scratch/2026-11-15/adr-g4/pkg/discovery/exchange_pending_test.go:232 +0x1ae
+  testing.tRunner(0x2e11e2682008, 0xf2e9b0)
+  	/snap/go/11411/src/testing/testing.go:2195 +0xea
+  created by testing.(*T).Run in goroutine 1
+  	/snap/go/11411/src/testing/testing.go:2260 +0x4d4
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery	600.106s
+  FAIL
+  ```
+- 2026-11-16 · 628d7ec* · exit 0 · `set -o pipefail …` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:10018
+- 2026-11-16 · 628d7ec* · exit 0 · `set -o pipefail …` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:10693
+- 2026-11-16 · 628d7ec* · exit 0 · `set -o pipefail …` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:10522
+- 2026-11-16 · 628d7ec* · exit 0 · `set -o pipefail …` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:6914
