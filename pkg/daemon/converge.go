@@ -46,7 +46,66 @@ type itemResult struct {
 // disableIPv6, is not configured. Shrinking peers come before growing ones; an
 // observed peer that is not wanted is removed.
 func planKernel(want map[string]*desiredPeerConfig, kernel kernelObserved, pushed map[string]string, disableIPv6 bool) kernelPlan {
-	return kernelPlan{}
+	var plan kernelPlan
+	for key := range kernel.Peers {
+		if _, ok := want[key]; !ok {
+			plan.Remove = append(plan.Remove, key)
+		}
+	}
+	sort.Strings(plan.Remove)
+
+	keys := make([]string, 0, len(want))
+	for key := range want {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	var shrinking, growing []peerWrite
+	for _, key := range keys {
+		cfg := want[key]
+		if cfg.peer.Endpoint == "" || (disableIPv6 && isIPv6Endpoint(cfg.peer.Endpoint)) {
+			continue
+		}
+		allowed := mapKeysSorted(cfg.allowed)
+		if len(allowed) == 0 {
+			continue
+		}
+		wanted := make(map[string]struct{}, len(allowed))
+		for _, cidr := range allowed {
+			wanted[canonicalCIDR(cidr)] = struct{}{}
+		}
+		obs, present := kernel.Peers[key]
+		endpointChanged := pushed[key] != cfg.peer.Endpoint
+		if present && !endpointChanged && sameSet(obs.Allowed, wanted) {
+			continue
+		}
+		w := peerWrite{Key: key, Allowed: allowed}
+		if !present || endpointChanged {
+			w.Endpoint = cfg.peer.Endpoint
+		}
+		if present && !subset(obs.Allowed, wanted) {
+			shrinking = append(shrinking, w)
+		} else {
+			growing = append(growing, w)
+		}
+	}
+	plan.Set = append(shrinking, growing...)
+	return plan
+}
+
+// sameSet reports whether a and b hold the same members.
+func sameSet(a, b map[string]struct{}) bool {
+	return len(a) == len(b) && subset(a, b)
+}
+
+// subset reports whether every member of a is in b.
+func subset(a, b map[string]struct{}) bool {
+	for k := range a {
+		if _, ok := b[k]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 // converge runs one tick against the kernel and returns the desired state it
@@ -222,5 +281,3 @@ func (d *Daemon) logf(format string, args ...any) {
 	}
 	log.Printf(format, args...)
 }
-
-var _ = sort.Strings

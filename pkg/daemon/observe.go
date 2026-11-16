@@ -26,7 +26,19 @@ type kernelObserved struct {
 
 // observeKernel reads the kernel once (peer target only for now).
 func (d *Daemon) observeKernel() kernelObserved {
-	return kernelObserved{}
+	dump, err := d.dumpSeam(d.config.InterfaceName)
+	if err != nil {
+		return kernelObserved{Errs: map[string]error{targetPeers: err}}
+	}
+	obs := kernelObserved{Peers: make(map[string]observedPeer, len(dump))}
+	for key, p := range dump {
+		allowed := make(map[string]struct{}, len(p.AllowedIPs))
+		for _, cidr := range p.AllowedIPs {
+			allowed[canonicalCIDR(cidr)] = struct{}{}
+		}
+		obs.Peers[key] = observedPeer{Allowed: allowed, Handshake: p.LatestHandshake}
+	}
+	return obs
 }
 
 // canonicalCIDR is the form in which the kernel's and the desired AllowedIPs are compared.
