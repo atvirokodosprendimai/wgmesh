@@ -389,6 +389,7 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	d.noteObserve(nil)
 
 	ds := d.desire(peers, obs.handshakes(), obs.owners())
+	d.routeWarned = ds.routeWarned
 	d.noteForwardScope(ds.Forward)
 	d.observeForward(ds.Forward, &obs)
 	d.observeRoutes(&obs)

@@ -28,6 +28,10 @@ type desiredState struct {
 	Forward      forwardDesired
 	relayRoutes  map[string]string
 	directStable map[string]int
+	// routeWarned is the set of rule cases this desire warned about and that
+	// hold. desire only reads the previous set (d.routeWarned) and returns the
+	// new one; converge alone stores it, under convergeMu.
+	routeWarned map[string]struct{}
 }
 
 // desiredMember is one eligible peer, the peer that carries its traffic (the
@@ -193,7 +197,7 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 	}
 
 	d.logSharedOwners(claimants, owners)
-	d.routeWarned = warned
+	ds.routeWarned = warned
 	return ds
 }
 

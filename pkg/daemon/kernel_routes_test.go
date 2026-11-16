@@ -779,3 +779,25 @@ func TestGatewayChangeIsOneReplaceNoDel(t *testing.T) {
 		}
 	})
 }
+
+// desire is pure: the warn-once set is part of its result and only converge
+// keeps it. A desire that reconnect runs between two ticks must not make the
+// next tick warn again.
+func TestReconnectDoesNotResetWarnOnce(t *testing.T) {
+	enforceRouteGuard(t, false)
+	d, rh, _, ls, peers, _ := attachedFixture(t)
+	before := testutil.ToFloat64(kernelWarnings.WithLabelValues("attached-network"))
+
+	ticks(t, d, rh, peers, 1)
+	if err := d.reconnectPeerInKernel(peers[0], nil); err != nil { // a desire over no peers
+		t.Fatalf("reconnect: %v", err)
+	}
+	ticks(t, d, rh, peers, 2)
+
+	if got := testutil.ToFloat64(kernelWarnings.WithLabelValues("attached-network")) - before; got != 2 {
+		t.Errorf("attached-network counted %v times across a reconnect, want 2 (once each)", got)
+	}
+	if n := ls.count("attached-network"); n != 2 {
+		t.Errorf("attached-network logged %d times across a reconnect, want 2; log: %q", n, ls.lines)
+	}
+}
