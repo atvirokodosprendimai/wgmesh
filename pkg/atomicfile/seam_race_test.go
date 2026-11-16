@@ -26,10 +26,10 @@ func TestWriteFileWhileSyncSeamsChange(t *testing.T) {
 			setDir(func(d string) error { return origDir(d) })
 		}
 	}()
+	defer wg.Wait()
 	for i := 0; i < 50; i++ {
 		if err := WriteFile(filepath.Join(dir, "t"), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	wg.Wait()
 }
