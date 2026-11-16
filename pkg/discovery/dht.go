@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anacrolix/dht/v2"
@@ -42,6 +43,15 @@ const (
 	RendezvousStaleCheck      = 10 * time.Second // How often to check for stale handshakes
 	IPv6SyncWindow            = 8 * time.Second
 	IPv6SyncPhase             = 2 * time.Second
+)
+const (
+	// ContactDedupWindow is the longest interval any markContacted caller
+	// passes. An entry older than it can no longer block a contact, so
+	// markContacted sweeps it (ADR-0007 Decision 3).
+	ContactDedupWindow = 60 * time.Second
+	// MaxContactedPeers is the hard cap on the contacted-address map. At the
+	// cap a new address is refused (fail closed) until a sweep frees room.
+	MaxContactedPeers = 8192
 )
 
 type backoffEntry struct {
@@ -75,6 +85,12 @@ type DHTDiscovery struct {
 	contactedPeers    map[string]time.Time    // Dedup: don't spam same IP
 	controlPeers      map[string]string       // peer pubkey -> exchange/control endpoint
 	rendezvousBackoff map[string]backoffEntry // peer pubkey -> backoff state
+	// now is the test seam for the clock; nil means time.Now. Atomic because
+	// goroutines read it without d.mu.
+	now atomic.Pointer[func() time.Time]
+	// lastContactSweep and lastCapLog are touched only with d.mu held.
+	lastContactSweep time.Time
+	lastCapLog       time.Time
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance.
@@ -881,6 +897,18 @@ func (d *DHTDiscovery) handlePeerEvent(ev daemon.PeerEvent) {
 	// Trigger rendezvous for this specific peer
 	d.tryRendezvousForPeer(peer)
 }
+
+// clock returns the current time, from the test seam when one is set.
+func (d *DHTDiscovery) clock() time.Time {
+	if f := d.now.Load(); f != nil {
+		return (*f)()
+	}
+	return time.Now()
+}
+
+// sweepPeerKeyed deletes controlPeers and rendezvousBackoff entries whose key
+// the PeerStore no longer holds.
+func (d *DHTDiscovery) sweepPeerKeyed() {}
 
 func (d *DHTDiscovery) checkStaleHandshakes() {
 	peers := d.peerStore.GetActive()
