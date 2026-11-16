@@ -46,7 +46,7 @@ func Winner(a, b Claim, derive func(key string, nonce int) string, warn func(rul
 		lower, higher = b, a
 	}
 	boundFirst := Bound(higher, derive, MaxNonce) && !Bound(lower, derive, MaxNonce)
-	if EnforceIPBinding {
+	if EnforceIPBinding.Load() {
 		if boundFirst {
 			return higher, lower
 		}

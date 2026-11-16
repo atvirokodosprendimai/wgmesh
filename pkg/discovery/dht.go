@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anacrolix/dht/v2"
@@ -63,10 +64,12 @@ type DHTDiscovery struct {
 	localNode *daemon.LocalNode
 	peerStore *daemon.PeerStore
 	exchange  *PeerExchange
-	gossip    *MeshGossip
-	lan       *LANDiscovery
-	server    *dht.Server
-	dhtPort   int
+	// gossip, lan, server and dhtPort are assigned by Start while Stop and the
+	// loops read them from other goroutines: never a bare value.
+	gossip  atomic.Pointer[MeshGossip]
+	lan     atomic.Pointer[LANDiscovery]
+	server  atomic.Pointer[dht.Server]
+	dhtPort atomic.Int32
 
 	mu                sync.RWMutex
 	running           bool
@@ -123,8 +126,8 @@ func (d *DHTDiscovery) Start() error {
 		if err != nil {
 			return fmt.Errorf("failed to create gossip: %w", err)
 		}
-		d.gossip = gossip
-		d.exchange.SetAnnounceHandler(d.gossip.HandleAnnounceFrom)
+		d.gossip.Store(gossip)
+		d.exchange.SetAnnounceHandler(gossip.HandleAnnounceFrom)
 	}
 
 	// Start the peer exchange server (listens for incoming connections)
@@ -137,10 +140,10 @@ func (d *DHTDiscovery) Start() error {
 		if err != nil {
 			log.Printf("[LAN] Failed to initialize LAN discovery: %v", err)
 		} else {
-			d.lan = lan
-			if err := d.lan.Start(); err != nil {
+			d.lan.Store(lan)
+			if err := lan.Start(); err != nil {
 				log.Printf("[LAN] Failed to start LAN discovery: %v", err)
-				d.lan = nil
+				d.lan.CompareAndSwap(lan, nil)
 			}
 		}
 	} else {
@@ -148,8 +151,8 @@ func (d *DHTDiscovery) Start() error {
 	}
 
 	// Start gossip loop after exchange is listening
-	if d.gossip != nil {
-		if err := d.gossip.Start(); err != nil {
+	if gossip := d.gossip.Load(); gossip != nil {
+		if err := gossip.Start(); err != nil {
 			d.exchange.Stop()
 			return fmt.Errorf("failed to start gossip: %w", err)
 		}
@@ -157,8 +160,8 @@ func (d *DHTDiscovery) Start() error {
 
 	// Initialize DHT server
 	if err := d.initDHTServer(); err != nil {
-		if d.gossip != nil {
-			d.gossip.Stop()
+		if gossip := d.gossip.Load(); gossip != nil {
+			gossip.Stop()
 		}
 		d.exchange.Stop()
 		return fmt.Errorf("failed to initialize DHT server: %w", err)
@@ -193,17 +196,17 @@ func (d *DHTDiscovery) Stop() error {
 
 	d.cancel()
 
-	if d.server != nil {
+	if server := d.server.Load(); server != nil {
 		d.persistNodes()
-		d.server.Close()
+		server.Close()
 	}
 
-	if d.lan != nil {
-		d.lan.Stop()
+	if lan := d.lan.Load(); lan != nil {
+		lan.Stop()
 	}
 
-	if d.gossip != nil {
-		d.gossip.Stop()
+	if gossip := d.gossip.Load(); gossip != nil {
+		gossip.Stop()
 	}
 
 	if d.exchange != nil {
@@ -253,7 +256,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
 			log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
 			d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint)
-			d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
+			d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
 			return
 		}
 	}
@@ -269,7 +272,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 		log.Printf("[STUN] External endpoint discovered: %s (NAT type unknown — need 2 servers)", endpoint)
 		d.localNode.ObserveEndpoint(daemon.EndpointSTUN, endpoint)
-		d.localNode.NATType = string(NATUnknown)
+		d.localNode.SetNATType(string(NATUnknown))
 		return
 	}
 
@@ -282,7 +285,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 	endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 	log.Printf("[STUN] External endpoint: %s, NAT type: %s", endpoint, natType)
 	d.localNode.ObserveEndpoint(daemon.EndpointSTUN, endpoint)
-	d.localNode.NATType = string(natType)
+	d.localNode.SetNATType(string(natType))
 }
 
 func (d *DHTDiscovery) discoverIPv6Endpoint() string {
@@ -418,7 +421,7 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 					if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
 						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
 					}
-					d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
+					d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
 					continue
 				}
 			}
@@ -433,14 +436,14 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 				}
 				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 				currentEP := d.localNode.GetEndpoint()
-				oldNAT := d.localNode.NATType
+				oldNAT := d.localNode.GetNATType()
 				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
 					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
 				}
 				if string(natType) != oldNAT {
 					log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
 				}
-				d.localNode.NATType = string(natType)
+				d.localNode.SetNATType(string(natType))
 			} else {
 				// Fallback: single-server IP-only refresh
 				ip, _, err := DiscoverExternalEndpoint(0)
@@ -475,7 +478,7 @@ func (d *DHTDiscovery) initDHTServer() error {
 			return fmt.Errorf("failed to bind DHT port: %w", err)
 		}
 	}
-	d.dhtPort = dhtConn.LocalAddr().(*net.UDPAddr).Port
+	d.dhtPort.Store(int32(dhtConn.LocalAddr().(*net.UDPAddr).Port))
 
 	// Configure DHT server
 	cfg := dht.NewDefaultServerConfig()
@@ -508,10 +511,10 @@ func (d *DHTDiscovery) initDHTServer() error {
 		return fmt.Errorf("failed to create DHT server: %w", err)
 	}
 
-	d.server = server
+	d.server.Store(server)
 	d.loadPersistedNodes()
 
-	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", d.dhtPort)
+	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", d.dhtPort.Load())
 	go d.bootstrapWithRetry()
 	return nil
 }
@@ -538,7 +541,7 @@ func (d *DHTDiscovery) attemptBootstrapLookup() bool {
 	var randomID [20]byte
 	copy(randomID[:], d.config.Keys.NetworkID[:])
 
-	a, err := d.server.Announce(randomID, 0, false)
+	a, err := d.server.Load().Announce(randomID, 0, false)
 	if err != nil {
 		log.Printf("[DHT] Bootstrap lookup failed: %v", err)
 		return false
@@ -548,10 +551,10 @@ func (d *DHTDiscovery) attemptBootstrapLookup() bool {
 	for {
 		select {
 		case <-ctx.Done():
-			return d.server.NumNodes() > 0
+			return d.server.Load().NumNodes() > 0
 		case _, ok := <-a.Peers:
 			if !ok {
-				return d.server.NumNodes() > 0
+				return d.server.Load().NumNodes() > 0
 			}
 		}
 	}
@@ -581,7 +584,7 @@ func (d *DHTDiscovery) bootstrapWithRetry() {
 		}
 
 		if d.attemptBootstrapLookup() {
-			nodes := d.server.NumNodes()
+			nodes := d.server.Load().NumNodes()
 			if attempt > 0 {
 				log.Printf("[DHT] Bootstrap succeeded after %d retries, DHT has %d nodes", attempt, nodes)
 			} else {
@@ -618,12 +621,13 @@ func (d *DHTDiscovery) nodesFilePath() string {
 }
 
 func (d *DHTDiscovery) loadPersistedNodes() {
-	if d.server == nil {
+	server := d.server.Load()
+	if server == nil {
 		return
 	}
 
 	file := d.nodesFilePath()
-	added, err := d.server.AddNodesFromFile(file)
+	added, err := server.AddNodesFromFile(file)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("[DHT] Failed to load persisted nodes from %s: %v", file, err)
@@ -637,11 +641,12 @@ func (d *DHTDiscovery) loadPersistedNodes() {
 }
 
 func (d *DHTDiscovery) persistNodes() {
-	if d.server == nil {
+	server := d.server.Load()
+	if server == nil {
 		return
 	}
 
-	nodes := d.server.Nodes()
+	nodes := server.Nodes()
 	if len(nodes) == 0 {
 		return
 	}
@@ -687,7 +692,7 @@ func (d *DHTDiscovery) announce() {
 
 	port := d.exchange.Port()
 
-	log.Printf("[DHT] Announcing to network ID %x on exchange port %d (DHT port %d)", current[:8], port, d.dhtPort)
+	log.Printf("[DHT] Announcing to network ID %x on exchange port %d (DHT port %d)", current[:8], port, d.dhtPort.Load())
 
 	// Announce to current network ID
 	d.announceToInfohash(current, port)
@@ -704,7 +709,7 @@ func (d *DHTDiscovery) announceToInfohash(infohash [20]byte, port int) {
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
-	announce, err := d.server.Announce(infohash, port, false)
+	announce, err := d.server.Load().Announce(infohash, port, false)
 	if err != nil {
 		log.Printf("[DHT] Failed to start announce: %v", err)
 		return
@@ -765,7 +770,7 @@ func (d *DHTDiscovery) queryPeers() {
 		return
 	}
 
-	log.Printf("[DHT] Querying network ID %x (DHT has %d nodes)", current[:8], d.server.NumNodes())
+	log.Printf("[DHT] Querying network ID %x (DHT has %d nodes)", current[:8], d.server.Load().NumNodes())
 
 	// Query current network ID
 	d.queryInfohash(current)
@@ -781,7 +786,7 @@ func (d *DHTDiscovery) queryInfohash(infohash [20]byte) {
 	ctx, cancel := context.WithTimeout(d.ctx, 30*time.Second)
 	defer cancel()
 
-	peers, err := d.server.Announce(infohash, 0, false) // port=0, false = get_peers only, no announce
+	peers, err := d.server.Load().Announce(infohash, 0, false) // port=0, false = get_peers only, no announce
 	if err != nil {
 		log.Printf("[DHT] Failed to query peers: %v", err)
 		return
@@ -1050,7 +1055,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			return
 		}
 		if peerInfo != nil {
-			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, handshakeWaitTimeout)
+			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, time.Duration(handshakeWaitTimeout.Load()))
 			if newHandshake <= baseline {
 				log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(target.WGPubKey), endpoint)
 				d.recordRendezvousAttempt(target.WGPubKey, false)
@@ -1133,18 +1138,25 @@ func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.
 	d.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: source, Hand: daemon.FirstHand})
 }
 
-// peerHandshakes and handshakeWaitTimeout are test seams: production values are
-// wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
+// peerHandshakes and handshakeWaitTimeout (nanoseconds) are test seams, atomic
+// because the punch goroutines read them while a test replaces them: production
+// values are wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
 var (
-	peerHandshakes       = wireguard.GetLatestHandshakes
-	handshakeWaitTimeout = HandshakeWaitTimeout
+	peerHandshakes       atomic.Pointer[func(string) (map[string]int64, error)]
+	handshakeWaitTimeout atomic.Int64
 )
+
+func init() {
+	f := wireguard.GetLatestHandshakes
+	peerHandshakes.Store(&f)
+	handshakeWaitTimeout.Store(int64(HandshakeWaitTimeout))
+}
 
 func getPeerHandshakeTS(iface, peerPubKey string) int64 {
 	if iface == "" || peerPubKey == "" {
 		return 0
 	}
-	hs, err := peerHandshakes(iface)
+	hs, err := (*peerHandshakes.Load())(iface)
 	if err != nil {
 		return 0
 	}
@@ -1445,7 +1457,7 @@ func shortKey(key string) string {
 }
 
 func (d *DHTDiscovery) debugf(format string, args ...interface{}) {
-	if strings.EqualFold(d.config.LogLevel, "debug") {
+	if strings.EqualFold(d.config.GetLogLevel(), "debug") {
 		log.Printf(format, args...)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
@@ -39,6 +40,26 @@ type Config struct {
 	ForceRelay      bool
 	DisablePunching bool
 	CustomSubnet    *net.IPNet // User-specified mesh subnet (nil = use derived)
+
+	// logLevelMu guards LogLevel once the config is shared: a SIGHUP reload
+	// replaces it while discovery goroutines read it. Use GetLogLevel and
+	// SetLogLevel after the daemon started; direct field access is for
+	// construction.
+	logLevelMu sync.RWMutex
+}
+
+// GetLogLevel returns the current log level (thread-safe).
+func (c *Config) GetLogLevel() string {
+	c.logLevelMu.RLock()
+	defer c.logLevelMu.RUnlock()
+	return c.LogLevel
+}
+
+// SetLogLevel replaces the log level (thread-safe).
+func (c *Config) SetLogLevel(level string) {
+	c.logLevelMu.Lock()
+	defer c.logLevelMu.Unlock()
+	c.LogLevel = level
 }
 
 // DaemonOpts holds options for the daemon

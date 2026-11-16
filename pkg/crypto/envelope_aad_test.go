@@ -155,9 +155,9 @@ func TestLegacyEnvelopeRefusedWhenNotAccepted(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer setTestNow(time.Unix(1800000000, 0))()
-	old := acceptLegacyAAD
-	acceptLegacyAAD = false
-	defer func() { acceptLegacyAAD = old }()
+	old := acceptLegacyAAD.Load()
+	acceptLegacyAAD.Store(false)
+	defer func() { acceptLegacyAAD.Store(old) }()
 
 	legacy, err := SealEnvelope(MessageTypeAnnounce, aadTestPayload(), keys.GossipKey)
 	if err != nil {
@@ -198,9 +198,9 @@ func TestSealEnvelopeFollowsTheSealWithAADSwitch(t *testing.T) {
 	if env := open(); !env.LegacyAAD || env.V != 0 {
 		t.Errorf("default SealEnvelope: LegacyAAD=%v V=%d, want legacy", env.LegacyAAD, env.V)
 	}
-	old := sealWithAAD
-	sealWithAAD = true
-	defer func() { sealWithAAD = old }()
+	old := sealWithAAD.Load()
+	sealWithAAD.Store(true)
+	defer func() { sealWithAAD.Store(old) }()
 	if env := open(); env.LegacyAAD || env.V != envelopeAADVersion {
 		t.Errorf("SealEnvelope with sealWithAAD: LegacyAAD=%v V=%d, want bound", env.LegacyAAD, env.V)
 	}
@@ -245,9 +245,9 @@ func TestEnvelopeRefusalsNameTheCause(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old := acceptLegacyAAD
-	acceptLegacyAAD = false
-	defer func() { acceptLegacyAAD = old }()
+	old := acceptLegacyAAD.Load()
+	acceptLegacyAAD.Store(false)
+	defer func() { acceptLegacyAAD.Store(old) }()
 	if _, _, err := OpenEnvelopeRaw(legacy, keys.GossipKey); err == nil || !strings.Contains(err.Error(), "upgraded") {
 		t.Errorf("refused legacy envelope: error %v does not say the sender must be upgraded", err)
 	}

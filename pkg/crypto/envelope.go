@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -27,7 +28,15 @@ const (
 	MessageTypeRendezvousStart = "RENDEZVOUS_START"
 )
 
-var now = time.Now
+// clock is the time source; a test replaces it. now reads it.
+var clock atomic.Pointer[func() time.Time]
+
+func now() time.Time {
+	if f := clock.Load(); f != nil {
+		return (*f)()
+	}
+	return time.Now()
+}
 
 // MaxHostnameLength is the RFC 1035 maximum hostname length
 const MaxHostnameLength = 253
@@ -240,9 +249,11 @@ const envelopeAADVersion = 2
 // the two switches of the staged rollout in docs/adr/ADR-0001-envelope-aad, and
 // the seams the tests use; nothing in production code sets them.
 var (
-	sealWithAAD     = false
-	acceptLegacyAAD = true
+	sealWithAAD     atomic.Bool // false until release N+1
+	acceptLegacyAAD atomic.Bool // true until release N+2, set in init
 )
+
+func init() { acceptLegacyAAD.Store(true) }
 
 // envelopeAAD is the GCM additional data of an AAD-bound envelope: the
 // protocol version, a NUL byte and the message type.
@@ -254,7 +265,7 @@ func envelopeAAD(messageType string) []byte {
 // message type is bound to the tag only when sealWithAAD is set; see
 // SealEnvelopeAAD.
 func SealEnvelope(messageType string, payload interface{}, gossipKey [32]byte) ([]byte, error) {
-	return sealEnvelope(messageType, payload, gossipKey, sealWithAAD)
+	return sealEnvelope(messageType, payload, gossipKey, sealWithAAD.Load())
 }
 
 // SealEnvelopeAAD is SealEnvelope with the message type bound to the GCM tag,
@@ -364,7 +375,7 @@ func OpenEnvelopeRaw(data []byte, gossipKey [32]byte) (*Envelope, []byte, error)
 	var aad []byte
 	switch envelope.V {
 	case 0:
-		if !acceptLegacyAAD {
+		if !acceptLegacyAAD.Load() {
 			return nil, nil, fmt.Errorf("envelope without type authentication refused: its sender must be upgraded to a release that seals the message type")
 		}
 		envelope.LegacyAAD = true
