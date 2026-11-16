@@ -135,6 +135,7 @@ func (d *DHTDiscovery) beginRun() error {
 	d.cancel() // release the previous context (cancelled by Stop, or the initial one)
 	d.ctx, d.cancel = context.WithCancel(d.parentCtx)
 	d.starting = true
+	d.lan, d.gossip = nil, nil // each run builds its own layers
 	d.loopWG = &sync.WaitGroup{}
 	return nil
 }
@@ -198,6 +199,7 @@ func (d *DHTDiscovery) abortRun() {
 	cancel := d.cancel
 	lan, gossip := d.lan, d.gossip
 	d.lan = nil
+	d.gossip = nil
 	d.mu.Unlock()
 	cancel()
 
