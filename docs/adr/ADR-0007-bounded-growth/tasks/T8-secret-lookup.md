@@ -63,6 +63,25 @@ n=$(go test . -run '^(TestSecretFromFlagOrEnvPrecedence|TestSecretFromFlagOrEnvF
 | 4 — it is used | every `status`, `qr`, `install-service` and `service` call on a packaged host |
 
 ## Mutation Log
+- 2026-11-16 · 32664af* · mutant killed · exit 1 · `main.go` · file never read: TestSecretFromFlagOrEnvFileTrimmed red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · 32664af* · mutant killed · exit 1 · `main.go` · precedence swapped: TestSecretFromFlagOrEnvPrecedence red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · 32664af* · mutant killed · exit 1 · `main.go` · status ignores env/file: status-secret-env red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · 32664af* · mutant killed · exit 1 · `main.go` · qr ignores env: qr-secret-env red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · 32664af* · mutant killed · exit 1 · `service.go` · service commands ignore env/file: TestResolveSecretReadsFile red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · 32664af* · mutant killed · exit 1 · `main.go` · join ignores env/file: join-secret-file-missing / join tests red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · 32664af* · mutant survived · exit 0 · `main.go` · install-service ignores env/file: ? · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `main.go` · file never read: TestSecretFromFlagOrEnvFileTrimmed red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `main.go` · precedence swapped: TestSecretFromFlagOrEnvPrecedence red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `main.go` · status ignores env/file: status-secret-env red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `main.go` · qr ignores env: qr-secret-env red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `service.go` · service commands ignore env/file: TestResolveSecretReadsFile red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `main.go` · join ignores env/file: join tests red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `main.go` · install-service ignores env/file: install-service subtest red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `main.go` · blank env counts as a secret: precedence test red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
+- 2026-11-16 · a686785* · mutant killed · exit 1 · `main.go` · empty file gives a blank secret: FileTrimmed empty case red · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96
 
 ## Invariants
 
@@ -86,3 +105,36 @@ Stop and ask if a documented invocation relies on `WGMESH_SECRET_FILE` being ign
 - `test-peer` (`main.go:499`), a debug command that takes `--secret` only (permanent: boundary: it is a developer tool and #891 does not name it).
 
 ## Verification Log
+- 2026-11-16 · 32664af* · exit 1 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:5201 · test-lock-sha256:dc52ad422b1eb4fcb8b5a27f717fd5d28ba0e5743a0ef919d7c59c797dcbad9f · test-lock-file:docs/adr/locks/dc52ad422b1eb4fcb8b5a27f717fd5d28ba0e5743a0ef919d7c59c797dcbad9f.lock
+  ```
+  --- last 10 line(s) of stderr (of 44 after folding 44 raw)
+      --- FAIL: TestCommandsFindSecretFromEnvAndFile/status_WGMESH_SECRET_FILE (0.01s)
+      --- FAIL: TestCommandsFindSecretFromEnvAndFile/qr_WGMESH_SECRET_FILE (0.01s)
+  === RUN   TestJoinUnreadableSecretFileExitsOne
+  --- PASS: TestJoinUnreadableSecretFileExitsOne (1.79s)
+  === RUN   TestResolveSecretReadsFile
+      service_test.go:115: expected file-value, got ""
+  --- FAIL: TestResolveSecretReadsFile (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh	3.583s
+  FAIL
+  ```
+- 2026-11-16 · 32664af* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:41907
+- 2026-11-16 · 32664af* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:39476
+- 2026-11-16 · 32664af* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:40960
+- 2026-11-16 · 32664af* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:38284
+- 2026-11-16 · 32664af* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:41156
+- 2026-11-16 · 32664af* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:46792
+- 2026-11-16 · 32664af* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:42150
+- 2026-11-16 · a58b98f* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:43436
+- 2026-11-16 · a686785* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:0 · test-lock-sha256:18bb6fa70f9a6c14ff104541ebbcd48675a4513efa24c40fa11f772b71b3082e · test-lock-file:docs/adr/locks/18bb6fa70f9a6c14ff104541ebbcd48675a4513efa24c40fa11f772b71b3082e.lock · test-lock-kind:replace
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:40385
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:40103
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:39061
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:38673
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:36010
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:37499
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:35675
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:34418
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:39050
+- 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:35003
