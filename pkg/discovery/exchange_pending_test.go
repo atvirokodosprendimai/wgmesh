@@ -273,7 +273,7 @@ func TestConcurrentExchangeWithPeerBothGetTheReply(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		pe.listenLoop()
+		pe.listenLoop(pe.stopCh, pe.conn, oneLoopGroup())
 	}()
 	t.Cleanup(func() {
 		close(pe.stopCh)

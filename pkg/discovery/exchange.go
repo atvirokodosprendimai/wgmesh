@@ -79,6 +79,7 @@ type PeerExchange struct {
 	mu      sync.RWMutex
 	running bool
 	stopCh  chan struct{}
+	wg      *sync.WaitGroup // the listen loop of the current run; Stop waits on it
 
 	// loops counts live listenLoop goroutines. It is a test seam: after Stop
 	// returns it must be 0, after a restart it must be 1.
@@ -154,22 +155,29 @@ func (pe *PeerExchange) Start() error {
 	pe.conn = conn
 	pe.port = port
 	pe.running = true
-	pe.stopCh = make(chan struct{}) // Re-create for restart safety (B8)
+	pe.stopCh = make(chan struct{}) // Re-create for restart safety: Stop closes it
+	pe.wg = &sync.WaitGroup{}
+	pe.wg.Add(1)
 
-	// Start listener
+	// The loop gets its own channel, connection and group: it never reads
+	// them from the struct, so a restart cannot change what it uses.
 	pe.loops.Add(1)
-	go pe.listenLoop()
+	go pe.listenLoop(pe.stopCh, conn, pe.wg)
 
 	log.Printf("[Exchange] Listening on UDP port %d", port)
 	return nil
 }
 
-// Stop stops the peer exchange server
+// Stop stops the peer exchange server and returns once its listen loop has
+// ended (or exchangeStopTimeout passed). Safe to call from several
+// goroutines and when stopped.
 func (pe *PeerExchange) Stop() {
 	pe.mu.Lock()
-	defer pe.mu.Unlock()
-
 	if !pe.running {
+		// A concurrent Stop is draining: wait for the same loop.
+		wg := pe.wg
+		pe.mu.Unlock()
+		waitExchangeLoops(wg)
 		return
 	}
 
@@ -179,6 +187,43 @@ func (pe *PeerExchange) Stop() {
 	if pe.conn != nil {
 		pe.conn.Close()
 	}
+	wg := pe.wg
+	pe.mu.Unlock()
+
+	// Wait outside the lock: the loop takes pe.mu.RLock on read errors. The
+	// connection close above makes a blocked read return.
+	waitExchangeLoops(wg)
+}
+
+// exchangeStopTimeout bounds how long Stop waits for the listen loop, so a
+// stuck read cannot hang the daemon.
+const exchangeStopTimeout = 3 * time.Second
+
+func waitExchangeLoops(wg *sync.WaitGroup) {
+	if wg == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(exchangeStopTimeout):
+		log.Printf("[Exchange] Stop: listen loop did not end within %v", exchangeStopTimeout)
+	}
+}
+
+// writeTo sends a datagram on the current connection, read under pe.mu.
+func (pe *PeerExchange) writeTo(data []byte, addr *net.UDPAddr) (int, error) {
+	pe.mu.RLock()
+	conn := pe.conn
+	pe.mu.RUnlock()
+	if conn == nil {
+		return 0, fmt.Errorf("peer exchange not started")
+	}
+	return conn.WriteToUDP(data, addr)
 }
 
 // isRunning reports whether the exchange is started, under pe.mu.
@@ -202,25 +247,28 @@ func (pe *PeerExchange) UDPConn() net.PacketConn {
 	return pe.conn
 }
 
-// listenLoop handles incoming peer exchange requests
-func (pe *PeerExchange) listenLoop() {
-	defer pe.loops.Add(-1)
+// listenLoop handles incoming peer exchange requests. It uses only its
+// arguments (the channel, connection and group of the run that started it),
+// never pe.stopCh or pe.conn, so a restart cannot change them under it.
+func (pe *PeerExchange) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *sync.WaitGroup) {
+	defer wg.Done()
+	defer pe.loops.Add(-1) // runs before wg.Done: Stop sees 0 once it returns
 	buf := make([]byte, MaxExchangeSize)
 
 	for {
 		select {
-		case <-pe.stopCh:
+		case <-stopCh:
 			return
 		default:
 		}
 
-		pe.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		n, remoteAddr, err := pe.conn.ReadFromUDP(buf)
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		n, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			if pe.running {
+			if pe.isRunning() {
 				log.Printf("[Exchange] Read error: %v", err)
 			}
 			continue
@@ -532,7 +580,7 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal reply: %w", err)
 	}
 
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	_, err = pe.writeTo(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send reply: %w", err)
 	}
@@ -586,7 +634,7 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	attempts := 0
 	sendHello := func() error {
 		attempts++
-		_, sendErr := pe.conn.WriteToUDP(data, remoteAddr)
+		_, sendErr := pe.writeTo(data, remoteAddr)
 		if sendErr != nil {
 			return fmt.Errorf("failed to send hello: %w", sendErr)
 		}
@@ -664,7 +712,7 @@ func (pe *PeerExchange) RequestRendezvous(introducerAddr, targetPubKey string, c
 		return fmt.Errorf("failed to seal rendezvous offer: %w", err)
 	}
 
-	if _, err := pe.conn.WriteToUDP(data, remoteAddr); err != nil {
+	if _, err := pe.writeTo(data, remoteAddr); err != nil {
 		return fmt.Errorf("failed to send rendezvous offer: %w", err)
 	}
 
@@ -809,7 +857,7 @@ func (pe *PeerExchange) sendRendezvousStart(pairID, targetPubKey, targetEndpoint
 		return
 	}
 
-	if _, err := pe.conn.WriteToUDP(data, remoteAddr); err != nil {
+	if _, err := pe.writeTo(data, remoteAddr); err != nil {
 		log.Printf("[NAT] Failed to send rendezvous START to %s: %v", remoteAddr.String(), err)
 		return
 	}
@@ -1232,7 +1280,7 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal announce: %w", err)
 	}
 
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	_, err = pe.writeTo(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send announce: %w", err)
 	}
@@ -1257,7 +1305,7 @@ func (pe *PeerExchange) SendGoodbye(addr string) error {
 		return fmt.Errorf("failed to seal goodbye: %w", err)
 	}
 
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	_, err = pe.writeTo(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send goodbye: %w", err)
 	}

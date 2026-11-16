@@ -427,7 +427,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.conn = serverConn
-	go server.listenLoop()
+	go server.listenLoop(server.stopCh, server.conn, oneLoopGroup())
 	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
 	serverAddr := serverConn.LocalAddr().String()
 
@@ -451,7 +451,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 				t.Fatal(err)
 			}
 			client.conn = clientConn
-			go client.listenLoop()
+			go client.listenLoop(client.stopCh, client.conn, oneLoopGroup())
 			t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
 			d.exchange = client
 
@@ -515,7 +515,7 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.conn = serverConn
-	go server.listenLoop()
+	go server.listenLoop(server.stopCh, server.conn, oneLoopGroup())
 	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
 	serverAddr := serverConn.LocalAddr().String()
 
@@ -531,7 +531,7 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.conn = clientConn
-	go client.listenLoop()
+	go client.listenLoop(client.stopCh, client.conn, oneLoopGroup())
 	t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
 	d.exchange = client
 

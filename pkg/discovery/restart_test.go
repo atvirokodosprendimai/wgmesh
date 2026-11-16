@@ -2,11 +2,20 @@ package discovery
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
 )
+
+// oneLoopGroup is the WaitGroup a test passes to a hand-started listenLoop,
+// which calls Done once.
+func oneLoopGroup() *sync.WaitGroup {
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	return wg
+}
 
 // ADR-0005 T10: PeerExchange and DHTDiscovery restart after Stop.
 //
