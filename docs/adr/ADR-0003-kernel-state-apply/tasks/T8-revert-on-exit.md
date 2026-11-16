@@ -61,7 +61,7 @@ n=$(go test ./pkg/daemon -run '^(TestShutdownRemovesRuleWeAdded|TestShutdownKeep
 ## Invariants
 
 - A crash or `SIGKILL` leaves the host as today; nothing here claims otherwise.
-- Nothing is undone that this run did not do.
+- Nothing is undone that this run did not do. The two records (`addedRule`, `prevIPForward`) live on the `Daemon` under `convergeMu`, are set only by the FIRST successful write of a run and are never overwritten by a later drift re-apply (T4 re-writes on drift: the second write must not make a run think it owns a rule or a value it found), and `TestShutdownKeepsPreexistingRule` covers a re-apply after a drift.
 - The interface teardown (`teardownWireGuard`) is unchanged.
 
 ## Risks

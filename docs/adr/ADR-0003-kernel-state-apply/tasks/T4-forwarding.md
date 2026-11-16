@@ -18,10 +18,10 @@ A Linux node reads `net.ipv4.ip_forward` and the FORWARD rule before writing the
 | File | Change | Why |
 |------|--------|-----|
 | `pkg/daemon/observe.go` | edit | forwarding target: read `/proc/sys/net/ipv4/ip_forward` through a `Daemon` field (`readFile`), `iptables -C FORWARD -i <if> -o <if> -j ACCEPT` only when forwarding is wanted, `LookPath("iptables")` result |
-| `pkg/daemon/converge.go` | edit | plan: write the sysctl only when it reads 0, append the rule only when `-C` fails; apply result "unavailable" for a missing binary; `EnforceForwardScope` (`atomic.Bool`, `false`; every access `Load`/`Store`) and the rule `forward-scope` |
+| `pkg/daemon/converge.go` | edit | plan: write the sysctl only when it reads 0, append the rule only when `-C` fails; a missing binary is an outcome, not an error: logged once, no item result (the result log would print it every tick); `EnforceForwardScope` (`atomic.Bool`, `false`; every access `Load`/`Store`) and the rule `forward-scope` |
 | `pkg/daemon/desired.go` | edit | `desiredState.Forward{Wanted, Needed bool}`: `Needed` is `config.Introducer` or at least one `advertise-routes` entry (the only relay is an introducer, `daemon.go:586`); at N `Wanted` is true on Linux always, with `EnforceForwardScope` it equals `Needed` |
 | `pkg/daemon/converge_guard_test.go` | edit | the pattern list gains `sysctl` and `iptables` |
-| `pkg/daemon/routes.go` | none | the blind `sysctl` and `iptables` calls at `:172-175` and `ensureWGForwardingRule` (`:180-192`) stay until T5 removes them, so no tick runs without forwarding between T4 and T5 |
+| `pkg/daemon/routes.go` | none | the blind `sysctl` and `iptables` calls at `:150-153` and `ensureWGForwardingRule` (`:158-170`) at f3860c6 stay until T5 removes them, so no tick runs without forwarding between T4 and T5 |
 | `pkg/daemon/forward_test.go` | add | the seven tests below |
 
 Selection: `reconcile` calls `converge`, which now includes the forwarding target; deleting the forwarding step from the plan turns `TestForwardAppliedOnceThenQuiet` red.
