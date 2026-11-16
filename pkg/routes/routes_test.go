@@ -491,3 +491,15 @@ func TestResolveUnobservedNetworkIgnoresEmptyKey(t *testing.T) {
 		t.Errorf("Resolve = %v, want b (an unobserved network must not match an empty key)", got)
 	}
 }
+
+func TestResolveKeepsObservedIPv6Default(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "A", MeshIP: "10.99.0.1", MeshIPv6: "fd00::1", Fresh: true, Networks: []string{"::/0"}},
+		{Key: "B", MeshIP: "10.99.0.2", MeshIPv6: "fd00::2", Fresh: true, Networks: []string{"::/0"}},
+	}
+	got := resolveAll(t, adv, nil, map[string]string{"default": "B"})
+	if got["::/0"] != "B" {
+		t.Errorf("Resolve = %v, want B (kernel prints the IPv6 default as the word default)", got)
+	}
+}

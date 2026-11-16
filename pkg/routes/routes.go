@@ -231,6 +231,12 @@ func Resolve(adv []Advertiser, own []string, current map[string]string) map[stri
 
 	observed := make(map[string]string, len(current))
 	for _, n := range sortedKeys(current) {
+		if strings.TrimSpace(n) == "default" {
+			// The kernel prints both default routes as the word default.
+			observed["0.0.0.0/0"] = current[n]
+			observed["::/0"] = current[n]
+			continue
+		}
 		observed[Canonical(n, familyOf(n))] = current[n]
 	}
 
