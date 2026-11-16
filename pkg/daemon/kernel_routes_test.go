@@ -36,10 +36,12 @@ type routeHost struct {
 	delErr     map[string]error  // canonical network -> what `ip route del` fails with
 	ifAddrs    []string          // addresses on the mesh interface, as `ip addr add` takes them
 	addrHidden bool              // `ip -o addr show dev` prints nothing, whatever is held
+	addrAddErr map[string]error  // address -> what `ip addr add` fails with
+	addrDelErr map[string]error  // address -> what `ip addr del` fails with
 }
 
 func newRouteHost(h *fakeHost) *routeHost {
-	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}, delErr: map[string]error{}, ifAddrs: []string{"10.99.0.1/16"}}
+	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}, delErr: map[string]error{}, addrAddErr: map[string]error{}, addrDelErr: map[string]error{}, ifAddrs: []string{"10.99.0.1/16"}}
 }
 
 // canonRoute is the canonical network of a printed or canonical one.

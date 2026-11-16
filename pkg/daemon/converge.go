@@ -444,14 +444,36 @@ func planAddresses(want addressDesired, k kernelObserved) addressPlan {
 	return plan
 }
 
-// applyAddresses writes the address plan, one item at a time: the adds first,
-// so the node is never left without its address, then the removals. A failure
-// of one is a result, never an abort; "File exists" on an add is success. An
-// operator's address inside the mesh network is removed too: the rule of this
-// target, so the removal says why. The caller holds convergeMu.
+// applyAddresses writes the address plan, one item at a time: the removals
+// first, then the adds. The order is the kernel's: IPv6 holds an address once,
+// whatever its prefix length, so the add of fd99::1/64 over a held fd99::1/128
+// is "File exists" and the later removal would leave the node without it; and
+// deleting the primary IPv4 address deletes the secondaries of its subnet, the
+// new address among them. A failure of one is a result, never an abort (a
+// failed removal still tries the adds); "File exists" on an add is success.
+// An operator's address inside the mesh network is removed too once the rule
+// is enforced, so the removal says why; before that it is only warned about.
+// The caller holds convergeMu.
 func (d *Daemon) applyAddresses(plan addressPlan) []itemResult {
 	iface := d.config.InterfaceName
 	var results []itemResult
+	if EnforceAddressRemoval.Load() {
+		for _, p := range plan.Remove {
+			r := itemResult{Target: targetAddress, Op: "del", Key: p.String()}
+			if _, failing := d.lastResults[r.id()]; !failing {
+				d.logf("removing %s: inside the mesh network and not this node's address", p)
+			}
+			out, err := cmdExecutor.Command("ip", "addr", "del", p.String(), "dev", iface).CombinedOutput()
+			if err != nil {
+				r.Err = commandFailure(out, err)
+			} else {
+				RecordKernelChange(targetAddress)
+			}
+			results = append(results, r)
+		}
+	} else {
+		d.noteStaleAddresses(plan)
+	}
 	for _, p := range plan.Add {
 		out, err := cmdExecutor.Command("ip", "addr", "add", p.String(), "dev", iface).CombinedOutput()
 		switch {
@@ -463,23 +485,6 @@ func (d *Daemon) applyAddresses(plan addressPlan) []itemResult {
 			RecordKernelChange(targetAddress)
 		}
 		results = append(results, itemResult{Target: targetAddress, Op: "add", Key: p.String(), Err: err})
-	}
-	if !EnforceAddressRemoval.Load() {
-		d.noteStaleAddresses(plan)
-		return results
-	}
-	for _, p := range plan.Remove {
-		r := itemResult{Target: targetAddress, Op: "del", Key: p.String()}
-		if _, failing := d.lastResults[r.id()]; !failing {
-			d.logf("removing %s: inside the mesh network and not this node's address", p)
-		}
-		out, err := cmdExecutor.Command("ip", "addr", "del", p.String(), "dev", iface).CombinedOutput()
-		if err != nil {
-			r.Err = commandFailure(out, err)
-		} else {
-			RecordKernelChange(targetAddress)
-		}
-		results = append(results, r)
 	}
 	return results
 }

@@ -48,21 +48,62 @@ func (r *routeHost) addrExec(line string, args []string) (bool, []byte, error) {
 	defer r.mu.Unlock()
 	switch args[1] {
 	case "add":
-		if contains(r.ifAddrs, args[2]) {
-			return true, []byte("RTNETLINK answers: File exists"), exitError{2}
+		if err := r.addrAddErr[args[2]]; err != nil {
+			return true, []byte("RTNETLINK answers: Operation not permitted"), err
+		}
+		want, wok := heldAddr(args[2])
+		for _, a := range r.ifAddrs {
+			// IPv6 holds an address once, whatever its prefix length: the add
+			// of fd99::1/64 over a held fd99::1/128 is "File exists". IPv4
+			// allows the same address with another prefix length.
+			if h, ok := heldAddr(a); a == args[2] || (wok && ok && want.Addr().Is6() && h.Addr() == want.Addr()) {
+				return true, []byte("RTNETLINK answers: File exists"), exitError{2}
+			}
 		}
 		r.ifAddrs = append(r.ifAddrs, args[2])
 		return true, nil, nil
 	case "del":
+		if err := r.addrDelErr[args[2]]; err != nil {
+			return true, []byte("RTNETLINK answers: Operation not permitted"), err
+		}
 		for i, a := range r.ifAddrs {
-			if a == args[2] {
-				r.ifAddrs = append(r.ifAddrs[:i], r.ifAddrs[i+1:]...)
-				return true, nil, nil
+			if a != args[2] {
+				continue
 			}
+			// Deleting the primary address of an IPv4 subnet (the first held
+			// address of it) deletes the secondaries of that subnet too:
+			// promote_secondaries is off.
+			p, ok := heldAddr(a)
+			sameSubnet := func(b string) bool {
+				q, qok := heldAddr(b)
+				return ok && qok && p.Addr().Is4() && q.Addr().Is4() && q.Masked() == p.Masked()
+			}
+			first := i
+			for j, b := range r.ifAddrs {
+				if sameSubnet(b) {
+					first = j
+					break
+				}
+			}
+			var kept []string
+			for j, b := range r.ifAddrs {
+				if j != i && !(first == i && sameSubnet(b)) {
+					kept = append(kept, b)
+				}
+			}
+			r.ifAddrs = kept
+			return true, nil, nil
 		}
 		return true, []byte("RTNETLINK answers: Cannot assign requested address"), exitError{2}
 	}
 	return false, nil, nil
+}
+
+// heldAddr is the prefix of an address as the fake holds it (the first word of
+// the printed form).
+func heldAddr(s string) (netip.Prefix, bool) {
+	p, err := netip.ParsePrefix(strings.Fields(s)[0])
+	return p, err == nil
 }
 
 // held is the addresses on the fake interface, sorted.
@@ -319,12 +360,47 @@ func TestAddressConvergesAfterCollisionIPChange(t *testing.T) {
 	}
 	d.localNode.MeshIP = "10.99.4.4" // what collision resolution does
 	tick(t, d, 3)
-	if got, want := rh.addrCmds(), []string{"ip addr add 10.99.4.4/16 dev wg0", "ip addr del 10.99.0.1/16 dev wg0"}; !sameLines(got, want) {
-		t.Errorf("address commands %q, want %q (the new address first, then the old one)", got, want)
+	if got, want := rh.addrCmds(), []string{"ip addr del 10.99.0.1/16 dev wg0", "ip addr add 10.99.4.4/16 dev wg0"}; !sameLines(got, want) {
+		t.Errorf("address commands %q, want %q (the old address removed first, then the new one added)", got, want)
 	}
 	if got := rh.held(); !sameLines(got, []string{"10.99.4.4/16"}) {
 		t.Errorf("interface holds %q", got)
 	}
+}
+
+// Removals run before adds, because the kernel needs it: IPv6 holds an address
+// once whatever its prefix length ("File exists" for the add of fd99::1/64
+// over a held fd99::1/128, which then leaves the node without it once the old
+// one is deleted), and deleting the primary IPv4 address deletes the
+// secondaries of its subnet (the new address added first is lost with it).
+// The fake models both; the node must end the tick holding its address.
+func TestAddressRemovalsRunBeforeAdds(t *testing.T) {
+	enforceAddressRemoval(t, true)
+	t.Run("IPv4 primary replaced", func(t *testing.T) {
+		d, rh, _ := newAddrDaemon(t, "10.99.0.1/16")
+		d.localNode.MeshIP = "10.99.4.4"
+		tick(t, d, 1)
+		if got, want := rh.held(), []string{"10.99.4.4/16"}; !sameLines(got, want) {
+			t.Errorf("after one tick the interface holds %q, want %q (cmds %q)", got, want, rh.addrCmds())
+		}
+	})
+	t.Run("IPv6 prefix length changed", func(t *testing.T) {
+		d, rh, _ := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/128")
+		d.localNode.MeshIPv6 = "fd99::1"
+		tick(t, d, 1)
+		if got, want := rh.held(), sorted("10.99.0.1/16", "fd99::1/64"); !sameLines(got, want) {
+			t.Errorf("after one tick the interface holds %q, want %q (cmds %q)", got, want, rh.addrCmds())
+		}
+	})
+	t.Run("a failed removal does not skip the add", func(t *testing.T) {
+		d, rh, _ := newAddrDaemon(t, "10.99.0.1/16")
+		rh.addrDelErr["10.99.0.1/16"] = exitError{1}
+		d.localNode.MeshIP = "10.99.4.4"
+		tick(t, d, 1)
+		if got, want := rh.addrCmds(), []string{"ip addr del 10.99.0.1/16 dev wg0", "ip addr add 10.99.4.4/16 dev wg0"}; !sameLines(got, want) {
+			t.Errorf("address commands %q, want %q", got, want)
+		}
+	})
 }
 
 // reconcile twice on one goroutine while a reload changes the config on
