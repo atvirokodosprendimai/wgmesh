@@ -61,6 +61,16 @@ n=$(go test ./pkg/discovery -run '^(TestMarkContactedSweepsEntriesOlderThanWindo
 | 4 — it is used | every DHT contact and every stale check in a running daemon |
 
 ## Mutation Log
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · no sweep ever: TestMarkContactedSweepsEntriesOlderThanWindow red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · off by one at the cap: TestMarkContactedFailsClosedAtCap red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · ticker never sweeps: TestCheckStaleHandshakesRunsPeerKeyedSweep red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · d246b4a* · mutant survived · exit 0 · `pkg/discovery/dht.go` · window above caller interval: TestEveryCallerIntervalFitsDedupWindow / sweep tests red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · deletes present keys: TestSweepPeerKeyedKeepsKeysInStore red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · rendezvousBackoff keeps absent keys: TestSweepPeerKeyedDropsKeysNotInStore red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · sweep drops entries inside the window: TestMarkContactedKeepsEntriesInsideWindow red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
 
 ## Invariants
 
@@ -84,3 +94,25 @@ Stop and ask if ADR-0002's tasks have changed `markContacted`, `checkStaleHandsh
 - Bounding collections outside the daemon and discovery layers (permanent: boundary: the audit covers the long-running peer path).
 
 ## Verification Log
+- 2026-11-16 · d246b4a* · exit 1 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:1834 · test-lock-sha256:530277ad72f56d1088060c59b7cb3ef27a1e36008601c231e7ee1014da41bc19 · test-lock-file:docs/adr/locks/530277ad72f56d1088060c59b7cb3ef27a1e36008601c231e7ee1014da41bc19.lock
+  ```
+  --- last 10 line(s) of stderr (of 29 after folding 29 raw)
+  2026/11/16 08:41:56 [WARN] Secret does not use wgmesh:// format — it may have low entropy. Use 'wgmesh init --secret' to generate a cryptographically strong secret.
+  --- PASS: TestSweepPeerKeyedKeepsKeysInStore (0.00s)
+  === RUN   TestCheckStaleHandshakesRunsPeerKeyedSweep
+  2026/11/16 08:41:56 [WARN] Secret does not use wgmesh:// format — it may have low entropy. Use 'wgmesh init --secret' to generate a cryptographically strong secret.
+      dht_bounds_test.go:224: checkStaleHandshakes left a controlPeers key the store lacks
+      dht_bounds_test.go:227: checkStaleHandshakes left a rendezvousBackoff key the store lacks
+  --- FAIL: TestCheckStaleHandshakesRunsPeerKeyedSweep (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery	0.018s
+  FAIL
+  ```
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:14103
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11764
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11926
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:10395
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:12197
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11634
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:14343
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:14204

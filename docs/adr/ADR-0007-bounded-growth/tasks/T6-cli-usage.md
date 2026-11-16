@@ -57,6 +57,10 @@ n=$(go test . -run '^TestScript/(cli-unknown-command|cli-bare-usage|cli-version-
 | 4 — it is used | every invocation of the binary |
 
 ## Mutation Log
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `main.go` · typo falls into legacy mode: cli-unknown-command and cli-bare-usage red · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `main.go` · trailing --version hijacks a subcommand: cli-version-position red · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `main.go` · legacy flags refused: cli-legacy-flag red · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893
+- 2026-11-16 · d246b4a* · mutant killed · exit 1 · `main.go` · help falls to the typo branch and exits 2: cli-bare-usage red · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893
 
 ## Invariants
 
@@ -79,3 +83,22 @@ Stop and ask if a documented invocation (README, `docs/`, packaging unit files, 
 - Removing the legacy centralized mode (permanent: boundary: a feature drop, M's decision).
 
 ## Verification Log
+- 2026-11-16 · d246b4a* · exit 1 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:3983 · test-lock-sha256:e1e4d5eaf763e0ff2abb1b0b5ac8716e5452dd77caad8cc338a96f3f03571e0c · test-lock-file:docs/adr/locks/e1e4d5eaf763e0ff2abb1b0b5ac8716e5452dd77caad8cc338a96f3f03571e0c.lock
+  ```
+  --- last 10 line(s) of stderr (of 106 after folding 106 raw)
+          FAIL: testdata/script/cli-version-position.txtar:8: unexpected command success
+
+  --- FAIL: TestScript (0.00s)
+      --- FAIL: TestScript/cli-bare-usage (0.01s)
+      --- PASS: TestScript/cli-legacy-flag (0.01s)
+      --- FAIL: TestScript/cli-unknown-command (0.01s)
+      --- FAIL: TestScript/cli-version-position (0.02s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh	0.026s
+  FAIL
+  ```
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:28266
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:29256
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:30207
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:30294
+- 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:26645
