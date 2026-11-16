@@ -65,9 +65,11 @@ func TestReconcileRecordsHandshakes(t *testing.T) {
 	seen := now.Add(-time.Minute)
 	seedLivenessPeer(d, "peer-a", "10.250.0.2", seen)
 	seedLivenessPeer(d, "peer-b", "10.250.0.3", seen)
+	seedLivenessPeer(d, "peer-future", "10.250.0.4", seen)
+	seedLivenessPeer(d, "peer-negative", "10.250.0.5", seen)
 	hsA := now.Add(-30 * time.Second).Unix()
 
-	d.planPeers(map[string]int64{"peer-a": hsA, "peer-b": 0, "stranger": hsA}, now)
+	d.planPeers(map[string]int64{"peer-a": hsA, "peer-b": 0, "peer-future": now.Add(time.Hour).Unix(), "peer-negative": -5, "stranger": hsA}, now)
 
 	a, _ := d.peerStore.Get("peer-a")
 	if want := time.Unix(hsA, 0); !a.LastDataPlane.Equal(want) {
@@ -79,6 +81,14 @@ func TestReconcileRecordsHandshakes(t *testing.T) {
 	b, _ := d.peerStore.Get("peer-b")
 	if !b.LastDataPlane.IsZero() {
 		t.Errorf("peer-b has a zero handshake, LastDataPlane = %v, want zero", b.LastDataPlane)
+	}
+	f, _ := d.peerStore.Get("peer-future")
+	if f.LastDataPlane.IsZero() || f.LastDataPlane.After(now) {
+		t.Errorf("peer-future LastDataPlane = %v, want a time that is not after now %v", f.LastDataPlane, now)
+	}
+	n, _ := d.peerStore.Get("peer-negative")
+	if !n.LastDataPlane.IsZero() {
+		t.Errorf("peer-negative has a negative handshake, LastDataPlane = %v, want zero", n.LastDataPlane)
 	}
 	if _, ok := d.peerStore.Get("stranger"); ok {
 		t.Error("a handshake of an unknown key created a peer")
@@ -394,4 +404,8 @@ func TestObserveHandshakesIsRaceFree(t *testing.T) {
 		}()
 	}
 	wg.Wait()
+	p, _ := d.peerStore.Get("peer-r")
+	if want := time.Unix(hs["peer-r"], 0); !p.LastDataPlane.Equal(want) {
+		t.Errorf("LastDataPlane = %v after the writers, want the written handshake %v", p.LastDataPlane, want)
+	}
 }
