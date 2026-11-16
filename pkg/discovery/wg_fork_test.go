@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -130,5 +131,110 @@ func TestPunchWaitForksEveryPoll(t *testing.T) {
 	}
 	if forks := showForks(t, dir); forks < 3 {
 		t.Fatalf("show forks during the wait = %d, want at least 3 (one per 250 ms poll)", forks)
+	}
+}
+
+// wgReadRecorder is the readWGState stub: it records the maxAge of every
+// read and answers with a one-peer State whose handshake hsAt(call) picks
+// (call counts from 1).
+type wgReadRecorder struct {
+	mu   sync.Mutex
+	ages []time.Duration
+}
+
+func (r *wgReadRecorder) all() []time.Duration {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]time.Duration(nil), r.ages...)
+}
+
+func installReadWGState(t *testing.T, key string, hsAt func(call int) int64) *wgReadRecorder {
+	t.Helper()
+	rec := &wgReadRecorder{}
+	stub := func(_ string, maxAge time.Duration) (*wireguard.State, error) {
+		rec.mu.Lock()
+		rec.ages = append(rec.ages, maxAge)
+		n := len(rec.ages)
+		rec.mu.Unlock()
+		return &wireguard.State{Peers: []wireguard.StatePeer{{PublicKey: key, LatestHandshake: hsAt(n)}}}, nil
+	}
+	old := readWGState.Load()
+	readWGState.Store(&stub)
+	t.Cleanup(func() { readWGState.Store(old) })
+	return rec
+}
+
+// TestPunchWaitReadsFreshEveryPoll pins the punch wait to maxAge 0: each poll
+// and the final read after the timeout must fork, never reuse a snapshot.
+func TestPunchWaitReadsFreshEveryPoll(t *testing.T) {
+	key := aadKey(2)
+	rec := installReadWGState(t, key, func(call int) int64 {
+		if call < 3 {
+			return 0
+		}
+		return 100
+	})
+	if got := waitForPeerHandshake("wgfork-punch0", key, 0, 2*time.Second); got != 100 {
+		t.Fatalf("waitForPeerHandshake = %d, want 100", got)
+	}
+	if ages := rec.all(); len(ages) < 3 {
+		t.Fatalf("reads = %d, want at least 3 polls", len(ages))
+	}
+	for i, age := range rec.all() {
+		if age != 0 {
+			t.Errorf("poll read %d used maxAge %v, want 0", i+1, age)
+		}
+	}
+
+	// No handshake ever: the loop times out and the final read must be fresh too.
+	rec = installReadWGState(t, key, func(int) int64 { return 0 })
+	if got := waitForPeerHandshake("wgfork-punch0", key, 0, 100*time.Millisecond); got != 0 {
+		t.Fatalf("waitForPeerHandshake without handshake = %d, want 0", got)
+	}
+	ages := rec.all()
+	if len(ages) < 2 {
+		t.Fatalf("reads = %d, want the polls plus the final read", len(ages))
+	}
+	for i, age := range ages {
+		if age != 0 {
+			t.Errorf("timeout-path read %d used maxAge %v, want 0", i+1, age)
+		}
+	}
+}
+
+// TestGetPeerHandshakeTSPassesMaxAge: the caller's staleness reaches the read.
+func TestGetPeerHandshakeTSPassesMaxAge(t *testing.T) {
+	key := aadKey(2)
+	rec := installReadWGState(t, key, func(int) int64 { return 42 })
+	for _, want := range []time.Duration{0, 7 * time.Second} {
+		if got := getPeerHandshakeTS("wgfork-ts0", key, want); got != 42 {
+			t.Fatalf("getPeerHandshakeTS = %d, want 42", got)
+		}
+	}
+	ages := rec.all()
+	if len(ages) != 2 || ages[0] != 0 || ages[1] != 7*time.Second {
+		t.Fatalf("maxAges = %v, want [0 7s]", ages)
+	}
+}
+
+// TestStaleHandshakeCheckReadsAtReconcileInterval: the skip check of
+// tryRendezvousForPeer accepts a snapshot up to ReconcileInterval old.
+func TestStaleHandshakeCheckReadsAtReconcileInterval(t *testing.T) {
+	key := aadKey(2)
+	rec := installReadWGState(t, key, func(int) int64 { return time.Now().Unix() })
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-stale-maxage-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	d.tryRendezvousForPeer(&daemon.PeerInfo{WGPubKey: key, MeshIP: "10.0.0.2", Endpoint: "203.0.113.5:51820"})
+
+	ages := rec.all()
+	if len(ages) != 1 || ages[0] != daemon.ReconcileInterval {
+		t.Fatalf("maxAges = %v, want [%v] (one skip-check read at ReconcileInterval)", ages, daemon.ReconcileInterval)
 	}
 }
