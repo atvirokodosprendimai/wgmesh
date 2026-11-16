@@ -60,7 +60,7 @@ var (
 
 	livenessDisagree = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "wgmesh_liveness_disagree_total",
-		Help: "Cases where the legacy age test drops a peer that the liveness verdict keeps, by reader site, while EnforceLiveness is off",
+		Help: "Cases where the decision a reader site takes from LastSeen differs from the decision by the liveness evidence; counted on every call, not once per distinct peer, so a standing case counts again on each pass",
 	}, []string{"site"})
 
 	goCollector      = collectors.NewGoCollector()
