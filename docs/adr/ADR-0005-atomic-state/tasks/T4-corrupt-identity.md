@@ -17,7 +17,7 @@
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/helpers.go` | edit | `loadLocalNode` returns `ErrStateMissing` (wraps `os.ErrNotExist`) or `ErrStateCorrupt` (wraps the JSON error; also for zero bytes and for an empty `WGPubKey` or `WGPrivateKey`); `quarantineState(path) (string, error)` renames the file to `path + ".corrupt-" + unix` |
+| `pkg/daemon/helpers.go` | edit | `loadLocalNode` returns `ErrStateMissing` (wraps `os.ErrNotExist`) or `ErrStateCorrupt` (fixed text, never the JSON decoder's text, which can quote a byte of the file; also for zero bytes and for an empty `WGPubKey` or `WGPrivateKey`); `quarantineState(path) (string, error)` hard-links the file to `path + ".corrupt-" + unix` (then `-1` .. `-1000` when the name is taken; `os.Link` cannot replace an existing name), sets the copy to 0600 and removes the original: no `os.Rename`, which the T3 guard forbids and which would silently replace an existing name |
 | `pkg/daemon/daemon.go` | edit | `initLocalNode` (`:362-363`, `:403`): `ErrStateMissing` generates as today; `ErrStateCorrupt` calls `quarantineState`, logs the new path, and continues to generation; with `RefuseCorruptState` it returns an error naming the file and leaves it untouched; any other error (permission) is returned, not treated as absent |
 | `pkg/daemon/identity_state_test.go` | add | tests below |
 
@@ -36,7 +36,7 @@ Ordering note: ADR-0002 T5 adds a `stateFile` field set where `initLocalNode` bu
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/daemon -run '^(TestLoadLocalNodeDistinguishesMissingAndCorrupt|TestInitLocalNodeCorruptMovesAside|TestInitLocalNodeRefusesWhenEnforced|TestInitLocalNodeMissingGeneratesKey|TestInitLocalNodeUnreadableIsNotAbsent)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 5 ] && go test -race ./pkg/daemon -count=1
+n=$(go test ./pkg/daemon -run '^(TestLoadLocalNodeDistinguishesMissingAndCorrupt|TestInitLocalNodeCorruptMovesAside|TestInitLocalNodeRefusesWhenEnforced|TestInitLocalNodeMissingGeneratesKey|TestInitLocalNodeUnreadableIsNotAbsent|TestCorruptStateErrorsCarryNoFileContent|TestQuarantineStateNeverTakesAnExistingName|TestQuarantineStateGivesUpWithoutTouchingAnything)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 8 ] && go test -race ./pkg/daemon -count=1
 ```
 
 ## Tests
@@ -47,7 +47,10 @@ n=$(go test ./pkg/daemon -run '^(TestLoadLocalNodeDistinguishesMissingAndCorrupt
 | `TestInitLocalNodeCorruptMovesAside` | `pkg/daemon/identity_state_test.go` | at N the corrupt bytes are found unchanged in `<iface>.json.corrupt-*` and a new valid file exists | — | S1, S3 |
 | `TestInitLocalNodeRefusesWhenEnforced` | `pkg/daemon/identity_state_test.go` | with `RefuseCorruptState` the error names the file, no new key is generated, the file is byte-identical | — | S1, S3 |
 | `TestInitLocalNodeMissingGeneratesKey` | `pkg/daemon/identity_state_test.go` | pin: no file still creates an identity (starts green) | — | S1, S3 |
-| `TestInitLocalNodeUnreadableIsNotAbsent` | `pkg/daemon/identity_state_test.go` | a file the process cannot read returns an error and generates nothing (skipped as root) | — | S1, S3 |
+| `TestInitLocalNodeUnreadableIsNotAbsent` | `pkg/daemon/identity_state_test.go` | a state path that cannot be read as a file (a non-empty directory, so it also runs as root) returns an error that is neither missing nor corrupt, generates nothing and quarantines nothing | — | S1, S3 |
+| `TestCorruptStateErrorsCarryNoFileContent` | `pkg/daemon/identity_state_test.go` | a file `{"wg_pubkey":"AAAA","wg_private_key":"QUJD"DEF"}` gives errors (from the loader and from `initLocalNode` with `RefuseCorruptState`) that contain no file bytes and wrap no JSON error | — | S1, S2 |
+| `TestQuarantineStateNeverTakesAnExistingName` | `pkg/daemon/identity_state_test.go` | with the current-second name already taken the copy gets the next name, the old copy is untouched, the new one is 0600 | — | S1, S2 |
+| `TestQuarantineStateGivesUpWithoutTouchingAnything` | `pkg/daemon/identity_state_test.go` | with `base` and `base-1..base-1000` taken it returns an error and changes nothing | — | S1, S2 |
 
 ## Reachability
 
@@ -74,6 +77,7 @@ n=$(go test ./pkg/daemon -run '^(TestLoadLocalNodeDistinguishesMissingAndCorrupt
 
 - A stricter "corrupt" than the old loader: a file valid before (keys present, odd extra fields) is still valid; only missing keys are new. A hand-written state file with only `mesh_ip` was never usable.
 - Test doubles: `localNodeStateDir` pointed at a temp directory (tests must not run in parallel, as its doc comment says).
+- Behaviour taken on (panel 2026-11-16): at N an unreadable file (permission, a directory) stops the daemon (`initLocalNode` returns the error); the old code generated a new key. Before N+1 sets `RefuseCorruptState`, an operator also needs a way to know: the log lines name the file and say how to restore it. A failed save of the new identity right after a quarantine is an error (the daemon would otherwise create another key at every start); for a plain missing file it stays a warning. `deriveMeshIPForService` in `service.go` reads `<state dir>/wg0.json` with its own struct and does not check the private key, so `wgmesh service` can still derive from a file the daemon calls corrupt (BACKLOG row at T11). The quarantined file keeps the private key (mode forced to 0600) and nothing deletes it. `RefuseCorruptState` is a plain package variable: an operator cannot flip it without a release (the ADR says so).
 
 ## Stop Condition
 

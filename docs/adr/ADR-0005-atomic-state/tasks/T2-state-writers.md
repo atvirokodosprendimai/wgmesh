@@ -139,3 +139,4 @@ Stop and ask if ADR-0002 T5 has changed the signature of `saveLocalNode`, or if 
 - 2026-11-15 · 64aff92* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:31442
 - 2026-11-15 · 64aff92* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:29631
 - 2026-11-16 · 9171f6d* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:27204
+- 2026-11-16 · 22b6448* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:30924

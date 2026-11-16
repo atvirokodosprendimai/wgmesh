@@ -132,3 +132,23 @@ Stop and ask if the temp file cannot be created in the target's directory on a s
 - 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:4651
 - 2026-11-15 · 322c63f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:5212
 - 2026-11-16 · 9171f6d · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:4032
+- 2026-11-16 · 22b6448 · exit 1 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:3318
+  ```
+  --- last 5 line(s) of stdout
+  --- FAIL: TestNoPrivateRenameCopy (0.21s)
+      guard_test.go:178: pkg/daemon/helpers.go: found 1 os.Rename calls, allowed 0; a state file must be replaced with atomicfile.WriteFile, not a private temp-and-rename copy
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile	1.368s
+  FAIL
+  --- last 10 line(s) of stderr (of 22 after folding 22 raw)
+  === RUN   TestWriteFileIgnoresUnsupportedDirSync/operation_not_supported
+  --- PASS: TestWriteFileIgnoresUnsupportedDirSync (0.00s)
+      --- PASS: TestWriteFileIgnoresUnsupportedDirSync/invalid_argument (0.00s)
+      --- PASS: TestWriteFileIgnoresUnsupportedDirSync/operation_not_supported (0.00s)
+  === RUN   TestWriteFileReportsDirSyncFailureAfterRename
+  --- PASS: TestWriteFileReportsDirSyncFailureAfterRename (0.00s)
+  === RUN   TestConcurrentReaderNeverSeesPartialFile
+  --- PASS: TestConcurrentReaderNeverSeesPartialFile (0.22s)
+  PASS
+  ok  	github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile	0.232s
+  ```
