@@ -870,7 +870,7 @@ func (d *DHTDiscovery) announceToInfohash(callCtx context.Context, infohash [20]
 	if server == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(d.runCtx(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(callCtx, 30*time.Second)
 	defer cancel()
 
 	announce, err := server.Announce(infohash, port, false)
@@ -954,7 +954,7 @@ func (d *DHTDiscovery) queryInfohash(callCtx context.Context, infohash [20]byte)
 	if server == nil {
 		return
 	}
-	ctx, cancel := context.WithTimeout(d.runCtx(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(callCtx, 30*time.Second)
 	defer cancel()
 
 	peers, err := server.Announce(infohash, 0, false) // port=0, false = get_peers only, no announce
