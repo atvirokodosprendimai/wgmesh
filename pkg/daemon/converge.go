@@ -135,27 +135,38 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 // applyKernel writes the plan, one item at a time; an error on one item never
 // skips the others. The caller holds convergeMu.
 func (d *Daemon) applyKernel(plan kernelPlan) []itemResult {
-	pushed := d.pushedLocked()
 	results := make([]itemResult, 0, len(plan.Remove)+len(plan.Set))
 	for _, key := range plan.Remove {
-		err := d.removeSeam(d.config.InterfaceName, key)
-		if err == nil {
-			delete(pushed, key)
-			RecordKernelChange(targetPeers)
-		}
-		results = append(results, itemResult{Target: targetPeers, Op: "remove", Key: key, Err: err})
+		results = append(results, itemResult{Target: targetPeers, Op: "remove", Key: key, Err: d.removeLocked(key)})
 	}
 	for _, w := range plan.Set {
-		err := d.setSeam(d.config.InterfaceName, w.Key, d.config.Keys.PSK, w.Endpoint, strings.Join(w.Allowed, ","))
-		if err == nil {
-			if w.Endpoint != "" {
-				pushed[w.Key] = w.Endpoint
-			}
-			RecordKernelChange(targetPeers)
-		}
-		results = append(results, itemResult{Target: targetPeers, Op: "set", Key: w.Key, Err: err})
+		results = append(results, itemResult{Target: targetPeers, Op: "set", Key: w.Key, Err: d.setLocked(w.Key, w.Endpoint, strings.Join(w.Allowed, ","))})
 	}
 	return results
+}
+
+// removeLocked removes one peer from the kernel; on success the pushed
+// endpoint is forgotten and the change counted. The caller holds convergeMu.
+func (d *Daemon) removeLocked(key string) error {
+	err := d.removeSeam(d.config.InterfaceName, key)
+	if err == nil {
+		delete(d.pushedLocked(), key)
+		RecordKernelChange(targetPeers)
+	}
+	return err
+}
+
+// setLocked sets one peer in the kernel; on success a non-empty endpoint is
+// recorded as pushed and the change counted. The caller holds convergeMu.
+func (d *Daemon) setLocked(key, endpoint, allowedCSV string) error {
+	err := d.setSeam(d.config.InterfaceName, key, d.config.Keys.PSK, endpoint, allowedCSV)
+	if err == nil {
+		if endpoint != "" {
+			d.pushedLocked()[key] = endpoint
+		}
+		RecordKernelChange(targetPeers)
+	}
+	return err
 }
 
 // removePeerFromKernel removes one peer (stale cleanup, eviction). The caller
@@ -163,12 +174,7 @@ func (d *Daemon) applyKernel(plan kernelPlan) []itemResult {
 func (d *Daemon) removePeerFromKernel(pubKey string) error {
 	d.convergeMu.Lock()
 	defer d.convergeMu.Unlock()
-	err := d.removeSeam(d.config.InterfaceName, pubKey)
-	if err == nil {
-		delete(d.pushedLocked(), pubKey)
-		RecordKernelChange(targetPeers)
-	}
-	return err
+	return d.removeLocked(pubKey)
 }
 
 // reconnectPeerInKernel pushes peer's endpoint and its desired AllowedIPs
@@ -192,13 +198,7 @@ func (d *Daemon) reconnectPeerInKernel(peer *PeerInfo, peers []*PeerInfo) error 
 		d.logf("[Health] Peer %s... is not configurable (no endpoint, IPv6 endpoint with IPv6 disabled, or nothing to allow); not touching it", shortKey(peer.WGPubKey))
 		return nil
 	}
-	ep := cfg.peer.Endpoint
-	if err := d.setSeam(d.config.InterfaceName, peer.WGPubKey, d.config.Keys.PSK, ep, strings.Join(mapKeysSorted(cfg.allowed), ",")); err != nil {
-		return err
-	}
-	d.pushedLocked()[peer.WGPubKey] = ep
-	RecordKernelChange(targetPeers)
-	return nil
+	return d.setLocked(peer.WGPubKey, cfg.peer.Endpoint, strings.Join(mapKeysSorted(cfg.allowed), ","))
 }
 
 // logResults prints a result only when it differs from the last one of the
