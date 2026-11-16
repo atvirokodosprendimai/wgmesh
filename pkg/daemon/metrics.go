@@ -58,6 +58,11 @@ var (
 		Help: "Cases where an admit rule would act once enforced, by rule; counted each time an offer or a collision comparison meets the case, so a standing case counts again on every announcement and every collision pass, per observer",
 	}, []string{"rule"})
 
+	livenessDisagree = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_liveness_disagree_total",
+		Help: "Cases where the legacy age test drops a peer that the liveness verdict keeps, by reader site, while EnforceLiveness is off",
+	}, []string{"site"})
+
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 )
@@ -160,3 +165,6 @@ func RecordNATTraversalSuccess(method string) {
 func RecordAdmitWarning(rule string) {
 	admitWarnings.WithLabelValues(rule).Inc()
 }
+
+// recordLivenessDisagree is a stub: the hook body lands in S6.
+func recordLivenessDisagree(site string) {}
