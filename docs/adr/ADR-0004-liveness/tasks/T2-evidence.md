@@ -77,6 +77,14 @@ a=$(go test ./pkg/daemon -run '^(TestReconcileRecordsHandshakes|TestReconcileObs
   ```
 - 2026-11-16 · 82a6211* · mutant killed · exit 1 · `pkg/discovery/dht.go` · dht 1270 back to LastSeen · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
 - 2026-11-16 · 82a6211* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · probe loop back to GetActive · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 8511cd9* · mutant killed · exit 1 · `pkg/daemon/liveness.go` · observeHandshakes not called · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 8511cd9* · mutant killed · exit 1 · `pkg/daemon/liveness.go` · observe after GetActive · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 8511cd9* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · probe does not record · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 8511cd9* · mutant killed · exit 1 · `pkg/daemon/liveness_guard_test.go` · guard name check inverted · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 8511cd9* · mutant killed · exit 1 · `pkg/node/liveness.go` · outside readers act by LastAlive while the switch is off · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 8511cd9* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · probe loop back to GetActive · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 8511cd9* · mutant killed · exit 1 · `pkg/discovery/dht.go` · introducer window widened · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 8511cd9* · mutant killed · exit 1 · `pkg/node/liveness.go` · disagreement never counted · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
 
 ## Invariants
 
@@ -122,3 +130,13 @@ Stop and ask if `TestReconcileRecordsHandshakes` needs a second `wg show` per re
 - 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:14522
 - 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:14905
 - 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:9432
+- 2026-11-16 · 8511cd9* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:1 · test-lock-sha256:c93d3e5363f2ecaae3aec957cab7af0218a32beed514b66b06ba6c5dea005ce3 · test-lock-file:docs/adr/locks/c93d3e5363f2ecaae3aec957cab7af0218a32beed514b66b06ba6c5dea005ce3.lock · test-lock-kind:replace
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:13596
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:12319
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:12615
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:13813
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:14107
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:13877
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:21033
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:15612
+- 2026-11-16 · 8511cd9* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:8256
