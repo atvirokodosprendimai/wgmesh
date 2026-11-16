@@ -672,10 +672,8 @@ func (d *Daemon) reconcile() {
 
 	peers := d.peerStore.GetActive()
 	// reconcile decides on data read in this tick: always a fresh fork (maxAge 0), shared by the build and the removal step.
-	st, err := wireguard.ReadState(d.config.InterfaceName, 0)
-	if err != nil {
-		st = nil
-	}
+	// A nil st (failed read) skips the removal step.
+	st, _ := wireguard.ReadState(d.config.InterfaceName, 0)
 	desired, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, st.Handshakes())
 	d.relayMu.Lock()
 	d.relayRoutes = relayRoutes
@@ -702,12 +700,6 @@ func (d *Daemon) reconcile() {
 type desiredPeerConfig struct {
 	peer    *PeerInfo
 	allowed map[string]struct{}
-}
-
-func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
-	// Fresh read (maxAge 0): the caller decides on this tick's data. reconcile reads once itself.
-	st, _ := wireguard.ReadState(d.config.InterfaceName, 0)
-	return d.buildDesiredPeerConfigsWithHandshakes(peers, st.Handshakes())
 }
 
 func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handshakes map[string]int64) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
