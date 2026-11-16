@@ -122,3 +122,4 @@ Stop and ask if the daemon cannot build a local claim without a lock the daemon 
 - 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:6996
 - 2026-11-15 · 97cd984* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:5019
 - 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:4567
+- 2026-11-16 · c192dcd* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:a2bdff9ac41cd2fc11ab39010b55340f6a9092bd84464626ef3a95c3b132b837 · ms:0 · test-lock-sha256:d93a08a4d9837d69773c1869248f9eb13619e11180ecbd9f690b04800d1ed891 · test-lock-file:docs/adr/locks/d93a08a4d9837d69773c1869248f9eb13619e11180ecbd9f690b04800d1ed891.lock · test-lock-kind:replace

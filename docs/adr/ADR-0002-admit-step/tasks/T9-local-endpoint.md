@@ -123,3 +123,4 @@ Stop and ask if a test mesh shows that reflection is wrong more often than STUN 
 - 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:10703
 - 2026-11-15 · c8e3005* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:7193
 - 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:6805
+- 2026-11-16 · c192dcd* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:41d029dd952a9c13d808561361f4e7f2283b7b68ae19f978740c39476ed7f821 · ms:1 · test-lock-sha256:ddaeca0658bd8f01ff52add798ee51db68ed101703a21296b492c9ee382aefa5 · test-lock-file:docs/adr/locks/ddaeca0658bd8f01ff52add798ee51db68ed101703a21296b492c9ee382aefa5.lock · test-lock-kind:replace

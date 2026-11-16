@@ -110,3 +110,4 @@ Stop and ask if a spec section named here does not exist in the file (the spec f
 - 2026-11-16 · 02dc3a7* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1071
 - 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1228
 - 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:1052
+- 2026-11-16 · c192dcd* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:37212b5ab071f173c64dd4af724256dada8f0ac18daa1ef032111e10e965882f · ms:0 · test-lock-sha256:831db8f09ebb4836e916dba4f70bd3f381fb08b7cf0d30de1cc07a494e1495ed · test-lock-file:docs/adr/locks/831db8f09ebb4836e916dba4f70bd3f381fb08b7cf0d30de1cc07a494e1495ed.lock · test-lock-kind:replace
