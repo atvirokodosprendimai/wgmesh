@@ -70,10 +70,20 @@ func importNames(f *ast.File, path string) map[string]bool {
 	return names
 }
 
+// kernelCommands are the commands that write forwarding state of the kernel.
+var kernelCommands = map[string]bool{"sysctl": true, "iptables": true}
+
+// commandReaders may run them: converge.go writes, observe.go reads (iptables -C).
+// routes.go is a known exception: its blind sysctl and ensureWGForwardingRule
+// calls stay until ADR-0003 T5 removes them, and T5 removes this line.
+var commandReaders = map[string]bool{"converge.go": true, "observe.go": true, "routes.go": true}
+
 // TestKernelWritesOnlyInConverge: no production file of pkg/daemon outside
 // converge.go calls SetPeer or RemovePeer of pkg/wireguard (under any import
-// alias), or the Daemon seams that stand for them. Later tasks extend the
-// pattern list.
+// alias), or the Daemon seams that stand for them, and none outside
+// converge.go, observe.go (and the routes.go exception above) runs sysctl or
+// iptables through any Command call, whatever the receiver or the os/exec
+// import alias. Later tasks extend the pattern list.
 func TestKernelWritesOnlyInConverge(t *testing.T) {
 	banned := []struct {
 		sel     string
@@ -91,16 +101,34 @@ func TestKernelWritesOnlyInConverge(t *testing.T) {
 		t.Fatal("converge.go does not exist")
 	}
 	for name, f := range files {
-		if name == "converge.go" {
+		if name != "converge.go" {
+			wg := importNames(f, wireguardImportPath)
+			selectors(f, func(x, sel string) {
+				for _, b := range banned {
+					if sel == b.sel && (!b.inWgPkg || wg[x]) {
+						t.Errorf("%s calls %s.%s: kernel peer writes belong in converge.go", name, x, sel)
+					}
+				}
+			})
+		}
+		if commandReaders[name] {
 			continue
 		}
-		wg := importNames(f, wireguardImportPath)
-		selectors(f, func(x, sel string) {
-			for _, b := range banned {
-				if sel == b.sel && (!b.inWgPkg || wg[x]) {
-					t.Errorf("%s calls %s.%s: kernel peer writes belong in converge.go", name, x, sel)
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) == 0 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "Command" {
+				return true
+			}
+			if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				if cmd, err := strconv.Unquote(lit.Value); err == nil && kernelCommands[cmd] {
+					t.Errorf("%s runs %s: forwarding commands belong in converge.go and observe.go", name, cmd)
 				}
 			}
+			return true
 		})
 	}
 }
