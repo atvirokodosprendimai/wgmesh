@@ -76,17 +76,65 @@ var kernelCommands = map[string]bool{"sysctl": true, "iptables": true}
 
 // commandAllowed says whether production file `file` may run `cmd arg ...`
 // (a kernel command): converge.go writes, observe.go only reads, with
-// `iptables -C`. routes.go is a known exception: its blind sysctl and
-// ensureWGForwardingRule calls stay until ADR-0003 T5 removes them, and T5
-// removes this case.
+// `iptables -C`.
 func commandAllowed(file, cmd, arg string) bool {
 	switch file {
-	case "converge.go", "routes.go":
+	case "converge.go":
 		return true
 	case "observe.go":
 		return cmd == "iptables" && arg == "-C"
 	}
 	return false
+}
+
+// ipRouteViolation is the text of a violation by an `ip` Command call that
+// names `route` among its literal arguments: a route write (del, replace,
+// add) belongs in converge.go, a route read in observe.go (or converge.go).
+// restoreConnectedRoute builds its command at run time, which the guard does
+// not see: it is held by its callers (callViolations).
+func ipRouteViolation(name string, call *ast.CallExpr, lits map[string][]string) string {
+	words := make(map[string]bool)
+	for _, a := range call.Args[1:] {
+		if vals, ok := literalValues(firstElement(a), lits); ok {
+			for _, v := range vals {
+				words[v] = true
+			}
+		}
+	}
+	if !words["route"] {
+		return ""
+	}
+	if words["del"] || words["replace"] || words["add"] {
+		if name != "converge.go" {
+			return fmt.Sprintf("%s runs an ip route write: route writes belong in converge.go", name)
+		}
+		return ""
+	}
+	if name != "observe.go" && name != "converge.go" {
+		return fmt.Sprintf("%s runs an ip route read: route reads belong in observe.go", name)
+	}
+	return ""
+}
+
+// routeWriters are the functions that write routes; only converge.go calls them.
+var routeWriters = map[string]bool{"applyRouteDiff": true, "restoreConnectedRoute": true}
+
+// callViolations is one text per call of a route writer in file `name`, unless
+// the file is converge.go.
+func callViolations(name string, f *ast.File) []string {
+	var out []string
+	if name == "converge.go" {
+		return out
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		if call, ok := n.(*ast.CallExpr); ok {
+			if id, ok := call.Fun.(*ast.Ident); ok && routeWriters[id.Name] {
+				out = append(out, fmt.Sprintf("%s calls %s: route writes belong in converge.go", name, id.Name))
+			}
+		}
+		return true
+	})
+	return out
 }
 
 // stringLiterals maps every identifier of the package that is a const, a var
@@ -186,6 +234,12 @@ func commandViolations(name string, f *ast.File, lits map[string][]string) []str
 			}
 		}
 		for _, cmd := range cmds {
+			if cmd == "ip" {
+				if v := ipRouteViolation(name, call, lits); v != "" {
+					out = append(out, v)
+				}
+				continue
+			}
 			if !kernelCommands[cmd] {
 				continue
 			}
@@ -202,10 +256,11 @@ func commandViolations(name string, f *ast.File, lits map[string][]string) []str
 
 // TestKernelWritesOnlyInConverge: no production file of pkg/daemon outside
 // converge.go calls SetPeer or RemovePeer of pkg/wireguard (under any import
-// alias), or the Daemon seams that stand for them, and none runs sysctl or
-// iptables through any Command call (whatever the receiver or the os/exec
-// import alias) except converge.go, routes.go (the exception above) and
-// observe.go for `iptables -C`. Later tasks extend the pattern list.
+// alias), or the Daemon seams that stand for them, calls applyRouteDiff or
+// restoreConnectedRoute, runs sysctl or iptables through any Command call
+// (whatever the receiver or the os/exec import alias) except observe.go for
+// `iptables -C`, or runs an `ip route` write; an `ip route` read belongs in
+// observe.go. Later tasks extend the pattern list.
 func TestKernelWritesOnlyInConverge(t *testing.T) {
 	banned := []struct {
 		sel     string
@@ -237,6 +292,9 @@ func TestKernelWritesOnlyInConverge(t *testing.T) {
 		for _, v := range commandViolations(name, f, lits) {
 			t.Error(v)
 		}
+		for _, v := range callViolations(name, f) {
+			t.Error(v)
+		}
 	}
 }
 
@@ -262,8 +320,14 @@ func TestCommandGuardForms(t *testing.T) {
 		{"observe check built with append", "observe.go", `cmdExecutor.Command("iptables", append([]string{"-C"}, args...)...)`, false},
 		{"observe append built with -A", "observe.go", `cmdExecutor.Command("iptables", append([]string{"-A"}, args...)...)`, true},
 		{"observe computed second argument", "observe.go", `cmdExecutor.Command("iptables", args[0])`, true},
+		{"observe may read routes", "observe.go", `cmdExecutor.Command("ip", "-6", "route", "show", "dev", "wg0")`, false},
+		{"observe may not replace a route", "observe.go", `cmdExecutor.Command("ip", "route", "replace", "x", "via", "y", "dev", "wg0")`, true},
+		{"converge may replace a route", "converge.go", `cmdExecutor.Command("ip", "route", "replace", "x", "via", "y", "dev", "wg0")`, false},
+		{"routes may not delete a route", "routes.go", `cmdExecutor.Command("ip", "route", "del", "x", "via", "y", "dev", "wg0")`, true},
+		{"routes may not read routes", "routes.go", `cmdExecutor.Command("ip", "route", "show", "dev", "wg0")`, true},
+		{"route word in a constant", "routes.go", "const r = \"replace\"\n\tcmdExecutor.Command(\"ip\", \"route\", r, \"x\")", true},
+		{"ip addr is not a route command", "routes.go", `cmdExecutor.Command("ip", "-4", "-o", "addr", "show")`, false},
 		// The documented limit: a computed first argument is not seen.
-		{"computed argument is not seen", "other.go", `cmdExecutor.Command(args[0], args[1:]...)`, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -275,6 +339,35 @@ func TestCommandGuardForms(t *testing.T) {
 			files := map[string]*ast.File{c.file: f}
 			got := commandViolations(c.file, f, stringLiterals(files))
 			if (len(got) > 0) != c.bad {
+				t.Errorf("violations = %q, want violation %v", got, c.bad)
+			}
+		})
+	}
+}
+
+// A route writer called outside converge.go is flagged; converge.go itself,
+// and another function, are not.
+func TestRouteWriterCallsGuardForms(t *testing.T) {
+	cases := []struct {
+		name string
+		file string
+		body string
+		bad  bool
+	}{
+		{"routes calls applyRouteDiff", "routes.go", `applyRouteDiff("wg0", nil, nil)`, true},
+		{"routes calls restoreConnectedRoute", "routes.go", `restoreConnectedRoute("10.0.0.0/24")`, true},
+		{"converge calls applyRouteDiff", "converge.go", `applyRouteDiff("wg0", nil, nil)`, false},
+		{"converge calls restoreConnectedRoute", "converge.go", `restoreConnectedRoute("10.0.0.0/24")`, false},
+		{"another function", "routes.go", `applyRoutes("wg0")`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package daemon\n\nfunc f() {\n\t" + c.body + "\n}\n"
+			f, err := parser.ParseFile(token.NewFileSet(), c.file, src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := callViolations(c.file, f); (len(got) > 0) != c.bad {
 				t.Errorf("violations = %q, want violation %v", got, c.bad)
 			}
 		})
