@@ -99,7 +99,7 @@ func TestDesireHAExitNodeDropsPeerDefault(t *testing.T) {
 
 	t.Run("local advertises default", func(t *testing.T) {
 		d := makeRelayTestDaemon()
-		d.localNode.RoutableNetworks = []string{def}
+		d.localNode.SetRoutableNetworks([]string{def})
 		ds := d.desire(peers(), nil, map[string]string{})
 		if _, ok := allowedOf(ds, "peer1")[def]; ok {
 			t.Errorf("peer default in AllowedIPs: %v", allowedOf(ds, "peer1"))

@@ -148,7 +148,7 @@ func newConvergeDaemon(t *testing.T, k *fakeKernel, ls *logSink) *Daemon {
 	t.Helper()
 	return &Daemon{
 		config:             &Config{InterfaceName: "wgmesh-t3-none", Keys: makeTestKeys(t)},
-		localNode:          &LocalNode{WGPubKey: "local-key", MeshIP: "10.99.0.1", NATType: "cone"},
+		localNode:          nodeWithAddr("local-key", "10.99.0.1", "cone"),
 		peerStore:          NewPeerStore(),
 		relayRoutes:        make(map[string]string),
 		directStableCycles: make(map[string]int),

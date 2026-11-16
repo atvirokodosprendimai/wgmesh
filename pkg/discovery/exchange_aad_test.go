@@ -28,7 +28,7 @@ func newAADExchange(t *testing.T, secret string, localKey, victimKey string) (*P
 	if victimKey != "" {
 		store.Update(&daemon.PeerInfo{WGPubKey: victimKey, MeshIP: "10.0.0.5", Endpoint: "203.0.113.5:51820"}, "dht")
 	}
-	pe := NewPeerExchange(cfg, &daemon.LocalNode{WGPubKey: localKey, MeshIP: "10.0.0.1"}, store)
+	pe := NewPeerExchange(cfg, daemon.NewLocalNode(localKey, "", "", "10.0.0.1", ""), store)
 	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 	if err != nil {
 		t.Fatal(err)

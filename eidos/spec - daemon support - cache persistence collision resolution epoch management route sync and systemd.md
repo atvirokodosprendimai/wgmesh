@@ -22,6 +22,7 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
   This allows the node to reconnect to known peers without waiting for a full DHT/gossip rediscovery cycle.
 - Cache restores do not update `LastSeen` of a key that is not already in the store — the peer must be re-confirmed by a live discovery source to be treated as active. For a key already in the store a `Restored` offer raises `LastSeen` when the cache time is newer (`merge`); production restores before discovery starts (`RunWithDHTDiscovery`), so the store is empty then.
 - Restored entries are offered as `Restored` (not first hand): a tombstone refuses them, and the `accept-routes` list judges their routes. A guessed endpoint is not written to the cache.
+- The file is written by `atomicfile.WriteFile` (a temp file in the same directory, fsync, rename, fsync of the directory), so a crash or power loss leaves the old file or the new one, never a half-written one. It is mode 0600 and owned by the process user on every save, a symlink at the path is replaced and not followed, and the directory must be writable. A leftover `<name>.tmp-*` after `kill -9` is not swept. Differences from the old plain write and their numbers: `docs/state-rollout.md`.
 - **`last_seen` is `LastContact` (ADR-0004):** the field written for each peer is the newest of `LastSeen` and `LastDataPlane`, never the restore time or the wake grace (a time in the future is written as now), so a peer kept connected by handshakes is saved fresh and a restored peer never heard from keeps its cache time. The field and its type are unchanged. On restore the entry gets `RestoredAt` (it is dialable for `PeerDeadTimeout`) and the log line counts how many restored peers are alive by evidence and how many only suspected.
 
 ### Mesh IP collision resolution
@@ -67,12 +68,14 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 - Generates a systemd unit file from daemon options. The secret is stored in `/etc/wgmesh/secret.env` (mode 0600) and referenced as `${WGMESH_SECRET}` — it never appears in the process list.
 - Unit hardening: `NoNewPrivileges=yes`, `ProtectSystem=full`, `ProtectHome=true`, `ReadWritePaths=/var/lib/wgmesh`.
 - `InstallSystemdService`: writes unit + secret env, creates `/var/lib/wgmesh` (required by `ReadWritePaths`), runs `systemctl enable + start`.
+- The unit and `secret.env` are still written with a plain `os.WriteFile`, so a crash can leave a short file (re-running `install-service` repairs it); they are the two allowlisted calls of `systemd.go` in `TestNoInPlaceStateWrite`. `install-service` also reports success while the unit crash-loops when the interface lock is held. Both are rows in `docs/adr/BACKLOG.md` (ADR-0005).
 - `UninstallSystemdService`: stops, disables, removes unit and secret files.
 
 ## Design
 
 - Cache file path: `/var/lib/wgmesh/<iface>-peers.json` (state directory, not config directory).
 - Collision nonce: nonces 1 to `node.MaxNonce` are tried, the first address nobody claims is taken.
+- State files are written by `atomicfile.WriteFile` and by nothing else: the local identity, the peer cache, `mesh-state.json` (plain and encrypted), the init secret (`--save-to`), the account, services, promo and referral files. `TestNoInPlaceStateWrite` (`pkg/atomicfile/guard_test.go`) parses every production file and fails on a new `os.WriteFile` or `os.Rename` outside the allowlist; `saveLocalNode` keeps its signature and only its body is atomic. The resolved mesh IP of a collision is persisted through it.
 - `CommandExecutor` interface (`executor.go`) wraps `os/exec` — injected globally (`cmdExecutor`), replaceable with a mock for testing. The `systemd.go`, `observe.go` and `converge.go` shell-outs use this interface.
 
 ## Interactions

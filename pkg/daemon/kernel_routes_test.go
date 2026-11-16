@@ -618,7 +618,7 @@ func TestConvergeSteadyStateIssuesNoWrites(t *testing.T) {
 	rh := newRouteHost(&fakeHost{iptablesPresent: true}) // forwarding is not set yet: tick 1 writes it
 	k := newFakeKernel()
 	d := newRouteDaemon(t, rh, &logSink{}, k)
-	d.localNode.MeshIPv6 = "fd99::1"
+	d.localNode.SetMeshIPv6("fd99::1")
 	rh.ifAddrs = []string{nodeMeshAddr, "fd99::1/64"} // the interface already holds the node's addresses
 	a := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "192.168.50.0/24", "0.0.0.0/0", "fd00:5::/64")
 	a.MeshIPv6 = "fd99::2"
@@ -933,7 +933,7 @@ func TestAttachedRuleIgnoresMeshIPv6AndLinkLocal(t *testing.T) {
 		ls := &logSink{}
 		k := newFakeKernel()
 		d := newRouteDaemon(t, rh, ls, k)
-		d.localNode.MeshIPv6 = "fd99:0:0:1::1"
+		d.localNode.SetMeshIPv6("fd99:0:0:1::1")
 		d.localSubnetsFn = func() []*net.IPNet {
 			return []*net.IPNet{
 				{IP: net.ParseIP("fd99:0:0:1::1"), Mask: net.CIDRMask(64, 128)},

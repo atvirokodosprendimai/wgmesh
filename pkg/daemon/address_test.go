@@ -270,7 +270,7 @@ func TestStaleMeshAddressRemovedOtherAddressKept(t *testing.T) {
 		"fd00::5/64",     // an operator's, outside the mesh
 		"fe80::1/64",     // link-local
 	)
-	d.localNode.MeshIPv6 = "fd99::1"
+	d.localNode.SetMeshIPv6("fd99::1")
 	tick(t, d, 3)
 	want := sorted("ip addr del 10.99.0.1/24 dev wg0", "ip addr del 10.99.7.7/16 dev wg0", "ip addr del fd99::9/64 dev wg0")
 	if got := rh.addrCmds(); !sameLines(sorted(got...), want) {
@@ -296,7 +296,7 @@ func TestStaleMeshAddressWarnsAtN(t *testing.T) {
 	before := warnings()
 	held := []string{"10.99.0.1/16", "10.99.7.7/16", "192.168.1.5/24", "fd99::1/64", "fd99::9/64"}
 	d, rh, ls := newAddrDaemon(t, held...)
-	d.localNode.MeshIPv6 = "fd99::1"
+	d.localNode.SetMeshIPv6("fd99::1")
 	tick(t, d, 3)
 	if got := rh.addrCmds(); len(got) != 0 {
 		t.Errorf("address writes at release N: %q", got)
@@ -353,7 +353,7 @@ func TestFailingRemovalIsLoggedEveryAttempt(t *testing.T) {
 // setupWireGuard sets.
 func TestMeshIPv6PrefixLengthIsShared(t *testing.T) {
 	d, _, _ := newAddrDaemon(t)
-	d.localNode.MeshIPv6 = "fd99::1"
+	d.localNode.SetMeshIPv6("fd99::1")
 	want := d.desireAddresses()
 	if len(want.Addrs) != 2 || want.Addrs[1] != netip.PrefixFrom(netip.MustParseAddr("fd99::1"), meshPrefixLenV6) || meshPrefixLenV6 != 64 {
 		t.Errorf("desired %v, want the IPv6 address with /%d (64)", want.Addrs, meshPrefixLenV6)
@@ -377,7 +377,7 @@ func TestPointToPointAddressLeftAlone(t *testing.T) {
 func TestAddressSteadyStateQuiet(t *testing.T) {
 	before := addressChanges()
 	d, rh, ls := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/64", "192.168.1.5/24")
-	d.localNode.MeshIPv6 = "fd99::1"
+	d.localNode.SetMeshIPv6("fd99::1")
 	d.config.Introducer = true // forward-scope warns on a node that neither relays nor advertises: another target's line
 	tick(t, d, 5)
 	if w := rh.addrCmds(); len(w) != 0 {
@@ -393,7 +393,7 @@ func TestAddressSteadyStateQuiet(t *testing.T) {
 	// IPv6 disabled: the node's mesh IPv6 is not wanted, so it is not added (the
 	// interface does not hold it: a wrong add would show).
 	d, rh, _ = newAddrDaemon(t, "10.99.0.1/16")
-	d.localNode.MeshIPv6 = "fd99::1"
+	d.localNode.SetMeshIPv6("fd99::1")
 	d.config.DisableIPv6 = true
 	tick(t, d, 2)
 	if w := rh.addrCmds(); len(w) != 0 {
@@ -408,7 +408,7 @@ func TestAddressConvergesAfterCollisionIPChange(t *testing.T) {
 	if w := rh.addrCmds(); len(w) != 0 {
 		t.Fatalf("wrote %q before the change", w)
 	}
-	d.localNode.MeshIP = "10.99.4.4" // what collision resolution does
+	d.localNode.SetMeshIP("10.99.4.4") // what collision resolution does
 	tick(t, d, 3)
 	if got, want := rh.addrCmds(), []string{"ip addr del 10.99.0.1/16 dev wg0", "ip addr add 10.99.4.4/16 dev wg0"}; !sameLines(got, want) {
 		t.Errorf("address commands %q, want %q (the old address removed first, then the new one added)", got, want)
@@ -428,7 +428,7 @@ func TestAddressRemovalsRunBeforeAdds(t *testing.T) {
 	enforceAddressRemoval(t, true)
 	t.Run("IPv4 primary replaced", func(t *testing.T) {
 		d, rh, _ := newAddrDaemon(t, "10.99.0.1/16")
-		d.localNode.MeshIP = "10.99.4.4"
+		d.localNode.SetMeshIP("10.99.4.4")
 		tick(t, d, 1)
 		if got, want := rh.held(), []string{"10.99.4.4/16"}; !sameLines(got, want) {
 			t.Errorf("after one tick the interface holds %q, want %q (cmds %q)", got, want, rh.addrCmds())
@@ -436,7 +436,7 @@ func TestAddressRemovalsRunBeforeAdds(t *testing.T) {
 	})
 	t.Run("IPv6 prefix length changed", func(t *testing.T) {
 		d, rh, _ := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/128")
-		d.localNode.MeshIPv6 = "fd99::1"
+		d.localNode.SetMeshIPv6("fd99::1")
 		tick(t, d, 1)
 		if got, want := rh.held(), sorted("10.99.0.1/16", "fd99::1/64"); !sameLines(got, want) {
 			t.Errorf("after one tick the interface holds %q, want %q (cmds %q)", got, want, rh.addrCmds())
@@ -445,7 +445,7 @@ func TestAddressRemovalsRunBeforeAdds(t *testing.T) {
 	t.Run("a failed removal does not skip the add", func(t *testing.T) {
 		d, rh, _ := newAddrDaemon(t, "10.99.0.1/16")
 		rh.addrDelErr["10.99.0.1/16"] = exitError{1}
-		d.localNode.MeshIP = "10.99.4.4"
+		d.localNode.SetMeshIP("10.99.4.4")
 		tick(t, d, 1)
 		if got, want := rh.addrCmds(), []string{"ip addr del 10.99.0.1/16 dev wg0", "ip addr add 10.99.4.4/16 dev wg0"}; !sameLines(got, want) {
 			t.Errorf("address commands %q, want %q", got, want)
@@ -462,7 +462,7 @@ func TestAddressTargetRaceFree(t *testing.T) {
 	enforceIPBinding(t, false)
 	d, rh, _ := newAddrDaemon(t, nodeMeshAddr)
 	d.localNode.WGPubKey = "zzz-local" // the higher key loses
-	d.localNode.MeshIPv6 = "fd99::1"
+	d.localNode.SetMeshIPv6("fd99::1")
 	d.config.Secret = collisionSecret
 	d.stateFile = filepath.Join(t.TempDir(), "wg0.json")
 	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "10.99.0.1"}, "test")
@@ -487,7 +487,7 @@ func TestAddressTargetRaceFree(t *testing.T) {
 		}()
 	}
 	wg.Wait()
-	moved := d.localNode.MeshIP
+	moved := d.localNode.GetMeshIP()
 	if moved == "10.99.0.1" {
 		t.Fatal("the node did not move: the collision did not write MeshIP")
 	}
@@ -515,7 +515,8 @@ func TestDesireAddressesInvalidIdentity(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			d, _, _ := newAddrDaemon(t)
-			d.localNode.MeshIP, d.localNode.MeshIPv6 = c.ip, c.ip6
+			d.localNode.SetMeshIP(c.ip)
+			d.localNode.SetMeshIPv6(c.ip6)
 			if c.noNode {
 				d.localNode = nil
 			}
@@ -579,7 +580,7 @@ func TestAddressObserveFailsThenRecovers(t *testing.T) {
 func TestAddressFailureDoesNotStopTheLoop(t *testing.T) {
 	enforceAddressRemoval(t, true)
 	d, rh, _ := newAddrDaemon(t, "10.99.5.5/16", "10.99.7.7/16")
-	d.localNode.MeshIPv6 = "fd99::1"
+	d.localNode.SetMeshIPv6("fd99::1")
 	rh.addrDelErr["10.99.5.5/16"] = exitError{1}
 	rh.addrAddErr["10.99.0.1/16"] = exitError{1}
 	tick(t, d, 1)
@@ -672,7 +673,7 @@ func TestIPv6OtherPrefixLengthCountsAsHeld(t *testing.T) {
 		enforceAddressRemoval(t, false)
 		before := addressChanges()
 		d, rh, ls := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/128")
-		d.localNode.MeshIPv6 = "fd99::1"
+		d.localNode.SetMeshIPv6("fd99::1")
 		d.config.Introducer = true
 		tick(t, d, 3)
 		if got := rh.addrCmds(); len(got) != 0 {
@@ -691,7 +692,7 @@ func TestIPv6OtherPrefixLengthCountsAsHeld(t *testing.T) {
 	t.Run("node, enforcement on: del then add", func(t *testing.T) {
 		enforceAddressRemoval(t, true)
 		d, rh, _ := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/128")
-		d.localNode.MeshIPv6 = "fd99::1"
+		d.localNode.SetMeshIPv6("fd99::1")
 		tick(t, d, 2)
 		if got, w := rh.addrCmds(), []string{"ip addr del fd99::1/128 dev wg0", "ip addr add fd99::1/64 dev wg0"}; !sameLines(got, w) {
 			t.Errorf("address commands %q, want %q", got, w)

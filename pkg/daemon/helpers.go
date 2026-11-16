@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -11,6 +12,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 )
 
 // cmdExecutor is the command executor used by helper functions.
@@ -50,27 +53,83 @@ type localNodeState struct {
 	MeshIPv6     string `json:"mesh_ipv6,omitempty"`
 }
 
-// loadLocalNode loads the local node state from a file
+// ErrStateMissing: the identity file does not exist (wraps os.ErrNotExist).
+// ErrStateCorrupt: it exists but cannot be used (not JSON, empty, `{}`, an
+// empty public or private key). Words: ADR-0005 Decision 2, #870.
+var (
+	ErrStateMissing = errors.New("local node state file is missing")
+	ErrStateCorrupt = errors.New("local node state file is corrupt")
+)
+
+// RefuseCorruptState: false at release N (a corrupt identity file is moved
+// aside and a new identity is created); true at N+1 (initLocalNode refuses to
+// start and leaves the file untouched). Read once at start by one goroutine
+// and set only by non-parallel tests, so it is a plain bool.
+var RefuseCorruptState = false
+
+// quarantineState moves a corrupt state file to path+".corrupt-"+unix and
+// returns the new path. The file is never deleted and never overwritten: the
+// move is a hard link to a new name (os.Link fails with EEXIST when the name
+// is taken, so it cannot replace anything, and a plain existence check could
+// race) followed by removing the old name; on EEXIST the next numeric suffix
+// (-1 .. -1000) is tried. Link and Remove stay in one directory, so neither
+// crosses a filesystem. The file may hold a private key, so the moved copy is
+// made 0600. If Remove fails after the Link, the identity exists under both
+// names (duplicated, not lost) and the error names both. os.Rename is not
+// used: pkg/atomicfile owns every rename (TestNoPrivateRenameCopy).
+func quarantineState(path string) (string, error) {
+	base := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+	target := base
+	for i := 1; ; i++ {
+		err := os.Link(path, target)
+		if err == nil {
+			break
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", fmt.Errorf("move corrupt state file aside: %w", err)
+		}
+		if i > 1000 {
+			return "", fmt.Errorf("no free quarantine name for %s", path)
+		}
+		target = fmt.Sprintf("%s-%d", base, i)
+	}
+	if err := os.Chmod(target, 0600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("corrupt state file %s was linked to %s but chmod 0600 failed: %w", path, target, err)
+	}
+	if err := os.Remove(path); err != nil {
+		return "", fmt.Errorf("corrupt state file was copied to %s but the old name %s could not be removed (the identity now exists under both names): %w", target, path, err)
+	}
+	return target, nil
+}
+
+// loadLocalNode loads the local node state from a file. A missing file is
+// ErrStateMissing (also os.ErrNotExist); a file that exists but is not JSON,
+// is empty, or lacks a public or private key is ErrStateCorrupt; any other
+// read error (permission) is returned as it is.
 func loadLocalNode(path string) (*LocalNode, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %w", ErrStateMissing, err)
+		}
 		return nil, err
 	}
 
 	var state localNodeState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, err
+		// Fixed text, not err: a json.SyntaxError can quote a byte of the
+		// input, and this file holds a private key.
+		return nil, fmt.Errorf("%w: not valid JSON", ErrStateCorrupt)
+	}
+	if state.WGPubKey == "" || state.WGPrivateKey == "" {
+		return nil, fmt.Errorf("%w: public or private key is empty", ErrStateCorrupt)
 	}
 
-	return &LocalNode{
-		WGPubKey:     state.WGPubKey,
-		WGPrivateKey: state.WGPrivateKey,
-		MeshIP:       state.MeshIP,
-		MeshIPv6:     state.MeshIPv6,
-	}, nil
+	return NewLocalNode(state.WGPubKey, state.WGPrivateKey, "", state.MeshIP, state.MeshIPv6), nil
 }
 
-// saveLocalNode saves the local node state to a file
+// saveLocalNode saves the local node state to a file. The write is atomic: a
+// crash leaves the old file or the new one, never a truncated identity.
 func saveLocalNode(path string, node *LocalNode) error {
 	// Ensure directory exists
 	dir := filepath.Dir(path)
@@ -78,12 +137,14 @@ func saveLocalNode(path string, node *LocalNode) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
-	meshIP, meshIPv6 := node.GetMeshIPs()
+	// One Snapshot: the key and both addresses are read together, so the saved
+	// pair is one that the node held (ADR-0005 T8).
+	snap := node.Snapshot()
 	state := localNodeState{
-		WGPubKey:     node.WGPubKey,
+		WGPubKey:     snap.PubKey,
 		WGPrivateKey: node.WGPrivateKey,
-		MeshIP:       meshIP,
-		MeshIPv6:     meshIPv6,
+		MeshIP:       snap.MeshIP,
+		MeshIPv6:     snap.MeshIPv6,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")
@@ -91,8 +152,8 @@ func saveLocalNode(path string, node *LocalNode) error {
 		return err
 	}
 
-	// Write with secure permissions
-	return os.WriteFile(path, data, 0600)
+	// Write with secure permissions, whole or not at all
+	return atomicfile.WriteFile(path, data, 0600)
 }
 
 // interfaceExists checks if a network interface exists
@@ -388,4 +449,10 @@ func getWGInterfacePort(name string) int {
 	var port int
 	fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &port)
 	return port
+}
+
+// InterfaceLockPath is the per-interface lock file of a running join; the one
+// state directory stays in this package.
+func InterfaceLockPath(iface string) string {
+	return filepath.Join(localNodeStateDir, iface+".lock")
 }

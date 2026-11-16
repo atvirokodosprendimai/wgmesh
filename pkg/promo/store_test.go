@@ -247,11 +247,10 @@ func TestStoreAtomicWrite(t *testing.T) {
 			t.Fatalf("RedeemCode() failed: %v", err)
 		}
 
-		// Simulate crash: corrupt the main file but leave .tmp
-		tmpPath := storePath + ".tmp"
-		if _, err := os.ReadFile(tmpPath); err == nil {
+		// Simulate crash: corrupt the main file but leave a temp file
+		if m, _ := filepath.Glob(storePath + ".tmp-*"); len(m) > 0 {
 			// Temp file exists from atomic write, save it for verification
-			tmpData, _ := os.ReadFile(tmpPath)
+			tmpData, _ := os.ReadFile(m[0])
 			_ = os.WriteFile(storePath, tmpData, 0600)
 		}
 

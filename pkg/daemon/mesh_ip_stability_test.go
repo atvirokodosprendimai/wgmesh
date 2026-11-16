@@ -31,12 +31,7 @@ func startWithPersisted(t *testing.T, persisted localNodeState, opts DaemonOpts)
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, cfg.InterfaceName+".json")
-	if err := saveLocalNode(path, &LocalNode{
-		WGPubKey:     persisted.WGPubKey,
-		WGPrivateKey: persisted.WGPrivateKey,
-		MeshIP:       persisted.MeshIP,
-		MeshIPv6:     persisted.MeshIPv6,
-	}); err != nil {
+	if err := saveLocalNode(path, NewLocalNode(persisted.WGPubKey, persisted.WGPrivateKey, "", persisted.MeshIP, persisted.MeshIPv6)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -48,7 +43,7 @@ func startWithPersisted(t *testing.T, persisted localNodeState, opts DaemonOpts)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return d.localNode, localNodeState{MeshIP: disk.MeshIP, MeshIPv6: disk.MeshIPv6}
+	return d.localNode, localNodeState{MeshIP: disk.GetMeshIP(), MeshIPv6: disk.GetMeshIPv6()}
 }
 
 func defaultPersisted(t *testing.T) localNodeState {
@@ -89,11 +84,11 @@ func TestPersistedMeshIPStableAcrossOptionChanges(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			node, disk := startWithPersisted(t, persisted, tt.opts)
-			if node.MeshIP != persisted.MeshIP || disk.MeshIP != persisted.MeshIP {
-				t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.MeshIP, disk.MeshIP, persisted.MeshIP)
+			if node.GetMeshIP() != persisted.MeshIP || disk.MeshIP != persisted.MeshIP {
+				t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.GetMeshIP(), disk.MeshIP, persisted.MeshIP)
 			}
-			if node.MeshIPv6 != persisted.MeshIPv6 || disk.MeshIPv6 != persisted.MeshIPv6 {
-				t.Errorf("MeshIPv6 memory=%q disk=%q, want persisted %q", node.MeshIPv6, disk.MeshIPv6, persisted.MeshIPv6)
+			if node.GetMeshIPv6() != persisted.MeshIPv6 || disk.MeshIPv6 != persisted.MeshIPv6 {
+				t.Errorf("MeshIPv6 memory=%q disk=%q, want persisted %q", node.GetMeshIPv6(), disk.MeshIPv6, persisted.MeshIPv6)
 			}
 		})
 	}
@@ -118,8 +113,8 @@ func TestPersistedMeshIPKeptInsideCustomSubnet(t *testing.T) {
 	}
 
 	node, disk := startWithPersisted(t, p, DaemonOpts{MeshSubnet: "192.168.100.0/24"})
-	if node.MeshIP != p.MeshIP || disk.MeshIP != p.MeshIP {
-		t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.MeshIP, disk.MeshIP, p.MeshIP)
+	if node.GetMeshIP() != p.MeshIP || disk.MeshIP != p.MeshIP {
+		t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.GetMeshIP(), disk.MeshIP, p.MeshIP)
 	}
 }
 
@@ -141,8 +136,8 @@ func TestPersistedMeshIPOutsideCustomSubnetIsRederived(t *testing.T) {
 	}
 
 	node, disk := startWithPersisted(t, p, DaemonOpts{MeshSubnet: "192.168.100.0/24"})
-	if node.MeshIP != want || disk.MeshIP != want {
-		t.Errorf("MeshIP memory=%q disk=%q, want re-derived %q", node.MeshIP, disk.MeshIP, want)
+	if node.GetMeshIP() != want || disk.MeshIP != want {
+		t.Errorf("MeshIP memory=%q disk=%q, want re-derived %q", node.GetMeshIP(), disk.MeshIP, want)
 	}
 }
 
@@ -153,7 +148,7 @@ func TestPersistedMeshIPKeptWhenCustomSubnetDropped(t *testing.T) {
 	p.MeshIP = "192.168.100.7"
 
 	node, disk := startWithPersisted(t, p, DaemonOpts{})
-	if node.MeshIP != p.MeshIP || disk.MeshIP != p.MeshIP {
-		t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.MeshIP, disk.MeshIP, p.MeshIP)
+	if node.GetMeshIP() != p.MeshIP || disk.MeshIP != p.MeshIP {
+		t.Errorf("MeshIP memory=%q disk=%q, want persisted %q", node.GetMeshIP(), disk.MeshIP, p.MeshIP)
 	}
 }

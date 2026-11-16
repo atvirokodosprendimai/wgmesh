@@ -220,10 +220,7 @@ func TestControlEndpointForPeer_RejectsSelf(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey-self",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey-self", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	d, err := NewDHTDiscovery(context.Background(), cfg, localNode, daemon.NewPeerStore())
@@ -340,17 +337,19 @@ func TestDHTBootstrapDelay_Progression(t *testing.T) {
 }
 
 // TestBootstrapWithRetry_StopsOnContextCancel verifies that bootstrapWithRetry
-// exits promptly when the context is cancelled, without blocking.
+// exits promptly when the context it was given is cancelled, without blocking.
+// The DHT layer's own context stays live: the loop must use its argument, not
+// the context of whichever run is current.
 func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-bootstrap-cancel-1"})
 	if err != nil {
 		t.Fatalf("NewConfig failed: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	d, err := NewDHTDiscovery(ctx, cfg, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
+	d, err := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
 	if err != nil {
 		t.Fatalf("NewDHTDiscovery failed: %v", err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cancel the context so the goroutine should exit on the first attempt check
 	cancel()
@@ -358,7 +357,7 @@ func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		d.bootstrapWithRetry()
+		d.bootstrapWithRetry(ctx)
 	}()
 
 	select {
@@ -377,7 +376,7 @@ func TestPunchReplyIsFirstHand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	localNode := &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	for _, source := range []daemon.Source{DHTMethod, "dht-ipv6-sync"} {
@@ -421,7 +420,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 	}
 
 	serverKey := aadKey(2)
-	serverNode := &daemon.LocalNode{WGPubKey: serverKey, MeshIP: "10.0.0.2"}
+	serverNode := daemon.NewLocalNode(serverKey, "", "", "10.0.0.2", "")
 	serverNode.SetEndpoint("203.0.113.42:51820")
 	server := NewPeerExchange(cfg, serverNode, daemon.NewPeerStore())
 	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -429,7 +428,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.conn = serverConn
-	go server.listenLoop(server.stopCh, serverConn)
+	go server.listenLoop(server.stopCh, server.conn, oneLoopGroup())
 	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
 	serverAddr := serverConn.LocalAddr().String()
 
@@ -439,7 +438,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 	// caught only by the dht-ipv6-sync subtest.
 	for _, method := range []string{DHTMethod, DHTMethod + "-ipv6-sync"} {
 		t.Run(method, func(t *testing.T) {
-			clientNode := &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}
+			clientNode := daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", "")
 			store := daemon.NewPeerStore()
 			seen := time.Now().Add(-4 * time.Minute)
 			store.SetPeerDirectly(serverKey, &daemon.PeerInfo{WGPubKey: serverKey, MeshIP: "10.0.0.99", LastSeen: seen})
@@ -453,7 +452,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 				t.Fatal(err)
 			}
 			client.conn = clientConn
-			go client.listenLoop(client.stopCh, clientConn)
+			go client.listenLoop(client.stopCh, client.conn, oneLoopGroup())
 			t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
 			d.exchange = client
 
@@ -509,7 +508,7 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	serverNode := &daemon.LocalNode{WGPubKey: serverKey, MeshIP: "10.0.0.2"}
+	serverNode := daemon.NewLocalNode(serverKey, "", "", "10.0.0.2", "")
 	serverNode.SetEndpoint("203.0.113.42:51820")
 	server := NewPeerExchange(cfg, serverNode, daemon.NewPeerStore())
 	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -517,11 +516,11 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.conn = serverConn
-	go server.listenLoop(server.stopCh, serverConn)
+	go server.listenLoop(server.stopCh, server.conn, oneLoopGroup())
 	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
 	serverAddr := serverConn.LocalAddr().String()
 
-	clientNode := &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}
+	clientNode := daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", "")
 	store := daemon.NewPeerStore()
 	d, err := NewDHTDiscovery(context.Background(), cfg, clientNode, store)
 	if err != nil {
@@ -533,7 +532,7 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.conn = clientConn
-	go client.listenLoop(client.stopCh, clientConn)
+	go client.listenLoop(client.stopCh, client.conn, oneLoopGroup())
 	t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
 	d.exchange = client
 

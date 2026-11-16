@@ -95,7 +95,7 @@ func TestValidLogFollowsValidation(t *testing.T) {
 	t.Cleanup(func() { log.SetOutput(prev) })
 
 	send := func(msgType string, addr *net.UDPAddr, meshIP string) {
-		pe := NewPeerExchange(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+		pe := NewPeerExchange(cfg, daemon.NewLocalNode("local-key", "", "", "10.0.0.1", ""), daemon.NewPeerStore())
 		conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 		if err != nil {
 			t.Fatal(err)

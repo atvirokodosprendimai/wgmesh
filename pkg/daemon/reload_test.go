@@ -148,7 +148,7 @@ func TestRouteSlicesEqual(t *testing.T) {
 func TestReloadConfig_UpdatesLogLevel(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 
 	d.reloadConfig(DaemonOpts{LogLevel: "debug", AdvertiseRoutes: []string{}})
 
@@ -161,7 +161,7 @@ func TestReloadConfig_UpdatesAdvertiseRoutes(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
 	d.config.AdvertiseRoutes = []string{"10.0.0.0/8"}
-	d.localNode = &LocalNode{RoutableNetworks: []string{"10.0.0.0/8"}}
+	d.localNode = nodeWithRoutes([]string{"10.0.0.0/8"})
 
 	newRoutes := []string{"192.168.1.0/24", "172.16.0.0/12"}
 	d.reloadConfig(DaemonOpts{LogLevel: "info", AdvertiseRoutes: newRoutes})
@@ -170,17 +170,17 @@ func TestReloadConfig_UpdatesAdvertiseRoutes(t *testing.T) {
 	if !reflect.DeepEqual(got, newRoutes) {
 		t.Errorf("AdvertiseRoutes = %v, want %v", got, newRoutes)
 	}
-	if !reflect.DeepEqual(d.localNode.RoutableNetworks, newRoutes) {
-		t.Errorf("localNode.RoutableNetworks = %v, want %v", d.localNode.RoutableNetworks, newRoutes)
+	if !reflect.DeepEqual(d.localNode.GetRoutableNetworks(), newRoutes) {
+		t.Errorf("localNode.RoutableNetworks = %v, want %v", d.localNode.GetRoutableNetworks(), newRoutes)
 	}
 }
 
 func TestReloadConfig_NoChangeIsNoop(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 	d.config.AdvertiseRoutes = []string{"10.0.0.0/8"}
-	d.localNode = &LocalNode{RoutableNetworks: []string{"10.0.0.0/8"}}
+	d.localNode = nodeWithRoutes([]string{"10.0.0.0/8"})
 
 	// Reload with same values — should not panic or error
 	d.reloadConfig(DaemonOpts{LogLevel: "info", AdvertiseRoutes: []string{"10.0.0.0/8"}})
@@ -193,7 +193,7 @@ func TestReloadConfig_NoChangeIsNoop(t *testing.T) {
 func TestReloadConfig_EmptyLogLevelPreservesExisting(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "warn"
+	d.config.SetLogLevel("warn")
 
 	// Empty LogLevel in opts should not overwrite
 	d.reloadConfig(DaemonOpts{LogLevel: "", AdvertiseRoutes: nil})
@@ -233,7 +233,7 @@ func TestHandleSIGHUP_MissingFileIsNoop(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
 	d.config.InterfaceName = "wg-test-nonexistent"
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 
 	// Should not panic; missing reload file is a no-op
 	d.handleSIGHUP()
@@ -245,9 +245,9 @@ func TestHandleSIGHUP_MissingFileIsNoop(t *testing.T) {
 
 func TestHandleSIGHUP_LoadsReloadFile(t *testing.T) {
 	d := newMinimalDaemon(t) // no t.Parallel() — uses global cmdExecutor via reconcile path
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 	d.config.AdvertiseRoutes = []string{}
-	d.localNode = &LocalNode{RoutableNetworks: []string{}}
+	d.localNode = nodeWithRoutes([]string{})
 
 	// Write reload file to /tmp so we don't need /var/lib/wgmesh
 	dir := t.TempDir()

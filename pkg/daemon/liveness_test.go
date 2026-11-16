@@ -29,7 +29,7 @@ func livenessDaemon(t *testing.T) *Daemon {
 	t.Helper()
 	return &Daemon{
 		config:             &Config{InterfaceName: "wg-test", Keys: makeTestKeys(t)},
-		localNode:          &LocalNode{WGPubKey: "local-pubkey", NATType: "cone"},
+		localNode:          nodeWithNAT("local-pubkey", "cone"),
 		peerStore:          NewPeerStore(),
 		relayRoutes:        make(map[string]string),
 		directStableCycles: make(map[string]int),

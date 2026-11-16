@@ -76,7 +76,7 @@ func showForks(t *testing.T, dir string) int {
 func forkTestDaemon() *Daemon {
 	d := &Daemon{
 		config:                &Config{InterfaceName: forkIface},
-		localNode:             &LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"},
+		localNode:             NewLocalNode("local-key", "", "", "10.0.0.1", ""),
 		peerStore:             NewPeerStore(),
 		directStableCycles:    map[string]int{},
 		relayRoutes:           map[string]string{},

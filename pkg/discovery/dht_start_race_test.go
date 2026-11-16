@@ -15,7 +15,7 @@ import (
 func TestStopWhileStartAssignsFields(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
-	localNode := &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}
+	localNode := daemon.NewLocalNode("local-key", "", "", "10.0.0.1", "")
 	d, err := NewDHTDiscovery(context.Background(), cfg, localNode, store)
 	if err != nil {
 		t.Fatal(err)

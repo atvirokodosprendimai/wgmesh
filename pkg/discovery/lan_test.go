@@ -68,7 +68,7 @@ func TestResolveEndpointNeverUsesSenderPort(t *testing.T) {
 func TestLANDiscoveryRestartAfterStop(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
-	l, err := NewLANDiscovery(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, store)
+	l, err := NewLANDiscovery(cfg, daemon.NewLocalNode("local-key", "", "", "10.0.0.1", ""), store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestLANDiscoveryRestartAfterStop(t *testing.T) {
 }
 
 func TestLANDiscoveryConcurrentStopWaitsForLoops(t *testing.T) {
-	l, err := NewLANDiscovery(newTestConfig(t), &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+	l, err := NewLANDiscovery(newTestConfig(t), daemon.NewLocalNode("local-key", "", "", "10.0.0.1", ""), daemon.NewPeerStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestLANPortClashWarning(t *testing.T) {
 func TestLANDiscoveryStartLogsPortClash(t *testing.T) {
 	cfg := newTestConfig(t)
 	cfg.WGListenPort = LANMulticastPort
-	l, err := NewLANDiscovery(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+	l, err := NewLANDiscovery(cfg, daemon.NewLocalNode("local-key", "", "", "10.0.0.1", ""), daemon.NewPeerStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestLANDiscoveryStartLogsPortClash(t *testing.T) {
 func TestLANDropsInvalidKnownPeerKeepsSender(t *testing.T) {
 	cfg := newTestConfig(t)
 	store := daemon.NewPeerStore()
-	l, err := NewLANDiscovery(cfg, &daemon.LocalNode{WGPubKey: "local-key", MeshIP: "10.0.0.1"}, store)
+	l, err := NewLANDiscovery(cfg, daemon.NewLocalNode("local-key", "", "", "10.0.0.1", ""), store)
 	if err != nil {
 		t.Fatal(err)
 	}

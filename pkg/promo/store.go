@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 )
 
 // Store manages promo codes, campaigns, and redemptions.
@@ -119,20 +121,14 @@ func (s *Store) save() error {
 		return fmt.Errorf("marshal promo store: %w", err)
 	}
 
-	// Write atomically (temp file + rename)
+	// Write atomically: see atomicfile.WriteFile.
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return fmt.Errorf("create directory: %w", err)
 	}
 
-	tmpPath := s.path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
-		return fmt.Errorf("write temp file: %w", err)
-	}
-
-	if err := os.Rename(tmpPath, s.path); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename temp file: %w", err)
+	if err := atomicfile.WriteFile(s.path, data, 0600); err != nil {
+		return fmt.Errorf("write promo store: %w", err)
 	}
 
 	return nil

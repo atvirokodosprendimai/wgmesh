@@ -79,9 +79,18 @@ type PeerExchange struct {
 	mu      sync.RWMutex
 	running bool
 	stopCh  chan struct{}
+	wg      *sync.WaitGroup // the listen loop of the current run; Stop waits on it
 
+	// loops counts live listenLoop goroutines. It is a test seam: after Stop
+	// returns it must be 0, after a restart it must be 1.
+	loops atomic.Int32
+
+	// pendingMu guards pendingReplies and pendingSeq (every access, reads
+	// included). pendingReplies: remote address -> registration id -> the
+	// reply channel of one ExchangeWithPeer call (see registerReply).
 	pendingMu      sync.Mutex
-	pendingReplies map[string]chan *daemon.PeerInfo
+	pendingReplies map[string]map[uint64]chan *daemon.PeerInfo
+	pendingSeq     uint64
 
 	announceHandler func(*crypto.PeerAnnouncement, *net.UDPAddr)
 
@@ -115,7 +124,7 @@ func NewPeerExchange(config *daemon.Config, localNode *daemon.LocalNode, peerSto
 		peerStore:          peerStore,
 		limiter:            ratelimit.NewDefault(),
 		stopCh:             make(chan struct{}),
-		pendingReplies:     make(map[string]chan *daemon.PeerInfo),
+		pendingReplies:     make(map[string]map[uint64]chan *daemon.PeerInfo),
 		rendezvousSessions: make(map[string]*rendezvousState),
 		activePunches:      make(map[string]time.Time),
 		rendezvousStarts:   make(map[string]time.Time),
@@ -146,21 +155,29 @@ func (pe *PeerExchange) Start() error {
 	pe.conn = conn
 	pe.port = port
 	pe.running = true
-	pe.stopCh = make(chan struct{}) // Re-create for restart safety (B8)
+	pe.stopCh = make(chan struct{}) // Re-create for restart safety: Stop closes it
+	pe.wg = &sync.WaitGroup{}
+	pe.wg.Add(1)
 
-	// Start listener
-	go pe.listenLoop(pe.stopCh, conn)
+	// The loop gets its own channel, connection and group: it never reads
+	// them from the struct, so a restart cannot change what it uses.
+	pe.loops.Add(1)
+	go pe.listenLoop(pe.stopCh, conn, pe.wg)
 
 	log.Printf("[Exchange] Listening on UDP port %d", port)
 	return nil
 }
 
-// Stop stops the peer exchange server
+// Stop stops the peer exchange server and returns once its listen loop has
+// ended (or exchangeStopTimeout passed). Safe to call from several
+// goroutines and when stopped.
 func (pe *PeerExchange) Stop() {
 	pe.mu.Lock()
-	defer pe.mu.Unlock()
-
 	if !pe.running {
+		// A concurrent Stop is draining: wait for the same loop.
+		wg := pe.wg
+		pe.mu.Unlock()
+		waitExchangeLoops(wg)
 		return
 	}
 
@@ -170,6 +187,50 @@ func (pe *PeerExchange) Stop() {
 	if pe.conn != nil {
 		pe.conn.Close()
 	}
+	wg := pe.wg
+	pe.mu.Unlock()
+
+	// Wait outside the lock: the loop takes pe.mu.RLock on read errors. The
+	// connection close above makes a blocked read return.
+	waitExchangeLoops(wg)
+}
+
+// exchangeStopTimeout bounds how long Stop waits for the listen loop, so a
+// stuck read cannot hang the daemon.
+const exchangeStopTimeout = 3 * time.Second
+
+func waitExchangeLoops(wg *sync.WaitGroup) {
+	if wg == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(exchangeStopTimeout):
+		log.Printf("[Exchange] Stop: listen loop did not end within %v", exchangeStopTimeout)
+	}
+}
+
+// writeTo sends a datagram on the current connection, read under pe.mu.
+func (pe *PeerExchange) writeTo(data []byte, addr *net.UDPAddr) (int, error) {
+	pe.mu.RLock()
+	conn := pe.conn
+	pe.mu.RUnlock()
+	if conn == nil {
+		return 0, fmt.Errorf("peer exchange not started")
+	}
+	return conn.WriteToUDP(data, addr)
+}
+
+// isRunning reports whether the exchange is started, under pe.mu.
+func (pe *PeerExchange) isRunning() bool {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	return pe.running
 }
 
 // Port returns the listening port
@@ -186,15 +247,12 @@ func (pe *PeerExchange) UDPConn() net.PacketConn {
 	return pe.conn
 }
 
-// udp returns the current socket (thread-safe): Start replaces it on restart.
-func (pe *PeerExchange) udp() *net.UDPConn {
-	pe.mu.RLock()
-	defer pe.mu.RUnlock()
-	return pe.conn
-}
-
-// listenLoop handles incoming peer exchange requests
-func (pe *PeerExchange) listenLoop(stopCh chan struct{}, conn *net.UDPConn) {
+// listenLoop handles incoming peer exchange requests. It uses only its
+// arguments (the channel, connection and group of the run that started it),
+// never pe.stopCh or pe.conn, so a restart cannot change them under it.
+func (pe *PeerExchange) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *sync.WaitGroup) {
+	defer wg.Done()
+	defer pe.loops.Add(-1) // runs before wg.Done: Stop sees 0 once it returns
 	buf := make([]byte, MaxExchangeSize)
 
 	for {
@@ -210,9 +268,7 @@ func (pe *PeerExchange) listenLoop(stopCh chan struct{}, conn *net.UDPConn) {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			select {
-			case <-stopCh: // closed on purpose: Stop (or a restart) closed this socket
-			default:
+			if pe.isRunning() {
 				log.Printf("[Exchange] Read error: %v", err)
 			}
 			continue
@@ -436,12 +492,19 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 
 	// Always update the peer store so reconcile can configure WG promptly,
 	// even when we also route this reply to a pending ExchangeWithPeer caller.
-	pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod, Hand: daemon.FirstHand})
+	// The store keeps the pointer it is offered and rewrites it on later
+	// merges, so it gets its own copy.
+	pe.peerStore.Offer(daemon.Candidate{Info: clonePeerInfo(peerInfo), Source: DHTMethod, Hand: daemon.FirstHand})
 
-	if ch, ok := pe.getPendingReplyChannel(remoteAddr.String()); ok {
-		select {
-		case ch <- peerInfo:
-		default:
+	if chans := pe.pendingReplyChannels(remoteAddr.String()); len(chans) > 0 {
+		// Every caller exchanging with this address gets the reply, each its
+		// own copy (a caller may write it); a full channel is skipped, never
+		// waited on.
+		for _, ch := range chans {
+			select {
+			case ch <- clonePeerInfo(peerInfo):
+			default:
+			}
 		}
 		return
 	}
@@ -504,16 +567,11 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 	// Build list of known peers for transitive discovery
 	knownPeers := pe.getKnownPeers()
 
+	s := pe.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		pe.localNode.WGPubKey,
-		pe.localNode.GetMeshIP(),
-		pe.localNode.GetEndpoint(),
-		pe.localNode.Introducer,
-		pe.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		knownPeers,
-		pe.localNode.Hostname,
-		pe.localNode.GetMeshIPv6(),
-		string(pe.localNode.GetNATType()),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 	announcement.ObservedEndpoint = remoteAddr.String()
 
@@ -522,7 +580,7 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal reply: %w", err)
 	}
 
-	_, err = pe.udp().WriteToUDP(data, remoteAddr)
+	_, err = pe.writeTo(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send reply: %w", err)
 	}
@@ -549,24 +607,18 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		}
 	}
 
-	replyCh := make(chan *daemon.PeerInfo, 1)
-	pe.setPendingReplyChannel(remoteAddr.String(), replyCh)
-	defer pe.clearPendingReplyChannel(remoteAddr.String())
+	replyCh, unregister := pe.registerReply(remoteAddr.String())
+	defer unregister()
 
 	// Build list of known peers for transitive discovery
 	knownPeers := pe.getKnownPeers()
 
 	// Create HELLO message
+	s := pe.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		pe.localNode.WGPubKey,
-		pe.localNode.GetMeshIP(),
-		pe.localNode.GetEndpoint(),
-		pe.localNode.Introducer,
-		pe.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		knownPeers,
-		pe.localNode.Hostname,
-		pe.localNode.GetMeshIPv6(),
-		string(pe.localNode.GetNATType()),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
@@ -574,15 +626,16 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		return nil, fmt.Errorf("failed to seal hello: %w", err)
 	}
 
-	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), pe.Port())
+	port := pe.Port() // under pe.mu: Start writes it
+	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), port)
 	if !pe.config.DisablePunching {
-		log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, pe.Port())
+		log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, port)
 	}
 
 	attempts := 0
 	sendHello := func() error {
 		attempts++
-		_, sendErr := pe.udp().WriteToUDP(data, remoteAddr)
+		_, sendErr := pe.writeTo(data, remoteAddr)
 		if sendErr != nil {
 			return fmt.Errorf("failed to send hello: %w", sendErr)
 		}
@@ -660,7 +713,7 @@ func (pe *PeerExchange) RequestRendezvous(introducerAddr, targetPubKey string, c
 		return fmt.Errorf("failed to seal rendezvous offer: %w", err)
 	}
 
-	if _, err := pe.udp().WriteToUDP(data, remoteAddr); err != nil {
+	if _, err := pe.writeTo(data, remoteAddr); err != nil {
 		return fmt.Errorf("failed to send rendezvous offer: %w", err)
 	}
 
@@ -682,7 +735,7 @@ func (pe *PeerExchange) handleRendezvousOffer(offer *rendezvousOffer, remoteAddr
 		// We are a participant, not an introducer for this pair.
 		return
 	}
-	if !pe.localNode.Introducer {
+	if !pe.localNode.IsIntroducer() {
 		// Only designated introducers relay offers between other peers.
 		return
 	}
@@ -805,7 +858,7 @@ func (pe *PeerExchange) sendRendezvousStart(pairID, targetPubKey, targetEndpoint
 		return
 	}
 
-	if _, err := pe.udp().WriteToUDP(data, remoteAddr); err != nil {
+	if _, err := pe.writeTo(data, remoteAddr); err != nil {
 		log.Printf("[NAT] Failed to send rendezvous START to %s: %v", remoteAddr.String(), err)
 		return
 	}
@@ -1039,23 +1092,67 @@ func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
 	}
 }
 
-func (pe *PeerExchange) setPendingReplyChannel(remote string, ch chan *daemon.PeerInfo) {
+// registerReply registers one reply channel (capacity 1) for an
+// ExchangeWithPeer call to remote and returns it with an unregister func.
+// Every caller registered for an address gets the reply: handleReply delivers
+// to all of them, so concurrent exchanges to one address (punch, rendezvous,
+// transitive connect) do not take each other's reply (#855, ADR-0005 M5).
+// unregister removes only this registration, and the address entry with the
+// last one; it is safe to call twice and from several goroutines.
+func (pe *PeerExchange) registerReply(remote string) (chan *daemon.PeerInfo, func()) {
+	ch := make(chan *daemon.PeerInfo, 1)
+
 	pe.pendingMu.Lock()
-	defer pe.pendingMu.Unlock()
-	pe.pendingReplies[remote] = ch
+	pe.pendingSeq++
+	id := pe.pendingSeq
+	regs := pe.pendingReplies[remote]
+	if regs == nil {
+		regs = make(map[uint64]chan *daemon.PeerInfo)
+		pe.pendingReplies[remote] = regs
+	}
+	regs[id] = ch
+	pe.pendingMu.Unlock()
+
+	unregister := func() {
+		pe.pendingMu.Lock()
+		defer pe.pendingMu.Unlock()
+		regs := pe.pendingReplies[remote]
+		if _, ok := regs[id]; !ok {
+			return
+		}
+		delete(regs, id)
+		if len(regs) == 0 {
+			delete(pe.pendingReplies, remote)
+		}
+	}
+	return ch, unregister
 }
 
-func (pe *PeerExchange) clearPendingReplyChannel(remote string) {
-	pe.pendingMu.Lock()
-	defer pe.pendingMu.Unlock()
-	delete(pe.pendingReplies, remote)
+// clonePeerInfo returns a copy of p that shares no memory with it: the struct
+// is copied, and so are the two slices and the Latency pointer it holds, so a
+// receiver may write any field without racing another receiver or the store.
+func clonePeerInfo(p *daemon.PeerInfo) *daemon.PeerInfo {
+	c := *p
+	c.RoutableNetworks = append([]string(nil), p.RoutableNetworks...)
+	c.DiscoveredVia = append([]string(nil), p.DiscoveredVia...)
+	if p.Latency != nil {
+		l := *p.Latency
+		c.Latency = &l
+	}
+	return &c
 }
 
-func (pe *PeerExchange) getPendingReplyChannel(remote string) (chan *daemon.PeerInfo, bool) {
+// pendingReplyChannels returns a copy of the channels registered for remote,
+// taken under pendingMu so the caller can send without holding the lock.
+func (pe *PeerExchange) pendingReplyChannels(remote string) []chan *daemon.PeerInfo {
 	pe.pendingMu.Lock()
 	defer pe.pendingMu.Unlock()
-	ch, ok := pe.pendingReplies[remote]
-	return ch, ok
+	regs := pe.pendingReplies[remote]
+	chans := make([]chan *daemon.PeerInfo, 0, len(regs))
+	for _, ch := range regs {
+		chans = append(chans, ch)
+	}
+	return chans
 }
 
 // resolvePeerEndpoint applies the exchange endpoint rules (node.ResolveEndpoint)
@@ -1173,16 +1270,11 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 	knownPeers := pe.getKnownPeers()
 
+	s := pe.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		pe.localNode.WGPubKey,
-		pe.localNode.GetMeshIP(),
-		pe.localNode.GetEndpoint(),
-		pe.localNode.Introducer,
-		pe.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		knownPeers,
-		pe.localNode.Hostname,
-		pe.localNode.GetMeshIPv6(),
-		string(pe.localNode.GetNATType()),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)
@@ -1190,13 +1282,7 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal announce: %w", err)
 	}
 
-	// Start writes pe.conn under pe.mu; Stop only closes the socket and leaves
-	// it set, so a send after Stop fails in WriteToUDP, not here.
-	conn := pe.udp()
-	if conn == nil {
-		return fmt.Errorf("peer exchange has no socket")
-	}
-	_, err = conn.WriteToUDP(data, remoteAddr)
+	_, err = pe.writeTo(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send announce: %w", err)
 	}
@@ -1229,7 +1315,7 @@ func (pe *PeerExchange) SendGoodbye(addr string) error {
 		return fmt.Errorf("failed to seal goodbye: %w", err)
 	}
 
-	_, err = pe.udp().WriteToUDP(data, remoteAddr)
+	_, err = pe.writeTo(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send goodbye: %w", err)
 	}

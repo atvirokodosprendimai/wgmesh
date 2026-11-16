@@ -83,7 +83,7 @@ func TestStaleCheckReadsOneSnapshotForAllPeers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	local := &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}
+	local := daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", "")
 	store := daemon.NewPeerStore()
 	d, err := NewDHTDiscovery(context.Background(), cfg, local, store)
 	if err != nil {
@@ -124,7 +124,7 @@ func TestPunchWaitForksEveryPoll(t *testing.T) {
 	}
 	peer := aadKey(2)
 	writeDump(t, dir, cfg.InterfaceName, map[string]int64{peer: 0})
-	pe := NewPeerExchange(cfg, &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+	pe := NewPeerExchange(cfg, daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", ""), daemon.NewPeerStore())
 
 	go func() {
 		time.Sleep(300 * time.Millisecond)
@@ -235,7 +235,7 @@ func TestStaleHandshakeCheckReadsAtReconcileInterval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+	d, err := NewDHTDiscovery(context.Background(), cfg, daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", ""), daemon.NewPeerStore())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestIntroducerRankingReadsSnapshotWithinReconcileInterval(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d, err := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+	d, err := NewDHTDiscovery(context.Background(), cfg, daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", ""), daemon.NewPeerStore())
 	if err != nil {
 		t.Fatal(err)
 	}

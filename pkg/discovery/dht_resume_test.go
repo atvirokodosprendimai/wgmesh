@@ -49,7 +49,7 @@ func resumeDHT(t *testing.T) (*DHTDiscovery, *resumeProbe) {
 		t.Fatalf("NewConfig: %v", err)
 	}
 	cfg.DisableIPv6 = true
-	local := &daemon.LocalNode{WGPubKey: "local", MeshIP: "10.250.0.1"}
+	local := daemon.NewLocalNode("local", "", "", "10.250.0.1", "")
 	d, err := NewDHTDiscovery(context.Background(), cfg, local, daemon.NewPeerStore())
 	if err != nil {
 		t.Fatalf("NewDHTDiscovery: %v", err)
@@ -273,7 +273,7 @@ func TestOnResumeSerialisedWithStunRefreshLoop(t *testing.T) {
 	loopDone := make(chan struct{})
 	go func() {
 		defer close(loopDone)
-		d.stunRefreshLoop()
+		d.stunRefreshLoop(d.runCtx())
 	}()
 
 	// the ticker path must be running before the resumes start

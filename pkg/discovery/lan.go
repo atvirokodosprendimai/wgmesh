@@ -157,16 +157,11 @@ func (l *LANDiscovery) announceLoop(stopCh chan struct{}, wg *sync.WaitGroup) {
 // announce sends a multicast announcement
 func (l *LANDiscovery) announce() {
 	// Create announcement
+	s := l.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		l.localNode.WGPubKey,
-		l.localNode.GetMeshIP(),
-		l.localNode.GetEndpoint(),
-		l.localNode.Introducer,
-		l.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		nil, // No known peers in LAN announce (keep small)
-		l.localNode.Hostname,
-		l.localNode.GetMeshIPv6(),
-		string(l.localNode.GetNATType()),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, l.gossipKey)

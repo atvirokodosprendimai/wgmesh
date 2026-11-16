@@ -140,8 +140,8 @@ func UpdateMetrics(d *Daemon) {
 	// NAT type gauge — set exactly one label to 1, the rest to 0.
 	nt := "unknown"
 	if d.localNode != nil {
-		if v := d.localNode.GetNATType(); v != "" {
-			nt = v
+		if t := d.localNode.GetNATType(); t != "" {
+			nt = t
 		}
 	}
 	for _, label := range []string{"cone", "symmetric", "unknown"} {

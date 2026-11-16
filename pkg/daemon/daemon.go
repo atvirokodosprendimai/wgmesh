@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -58,6 +59,10 @@ type Daemon struct {
 	directStableCycles map[string]int // pubkey -> consecutive cycles with working direct path (relay hysteresis)
 	localSubnetsFn     func() []*net.IPNet
 	// reconcileMu serialises reconcile: the ticker and handleSIGHUP call it.
+	// Lock order of the daemon, outermost first: reconcileMu, configMu (reconcile
+	// reads config through the RLock accessors), convergeMu, collisionMu (collision
+	// resolution runs inside reconcile), then the leaf locks (LocalNode stateMu,
+	// endpointMu, routesMu; Config logMu; relayMu); nothing holding configMu calls reconcile.
 	reconcileMu sync.Mutex
 	// convergeMu serialises every write to the WireGuard peers of the kernel
 	// (see converge.go) and guards pushedEndpoint, lastResults,
@@ -133,9 +138,11 @@ type Daemon struct {
 	// reconcileLoop (capacity 1, non-blocking send); nil is never ready.
 	resumeCh chan struct{}
 
-	// configMu guards the hot-reloadable fields in config and localNode.
-	// Callers that read AdvertiseRoutes or LogLevel at runtime must hold at
-	// least a read lock; SIGHUP reload holds the write lock.
+	// configMu guards the hot-reloadable fields in config (AdvertiseRoutes,
+	// AcceptRoutes). The local node guards itself: stateMu, endpointMu and
+	// routesMu inside pkg/node. Callers that read AdvertiseRoutes at runtime
+	// must hold at least a read lock; SIGHUP reload holds the write lock.
+	// LogLevel is not under configMu: Config guards it itself (GetLogLevel).
 	configMu sync.RWMutex
 
 	// collisionMu serialises CheckAndResolveCollisions: the reconcile loop and a
@@ -167,176 +174,6 @@ type Daemon struct {
 type RPCServer interface {
 	Start() error
 	Stop() error
-}
-
-// LocalNode represents our local WireGuard node.
-// The WG endpoint is accessed via GetEndpoint/SetEndpoint to allow
-// concurrent updates from discovery goroutines. RoutableNetworks changes on
-// SIGHUP reload, so once the node is shared it must be accessed only via
-// GetRoutableNetworks/SetRoutableNetworks.
-type LocalNode struct {
-	WGPubKey         string
-	WGPrivateKey     string
-	MeshIP           string
-	MeshIPv6         string
-	RoutableNetworks []string
-	Introducer       bool
-	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"; once the node is shared use GetNATType/SetNATType (guarded by identityMu)
-	Hostname         string
-	// identityMu guards MeshIP, MeshIPv6 and NATType once the node is shared
-	// with discovery goroutines: collision resolution and STUN refresh write
-	// them. Read and write them through the accessors; direct field access is
-	// for construction, before the node is shared.
-	identityMu sync.RWMutex
-
-	endpointMu sync.RWMutex
-	wgEndpoint string
-	// pendingSTUN is the STUN value waiting for its third identical
-	// observation; both fields are guarded by endpointMu.
-	pendingSTUN      string
-	pendingSTUNCount int
-
-	routesMu sync.RWMutex // guards RoutableNetworks
-}
-
-// GetMeshIP returns the mesh IPv4 address (thread-safe).
-func (n *LocalNode) GetMeshIP() string {
-	n.identityMu.RLock()
-	defer n.identityMu.RUnlock()
-	return n.MeshIP
-}
-
-// GetMeshIPs returns the IPv4 and IPv6 mesh addresses as one consistent pair.
-func (n *LocalNode) GetMeshIPs() (v4, v6 string) {
-	n.identityMu.RLock()
-	defer n.identityMu.RUnlock()
-	return n.MeshIP, n.MeshIPv6
-}
-
-// SetMeshIP stores the mesh IPv4 address (thread-safe).
-func (n *LocalNode) SetMeshIP(ip string) {
-	n.identityMu.Lock()
-	defer n.identityMu.Unlock()
-	n.MeshIP = ip
-}
-
-// GetMeshIPv6 returns the mesh IPv6 address (thread-safe).
-func (n *LocalNode) GetMeshIPv6() string {
-	n.identityMu.RLock()
-	defer n.identityMu.RUnlock()
-	return n.MeshIPv6
-}
-
-// SetMeshIPv6 stores the mesh IPv6 address (thread-safe).
-func (n *LocalNode) SetMeshIPv6(ip string) {
-	n.identityMu.Lock()
-	defer n.identityMu.Unlock()
-	n.MeshIPv6 = ip
-}
-
-// GetNATType returns the detected NAT type (thread-safe).
-func (n *LocalNode) GetNATType() string {
-	n.identityMu.RLock()
-	defer n.identityMu.RUnlock()
-	return n.NATType
-}
-
-// SetNATType stores the detected NAT type (thread-safe).
-func (n *LocalNode) SetNATType(t string) {
-	n.identityMu.Lock()
-	defer n.identityMu.Unlock()
-	n.NATType = t
-}
-
-// GetEndpoint returns the current WireGuard endpoint (thread-safe).
-func (n *LocalNode) GetEndpoint() string {
-	n.endpointMu.RLock()
-	defer n.endpointMu.RUnlock()
-	return n.wgEndpoint
-}
-
-// SetEndpoint updates the WireGuard endpoint (thread-safe).
-func (n *LocalNode) SetEndpoint(ep string) {
-	n.endpointMu.Lock()
-	defer n.endpointMu.Unlock()
-	n.wgEndpoint = ep
-}
-
-// EndpointSource names where an endpoint observation came from.
-type EndpointSource string
-
-const (
-	// EndpointInterface is a global IPv6 address read from a local interface.
-	EndpointInterface EndpointSource = "interface"
-	// EndpointReflection is the address a peer reflected back to us.
-	EndpointReflection EndpointSource = "reflection"
-	// EndpointSTUN is the answer of a STUN server.
-	EndpointSTUN EndpointSource = "stun"
-	// EndpointSTUNResume is a STUN answer fetched on purpose right after a
-	// wake from sleep (ADR-0004 M5). The node's mapping is known to be stale,
-	// so unlike EndpointSTUN it applies at once and discards a pending value.
-	EndpointSTUNResume EndpointSource = "stun-resume"
-)
-
-// stunConfirmations is how many identical STUN observations in a row replace
-// a usable endpoint (#828: dual-egress networks flapped between a STUN answer
-// and a peer reflection).
-const stunConfirmations = 3
-
-// ObserveEndpoint applies an observed endpoint and reports whether the
-// announced endpoint changed. While the current endpoint is empty or
-// unspecified any source applies at once. An interface address or a peer
-// reflection applies at once and discards a pending STUN value. A STUN answer
-// that differs from the current endpoint applies only on its third identical
-// observation in a row; one equal to it discards the pending value.
-// It sets the field itself under endpointMu and does not call SetEndpoint:
-// SetEndpoint takes endpointMu too, so calling it here would deadlock.
-func (n *LocalNode) ObserveEndpoint(source EndpointSource, endpoint string) bool {
-	n.endpointMu.Lock()
-	defer n.endpointMu.Unlock()
-	if source == EndpointSTUN && endpoint != n.wgEndpoint && !endpointUnspecified(n.wgEndpoint) {
-		if endpoint == n.pendingSTUN {
-			n.pendingSTUNCount++
-		} else {
-			n.pendingSTUN, n.pendingSTUNCount = endpoint, 1
-		}
-		if n.pendingSTUNCount < stunConfirmations {
-			return false
-		}
-	}
-	n.pendingSTUN, n.pendingSTUNCount = "", 0
-	changed := n.wgEndpoint != endpoint
-	n.wgEndpoint = endpoint
-	return changed
-}
-
-// endpointUnspecified reports whether ep is empty or has an unspecified
-// host (0.0.0.0, ::).
-func endpointUnspecified(ep string) bool {
-	if ep == "" {
-		return true
-	}
-	host, _, err := net.SplitHostPort(ep)
-	if err != nil {
-		return false
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsUnspecified()
-}
-
-// GetRoutableNetworks returns a copy of the advertised networks (thread-safe).
-func (n *LocalNode) GetRoutableNetworks() []string {
-	n.routesMu.RLock()
-	defer n.routesMu.RUnlock()
-	return append([]string(nil), n.RoutableNetworks...)
-}
-
-// SetRoutableNetworks stores a copy of the advertised networks (thread-safe).
-func (n *LocalNode) SetRoutableNetworks(networks []string) {
-	networks = append([]string(nil), networks...)
-	n.routesMu.Lock()
-	defer n.routesMu.Unlock()
-	n.RoutableNetworks = networks
 }
 
 // DiscoveryLayer is the interface for discovery implementations
@@ -428,7 +265,7 @@ func (d *Daemon) admitPolicy() *Policy {
 			if d.localNode == nil {
 				return "", ""
 			}
-			return d.localNode.WGPubKey, d.localNode.GetMeshIP()
+			return d.localNode.Identity()
 		},
 		MeshNet:      d.meshNet(),
 		Derive:       d.deriveMeshIP,
@@ -502,8 +339,8 @@ func (d *Daemon) Run() error {
 
 	log.Printf("Local node: %s...", shortKey(d.localNode.WGPubKey))
 	log.Printf("Mesh IP: %s", d.localNode.GetMeshIP())
-	if d.localNode.GetMeshIPv6() != "" {
-		log.Printf("Mesh IPv6: %s", d.localNode.GetMeshIPv6())
+	if ip6 := d.localNode.GetMeshIPv6(); ip6 != "" {
+		log.Printf("Mesh IPv6: %s", ip6)
 	}
 
 	// Setup WireGuard interface
@@ -644,14 +481,35 @@ func (d *Daemon) initLocalNode() error {
 	// Try to load existing key from state file
 	d.stateFile = filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
 	stateFile := d.stateFile
+	quarantined := false
 	node, err := loadLocalNode(stateFile)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrStateMissing):
+			// No identity yet: generate one below.
+		case errors.Is(err, ErrStateCorrupt):
+			if RefuseCorruptState {
+				return fmt.Errorf("local node state file %s is corrupt and RefuseCorruptState is set, so it was left untouched; to start, move the file away (a new identity is then created) or restore a good copy of it, then restart: %w", stateFile, err)
+			}
+			moved, qerr := quarantineState(stateFile)
+			if qerr != nil {
+				return fmt.Errorf("local node state file %s is corrupt and could not be moved aside: %w", stateFile, qerr)
+			}
+			quarantined = true
+			log.Printf("Local node state file %s is corrupt and was replaced by a new identity (new key, new mesh IP; peers will see a new node). The old file is kept at %s; to restore it, stop the daemon and rename that file back to %s", stateFile, moved, stateFile)
+		default:
+			return fmt.Errorf("failed to read local node state file %s: %w", stateFile, err)
+		}
+	}
+	// On the missing and quarantined paths err stays non-nil, and that is what
+	// skips this load and falls through to generating a new identity.
 	if err == nil && node != nil {
 		d.localNode = node
 
 		// Use the persisted mesh IP when it is present and falls within the
 		// expected subnet. Re-derive only when the field is absent (old state
 		// file) or the configured subnet has changed.
-		if node.MeshIP != "" && meshIPInSubnet(node.MeshIP, d.config) {
+		if cur := node.GetMeshIP(); cur != "" && meshIPInSubnet(cur, d.config) {
 			// Persisted IP is valid — keep it so that secret rotation does not
 			// change the node's address.
 		} else {
@@ -672,7 +530,7 @@ func (d *Daemon) initLocalNode() error {
 
 		// Always re-derive IPv6; IPv6 addresses are not globally routable and
 		// subnet pinning is not applicable for the /64 ULA prefix.
-		if node.MeshIPv6 == "" {
+		if node.GetMeshIPv6() == "" {
 			d.localNode.SetMeshIPv6(crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret))
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
 				log.Printf("Warning: failed to save local node state: %v", err)
@@ -680,7 +538,7 @@ func (d *Daemon) initLocalNode() error {
 		}
 
 		d.localNode.SetRoutableNetworks(d.config.AdvertiseRoutes)
-		d.localNode.Introducer = d.config.Introducer
+		d.localNode.SetIntroducer(d.config.Introducer)
 		d.localNode.Hostname = hostname
 		return nil
 	}
@@ -704,18 +562,17 @@ func (d *Daemon) initLocalNode() error {
 	}
 	meshIPv6 := crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, publicKey, d.config.Secret)
 
-	d.localNode = &LocalNode{
-		WGPubKey:         publicKey,
-		WGPrivateKey:     privateKey,
-		MeshIP:           meshIP,
-		MeshIPv6:         meshIPv6,
-		RoutableNetworks: d.config.AdvertiseRoutes,
-		Introducer:       d.config.Introducer,
-		Hostname:         hostname,
-	}
+	d.localNode = NewLocalNode(publicKey, privateKey, hostname, meshIP, meshIPv6)
+	d.localNode.SetRoutableNetworks(d.config.AdvertiseRoutes)
+	d.localNode.SetIntroducer(d.config.Introducer)
 
 	// Save to state file
 	if err := saveLocalNode(stateFile, d.localNode); err != nil {
+		if quarantined {
+			// The old identity was moved aside: running on a key that is not on
+			// disk would create another new identity at every start.
+			return fmt.Errorf("the new identity could not be saved to %s after the corrupt file was moved aside: %w", stateFile, err)
+		}
 		log.Printf("Warning: failed to save local node state: %v", err)
 	}
 
@@ -768,8 +625,8 @@ func (d *Daemon) setupWireGuard() error {
 	if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.GetMeshIP(), d.config.PrefixLen())); err != nil {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}
-	if d.localNode.GetMeshIPv6() != "" {
-		if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.GetMeshIPv6(), meshPrefixLenV6)); err != nil {
+	if ip6 := d.localNode.GetMeshIPv6(); ip6 != "" {
+		if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", ip6, meshPrefixLenV6)); err != nil {
 			// IPv6 may be disabled by sysctl; the IPv4 mesh still works.
 			log.Printf("Warning: failed to set mesh IPv6 address, continuing IPv4-only: %v", err)
 			d.localNode.SetMeshIPv6("")
@@ -1135,13 +992,17 @@ func (d *Daemon) healthMonitorLoop() {
 }
 
 func (d *Daemon) startMeshProbeServer() error {
-	if d.localNode == nil || d.localNode.GetMeshIP() == "" {
+	if d.localNode == nil {
+		return fmt.Errorf("local mesh IP not initialized")
+	}
+	meshIP, ip6 := d.localNode.GetMeshIP(), d.localNode.GetMeshIPv6()
+	if meshIP == "" {
 		return fmt.Errorf("local mesh IP not initialized")
 	}
 
-	listenAddrs := []string{net.JoinHostPort(d.localNode.GetMeshIP(), strconv.Itoa(d.healthProbePort))}
-	if d.localNode.GetMeshIPv6() != "" {
-		listenAddrs = append(listenAddrs, net.JoinHostPort(d.localNode.GetMeshIPv6(), strconv.Itoa(d.healthProbePort)))
+	listenAddrs := []string{net.JoinHostPort(meshIP, strconv.Itoa(d.healthProbePort))}
+	if ip6 != "" {
+		listenAddrs = append(listenAddrs, net.JoinHostPort(ip6, strconv.Itoa(d.healthProbePort)))
 	}
 
 	started := 0
@@ -1461,13 +1322,17 @@ func (d *Daemon) probeLocalAddrForRemote(remote string) net.Addr {
 		return nil
 	}
 	if ip.To4() != nil {
-		if d.localNode != nil && d.localNode.GetMeshIP() != "" {
-			return &net.TCPAddr{IP: net.ParseIP(d.localNode.GetMeshIP())}
+		if d.localNode != nil {
+			if ip4 := d.localNode.GetMeshIP(); ip4 != "" {
+				return &net.TCPAddr{IP: net.ParseIP(ip4)}
+			}
 		}
 		return nil
 	}
-	if d.localNode != nil && d.localNode.GetMeshIPv6() != "" {
-		return &net.TCPAddr{IP: net.ParseIP(d.localNode.GetMeshIPv6())}
+	if d.localNode != nil {
+		if ip6 := d.localNode.GetMeshIPv6(); ip6 != "" {
+			return &net.TCPAddr{IP: net.ParseIP(ip6)}
+		}
 	}
 	return nil
 }
@@ -1758,8 +1623,8 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	log.Printf("Local node: %s...", shortKey(d.localNode.WGPubKey))
 	log.Printf("Mesh IP: %s", d.localNode.GetMeshIP())
-	if d.localNode.GetMeshIPv6() != "" {
-		log.Printf("Mesh IPv6: %s", d.localNode.GetMeshIPv6())
+	if ip6 := d.localNode.GetMeshIPv6(); ip6 != "" {
+		log.Printf("Mesh IPv6: %s", ip6)
 	}
 	log.Printf("Network ID: %x (both nodes must show the same ID to find each other)", d.config.Keys.NetworkID[:8])
 
@@ -1814,7 +1679,11 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		if err := rpcServer.Start(); err != nil {
 			log.Printf("Warning: failed to start RPC server: %v", err)
 		} else {
-			defer rpcServer.Stop()
+			defer func() {
+				if err := rpcServer.Stop(); err != nil {
+					log.Printf("Warning: failed to stop RPC server: %v", err)
+				}
+			}()
 		}
 	}
 
@@ -1948,8 +1817,6 @@ func (d *Daemon) ownRoutableNetworks() []string {
 
 // GetLogLevel returns the current log level (thread-safe).
 func (d *Daemon) GetLogLevel() string {
-	d.configMu.RLock()
-	defer d.configMu.RUnlock()
 	return d.config.GetLogLevel()
 }
 
@@ -2119,9 +1986,10 @@ func (d *Daemon) GetRPCStatus() *RPCStatusData {
 		// Return nil if local node is not initialized yet
 		return nil
 	}
+	pubKey, meshIP := d.localNode.Identity()
 	return &RPCStatusData{
-		MeshIP:    d.localNode.GetMeshIP(),
-		PubKey:    d.localNode.WGPubKey,
+		MeshIP:    meshIP,
+		PubKey:    pubKey,
 		Uptime:    d.GetUptime(),
 		Interface: d.config.InterfaceName,
 	}

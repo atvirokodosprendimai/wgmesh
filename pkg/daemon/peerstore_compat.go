@@ -13,6 +13,8 @@ type Hand = node.Hand
 type Source = node.Source
 type Decision = node.Decision
 type Policy = node.Policy
+type LocalNode = node.LocalNode
+type EndpointSource = node.EndpointSource
 type Liveness = node.Liveness
 type Evidence = node.Evidence
 
@@ -35,4 +37,14 @@ const (
 	Restored   = node.Restored
 )
 
+const (
+	EndpointInterface  = node.EndpointInterface
+	EndpointReflection = node.EndpointReflection
+	EndpointSTUN       = node.EndpointSTUN
+	EndpointSTUNResume = node.EndpointSTUNResume
+)
+
 func NewPeerStore() *PeerStore { return node.NewPeerStore() }
+func NewLocalNode(pubKey, privKey, hostname, meshIP, meshIPv6 string) *LocalNode {
+	return node.NewLocalNode(pubKey, privKey, hostname, meshIP, meshIPv6)
+}

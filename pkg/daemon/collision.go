@@ -111,12 +111,17 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 // CheckAndResolveCollisions checks for collisions and resolves them. When the
 // local node loses and moves to a nonce-derived address, the address is written
 // to the local node state file, so it survives a restart (#830).
+// The check (is the address still the colliding one), the move and the interface
+// address are one check-then-set. Callers outside reconcile() must not run it
+// at the same time as reconcile: reconcileMu serializes reconcile(), which is
+// the only production caller (reconcileLoop and handleSIGHUP).
 func (d *Daemon) CheckAndResolveCollisions() {
 	d.collisionMu.Lock()
 	defer d.collisionMu.Unlock()
 	var local node.Claim
 	if d.localNode != nil {
-		local = node.Claim{Key: d.localNode.WGPubKey, IP: d.localNode.GetMeshIP()}
+		key, ip := d.localNode.Identity()
+		local = node.Claim{Key: key, IP: ip}
 	}
 	collisions := DetectCollisions(d.peerStore, local)
 	if len(collisions) == 0 {

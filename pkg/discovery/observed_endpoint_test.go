@@ -12,7 +12,7 @@ func observedNode(t *testing.T, ep string) (*PeerExchange, *daemon.LocalNode) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ln := &daemon.LocalNode{WGPubKey: "local-pubkey", MeshIP: "10.0.0.1"}
+	ln := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	ln.SetEndpoint(ep)
 	return NewPeerExchange(cfg, ln, daemon.NewPeerStore()), ln
 }

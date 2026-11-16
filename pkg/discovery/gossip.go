@@ -232,16 +232,11 @@ func (g *MeshGossip) exchangeWithRandomPeer(conn *net.UDPConn) {
 		}
 	}
 
+	s := g.localNode.Snapshot()
 	announcement := crypto.CreateAnnouncement(
-		g.localNode.WGPubKey,
-		g.localNode.GetMeshIP(),
-		g.localNode.GetEndpoint(),
-		g.localNode.Introducer,
-		g.localNode.GetRoutableNetworks(),
+		s.PubKey, s.MeshIP, s.Endpoint, s.Introducer, s.Routes,
 		knownPeers,
-		g.localNode.Hostname,
-		g.localNode.GetMeshIPv6(),
-		string(g.localNode.GetNATType()),
+		s.Hostname, s.MeshIPv6, s.NATType,
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, g.gossipKey)

@@ -14,7 +14,7 @@ import (
 func newTestDaemon() *Daemon {
 	d := &Daemon{
 		peerStore: NewPeerStore(),
-		localNode: &LocalNode{NATType: "unknown"},
+		localNode: nodeWithNAT("", "unknown"),
 	}
 	return d
 }

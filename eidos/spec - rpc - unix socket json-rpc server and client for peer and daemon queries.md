@@ -26,7 +26,8 @@ exposes peer and daemon state, and a matching client used by the CLI.
   3. `$XDG_RUNTIME_DIR/wgmesh.sock` — for non-root systemd sessions.
   4. `/tmp/wgmesh.sock` — last resort.
 - Existing socket at the target path is removed on server start (handles stale sockets from prior crashes). Fails if the path exists but is not a socket.
-- On `Stop()`: cancels context, closes listener, removes socket file.
+- **Socket lock (ADR-0005).** `NewServer` first takes an exclusive `flock` on `<socket path>.lock` (beside the socket: `/var/run`, `$XDG_RUNTIME_DIR` or `/tmp`), and only then removes a stale socket. The lock file holds the pid and is never removed. A second daemon that resolves the same socket path (the default path has no interface in it) gets an error from `NewServer` that names the holder's pid and says to use `--socket-path` (or `WGMESH_SOCKET`); `main.go` treats that error as "continue without RPC", so the second daemon runs without RPC and logs a warning. `wgmesh status` and the other client commands talk to the first daemon. The protection is one-sided: a release without the lock still unlinks a live socket. A lock file in the world-writable `/tmp` fallback owned by another user gives `EACCES`; a symlink planted at the lock path is refused (`O_NOFOLLOW`). `pkg/rpc` and `pkg/flock` build on unix only.
+- On `Stop()`: cancels context, closes listener, removes socket file, releases the lock and logs `RPC server stopped`. `Start` after `Stop`, or after a failed `Start`, returns an error: the lock is gone and a new server must be built.
 
 ### Protocol
 

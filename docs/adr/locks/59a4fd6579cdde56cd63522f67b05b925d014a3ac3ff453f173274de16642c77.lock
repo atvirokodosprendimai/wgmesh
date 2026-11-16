@@ -1,0 +1,3 @@
+check@2	absent
+body	pkg/atomicfile/guard_test.go	TestNoInPlaceStateWrite	134655b36bdd5b5b220f79ab7efb8a980a4914ba52d9b7cdd0bee6e68c0519a0
+body	pkg/atomicfile/guard_test.go	TestNoPrivateRenameCopy	d25246e2aec8f6ff1a5e0f308b6995bc9d909228abd33ea7203f9f1e760f7d97

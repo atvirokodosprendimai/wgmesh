@@ -531,12 +531,7 @@ func TestLocalNodeStatePersistsMeshIP(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "wg0.json")
 
-	original := &LocalNode{
-		WGPubKey:     "pub-key-abc",
-		WGPrivateKey: "priv-key-xyz",
-		MeshIP:       "10.42.7.33",
-		MeshIPv6:     "fd12:3456:789a:0001::1",
-	}
+	original := NewLocalNode("pub-key-abc", "priv-key-xyz", "", "10.42.7.33", "fd12:3456:789a:0001::1")
 
 	if err := saveLocalNode(path, original); err != nil {
 		t.Fatalf("saveLocalNode: %v", err)
@@ -547,11 +542,11 @@ func TestLocalNodeStatePersistsMeshIP(t *testing.T) {
 		t.Fatalf("loadLocalNode: %v", err)
 	}
 
-	if loaded.MeshIP != original.MeshIP {
-		t.Errorf("MeshIP: got %q, want %q", loaded.MeshIP, original.MeshIP)
+	if loaded.GetMeshIP() != original.GetMeshIP() {
+		t.Errorf("MeshIP: got %q, want %q", loaded.GetMeshIP(), original.GetMeshIP())
 	}
-	if loaded.MeshIPv6 != original.MeshIPv6 {
-		t.Errorf("MeshIPv6: got %q, want %q", loaded.MeshIPv6, original.MeshIPv6)
+	if loaded.GetMeshIPv6() != original.GetMeshIPv6() {
+		t.Errorf("MeshIPv6: got %q, want %q", loaded.GetMeshIPv6(), original.GetMeshIPv6())
 	}
 }
 
@@ -571,11 +566,11 @@ func TestLocalNodeStateBackwardCompatibility(t *testing.T) {
 		t.Fatalf("loadLocalNode: %v", err)
 	}
 
-	if loaded.MeshIP != "" {
-		t.Errorf("expected empty MeshIP for old state file, got %q", loaded.MeshIP)
+	if loaded.GetMeshIP() != "" {
+		t.Errorf("expected empty MeshIP for old state file, got %q", loaded.GetMeshIP())
 	}
-	if loaded.MeshIPv6 != "" {
-		t.Errorf("expected empty MeshIPv6 for old state file, got %q", loaded.MeshIPv6)
+	if loaded.GetMeshIPv6() != "" {
+		t.Errorf("expected empty MeshIPv6 for old state file, got %q", loaded.GetMeshIPv6())
 	}
 }
 

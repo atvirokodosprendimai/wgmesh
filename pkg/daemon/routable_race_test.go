@@ -7,12 +7,13 @@ import (
 	"time"
 )
 
-// A SIGHUP reload replaces localNode.RoutableNetworks under configMu while
-// reconcile reads it to leave out the node's own networks. Run under -race.
+// A SIGHUP reload replaces the local node's routes (SetRoutableNetworks, under
+// the node's routesMu; reloadConfig holds configMu for the config fields) while
+// reconcile reads them to leave out the node's own networks. Run under -race.
 func TestReloadConcurrentWithOwnNetworkReads(t *testing.T) {
 	d := makeRelayTestDaemon()
 	d.config.InterfaceName = "wg0"
-	d.localNode.RoutableNetworks = []string{"192.168.10.0/24"}
+	d.localNode.SetRoutableNetworks([]string{"192.168.10.0/24"})
 	peers := []*PeerInfo{{
 		WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(),
 		RoutableNetworks: []string{"192.168.10.0/24", "192.168.20.0/24"},

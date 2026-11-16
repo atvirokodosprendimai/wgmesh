@@ -20,7 +20,7 @@ func TestSharedSubnetNeverRoutedThroughMesh(t *testing.T) {
 	newDaemon := func() (*Daemon, []*PeerInfo) {
 		d := makeRelayTestDaemon()
 		d.config.InterfaceName = "wg0"
-		d.localNode.RoutableNetworks = []string{shared}
+		d.localNode.SetRoutableNetworks([]string{shared})
 		peer := &PeerInfo{
 			WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(),
 			RoutableNetworks: []string{shared, disjoint},
@@ -74,7 +74,7 @@ func TestSharedSubnetNotRelayedThroughMesh(t *testing.T) {
 
 	d := makeRelayTestDaemon()
 	d.config.ForceRelay = true
-	d.localNode.RoutableNetworks = []string{shared}
+	d.localNode.SetRoutableNetworks([]string{shared})
 	relay := &PeerInfo{
 		WGPubKey: "relay1", MeshIP: "10.0.0.10", Endpoint: "1.2.3.4:51820",
 		Introducer: true, LastSeen: time.Now(),
@@ -100,7 +100,7 @@ func TestSharedSubnetNotRelayedThroughMesh(t *testing.T) {
 func TestReconnectAllowedCSVExcludesOwnNetworks(t *testing.T) {
 	d := makeRelayTestDaemon()
 	k := wireReconnectKernel(t, d)
-	d.localNode.RoutableNetworks = []string{"192.168.10.0/24"}
+	d.localNode.SetRoutableNetworks([]string{"192.168.10.0/24"})
 	peer := &PeerInfo{
 		WGPubKey: "peer1", MeshIP: "10.0.0.20", Endpoint: "5.6.7.8:51820",
 		RoutableNetworks: []string{"192.168.10.0/24", "192.168.20.0/24"},
@@ -125,7 +125,7 @@ func TestRemovedOwnViaRouteRestoresConnectedRoute(t *testing.T) {
 
 	d := makeRelayTestDaemon()
 	d.config.InterfaceName = "wg0"
-	d.localNode.RoutableNetworks = []string{shared}
+	d.localNode.SetRoutableNetworks([]string{shared})
 	peer := &PeerInfo{WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(), RoutableNetworks: []string{shared}}
 
 	var cmds []string
@@ -174,7 +174,7 @@ func TestFailedDelDoesNotRestoreConnectedRoute(t *testing.T) {
 
 	d := makeRelayTestDaemon()
 	d.config.InterfaceName = "wg0"
-	d.localNode.RoutableNetworks = []string{shared}
+	d.localNode.SetRoutableNetworks([]string{shared})
 	peer := &PeerInfo{WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(), RoutableNetworks: []string{shared}}
 
 	var cmds []string
