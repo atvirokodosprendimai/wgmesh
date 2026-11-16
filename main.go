@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -34,17 +35,18 @@ func versionOutput() string {
 }
 
 func main() {
-	// Check for version flags first (--version or -v)
-	for _, arg := range os.Args[1:] {
-		if arg == "--version" || arg == "-v" {
-			fmt.Println(versionOutput())
-			return
-		}
+	// --version and -v count only as the first argument, so a subcommand's own flags are its own
+	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
+		fmt.Println(versionOutput())
+		return
 	}
 
 	// Check for subcommands first
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "help", "-h", "--help":
+			printUsage(os.Stdout)
+			return
 		case "version":
 			fmt.Println(versionOutput())
 			return
@@ -88,6 +90,12 @@ func main() {
 			referralCmd()
 			return
 		}
+	}
+
+	// A first word that is not a flag and matched no subcommand is a typo, not legacy mode
+	if len(os.Args) == 1 || !strings.HasPrefix(os.Args[1], "-") {
+		printUsage(os.Stderr)
+		os.Exit(2)
 	}
 
 	// Original CLI mode
@@ -181,17 +189,17 @@ func main() {
 		fmt.Println("Deployment completed successfully")
 
 	default:
-		printUsage()
+		printUsage(os.Stdout)
 		os.Exit(1)
 	}
 }
 
-func printUsage() {
-	fmt.Println(`wgmesh - WireGuard mesh network builder
+func printUsage(w io.Writer) {
+	fmt.Fprintln(w, `wgmesh - WireGuard mesh network builder
 
 FLAGS:
   --version, -v               Show version information
-  -state <file>    Path to mesh state file (default: ` + filepath.Join(defaultStateDir, "mesh-state.json") + `)
+  -state <file>    Path to mesh state file (default: `+filepath.Join(defaultStateDir, "mesh-state.json")+`)
   -add <spec>      Add node (format: hostname:ip:ssh_host[:ssh_port])
   -remove <name>   Remove node by hostname
   -list            List all nodes

@@ -52,6 +52,9 @@ const (
 	// MaxContactedPeers is the hard cap on the contacted-address map. At the
 	// cap a new address is refused (fail closed) until a sweep frees room.
 	MaxContactedPeers = 8192
+	// contactSweepThreshold is the map size above which markContacted looks
+	// for expired entries; below it the map is too small to matter.
+	contactSweepThreshold = 256
 )
 
 type backoffEntry struct {
@@ -907,10 +910,42 @@ func (d *DHTDiscovery) clock() time.Time {
 }
 
 // sweepPeerKeyed deletes controlPeers and rendezvousBackoff entries whose key
-// the PeerStore no longer holds.
-func (d *DHTDiscovery) sweepPeerKeyed() {}
+// the PeerStore no longer holds (ADR-0007 Decision 3). A key the store lacks
+// is a key not in its peers map: a tombstone is not a peer, so a withdrawn
+// peer is swept like any absent one. d.mu is released before the PeerStore
+// lock is taken. A key that returns between the check and the delete loses
+// its entry, which restarts its backoff at the minimum, as for a new peer.
+func (d *DHTDiscovery) sweepPeerKeyed() {
+	d.mu.RLock()
+	keys := make([]string, 0, len(d.controlPeers)+len(d.rendezvousBackoff))
+	for k := range d.controlPeers {
+		keys = append(keys, k)
+	}
+	for k := range d.rendezvousBackoff {
+		keys = append(keys, k)
+	}
+	d.mu.RUnlock()
+
+	var gone []string
+	for _, k := range keys {
+		if _, ok := d.peerStore.Get(k); !ok {
+			gone = append(gone, k)
+		}
+	}
+	if len(gone) == 0 {
+		return
+	}
+
+	d.mu.Lock()
+	for _, k := range gone {
+		delete(d.controlPeers, k)
+		delete(d.rendezvousBackoff, k)
+	}
+	d.mu.Unlock()
+}
 
 func (d *DHTDiscovery) checkStaleHandshakes() {
+	d.sweepPeerKeyed()
 	peers := d.peerStore.GetActive()
 	for _, peer := range peers {
 		if peer.WGPubKey == "" || peer.WGPubKey == d.localNode.WGPubKey {
@@ -1497,15 +1532,35 @@ func hasAnyDHTReachability(methods []string) bool {
 }
 
 func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) bool {
+	now := d.clock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	if lastContact, ok := d.contactedPeers[addr]; ok {
-		if time.Since(lastContact) < minInterval {
-			return false
+	// Sweep entries a caller can no longer need (ADR-0007 Decision 3), at most
+	// once per window. lastContactSweep and lastCapLog are read and written
+	// only here, under d.mu.
+	if len(d.contactedPeers) > contactSweepThreshold && now.Sub(d.lastContactSweep) >= ContactDedupWindow {
+		for a, at := range d.contactedPeers {
+			if now.Sub(at) >= ContactDedupWindow {
+				delete(d.contactedPeers, a)
+			}
 		}
+		d.lastContactSweep = now
 	}
 
-	d.contactedPeers[addr] = time.Now()
+	if lastContact, ok := d.contactedPeers[addr]; ok {
+		if now.Sub(lastContact) < minInterval {
+			return false
+		}
+	} else if len(d.contactedPeers) >= MaxContactedPeers {
+		// Fail closed: a new address is refused until a sweep frees room.
+		if now.Sub(d.lastCapLog) >= ContactDedupWindow {
+			log.Printf("[DHT] contacted-address map is at its cap of %d, refusing new addresses until entries expire", MaxContactedPeers)
+			d.lastCapLog = now
+		}
+		return false
+	}
+
+	d.contactedPeers[addr] = now
 	return true
 }
