@@ -112,7 +112,7 @@ What would make this decision fail: (a) a writer that bypasses the helper, caugh
 | `LocalNode.GetMeshIP/SetMeshIP`, `GetMeshIPv6/SetMeshIPv6`, `GetNATType/SetNATType`, `IsIntroducer/SetIntroducer`, `Identity()`, `Snapshot()`, `NewLocalNode(...)` (`GetRoutableNetworks`/`SetRoutableNetworks` exist since PR #895) | new | `pkg/node` | `exchange.go`, `lan.go`, `gossip.go`, `dht.go`, `daemon.go`, `collision.go` |
 | `LocalNode.MeshIP`, `MeshIPv6`, `NATType`, `Introducer`, `RoutableNetworks` exported fields | removed (unexported): a SOURCE break for a Go program that imports `pkg/daemon` or `pkg/node` and touches them; no wire, state file, RPC or log change. Decision of the coordinator 2026-11-16 (M: decide small design details yourself): no deprecation release, because `pkg/` has no supported library API (README documents the CLI and the daemon only; no importer found in the checkouts) and a field that stays exported cannot be locked; the release note (T11) says it | `pkg/node` | Go importers (none known) |
 | `PeerExchange.registerReply(remote)`, `pendingReplyChannels(remote)` | replaces `setPendingReplyChannel` / `clearPendingReplyChannel` / `getPendingReplyChannel` | `pkg/discovery` | `ExchangeWithPeer`, `handleReply` |
-| `PeerExchange.listenLoop(stopCh, conn)`, `DHTDiscovery.Start` fresh context | None — implementation-internal only | `pkg/discovery` | — |
+| `PeerExchange.listenLoop(stopCh, conn, wg)`, `PeerExchange.Stop` waits for it, `DHTDiscovery.Start` fresh context and running set after the layers started | None — implementation-internal only | `pkg/discovery` | — |
 | State file formats, announcement JSON, envelope bytes, exit code of a normal `join` | None — nothing changes shape | — | — |
 
 ## Inter-task Contracts

@@ -4,7 +4,7 @@
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
-**Produces:** `listenLoop(stopCh, conn)`; a fresh context per `DHTDiscovery.Start`
+**Produces:** `listenLoop(stopCh, conn, wg)`; `PeerExchange.Stop` waits for the loop; a fresh context per `DHTDiscovery.Start`, `running` set after the layers started
 **Consumes:** none
 **Data dependency:** hermetic
 **Proof map:** v1
@@ -21,13 +21,13 @@ After `Stop` then `Start`, the exchange has exactly one listen loop and the DHT 
 | `pkg/discovery/dht.go` | edit | `DHTDiscovery` keeps `parentCtx`; `Start` derives `ctx, cancel` under `d.mu` through `beginRun()` that returns the "already running" error; `running` is set true only after the exchange, gossip and the DHT server started, and on a startup error the layers already started are stopped and `running` stays false (the leaked LAN layer of #894) |
 | `pkg/discovery/restart_test.go` | add | tests below |
 
-Selection: `DHTDiscovery.Start` and `PeerExchange.Start` are the only starters; the exchange test fails if the loop reads the struct fields again, the DHT test fails if the context is not recreated.
+Selection: `DHTDiscovery.Start` and `PeerExchange.Start` are the only starters; the exchange tests fail if `Stop` does not wait for the loop or the loop outlives a restart, the DHT tests fail if the context is not recreated or `running` is set before the layers started. Passing `stopCh`, `conn` and `wg` as arguments is the rule of M 2026-11-16 (no bare shared state), not a test target: with `Stop` waiting, a mutant that reads `pe.stopCh` again is equivalent, so only a test that starts a loop with arguments different from the struct fields kills it (TestListenLoopUsesItsArguments).
 
 Ordering note: follows T9 (same file) and ADR-0002 T9 (`dht.go`); `Start` and `Stop` hunks at `dht.go:104-215` are not edited by ADR-0002.
 
 ## Ordered Steps
 
-1. [S1] Add the four tests with the `loops` counter present (so the build holds) and run red: after `Start`, `Stop`, `Start` the count is 2 with the old loop alive, and `d.ctx.Err()` is non-nil after a restart.
+1. [S1] Add the tests with the `loops` counter present (so the build holds) and run red: after `Start`, `Stop`, `Start` the count is 2 with the old loop alive, and `d.ctx.Err()` is non-nil after a restart.
 2. [S2] Pass the arguments to `listenLoop`; read `running` under the lock.
 3. [S3] Add `beginRun` and `parentCtx`; `Stop` keeps cancelling the current `ctx`.
 4. [S4] [proof: human: a full DHT layer restart against the real network was not run, it needs a bootstrap and STUN; the tests cover the context and the exchange] Record whether a restart was run on a development host, with date, in the sign-off.
@@ -37,7 +37,7 @@ Ordering note: follows T9 (same file) and ADR-0002 T9 (`dht.go`); `Start` and `S
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/discovery -run '^(TestPeerExchangeRestartKeepsOneLoop|TestPeerExchangeStopEndsTheLoop|TestDHTBeginRunGivesLiveContext|TestDHTRestartContextFollowsParent|TestPeerExchangeStopWaitsForLoop|TestDHTStartFailureLeavesNotRunning)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 6 ] && go test -race ./pkg/discovery -count=1
+n=$(go test ./pkg/discovery -run '^(TestPeerExchangeRestartKeepsOneLoop|TestPeerExchangeStopEndsTheLoop|TestDHTBeginRunGivesLiveContext|TestDHTRestartContextFollowsParent|TestPeerExchangeStopWaitsForLoop|TestDHTStartFailureLeavesNotRunning|TestDHTStopStartWithLiveLoops|TestDHTStopWaitsForLoops|TestPeerExchangeWithPeerDuringRestart|TestDHTStopDuringStartStopsTheRun|TestDHTStopThenStartRace|TestDHTHelpersEndWithTheirCallersContext|TestDHTStartAfterParentCancelled|TestDHTNoStaleGossip|TestListenLoopUsesItsArguments)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 15 ] && go test -race ./pkg/discovery -count=1
 ```
 
 ## Tests
@@ -50,12 +50,21 @@ n=$(go test ./pkg/discovery -run '^(TestPeerExchangeRestartKeepsOneLoop|TestPeer
 | `TestDHTRestartContextFollowsParent` | `pkg/discovery/restart_test.go` | cancelling the parent context ends the restarted context | — | S1, S3 |
 | `TestPeerExchangeStopWaitsForLoop` | `pkg/discovery/restart_test.go` | right after `Stop` returns the `loops` counter is 0 (no polling): `Stop` waited for the loop; clean under `-race` with Start and Stop in a 20-iteration loop (the reviewer's reproduction of #894 item 2) | — | S1, S2 |
 | `TestDHTStartFailureLeavesNotRunning` | `pkg/discovery/restart_test.go` | a startup error of a sub-layer leaves `running` false and the already started layers stopped | — | S1, S3 |
+| `TestDHTStopStartWithLiveLoops` | `pkg/discovery/restart_test.go` | a full hermetic DHT Start, Stop, Start with live loops is clean under `-race` and each Start's error is checked (found by the panel: `server`, `lan`, `gossip`, `dhtPort` were written and read without `d.mu`) | — | S1, S3 |
+| `TestDHTStopWaitsForLoops` | `pkg/discovery/restart_test.go` | the `loops` seam of the DHT is at least 1 while running and 0 right after `Stop` (Stop waits for the loops, bounded 3 s) | — | S1, S3 |
+| `TestPeerExchangeWithPeerDuringRestart` | `pkg/discovery/restart_test.go` | `ExchangeWithPeer` during a Stop/Start reads the port through `Port()` (no bare `pe.port`) under `-race` | — | S1, S2 |
+| `TestDHTStopDuringStartStopsTheRun` | `pkg/discovery/restart_test.go` | a `Stop` issued while a `Start` is in progress waits for it and then stops the run (`runMu` serializes Start and Stop) | — | S1, S3 |
+| `TestDHTStopThenStartRace` | `pkg/discovery/restart_test.go` | `go Stop(); Start()` in a loop under `-race`: if Start returns nil everything runs, if it returns "already running" nothing does (guard, not red on the old code) | — | S1, S3 |
+| `TestDHTHelpersEndWithTheirCallersContext` | `pkg/discovery/restart_test.go` | `announceToInfohash` and `queryInfohash` end with the context their loop passed, not the current run's | — | S1, S3 |
+| `TestDHTStartAfterParentCancelled` | `pkg/discovery/restart_test.go` | `Start` after the parent context ended returns an error | — | S1, S3 |
+| `TestDHTNoStaleGossip` | `pkg/discovery/restart_test.go` | a failed Start, or a run with gossip off, does not keep the previous run's gossip | — | S1, S3 |
+| `TestListenLoopUsesItsArguments` | `pkg/discovery/restart_test.go` | a loop started with a stop channel that is not `pe.stopCh` ends when only that channel is closed (kills the mutant that reads the struct field) | — | S1, S2 |
 
 ## Reachability
 
 | Rung | How this task shows it |
 |------|------------------------|
-| 1 — exists | the four tests |
+| 1 — exists | the tests of the table |
 | 2 — something selects it | `Start` of both types calls the new code; the mutants turn the tests red |
 | 3 — the caller can discover it | doc comments on `Start` say "restart-safe"; T11 amends the DHT core and exchange specs |
 | 4 — it is used | no code restarts them today; #829 would (another group) |
