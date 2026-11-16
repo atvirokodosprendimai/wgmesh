@@ -147,6 +147,15 @@ var EnforceRevertOnExit atomic.Bool
 // decided once, by the first tick that observes the item or writes it, and
 // never changes in the run: an item found in place is not ours, also when it
 // drifts away and a later tick writes it again.
+//
+// Shared host, known gap: ip_forward is one global sysctl. Two daemons on a
+// host (wg0, wg1) share it: A wrote 1 (ours), B then read 1 (found) and relies
+// on it. At exit revertKernel reads the value again and restores 0 only if it
+// still reads 1, so a value another process changed is left alone; but B (or
+// any process that started after us and found 1) keeps relying on a value that
+// A then resets. B's next tick writes 1 again, so this heals for a daemon, not
+// for a service that reads ip_forward once. Not fixed: telling the users of a
+// global sysctl apart needs a reference count outside this process.
 type forwardOwner int
 
 const (
@@ -188,8 +197,18 @@ func (d *Daemon) revertKernel() {
 		results = append(results, d.forwardResult("delete", "FORWARD", out, err))
 	}
 	if ip {
-		out, err := cmdExecutor.Command("sysctl", "-w", "net.ipv4.ip_forward=0").CombinedOutput()
-		results = append(results, d.forwardResult("restore", "ip_forward", out, err))
+		// ip_forward is global to the host: another process may have changed
+		// it since we wrote 1. Restore only a value that still reads 1.
+		raw, err := d.readFileSeam(ipForwardPath)
+		switch v := strings.TrimSpace(string(raw)); {
+		case err != nil:
+			d.logf("revert-on-exit: ip_forward is not restored: cannot read %s: %v", ipForwardPath, err)
+		case v != "1":
+			d.logf("revert-on-exit: ip_forward is not restored: %s reads %q, not 1; another process changed it", ipForwardPath, v)
+		default:
+			out, err := cmdExecutor.Command("sysctl", "-w", "net.ipv4.ip_forward=0").CombinedOutput()
+			results = append(results, d.forwardResult("restore", "ip_forward", out, err))
+		}
 	}
 	d.ruleOwner, d.ipForwardOwner = ownerUnknown, ownerUnknown
 	d.logResults(results)

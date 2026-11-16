@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"errors"
 	"go/ast"
 	"strings"
 	"sync"
@@ -270,5 +271,73 @@ func TestRunRevertsKernelAfterWait(t *testing.T) {
 		if wait < 0 || revert < 0 || revert < wait {
 			t.Errorf("%s: d.wg.Wait() at statement %d, d.revertKernel() at %d; the revert must be a plain call after the wait", name, wait, revert)
 		}
+	}
+}
+
+// Before it restores ip_forward the exit reads it again and restores only a
+// value that still reads 1; a read error or another value is skipped and
+// logged once. The rule is deleted either way.
+func TestRevertRereadsIPForwardBeforeRestore(t *testing.T) {
+	enforceForwardScope(t, false)
+	enforceRevert(t, true)
+	cases := []struct {
+		name string
+		do   func(h *fakeHost)
+	}{
+		{"reads 0 now", func(h *fakeHost) { h.ipForward = false }},
+		{"read error", func(h *fakeHost) { h.readErr = errors.New("read denied") }},
+		{"reads another value", func(h *fakeHost) { v := "2\n"; h.procValue = &v }},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := &fakeHost{iptablesPresent: true}
+			ls := &logSink{}
+			d := newForwardDaemon(t, h, ls)
+			tick(t, d, 2)
+			h.set(c.do)
+
+			d.revertKernel()
+			if n := h.count(wantRestore); n != 0 {
+				t.Errorf("%q ran %d times, want 0 when the re-read is not 1", wantRestore, n)
+			}
+			if n := h.count(wantDelete); n != 1 {
+				t.Errorf("the rule was deleted %d times, want 1", n)
+			}
+			if got := ls.count("revert-on-exit: ip_forward is not restored"); got != 1 {
+				t.Errorf("skip logged %d times, want 1; lines %q", got, ls.lines)
+			}
+		})
+	}
+}
+
+// Two daemons (wg0, wg1) share the global ip_forward. A wrote 1 (ours), B read
+// 1 (found). A's exit still restores 0 (the known gap in docs/kernel-state.md):
+// B's next tick writes 1 again, and B's own exit never restores a value it
+// found.
+func TestRevertTwoDaemonsShareIPForward(t *testing.T) {
+	enforceForwardScope(t, false)
+	enforceRevert(t, true)
+	h := &fakeHost{} // no iptables: only ip_forward is shared state here
+	a := newForwardDaemon(t, h, &logSink{})
+	b := newForwardDaemon(t, h, &logSink{})
+	b.config.InterfaceName = "wg1"
+
+	tick(t, a, 1)
+	tick(t, b, 1)
+	if got := h.count(wantSysctl); got != 1 {
+		t.Fatalf("setup: ip_forward written %d times, want 1 (by A)", got)
+	}
+
+	a.revertKernel()
+	if h.ipForward {
+		t.Fatal("A's exit left ip_forward at 1; the documented gap (B loses forwarding until its next tick) is gone")
+	}
+	tick(t, b, 1)
+	if !h.ipForward {
+		t.Error("B's next tick did not write ip_forward=1 again")
+	}
+	b.revertKernel()
+	if !h.ipForward || h.count(wantRestore) != 1 {
+		t.Errorf("B's exit restored a value it found: ip_forward=%v writes=%q", h.ipForward, h.writes())
 	}
 }
