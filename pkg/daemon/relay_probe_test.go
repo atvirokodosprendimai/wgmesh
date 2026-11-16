@@ -310,19 +310,20 @@ func TestRelayRouteAgeMetric(t *testing.T) {
 	// The gauge is exported from N: the switch stays off.
 	d := relayProbeDaemon(t)
 	key := "age-metric-peer"
+	label := key[:8] // the series carries the first 8 characters, as the probe metrics do
 	intro, peer := relayProbePeers(key)
 	cur := time.Unix(1_700_000_000, 0)
 	d.clock = func() time.Time { return cur }
 	handshakes := map[string]int64{}
 
 	relayCycle(d, []*PeerInfo{intro, peer}, handshakes)
-	if got, ok := relayAges(t)[key]; !ok || got != 0 {
+	if got, ok := relayAges(t)[label]; !ok || got != 0 {
 		t.Fatalf("age on entering the relay routes = %v (present %v), want 0", got, ok)
 	}
 
 	cur = cur.Add(40 * time.Second)
 	relayCycle(d, []*PeerInfo{intro, peer}, handshakes)
-	if got := relayAges(t)[key]; got != 40 {
+	if got := relayAges(t)[label]; got != 40 {
 		t.Fatalf("age 40 s after entering = %v, want 40", got)
 	}
 
@@ -334,7 +335,7 @@ func TestRelayRouteAgeMetric(t *testing.T) {
 	if d.isRelayRoutedPeer(key) {
 		t.Fatal("the peer is still relayed after the hysteresis")
 	}
-	if got, ok := relayAges(t)[key]; ok {
+	if got, ok := relayAges(t)[label]; ok {
 		t.Errorf("the gauge still has a series for a peer that went direct: %v", got)
 	}
 }
