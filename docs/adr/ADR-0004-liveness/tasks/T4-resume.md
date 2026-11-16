@@ -157,3 +157,4 @@ Stop and ask if the loop cannot be tested without a real sleep, or if the relay 
 - 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:20220
 - 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:11719
 - 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:11471
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:8133

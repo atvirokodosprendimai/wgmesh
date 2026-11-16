@@ -58,6 +58,14 @@ var (
 		Help: "Cases where an admit rule would act once enforced, by rule; counted each time an offer or a collision comparison meets the case, so a standing case counts again on every announcement and every collision pass, per observer",
 	}, []string{"rule"})
 
+	kernelChanges = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_kernel_changes_total",
+		Help: "Writes that changed the kernel state of this node, by target; flat in a steady state",
+	}, []string{"target"})
+	kernelWarnings = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_kernel_warnings_total",
+		Help: "Cases where a kernel rule would act once enforced, by rule",
+	}, []string{"rule"})
 	livenessDisagree = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "wgmesh_liveness_disagree_total",
 		Help: "Cases where the decision a reader site takes from LastSeen differs from the decision by the liveness evidence; counted on every call, not once per distinct peer, so a standing case counts again on each pass",
@@ -102,6 +110,9 @@ func registerMetrics(reg prometheus.Registerer) {
 	reg.MustRegister(natTraversalSuccesses)
 	reg.MustRegister(admitWarnings)
 	admitWarnings.WithLabelValues("winner-differs")
+	reg.MustRegister(kernelChanges)
+	kernelChanges.WithLabelValues("peer")
+	reg.MustRegister(kernelWarnings)
 	reg.MustRegister(livenessDisagree)
 	for _, site := range LivenessDisagreeSites {
 		livenessDisagree.WithLabelValues(site)
@@ -183,6 +194,16 @@ func RecordNATTraversalAttempt(method string) {
 // RecordNATTraversalSuccess increments the success counter for the given method.
 func RecordNATTraversalSuccess(method string) {
 	natTraversalSuccesses.WithLabelValues(method).Inc()
+}
+
+// RecordKernelWarning counts one case where a kernel rule would act once enforced.
+func RecordKernelWarning(rule string) {
+	kernelWarnings.WithLabelValues(rule).Inc()
+}
+
+// RecordKernelChange counts one write that changed the kernel, by target.
+func RecordKernelChange(target string) {
+	kernelChanges.WithLabelValues(target).Inc()
 }
 
 // RecordAdmitWarning counts one case where an admit rule would act once enforced.

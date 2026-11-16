@@ -7,7 +7,9 @@ package routes
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -48,75 +50,207 @@ func MakeKey(network, gateway string) string {
 // Rules:
 //   - If a desired route already exists exactly (same network + gateway) it
 //     is skipped.
-//   - If a desired network exists with a *different* gateway, the old route is
-//     queued for removal before the new one is added.
+//   - If a desired network exists with a *different* gateway, every old
+//     gateway route of that network is removed and the new one is added.
 //   - If a current network is no longer in the desired set at all, and it has
 //     a non-empty gateway (i.e. it is a managed mesh route), it is removed.
 //   - Directly-connected routes (empty gateway) are never removed.
+//   - Networks are compared in canonical form per family, so the kernel's
+//     "default" and a desired "0.0.0.0/0" are one network.
+//   - Two desired entries for one network keep the one whose gateway is
+//     numerically lowest, so the result does not depend on the input order
+//     and does not alternate between cycles.
+//
+// The result is sorted by network, then gateway.
 func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
-	currentMap := make(map[string]Entry)       // "network|gateway" -> entry
-	desiredMap := make(map[string]Entry)       // "network|gateway" -> entry
-	currentByNetwork := make(map[string]Entry) // "network" -> entry
-	desiredByNetwork := make(map[string]Entry) // "network" -> entry
+	currentMap := make(map[string]Entry)       // "canonical network|gateway" -> entry
+	desiredMap := make(map[string]Entry)       // "canonical network|gateway" -> entry
+	desiredByNetwork := make(map[string]Entry) // canonical network -> entry
 
 	for _, r := range current {
-		key := MakeKey(r.Network, r.Gateway)
-		currentMap[key] = r
-		currentByNetwork[r.Network] = r
+		currentMap[MakeKey(entryNetwork(r), r.Gateway)] = r
 	}
 
 	for _, r := range desired {
-		key := MakeKey(r.Network, r.Gateway)
-		desiredMap[key] = r
-		desiredByNetwork[r.Network] = r
+		network := entryNetwork(r)
+		if prev, ok := desiredByNetwork[network]; !ok || addrLess(r.Gateway, prev.Gateway) {
+			desiredByNetwork[network] = r
+		}
+	}
+	for network, r := range desiredByNetwork {
+		desiredMap[MakeKey(network, r.Gateway)] = r
 	}
 
-	// Determine routes to add (and any prerequisite removals for gateway changes).
+	// Routes to add: desired routes that do not exist yet.
 	for key, route := range desiredMap {
 		if _, exists := currentMap[key]; !exists {
-			// Route with this exact network+gateway doesn't exist yet.
-			if currentRoute, networkExists := currentByNetwork[route.Network]; networkExists {
-				if currentRoute.Gateway != route.Gateway && currentRoute.Gateway != "" {
-					// Gateway changed — must remove old route first.
-					toRemove = append(toRemove, currentRoute)
-				}
-			}
 			toAdd = append(toAdd, route)
 		}
-		// else: exact route already present — no action needed.
 	}
 
-	// Determine routes to remove (network no longer in desired state at all).
+	// Routes to remove: managed (gateway-routed) current routes that are not
+	// desired exactly, whether their network is gone from the desired state or
+	// is still desired through another gateway.
 	for key, route := range currentMap {
-		if _, exactMatch := desiredMap[key]; !exactMatch {
-			if _, stillNeeded := desiredByNetwork[route.Network]; !stillNeeded {
-				// Network completely absent from desired state.
-				// Only remove managed (gateway-routed) routes.
-				if route.Gateway != "" {
-					toRemove = append(toRemove, route)
-				}
-			}
-			// else: network still needed with a different gateway — already
-			// handled in the loop above.
+		if _, exactMatch := desiredMap[key]; !exactMatch && route.Gateway != "" {
+			toRemove = append(toRemove, route)
 		}
 	}
 
+	sortEntries(toAdd)
+	sortEntries(toRemove)
 	return toAdd, toRemove
 }
 
-// canonicalNetwork returns the canonical CIDR form of network (a bare host
-// becomes /32 or /128, the kernel's "default" becomes 0.0.0.0/0), or the
-// normalized input when it does not parse. The kernel prints "default" for
-// both families, so only the IPv4 default is mapped.
-func canonicalNetwork(network string) string {
+// entryNetwork returns the canonical network of e. The family is read from the
+// network, or from the gateway when the network is the family-less "default".
+func entryNetwork(e Entry) string {
+	return Canonical(e.Network, familyOf(e.Network) || familyOf(e.Gateway))
+}
+
+func sortEntries(entries []Entry) {
+	sort.Slice(entries, func(i, j int) bool {
+		ni, nj := entryNetwork(entries[i]), entryNetwork(entries[j])
+		if ni != nj {
+			return ni < nj
+		}
+		return entries[i].Gateway < entries[j].Gateway
+	})
+}
+
+// addrLess orders two address strings as numbers (10.99.0.9 before
+// 10.99.0.10); a string that does not parse sorts after every address, and
+// two such strings fall back to string order.
+func addrLess(a, b string) bool {
+	pa, errA := netip.ParseAddr(strings.TrimSpace(a))
+	pb, errB := netip.ParseAddr(strings.TrimSpace(b))
+	switch {
+	case errA == nil && errB == nil:
+		if c := pa.Compare(pb); c != 0 {
+			return c < 0
+		}
+	case errA == nil:
+		return true
+	case errB == nil:
+		return false
+	}
+	return a < b
+}
+
+// Canonical returns the canonical CIDR form of network for one address
+// family: a bare host becomes /32 or /128, host bits are masked, and the
+// kernel's "default" becomes 0.0.0.0/0 for IPv4 and ::/0 for IPv6 (the kernel
+// prints "default" for both, so the caller says which family it reads). An
+// input that does not parse is returned trimmed and normalized.
+func Canonical(network string, ipv6 bool) string {
 	network = NormalizeNetwork(strings.TrimSpace(network))
 	if network == "default" {
+		if ipv6 {
+			return "::/0"
+		}
 		return "0.0.0.0/0"
 	}
 	if _, ipnet, err := net.ParseCIDR(network); err == nil {
 		return ipnet.String()
 	}
 	return network
+}
+
+// familyOf reports whether network is written as an IPv6 network. A bare
+// "default" carries no family and counts as IPv4.
+func familyOf(network string) bool {
+	return strings.Contains(network, ":")
+}
+
+// Advertiser is one peer that advertises networks.
+type Advertiser struct {
+	Key      string
+	MeshIP   string
+	MeshIPv6 string
+	Fresh    bool
+	Networks []string
+}
+
+// Resolve gives every network that peers advertise exactly one owner and
+// returns canonical network -> owner key. The choice is the same on every
+// call and does not depend on the order of adv.
+//
+// Candidates for a network are the peers that advertise it after ExcludeOwn
+// (a network this node advertises is never owned by a peer); blank entries are
+// ignored. A peer with a fresh handshake beats one without. Among fresh
+// candidates the owner already observed in current (canonical network -> owner
+// key, read back from the kernel) keeps the network; otherwise the lowest
+// mesh IP wins, compared as an address, then the lowest key. For an IPv6
+// network only the candidate's MeshIPv6 is compared (a peer without one has
+// no IPv6 gateway and sorts last); an address that does not parse sorts last.
+// own and current are not modified.
+func Resolve(adv []Advertiser, own []string, current map[string]string) map[string]string {
+	type candidate struct {
+		key, ip string
+		fresh   bool
+	}
+	byNetwork := make(map[string][]candidate)
+	for _, a := range adv {
+		for _, n := range ExcludeOwn(a.Networks, own) {
+			if strings.TrimSpace(n) == "" {
+				continue
+			}
+			v6 := familyOf(n)
+			network := Canonical(n, v6)
+			ip := a.MeshIP
+			if v6 {
+				ip = a.MeshIPv6
+			}
+			byNetwork[network] = append(byNetwork[network], candidate{a.Key, ip, a.Fresh})
+		}
+	}
+
+	observed := make(map[string]string, len(current))
+	for _, n := range sortedKeys(current) {
+		if strings.TrimSpace(n) == "default" {
+			// The kernel prints both default routes as the word default.
+			observed["0.0.0.0/0"] = current[n]
+			observed["::/0"] = current[n]
+			continue
+		}
+		observed[Canonical(n, familyOf(n))] = current[n]
+	}
+
+	owners := make(map[string]string, len(byNetwork))
+	for network, cands := range byNetwork {
+		best := cands[0]
+		for _, c := range cands[1:] {
+			switch {
+			case c.fresh != best.fresh:
+				if c.fresh {
+					best = c
+				}
+			case addrLess(c.ip, best.ip):
+				best = c
+			case !addrLess(best.ip, c.ip) && c.key < best.key:
+				best = c
+			}
+		}
+		if best.fresh {
+			for _, c := range cands {
+				if o, ok := observed[network]; c.fresh && ok && c.key == o {
+					best = c
+					break
+				}
+			}
+		}
+		owners[network] = best.key
+	}
+	return owners
+}
+
+func sortedKeys(m map[string]string) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // ExcludeOwn returns the entries of networks that are not in own. A node must
@@ -127,11 +261,11 @@ func canonicalNetwork(network string) string {
 func ExcludeOwn(networks, own []string) []string {
 	ownSet := make(map[string]struct{}, len(own))
 	for _, n := range own {
-		ownSet[canonicalNetwork(n)] = struct{}{}
+		ownSet[Canonical(n, familyOf(n))] = struct{}{}
 	}
 	out := make([]string, 0, len(networks))
 	for _, n := range networks {
-		if _, ok := ownSet[canonicalNetwork(n)]; !ok {
+		if _, ok := ownSet[Canonical(n, familyOf(n))]; !ok {
 			out = append(out, n)
 		}
 	}

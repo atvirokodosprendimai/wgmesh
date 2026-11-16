@@ -339,11 +339,10 @@ func TestBuildDesiredPeerConfigs_RelayRouting(t *testing.T) {
 			WGPubKey: "local-pubkey",
 			NATType:  "cone",
 		},
-		lastAppliedPeerConfigs: make(map[string]string),
-		relayRoutes:            make(map[string]string),
-		directStableCycles:     make(map[string]int),
-		localSubnetsFn:         func() []*net.IPNet { return nil },
-		temporaryOffline:       make(map[string]time.Time),
+		relayRoutes:        make(map[string]string),
+		directStableCycles: make(map[string]int),
+		localSubnetsFn:     func() []*net.IPNet { return nil },
+		temporaryOffline:   make(map[string]time.Time),
 	}
 
 	introducer := &PeerInfo{
