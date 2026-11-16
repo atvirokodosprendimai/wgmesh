@@ -65,6 +65,10 @@ The two clock tests are in `pkg/node` on purpose: `pkg/daemon` tests cannot set 
 | 4 — it is used | exchange, DHT and reconcile read `GetActive` after every start from N+1 |
 
 ## Mutation Log
+- 2026-11-16 · 4e24f0f* · mutant killed · exit 1 · `pkg/node/store.go` · merge sets LastSeen instead of RestoredAt · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d
+- 2026-11-16 · 4e24f0f* · mutant killed · exit 1 · `pkg/daemon/cache.go` · restore expiry removed · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d
+- 2026-11-16 · 4e24f0f* · mutant killed · exit 1 · `pkg/daemon/cache.go` · SavePeerCache writes LastSeen again · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d
+- 2026-11-16 · 4e24f0f* · mutant killed · exit 1 · `pkg/node/store.go` · RestoredAt set for every new key · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d
 
 ## Invariants
 
@@ -89,3 +93,22 @@ Stop and ask if the `Restored` merge has no place that knows the key is new, so 
 - Restoring in `Run()` (`daemon.go:349`), which never restores today (permanent: boundary: not part of #851's path).
 
 ## Verification Log
+- 2026-11-16 · 4e24f0f* · exit 1 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:2578 · test-lock-sha256:65d0480663248b83b5d2c0436f41107a20c82a4130754de2170485b4bfe9bf16 · test-lock-file:docs/adr/locks/65d0480663248b83b5d2c0436f41107a20c82a4130754de2170485b4bfe9bf16.lock
+  ```
+  --- last 10 line(s) of stderr (of 16 after folding 16 raw)
+      cache_test.go:154: restored peer = &{WGPubKey:k Hostname: MeshIP:10.0.0.2 MeshIPv6: Endpoint:1.2.3.4:51820 Introducer:false RoutableNetworks:[] LastSeen:2026-11-16 09:22:19 +0200 EET LastDataPlane:0001-01-01 00:00:00 +0000 UTC RestoredAt:0001-01-01 00:00:00 +0000 UTC resumedAt:{wall:0 ext:0 loc:<nil>} DiscoveredVia:[cache] Latency:<nil> NATType: EndpointMethod:cache EndpointGuessed:false heardFirstHand:false}, true, want RestoredAt recorded from release N
+  --- FAIL: TestRestoreGivesGrace (0.00s)
+      --- FAIL: TestRestoreGivesGrace/enforced (0.00s)
+      --- FAIL: TestRestoreGivesGrace/legacy (0.00s)
+  === RUN   TestSaveWritesLastAlive
+      cache_test.go:169: cache peers = [{WGPubKey:k Hostname: MeshIP:10.0.0.2 MeshIPv6: Endpoint: Introducer:false RoutableNetworks:[] NATType: LastSeen:1794806539}], want last_seen 1794817309 (the handshake)
+  --- FAIL: TestSaveWritesLastAlive (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.006s
+  FAIL
+  ```
+- 2026-11-16 · 4e24f0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:16273
+- 2026-11-16 · 4e24f0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:16199
+- 2026-11-16 · 4e24f0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:20702
+- 2026-11-16 · 4e24f0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:13901
+- 2026-11-16 · 4e24f0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:12088
