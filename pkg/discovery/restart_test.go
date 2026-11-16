@@ -434,3 +434,28 @@ func TestDHTHelpersEndWithTheirCallersContext(t *testing.T) {
 		}
 	}
 }
+
+// TestDHTStartAfterParentCancelled: Start after the parent context ended
+// returns an error and leaves nothing running.
+// Why: beginRun derived a dead context from the cancelled parent, Start
+// succeeded and set running with loops that ended at once.
+func TestDHTStartAfterParentCancelled(t *testing.T) {
+	parent, cancelParent := context.WithCancel(context.Background())
+	d := newRestartDHT(t, parent, "wgmesh-test-restart-deadparent-1", daemon.DaemonOpts{})
+	cancelParent()
+
+	err := d.Start()
+	if err == nil {
+		_ = d.Stop()
+		t.Fatal("Start after the parent was cancelled returned nil")
+	}
+	if !strings.Contains(err.Error(), "parent context cancelled") {
+		t.Errorf("Start error = %q, want it to name the cancelled parent context", err)
+	}
+	if dhtRunning(d) {
+		t.Error("running is true after a refused Start")
+	}
+	if d.exchange.isRunning() {
+		t.Error("exchange started although Start was refused")
+	}
+}
