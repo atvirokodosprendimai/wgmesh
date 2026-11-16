@@ -78,11 +78,12 @@ func saveLocalNode(path string, node *LocalNode) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
+	meshIP, meshIPv6 := node.GetMeshIPs()
 	state := localNodeState{
 		WGPubKey:     node.WGPubKey,
 		WGPrivateKey: node.WGPrivateKey,
-		MeshIP:       node.GetMeshIP(),
-		MeshIPv6:     node.GetMeshIPv6(),
+		MeshIP:       meshIP,
+		MeshIPv6:     meshIPv6,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")

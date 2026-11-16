@@ -141,6 +141,13 @@ func (n *LocalNode) GetMeshIP() string {
 	return n.MeshIP
 }
 
+// GetMeshIPs returns the IPv4 and IPv6 mesh addresses as one consistent pair.
+func (n *LocalNode) GetMeshIPs() (v4, v6 string) {
+	n.identityMu.RLock()
+	defer n.identityMu.RUnlock()
+	return n.MeshIP, n.MeshIPv6
+}
+
 // SetMeshIP stores the mesh IPv4 address (thread-safe).
 func (n *LocalNode) SetMeshIP(ip string) {
 	n.identityMu.Lock()
