@@ -35,8 +35,9 @@ type desiredMember struct {
 // routes.Resolve (handshake newer than HandshakeStaleAfter, then
 // observedOwners, then the lowest mesh IP). When the owner is relayed its
 // networks go to the relay's AllowedIPs and the route gateway is the relay's
-// mesh IP. A network this node advertises itself is owned by nobody: this is
-// the only place that applies that rule to a peer's advertisement.
+// mesh IP. A network this node advertises itself is owned by nobody: that rule
+// is applied through routes.Resolve (own networks passed in) and isOwnNetwork,
+// both called only from desired.go.
 // observedOwners is canonical network -> owner key read back from the kernel.
 func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observedOwners map[string]string) *desiredState {
 	ds := &desiredState{

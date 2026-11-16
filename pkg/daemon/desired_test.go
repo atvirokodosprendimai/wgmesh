@@ -171,6 +171,8 @@ func TestReconnectAllowedMatchesDesired(t *testing.T) {
 	}
 }
 
+const routesImportPath = "github.com/atvirokodosprendimai/wgmesh/pkg/routes"
+
 func TestExcludeOwnOnlyInDesire(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -187,12 +189,26 @@ func TestExcludeOwnOnlyInDesire(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse %s: %v", name, err)
 		}
+		// The local name of the routes package in this file, whatever the alias.
+		local := ""
+		for _, imp := range f.Imports {
+			if strings.Trim(imp.Path.Value, `"`) != routesImportPath {
+				continue
+			}
+			local = "routes"
+			if imp.Name != nil {
+				local = imp.Name.Name
+			}
+		}
+		if local == "" || local == "_" {
+			continue
+		}
 		ast.Inspect(f, func(n ast.Node) bool {
 			sel, ok := n.(*ast.SelectorExpr)
 			if !ok || sel.Sel.Name != "ExcludeOwn" {
 				return true
 			}
-			if id, ok := sel.X.(*ast.Ident); ok && id.Name == "routes" {
+			if id, ok := sel.X.(*ast.Ident); ok && id.Name == local {
 				t.Errorf("%s: routes.ExcludeOwn used outside desired.go", fset.Position(sel.Pos()))
 			}
 			return true
