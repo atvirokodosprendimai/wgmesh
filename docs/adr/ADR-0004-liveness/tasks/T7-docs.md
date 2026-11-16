@@ -64,6 +64,11 @@ n=$(go test ./pkg/node -run '^TestSpecNamesLiveness$' -count=1 -v 2>&1 | tee /de
   ```
   the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
   ```
+- 2026-11-16 · 6c41262* · mutant killed · exit 1 · `eidos/spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md` · peer store spec stops naming Assess · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea
+- 2026-11-16 · 6c41262* · mutant killed · exit 1 · `docs/liveness-rollout.md` · note loses the N+2 section · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea
+- 2026-11-16 · 6c41262* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · backlog loses the ADR-0004 N+2 row · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea
+- 2026-11-16 · 6c41262* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · stun-resume wording reverted · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea
+- 2026-11-16 · 6c41262* · mutant killed · exit 1 · `docs/liveness-rollout.md` · note loses the N+2 switch row · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea
 
 ## Invariants
 
@@ -102,3 +107,10 @@ Stop and ask if T3, T5 or T6 renamed a symbol this task's test names, or if ADR-
 - 2026-11-16 · 7f1fddd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:2615
 - 2026-11-16 · 7f1fddd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:1586
 - 2026-11-16 · 7f1fddd* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:988
+- 2026-11-16 · 6c41262* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:0 · test-lock-sha256:794fae674cd9fefdd90b1a2aeac1a4b19d647a1ed32f1b4baa51da7cac0afb58 · test-lock-file:docs/adr/locks/794fae674cd9fefdd90b1a2aeac1a4b19d647a1ed32f1b4baa51da7cac0afb58.lock · test-lock-kind:replace
+- 2026-11-16 · 6c41262* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:1371
+- 2026-11-16 · 6c41262* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:1354
+- 2026-11-16 · 6c41262* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:1587
+- 2026-11-16 · 6c41262* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:1389
+- 2026-11-16 · 6c41262* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:1479
+- 2026-11-16 · 6c41262* · exit 0 · `set -o pipefail …` · acceptance-sha256:c03327c8ae09e9df07eec232f40d6570f8f02a23d17c7a74b1ed139aa434daea · ms:939
