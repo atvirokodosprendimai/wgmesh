@@ -193,12 +193,6 @@ func (pe *PeerExchange) udp() *net.UDPConn {
 	return pe.conn
 }
 
-func (pe *PeerExchange) isRunning() bool {
-	pe.mu.RLock()
-	defer pe.mu.RUnlock()
-	return pe.running
-}
-
 // listenLoop handles incoming peer exchange requests
 func (pe *PeerExchange) listenLoop(stopCh chan struct{}, conn *net.UDPConn) {
 	buf := make([]byte, MaxExchangeSize)
@@ -216,7 +210,9 @@ func (pe *PeerExchange) listenLoop(stopCh chan struct{}, conn *net.UDPConn) {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			if pe.isRunning() {
+			select {
+			case <-stopCh: // closed on purpose: Stop (or a restart) closed this socket
+			default:
 				log.Printf("[Exchange] Read error: %v", err)
 			}
 			continue
