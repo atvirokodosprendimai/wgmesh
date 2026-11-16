@@ -183,7 +183,7 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 					continue
 				}
 				if first {
-					d.logf("attached-network: %s from peer %s... is equal to or inside %s, a network this host is attached to: it is still installed, a later release leaves it out (EnforceRouteGuard)", network, shortKey(p.WGPubKey), attached)
+					d.logf("attached-network: %s from peer %s... is equal to or inside %s, a network this host is attached to: it is still installed, and installing it replaces the host's own connected route for that network; a later release leaves it out (EnforceRouteGuard)", network, shortKey(p.WGPubKey), attached)
 					RecordKernelWarning("attached-network")
 				}
 			}

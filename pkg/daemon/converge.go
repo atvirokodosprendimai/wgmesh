@@ -326,9 +326,12 @@ func (d *Daemon) convergeRoutes(ds *desiredState, obs kernelObserved) []itemResu
 	d.noteHostDefault(ds.Routes, plan)
 	removed, results := applyRouteDiff(d.config.InterfaceName, plan.Add, plan.Remove)
 	// Removals run before adds, so restore even if an add failed. Only a
-	// removed route can be replaced by the connected route.
+	// removed route can be replaced by the connected route: an own network's,
+	// or an attached one's (`ip route replace` overwrote the host's connected
+	// route for that network).
+	localSubnets := d.getLocalSubnets()
 	for _, r := range removed {
-		if d.isOwnNetwork(r.Network) {
+		if d.isOwnNetwork(r.Network) || d.attachedSubnet(r.Network, localSubnets) != nil {
 			restoreConnectedRoute(r.Network)
 		}
 	}

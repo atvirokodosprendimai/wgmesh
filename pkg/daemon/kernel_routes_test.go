@@ -27,14 +27,15 @@ type routeHost struct {
 	host       *fakeHost
 	mu         sync.Mutex
 	table      []kernelRoute
-	extra      map[int][]string // family -> lines without a gateway, printed as they are
-	log        []string         // every command that ran
-	readErr    map[string]error // full command line -> what reading fails with
-	replaceErr map[string]error // canonical network -> what `ip route replace` fails with
+	extra      map[int][]string  // family -> lines without a gateway, printed as they are
+	log        []string          // every command that ran
+	readErr    map[string]error  // full command line -> what reading fails with
+	replaceErr map[string]error  // canonical network -> what `ip route replace` fails with
+	addrs      map[string]string // network -> `ip -o addr show to <network>` output
 }
 
 func newRouteHost(h *fakeHost) *routeHost {
-	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}}
+	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}}
 }
 
 // canonRoute is the canonical network of a printed or canonical one.
@@ -100,6 +101,13 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 	if name != "ip" {
 		return r.host.exec(name, args...)
 	}
+	for _, p := range []string{"ip -4 -o addr show to ", "ip -6 -o addr show to "} {
+		if network, ok := strings.CutPrefix(line, p); ok {
+			r.mu.Lock()
+			defer r.mu.Unlock()
+			return []byte(r.addrs[network]), nil
+		}
+	}
 	family := 4
 	a := args
 	if len(a) > 0 && (a[0] == "-4" || a[0] == "-6") {
@@ -143,6 +151,8 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 			return []byte("RTNETLINK answers: Operation not permitted"), err
 		}
 		r.put(kernelRoute{canonRoute(a[2], a[4]), a[4], a[6]})
+		return nil, nil
+	case "add": // ip route add <net> dev <dev> ...: the restore of a connected route; not kept
 		return nil, nil
 	case "del": // ip route del <net> via <gw> dev <dev>
 		if len(a) != 7 {
@@ -569,4 +579,78 @@ func TestRouteTickRaceFree(t *testing.T) {
 		}
 	}
 	wg.Wait()
+}
+
+const (
+	attachedAddrOut = "2: dum0    inet 192.168.50.1/24 brd 192.168.50.255 scope global dum0\n       valid_lft forever preferred_lft forever\n"
+	restoreAttached = "ip route add 192.168.50.0/24 dev dum0 proto kernel scope link src 192.168.50.1"
+)
+
+// `ip route replace <attached net> via <gw>` overwrites the host's connected
+// route for that network, so the removal of such a route restores it.
+func TestAttachedNetworkWarningNamesTheOverwrite(t *testing.T) {
+	enforceRouteGuard(t, false)
+	d, rh, _, ls, peers, _ := attachedFixture(t)
+	ticks(t, d, rh, peers, 3)
+	if n := ls.count("replaces the host's own connected route"); n != 2 {
+		t.Errorf("the attached-network warning names the overwritten connected route %d times, want 2 (equal and inside, once each); log: %q", n, ls.lines)
+	}
+}
+
+func TestRemovedAttachedRouteRestoresConnectedRoute(t *testing.T) {
+	check := func(t *testing.T, rh *routeHost, ls *logSink) {
+		t.Helper()
+		if n := rh.count(restoreAttached); n != 1 {
+			t.Errorf("the connected route of 192.168.50.0/24 was restored %d times, want once; commands: %q", n, rh.log)
+		}
+		for _, other := range []string{"192.168.0.0/16", "172.16.0.0/16"} {
+			if n := rh.count("ip -4 -o addr show to " + other); n != 0 {
+				t.Errorf("a route %s that is not attached was looked up for a restore", other)
+			}
+		}
+		if n := rh.count("ip route add"); n != 1 {
+			t.Errorf("%d routes were added back, want only the connected route of the attached network: %q", n, rh.log)
+		}
+	}
+
+	t.Run("peer gone", func(t *testing.T) {
+		enforceRouteGuard(t, false)
+		d, rh, _, ls, peers, _ := attachedFixture(t)
+		rh.addrs["192.168.50.0/24"] = attachedAddrOut
+		ticks(t, d, rh, peers, 2)
+		ticks(t, d, rh, nil, 2)
+		check(t, rh, ls)
+	})
+
+	t.Run("guard flipped", func(t *testing.T) {
+		enforceRouteGuard(t, false)
+		d, rh, _, ls, peers, _ := attachedFixture(t)
+		rh.addrs["192.168.50.0/24"] = attachedAddrOut
+		ticks(t, d, rh, peers, 2)
+		EnforceRouteGuard.Store(true)
+		ticks(t, d, rh, peers, 2)
+		check(t, rh, ls)
+	})
+}
+
+func TestRemovedPlainRouteIsNotRestored(t *testing.T) {
+	enforceRouteGuard(t, false)
+	rh := convergedHost()
+	ls := &logSink{}
+	d := newRouteDaemon(t, rh, ls, newFakeKernel())
+	d.localSubnetsFn = func() []*net.IPNet {
+		return []*net.IPNet{{IP: net.IPv4(192, 168, 50, 1), Mask: net.CIDRMask(24, 32)}}
+	}
+	peers := []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "192.168.7.0/24")}
+	ticks(t, d, rh, peers, 2)
+	got := ticks(t, d, rh, nil, 2)
+	if want := []string{"ip route del 192.168.7.0/24 via 10.99.0.2 dev wg0"}; !sameLines(got[0], want) {
+		t.Fatalf("removal writes = %q, want %q", got[0], want)
+	}
+	if n := rh.count("ip -4 -o addr show") + rh.count("ip route add"); n != 0 {
+		t.Errorf("a route that is neither own nor attached triggered a restore: %q", rh.log)
+	}
+	if n := ls.count("no local address") + ls.count("connected route"); n != 0 {
+		t.Errorf("a plain removal logged restore noise: %q", ls.lines)
+	}
 }
