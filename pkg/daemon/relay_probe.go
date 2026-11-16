@@ -26,7 +26,7 @@ var (
 // allowedCSVFor is the allowed-ips argument of cfg: the sorted list, or the
 // explicit clear for a probe-only peer, which carries no AllowedIPs.
 func allowedCSVFor(cfg *desiredPeerConfig) string {
-	if cfg.probeOnly {
+	if cfg.probeOnly && len(cfg.allowed) == 0 {
 		return wireguard.AllowedIPsClear
 	}
 	return strings.Join(mapKeysSorted(cfg.allowed), ",")

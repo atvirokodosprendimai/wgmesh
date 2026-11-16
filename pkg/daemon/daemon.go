@@ -860,7 +860,9 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 					// Kept on the interface with its endpoint and no AllowedIPs: WireGuard
 					// drops its direct data packets, and its handshake attempts keep
 					// running, so a fresh handshake can bring it back (#852).
-					desired[p.WGPubKey] = &desiredPeerConfig{peer: p, allowed: make(map[string]struct{}), probeOnly: true}
+					if _, held := desired[p.WGPubKey]; !held { // a relay for another peer already carries routes: keep them
+						desired[p.WGPubKey] = &desiredPeerConfig{peer: p, allowed: make(map[string]struct{}), probeOnly: true}
+					}
 				}
 				d.addAllowedIP(desired, relay, p.MeshIP+"/32")
 				if p.MeshIPv6 != "" {
