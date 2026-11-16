@@ -328,6 +328,7 @@ func TestCommandGuardForms(t *testing.T) {
 		{"route word in a constant", "routes.go", "const r = \"replace\"\n\tcmdExecutor.Command(\"ip\", \"route\", r, \"x\")", true},
 		{"ip addr is not a route command", "routes.go", `cmdExecutor.Command("ip", "-4", "-o", "addr", "show")`, false},
 		// The documented limit: a computed first argument is not seen.
+		{"computed argument is not seen", "other.go", `cmdExecutor.Command(args[0], args[1:]...)`, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

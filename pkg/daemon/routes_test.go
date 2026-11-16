@@ -11,6 +11,30 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
 
+// routeResults runs the route target of one tick for peers, without the peer
+// and forwarding targets, and returns the result of every route command. It is
+// a test wrapper: converge runs the route target with the desired state it
+// holds, and only converge stores the warn-once set, so repeated calls warn
+// again.
+func (d *Daemon) routeResults(peers []*PeerInfo) []itemResult {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	var obs kernelObserved
+	d.observeRoutes(&obs)
+	return d.convergeRoutes(d.desire(peers, nil, map[string]string{}), obs)
+}
+
+// syncPeerRoutes is routeResults with the error of the first failed add, as
+// the apply of routes returned it before.
+func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
+	for _, r := range d.routeResults(peers) {
+		if r.Err != nil && r.Op == "replace" {
+			return r.Err
+		}
+	}
+	return nil
+}
+
 // TestCalculateRouteDiff verifies add/remove logic without any exec calls.
 func TestCalculateRouteDiff(t *testing.T) {
 	t.Parallel()
@@ -125,8 +149,8 @@ func TestNormalizeNetwork(t *testing.T) {
 	}
 }
 
-// TestGetCurrentRoutes uses a mock executor so no real "ip" binary is required.
-func TestGetCurrentRoutes(t *testing.T) {
+// TestReadRoutes uses a mock executor so no real "ip" binary is required.
+func TestReadRoutes(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("readRoutes is Linux-only")
 	}
@@ -165,8 +189,8 @@ func TestGetCurrentRoutes(t *testing.T) {
 	})
 }
 
-// TestGetCurrentRoutesSkipsNoGateway verifies that routes without "via" are ignored.
-func TestGetCurrentRoutesSkipsNoGateway(t *testing.T) {
+// TestReadRoutesSkipsNoGateway verifies that routes without "via" are ignored.
+func TestReadRoutesSkipsNoGateway(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("readRoutes is Linux-only")
 	}

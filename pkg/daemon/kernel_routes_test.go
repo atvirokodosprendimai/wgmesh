@@ -33,10 +33,11 @@ type routeHost struct {
 	readErr    map[string]error  // full command line -> what reading fails with
 	replaceErr map[string]error  // canonical network -> what `ip route replace` fails with
 	addrs      map[string]string // network -> `ip -o addr show to <network>` output
+	delErr     map[string]error  // canonical network -> what `ip route del` fails with
 }
 
 func newRouteHost(h *fakeHost) *routeHost {
-	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}}
+	return &routeHost{host: h, extra: map[int][]string{}, readErr: map[string]error{}, replaceErr: map[string]error{}, addrs: map[string]string{}, delErr: map[string]error{}}
 }
 
 // canonRoute is the canonical network of a printed or canonical one.
@@ -167,6 +168,9 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 	case "del": // ip route del <net> via <gw> dev <dev>
 		if len(a) != 7 {
 			return nil, fmt.Errorf("fake host: unexpected command %q", line)
+		}
+		if err := r.delErr[canonRoute(a[2], a[4])]; err != nil {
+			return []byte("RTNETLINK answers: Operation not permitted"), err
 		}
 		want := kernelRoute{canonRoute(a[2], a[4]), printGateway(a[4]), a[6]}
 		for i, x := range r.table {
@@ -310,8 +314,7 @@ func TestObserveRoutesFamilyFailureSkipsOnlyThatFamily(t *testing.T) {
 	rh.add("10.20.0.0/24", "10.99.0.9", "wg0")
 	rh.add("fd00:9::/64", "fd99::9", "wg0")
 	rh.readErr["ip -6 route show dev wg0"] = errors.New("RTNETLINK answers: Operation not supported")
-	ls := &logSink{}
-	d := newRouteDaemon(t, rh, ls, newFakeKernel())
+	d := newRouteDaemon(t, rh, &logSink{}, newFakeKernel())
 
 	got := ticks(t, d, rh, nil, 3)
 	if want := []string{"ip route del 10.20.0.0/24 via 10.99.0.9 dev wg0"}; !sameLines(got[0], want) || len(got[1]) != 0 || len(got[2]) != 0 {
@@ -320,12 +323,20 @@ func TestObserveRoutesFamilyFailureSkipsOnlyThatFamily(t *testing.T) {
 	if !rh.has("fd00:9::/64", "fd99::9", "wg0") {
 		t.Error("the IPv6 route was removed although its family could not be read")
 	}
-	if n := ls.count("IPv6 routes"); n != 1 {
-		t.Errorf("the failed IPv6 read was logged %d times in 3 ticks, want 1; log: %q", n, ls.lines)
+	var obs kernelObserved
+	d.observeRoutes(&obs)
+	if obs.Errs[targetRoutes6] == nil || obs.Errs[targetRoutes4] != nil || len(obs.Errs) != 1 {
+		t.Errorf("observe errors = %v, want only the IPv6 family", obs.Errs)
+	}
+	if got := d.routeObserveErr[targetRoutes6]; got == "" || d.routeObserveErr[targetRoutes4] != "" {
+		t.Errorf("remembered observe errors = %v, want only the IPv6 family", d.routeObserveErr)
 	}
 	delete(rh.readErr, "ip -6 route show dev wg0")
 	if got := ticks(t, d, rh, nil, 1); !sameLines(got[0], []string{"ip route del fd00:9::/64 via fd99::9 dev wg0"}) {
 		t.Errorf("after the read works again the stale route is removed, writes = %q", got)
+	}
+	if len(d.routeObserveErr) != 0 {
+		t.Errorf("the recovery left remembered observe errors: %v", d.routeObserveErr)
 	}
 }
 
@@ -405,25 +416,58 @@ func TestPeerWithoutMeshIPv6SkippedLoggedOnce(t *testing.T) {
 func TestRouteAddFailureDoesNotAbortOthers(t *testing.T) {
 	rh := convergedHost()
 	rh.replaceErr["192.168.2.0/24"] = errors.New("exit status 2")
-	ls := &logSink{}
-	d := newRouteDaemon(t, rh, ls, newFakeKernel())
+	d := newRouteDaemon(t, rh, &logSink{}, newFakeKernel())
 	peers := []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "192.168.1.0/24", "192.168.2.0/24", "192.168.3.0/24")}
 
-	got := ticks(t, d, rh, peers, 5)
-	want := []string{replaceCmd("192.168.1.0/24", "10.99.0.2"), replaceCmd("192.168.2.0/24", "10.99.0.2"), replaceCmd("192.168.3.0/24", "10.99.0.2")}
-	if !sameLines(got[0], want) {
-		t.Fatalf("tick 1 route writes = %q, want all three tried: %q", got[0], want)
+	failed := map[string]bool{}
+	for _, r := range d.routeResults(peers) {
+		if r.Op == "replace" {
+			failed[r.Key] = r.Err != nil
+		}
 	}
-	for i := 1; i < 5; i++ {
+	wantFailed := map[string]bool{"192.168.1.0/24 via 10.99.0.2": false, "192.168.2.0/24 via 10.99.0.2": true, "192.168.3.0/24 via 10.99.0.2": false}
+	if !reflect.DeepEqual(failed, wantFailed) {
+		t.Errorf("tick 1 results (route -> failed) = %v, want all three tried and only the second failed: %v", failed, wantFailed)
+	}
+	want := []string{replaceCmd("192.168.1.0/24", "10.99.0.2"), replaceCmd("192.168.2.0/24", "10.99.0.2"), replaceCmd("192.168.3.0/24", "10.99.0.2")}
+	if got := rh.routeWrites(); !sameLines(got, want) {
+		t.Fatalf("tick 1 route writes = %q, want all three tried: %q", got, want)
+	}
+	got := ticks(t, d, rh, peers, 4)
+	for i := range got {
 		if w := []string{replaceCmd("192.168.2.0/24", "10.99.0.2")}; !sameLines(got[i], w) {
-			t.Errorf("tick %d route writes = %q, want only the failed route again", i+1, got[i])
+			t.Errorf("tick %d route writes = %q, want only the failed route again", i+2, got[i])
 		}
 	}
 	if !rh.has("192.168.1.0/24", "10.99.0.2", "wg0") || !rh.has("192.168.3.0/24", "10.99.0.2", "wg0") {
 		t.Error("the routes around the failed one were not installed")
 	}
-	if n := ls.count("Failed to replace route"); n != 1 {
-		t.Errorf("the failed route was logged %d times in 5 ticks, want 1; log: %q", n, ls.lines)
+}
+
+// A failed `ip route del` never skips the others, and is tried again.
+func TestRouteDelFailureDoesNotAbortOthers(t *testing.T) {
+	rh := convergedHost()
+	for _, n := range []string{"10.20.0.0/24", "10.21.0.0/24", "10.22.0.0/24"} {
+		rh.add(n, "10.99.0.9", "wg0")
+	}
+	rh.delErr["10.21.0.0/24"] = errors.New("exit status 2")
+	d := newRouteDaemon(t, rh, &logSink{}, newFakeKernel())
+
+	failed := map[string]bool{}
+	for _, r := range d.routeResults(nil) {
+		if r.Op == "del" {
+			failed[r.Key] = r.Err != nil
+		}
+	}
+	wantFailed := map[string]bool{"10.20.0.0/24 via 10.99.0.9": false, "10.21.0.0/24 via 10.99.0.9": true, "10.22.0.0/24 via 10.99.0.9": false}
+	if !reflect.DeepEqual(failed, wantFailed) {
+		t.Errorf("tick 1 results (route -> failed) = %v, want all three tried and only the second failed: %v", failed, wantFailed)
+	}
+	if rh.has("10.20.0.0/24", "10.99.0.9", "wg0") || rh.has("10.22.0.0/24", "10.99.0.9", "wg0") || !rh.has("10.21.0.0/24", "10.99.0.9", "wg0") {
+		t.Errorf("the routes around the failed removal were not removed, or the failed one was: %q", rh.routeWrites())
+	}
+	if got := ticks(t, d, rh, nil, 1); !sameLines(got[0], []string{"ip route del 10.21.0.0/24 via 10.99.0.9 dev wg0"}) {
+		t.Errorf("the failed removal was not tried again alone, writes = %q", got)
 	}
 }
 
@@ -574,7 +618,7 @@ func TestConvergeSteadyStateIssuesNoWrites(t *testing.T) {
 // The tick and the release switch run on different goroutines.
 func TestRouteTickRaceFree(t *testing.T) {
 	enforceRouteGuard(t, false)
-	d, _, _, _, peers, _ := attachedFixture(t)
+	d, rh, _, _, peers, _ := attachedFixture(t)
 	var wg sync.WaitGroup
 	wg.Add(1)
 	go func() {
@@ -584,11 +628,81 @@ func TestRouteTickRaceFree(t *testing.T) {
 		}
 	}()
 	for i := 0; i < 200; i++ {
-		if d.converge(peers) == nil {
+		ds := d.converge(peers)
+		if ds == nil {
 			t.Fatalf("tick %d: converge skipped the tick", i+1)
+		}
+		// Each tick reads the switch once: the routes that do not depend on it
+		// are always wanted and installed, the two attached ones are both in or both out.
+		wanted := map[string]bool{}
+		for _, r := range ds.Routes {
+			wanted[r.Network] = true
+		}
+		for _, n := range []string{"192.168.0.0/16", "172.16.0.0/16"} {
+			if !wanted[n] || !rh.has(n, "10.99.0.2", "wg0") {
+				t.Fatalf("tick %d: %s is wanted %v, installed %v", i+1, n, wanted[n], rh.has(n, "10.99.0.2", "wg0"))
+			}
+		}
+		if wanted["192.168.50.0/24"] != wanted["192.168.50.128/25"] {
+			t.Fatalf("tick %d: the attached networks were decided by two reads of the switch: %v", i+1, wanted)
 		}
 	}
 	wg.Wait()
+}
+
+func TestDefaultRouteWarnsWhenHostHasIPv6Default(t *testing.T) {
+	warnings := func() float64 { return testutil.ToFloat64(kernelWarnings.WithLabelValues("host-default")) }
+	rh := convergedHost()
+	rh.add("default", "fe80::1", "eth0")
+	ls := &logSink{}
+	d := newRouteDaemon(t, rh, ls, newFakeKernel())
+	peer := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "::/0")
+	peer.MeshIPv6 = "fd99::2"
+	before := warnings()
+
+	got := ticks(t, d, rh, []*PeerInfo{peer}, 3)
+	if want := []string{replaceCmd("::/0", "fd99::2")}; !sameLines(got[0], want) {
+		t.Errorf("tick 1 route writes = %q, want the IPv6 default route still installed: %q", got[0], want)
+	}
+	if n := ls.count("host-default: this host already has an IPv6 default route on eth0"); n != 1 {
+		t.Errorf("host-default logged %d times in 3 ticks, want 1; log: %q", n, ls.lines)
+	}
+	if got := warnings() - before; got != 1 {
+		t.Errorf("host-default counted %v times in 3 ticks, want 1", got)
+	}
+	if n := rh.count("ip -6 route show default"); n != 1 {
+		t.Errorf("the IPv6 host default was read %d times in 3 ticks, want once", n)
+	}
+	if n := rh.count("ip -4 route show default"); n != 0 {
+		t.Errorf("the IPv4 host default was read %d times for an IPv6 default route", n)
+	}
+}
+
+// A default route that goes away and comes back warns again.
+func TestHostDefaultWarnsAgainAfterDropAndReAdd(t *testing.T) {
+	warnings := func() float64 { return testutil.ToFloat64(kernelWarnings.WithLabelValues("host-default")) }
+	rh := convergedHost()
+	rh.add("default", "192.168.1.1", "eth0")
+	ls := &logSink{}
+	d := newRouteDaemon(t, rh, ls, newFakeKernel())
+	peers := []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "0.0.0.0/0")}
+	before := warnings()
+
+	ticks(t, d, rh, peers, 3)
+	if got := warnings() - before; got != 1 {
+		t.Fatalf("host-default counted %v times before the drop, want 1", got)
+	}
+	ticks(t, d, rh, nil, 2)
+	if rh.has("0.0.0.0/0", "10.99.0.2", "wg0") {
+		t.Fatal("the mesh default route was not removed")
+	}
+	ticks(t, d, rh, peers, 3)
+	if got := warnings() - before; got != 2 {
+		t.Errorf("host-default counted %v times after the drop and the re-add, want 2", got)
+	}
+	if n := ls.count("host-default: this host already has an IPv4 default route"); n != 2 {
+		t.Errorf("host-default logged %d times, want 2; log: %q", n, ls.lines)
+	}
 }
 
 const (

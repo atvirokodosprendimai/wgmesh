@@ -8,23 +8,6 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
 
-// syncPeerRoutes runs the route target of one tick for peers, without the peer
-// and forwarding targets. reconcile does not use it: converge runs the route
-// target with the desired state it holds. The error is the first failed add,
-// as the apply of routes returned it before.
-func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
-	d.convergeMu.Lock()
-	defer d.convergeMu.Unlock()
-	var obs kernelObserved
-	d.observeRoutes(&obs)
-	for _, r := range d.convergeRoutes(d.desire(peers, nil, map[string]string{}), obs) {
-		if r.Err != nil && r.Op == "replace" {
-			return r.Err
-		}
-	}
-	return nil
-}
-
 // restoreConnectedRoute re-adds the kernel connected route for an own network
 // whose `<network> via <peer> dev <mesh iface>` route was just removed: older
 // daemons installed that route with `ip route replace`, overwriting it.
