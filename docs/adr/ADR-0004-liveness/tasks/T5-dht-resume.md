@@ -36,7 +36,7 @@ Selection: the daemon finds `OnResume` by the `node.Resumer` type assertion on `
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResumeAnnouncesNow|TestOnResumeResetsRendezvousBackoff|TestDHTImplementsResumer|TestOnResumeBeforeStartAndAfterStopIsSafe|TestOnResumeRacesWithStunRefreshLoop)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 6 ] \
+a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResumeAnnouncesNow|TestOnResumeResetsRendezvousBackoff|TestDHTImplementsResumer|TestOnResumeBeforeStartAndAfterStopIsSafe|TestOnResumeRunsOneSTUNPassPerCall|TestOnResumeSerialisedWithStunRefreshLoop|TestOnResumeDropsAnswerAfterCancelDuringSTUN|TestOnResumeStopWhileSTUNBlockedKeepsEndpoint|TestOnResumeCoalescesWhileAPassRuns|TestAnnounceNowLogsOneSummaryLine)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 11 ] \
  && b=$(go test ./pkg/daemon -run '^(TestObserveEndpointAppliesStunResumeAtOnce|TestNATTypeAccessIsRaceFree)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$b" -ge 2 ] \
  && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
 ```
@@ -50,7 +50,12 @@ a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResume
 | `TestOnResumeResetsRendezvousBackoff` | `pkg/discovery/dht_resume_test.go` | a peer in back-off may attempt a rendezvous after `OnResume` | — | S1, S3 |
 | `TestDHTImplementsResumer` | `pkg/discovery/dht_resume_test.go` | the type satisfies `node.Resumer` and T4's assertion on the discovery field finds it | — | S1, S3 |
 | `TestOnResumeBeforeStartAndAfterStopIsSafe` | `pkg/discovery/dht_resume_test.go` | `OnResume` on a never-started layer and on a stopped one returns without panic, STUN call or announce | — | S1, S3 |
-| `TestOnResumeRacesWithStunRefreshLoop` | `pkg/discovery/dht_resume_test.go` | `OnResume` called repeatedly while the `stunRefreshLoop` ticker path runs (stubbed STUN, short tick); the final fence runs it under `-race`, and a mutant without `stunMu` turns it red | — | S1, S3, S4 |
+| `TestOnResumeRunsOneSTUNPassPerCall` | `pkg/discovery/dht_resume_test.go` | without a ticker, N sequential `OnResume` calls run exactly N STUN passes and the first one applies the new endpoint at once | — | S1, S3, S4 |
+| `TestOnResumeSerialisedWithStunRefreshLoop` | `pkg/discovery/dht_resume_test.go` | with a 2 ms ticker and many `OnResume` calls, the stubbed STUN query is never in flight twice (a mutant without `stunMu` turns it red); run under `-race` in the final fence | — | S1, S3, S4 |
+| `TestOnResumeDropsAnswerAfterCancelDuringSTUN` | `pkg/discovery/dht_resume_test.go` | a layer cancelled during the query neither applies the endpoint nor announces | — | S1, S3 |
+| `TestOnResumeStopWhileSTUNBlockedKeepsEndpoint` | `pkg/discovery/dht_resume_test.go` | `Stop` while the query is blocked leaves the endpoint unchanged when it returns | — | S1, S3 |
+| `TestOnResumeCoalescesWhileAPassRuns` | `pkg/discovery/dht_resume_test.go` | many `OnResume` calls during one running pass start no second pass but still clear the back-off; a call after the pass starts the next | — | S1, S3 |
+| `TestAnnounceNowLogsOneSummaryLine` | `pkg/discovery/dht_resume_test.go` | failures and invalid mesh IPs are summarised in one log line per wake | — | S1, S3 |
 | `TestObserveEndpointAppliesStunResumeAtOnce` | `pkg/daemon/local_endpoint_test.go` | `ObserveEndpoint(EndpointSTUNResume, ep)` applies at once; `ObserveEndpoint(EndpointSTUN, ep)` still waits for three equal values | — | S1, S4 |
 | `TestNATTypeAccessIsRaceFree` | `pkg/daemon/local_endpoint_test.go` | concurrent setter and getter calls of `NATType` complete under `-race` | — | S1, S4 |
 
@@ -79,7 +84,7 @@ a=$(go test ./pkg/discovery -run '^(TestOnResumeRefreshesSTUNAtOnce|TestOnResume
 - The ticker path of `stunRefreshLoop` behaves as ADR-0002 T9 leaves it: three equal observations for a STUN-only change.
 - No new message type and no new wire byte; `announceNow` sends what the periodic announce and `SendAnnounce` send.
 - `pkg/daemon` does not import `pkg/discovery`.
-- No field, variable or counter accessed by more than one goroutine is bare: `atomic.*` or a lock on every access (M 2026-11-16); the task has a `-race` test for each such field it adds. Here: `NATType` (setter and getter under `endpointMu`), `refreshSTUNOnce` (`stunMu`), `rendezvousBackoff` (`d.mu`); `TestOnResumeRacesWithStunRefreshLoop` and `TestNATTypeAccessIsRaceFree` are the `-race` tests.
+- No field, variable or counter accessed by more than one goroutine is bare: `atomic.*` or a lock on every access (M 2026-11-16); the task has a `-race` test for each such field it adds. Here: `NATType` (setter and getter under `endpointMu`), `refreshSTUNOnce` (`stunMu`), `rendezvousBackoff` (`d.mu`); `TestOnResumeSerialisedWithStunRefreshLoop` and `TestNATTypeAccessIsRaceFree` are the `-race` tests; `OnResume` starts one pass at a time (`resumeBusy` under `d.mu`), a burst only clears the back-off.
 
 ## Risks
 
