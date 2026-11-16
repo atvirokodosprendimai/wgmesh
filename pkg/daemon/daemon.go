@@ -1075,17 +1075,24 @@ func (d *Daemon) staleCleanupLoop() {
 		case <-d.ctx.Done():
 			return
 		case <-ticker.C:
-			removed := d.peerStore.CleanupStale()
-			for _, pubKey := range removed {
-				if err := d.removePeer(pubKey); err != nil {
-					log.Printf("[Peers] Failed to remove stale peer %s: %v", shortKey(pubKey), err)
-				}
-			}
-			if len(removed) > 0 {
-				log.Printf("[Peers] Removed %d stale peers", len(removed))
-			}
+			d.staleCleanupTick()
 		}
 	}
+}
+
+// staleCleanupTick removes stale peers from the store and from WireGuard, then
+// drops the temporaryOffline entries past their deadline.
+func (d *Daemon) staleCleanupTick() {
+	removed := d.peerStore.CleanupStale()
+	for _, pubKey := range removed {
+		if err := d.removePeer(pubKey); err != nil {
+			log.Printf("[Peers] Failed to remove stale peer %s: %v", shortKey(pubKey), err)
+		}
+	}
+	if len(removed) > 0 {
+		log.Printf("[Peers] Removed %d stale peers", len(removed))
+	}
+	d.sweepTemporaryOffline()
 }
 
 func (d *Daemon) healthMonitorLoop() {
@@ -1597,11 +1604,18 @@ func (d *Daemon) isTemporarilyOffline(pubKey string) bool {
 	return true
 }
 
-// sweepTemporaryOffline is a stub (ADR-0007 T4 S1).
-func (d *Daemon) sweepTemporaryOffline() {}
-
-// staleCleanupTick is a stub (ADR-0007 T4 S1).
-func (d *Daemon) staleCleanupTick() {}
+// sweepTemporaryOffline deletes the entries past their deadline without a
+// lookup, so a key never asked about again does not stay (ADR-0007 Decision 4).
+func (d *Daemon) sweepTemporaryOffline() {
+	now := time.Now()
+	d.offlineMu.Lock()
+	defer d.offlineMu.Unlock()
+	for k, until := range d.temporaryOffline {
+		if now.After(until) {
+			delete(d.temporaryOffline, k)
+		}
+	}
+}
 
 func (d *Daemon) isRelayRoutedPeer(pubKey string) bool {
 	if pubKey == "" {
