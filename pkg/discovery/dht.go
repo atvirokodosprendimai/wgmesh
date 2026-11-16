@@ -285,7 +285,7 @@ func (d *DHTDiscovery) Start() error {
 	}
 
 	// Initialize DHT server
-	if err := d.initDHTServer(); err != nil {
+	if err := d.initDHTServer(ctx); err != nil {
 		return fmt.Errorf("failed to initialize DHT server: %w", err)
 	}
 
@@ -596,8 +596,9 @@ func (d *DHTDiscovery) stunRefreshLoop(ctx context.Context) {
 	}
 }
 
-// initDHTServer initializes the BitTorrent DHT server
-func (d *DHTDiscovery) initDHTServer() error {
+// initDHTServer initializes the BitTorrent DHT server; ctx is this run's
+// context, handed to the bootstrap loop.
+func (d *DHTDiscovery) initDHTServer(ctx context.Context) error {
 	// Use a separate port for DHT (exchange port + 1)
 	// This avoids conflicts with peer exchange read deadlines
 	dhtPort := d.exchange.Port() + 1
@@ -651,7 +652,7 @@ func (d *DHTDiscovery) initDHTServer() error {
 	d.loadPersistedNodes(server)
 
 	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", boundPort)
-	d.goLoop(d.bootstrapWithRetry)
+	d.goLoop(func() { d.bootstrapWithRetry(ctx) })
 	return nil
 }
 
@@ -667,11 +668,11 @@ func dhtBackoffDelay(d time.Duration) time.Duration {
 // attemptBootstrapLookup performs one DHT bootstrap lookup and returns true
 // if at least one DHT node was discovered. It blocks for up to DHTBootstrapTimeout.
 // Returns false immediately if the context is already cancelled.
-func (d *DHTDiscovery) attemptBootstrapLookup() bool {
-	if d.runCtx().Err() != nil {
+func (d *DHTDiscovery) attemptBootstrapLookup(parent context.Context) bool {
+	if parent.Err() != nil {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(d.runCtx(), DHTBootstrapTimeout)
+	ctx, cancel := context.WithTimeout(parent, DHTBootstrapTimeout)
 	defer cancel()
 
 	var randomID [20]byte
@@ -701,11 +702,11 @@ func (d *DHTDiscovery) attemptBootstrapLookup() bool {
 }
 
 // bootstrapWithRetry calls attemptBootstrapLookup in a loop with exponential
-// backoff until the routing table is populated or the context is cancelled.
+// backoff until the routing table is populated or ctx (the context of the run
+// that started it, never read from d) is cancelled.
 // Delay starts at DHTBootstrapInitialDelay, doubles on each failure, and is
 // capped at DHTBootstrapMaxDelay. Each delay has ±25% jitter applied.
-func (d *DHTDiscovery) bootstrapWithRetry() {
-	ctx := d.runCtx() // this run's context, read once under d.mu
+func (d *DHTDiscovery) bootstrapWithRetry(ctx context.Context) {
 	delay := DHTBootstrapInitialDelay
 	for attempt := 0; ; attempt++ {
 		if attempt > 0 {
@@ -724,7 +725,7 @@ func (d *DHTDiscovery) bootstrapWithRetry() {
 		default:
 		}
 
-		if d.attemptBootstrapLookup() {
+		if d.attemptBootstrapLookup(ctx) {
 			nodes := d.dhtServer().NumNodes()
 			if attempt > 0 {
 				log.Printf("[DHT] Bootstrap succeeded after %d retries, DHT has %d nodes", attempt, nodes)

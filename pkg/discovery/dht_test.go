@@ -338,17 +338,19 @@ func TestDHTBootstrapDelay_Progression(t *testing.T) {
 }
 
 // TestBootstrapWithRetry_StopsOnContextCancel verifies that bootstrapWithRetry
-// exits promptly when the context is cancelled, without blocking.
+// exits promptly when the context it was given is cancelled, without blocking.
+// The DHT layer's own context stays live: the loop must use its argument, not
+// the context of whichever run is current.
 func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-bootstrap-cancel-1"})
 	if err != nil {
 		t.Fatalf("NewConfig failed: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	d, err := NewDHTDiscovery(ctx, cfg, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
+	d, err := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
 	if err != nil {
 		t.Fatalf("NewDHTDiscovery failed: %v", err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cancel the context so the goroutine should exit on the first attempt check
 	cancel()
@@ -356,7 +358,7 @@ func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		d.bootstrapWithRetry()
+		d.bootstrapWithRetry(ctx)
 	}()
 
 	select {
