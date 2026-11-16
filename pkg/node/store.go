@@ -327,6 +327,7 @@ func (ps *PeerStore) GetActive() []*PeerInfo {
 			result = append(result, ps.stamped(peer))
 		}
 	}
+	// No defer: the disagree hook runs outside ps.mu.
 	ps.mu.RUnlock()
 	reportDisagreement(hook, "get-active", disagreed)
 	return result
@@ -409,6 +410,7 @@ func (ps *PeerStore) CleanupStale() []string {
 			removed = append(removed, pubKey)
 		}
 	}
+	// No defer: the disagree hook runs outside ps.mu.
 	ps.mu.Unlock()
 	reportDisagreement(hook, "cleanup", disagreed)
 	return removed
@@ -446,6 +448,7 @@ func (ps *PeerStore) IsDead(pubKey string) bool {
 	now := ps.now()
 	hook := ps.livenessDisagree
 	dead, disagree := judge(now.Sub(peer.LastSeen) > PeerDeadTimeout, ps.assess(peer, now) == Dead)
+	// No defer: the disagree hook runs outside ps.mu.
 	ps.mu.RUnlock()
 	if disagree {
 		reportDisagreement(hook, "is-dead", 1)
