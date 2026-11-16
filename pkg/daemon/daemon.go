@@ -1490,7 +1490,8 @@ func shouldTreatPeerAsStale(handshakeTS int64, prevTransferTotal, currentTransfe
 
 // reconnectAllowedCSV builds the allowed-ips list for a forced reconnect of
 // peer, leaving out the local node's own networks.
-func reconnectAllowedCSV(peer *PeerInfo, ownNetworks []string) string {
+func (d *Daemon) reconnectAllowedCSV(peer *PeerInfo, peers []*PeerInfo, handshakes map[string]int64) string {
+	ownNetworks := d.ownRoutableNetworks()
 	allowed := make(map[string]struct{})
 	if peer.MeshIP != "" {
 		allowed[peer.MeshIP+"/32"] = struct{}{}
@@ -1516,7 +1517,8 @@ func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 		return
 	}
 
-	allowedCSV := reconnectAllowedCSV(peer, d.ownRoutableNetworks())
+	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	allowedCSV := d.reconnectAllowedCSV(peer, d.peerStore.GetActive(), handshakes)
 	if allowedCSV == "" {
 		return
 	}

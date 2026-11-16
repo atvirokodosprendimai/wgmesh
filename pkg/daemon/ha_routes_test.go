@@ -97,11 +97,13 @@ func TestSharedSubnetNotRelayedThroughMesh(t *testing.T) {
 }
 
 func TestReconnectAllowedCSVExcludesOwnNetworks(t *testing.T) {
+	d := makeRelayTestDaemon()
+	d.localNode.RoutableNetworks = []string{"192.168.10.0/24"}
 	peer := &PeerInfo{
 		WGPubKey: "peer1", MeshIP: "10.0.0.20",
 		RoutableNetworks: []string{"192.168.10.0/24", "192.168.20.0/24"},
 	}
-	got := reconnectAllowedCSV(peer, []string{"192.168.10.0/24"})
+	got := d.reconnectAllowedCSV(peer, []*PeerInfo{peer}, nil)
 	if want := "10.0.0.20/32,192.168.20.0/24"; got != want {
 		t.Errorf("reconnectAllowedCSV() = %q, want %q", got, want)
 	}
