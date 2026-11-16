@@ -324,3 +324,61 @@ func TestForwardNeededForIntroducerAndAdvertiser(t *testing.T) {
 		})
 	}
 }
+
+// A failed write is a result of its item: logged once however many ticks it
+// repeats, the other item is still written, the tick is not skipped.
+func TestForwardWriteFailureIsAResult(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: true, sysctlErr: errors.New("exit status 255")}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+
+	tick(t, d, 5)
+	if got := ls.count("Failed to set forward ip_forward"); got != 1 {
+		t.Errorf("a failing sysctl was logged %d times in 5 ticks, want 1; log: %q", got, ls.lines)
+	}
+	if !h.ruleInstalled {
+		t.Error("the rule was not appended after the sysctl failed")
+	}
+	if got := h.count("sysctl -w"); got != 5 {
+		t.Errorf("sysctl was retried %d times in 5 ticks, want 5", got)
+	}
+	h.set(func(h *fakeHost) { h.sysctlErr = nil })
+	tick(t, d, 1)
+	if got := ls.count("set forward ip_forward... recovered"); got != 1 {
+		t.Errorf("recovery logged %d times, want 1; log: %q", got, ls.lines)
+	}
+}
+
+// The tick, the switch and a SIGHUP reload run on different goroutines.
+func TestForwardTickRaceFree(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: true}
+	d := newForwardDaemon(t, h, &logSink{})
+	done := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			EnforceForwardScope.Store(i%2 == 0)
+			d.configMu.Lock()
+			if i%3 == 0 {
+				d.config.AdvertiseRoutes = []string{"192.168.50.0/24"}
+			} else {
+				d.config.AdvertiseRoutes = nil
+			}
+			d.configMu.Unlock()
+		}
+		close(done)
+	}()
+	for {
+		select {
+		case <-done:
+			wg.Wait()
+			return
+		default:
+			d.converge(nil)
+		}
+	}
+}
