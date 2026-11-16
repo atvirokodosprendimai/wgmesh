@@ -26,6 +26,9 @@ import (
 type darwinTable struct {
 	Mesh    []routes.Entry
 	Foreign map[string]string
+	// Unrecognised are the rows of the mesh interface that match no accepted
+	// shape (joined fields), skipped but reported.
+	Unrecognised []string
 }
 
 // readRoutesDarwin reads the routes of iface for one family with
@@ -50,54 +53,101 @@ func (d *Daemon) observeRoutesDarwin(obs *kernelObserved) {
 	if table, err := readRoutesDarwin(iface, false); err != nil {
 		obs.fail(targetRoutes4, err)
 	} else {
-		obs.Routes4, obs.Foreign4 = table.Mesh, table.Foreign
+		obs.Routes4, obs.Foreign4, obs.Unrecognised4 = table.Mesh, table.Foreign, table.Unrecognised
 	}
 	if table, err := readRoutesDarwin(iface, true); err != nil {
 		obs.fail(targetRoutes6, err)
 	} else {
-		obs.Routes6, obs.Foreign6 = table.Mesh, table.Foreign
+		obs.Routes6, obs.Foreign6, obs.Unrecognised6 = table.Mesh, table.Foreign, table.Unrecognised
 	}
 }
 
+// netstatColumns are the field indexes of the columns this parser reads.
+type netstatColumns struct{ dest, gateway, flags, netif int }
+
+// currentNetstatColumns is the layout of current macOS (`Destination Gateway
+// Flags Netif Expire`), used until a header line says otherwise.
+var currentNetstatColumns = netstatColumns{0, 1, 2, 3}
+
+// netstatHeader reads a header line (`Destination Gateway Flags Netif
+// Expire`, or the old `Destination Gateway Flags Refs Use Netif Expire`) into
+// the columns it names.
+func netstatHeader(fields []string) (netstatColumns, bool) {
+	c := netstatColumns{-1, -1, -1, -1}
+	for i, f := range fields {
+		switch f {
+		case "Destination":
+			c.dest = i
+		case "Gateway":
+			c.gateway = i
+		case "Flags":
+			c.flags = i
+		case "Netif":
+			c.netif = i
+		}
+	}
+	return c, c.dest >= 0 && c.gateway >= 0 && c.flags >= 0 && c.netif >= 0
+}
+
+// width is the number of fields a row needs to have every column.
+func (c netstatColumns) width() int {
+	return max(c.dest, c.gateway, c.flags, c.netif) + 1
+}
+
 // parseNetstatDarwin reads the output of `netstat -rn -f inet` (ipv6 false) or
-// `-f inet6`: the columns are Destination, Gateway, Flags, Netif, Expire. It
-// returns the routes that leave by iface and that this daemon can install
-// with `-interface`: a link-level gateway (`link#N`) and none of the flags
+// `-f inet6`. The columns are located from the header line, falling back to
+// the current layout (Destination, Gateway, Flags, Netif, Expire) when there
+// is none; the layouts and the gateway spellings below are the reviewers'
+// knowledge of netstat(1), unverified on a Mac, S1 decides. It returns the
+// routes that leave by iface and that this daemon can install with
+// `-interface`: a link-level gateway (`link#N`) or the interface name itself
+// (later macOS prints that for some interface routes), and none of the flags
 // m (multicast), b (broadcast), L (link-layer entry) or W (cloned), not a
 // multicast or link-local destination, not a scoped one (`fe80::%utun4`). A
-// row of another interface is not a route of the mesh: it is kept in
-// Foreign (network -> interface, any gateway), so the plan never takes a
-// network that another interface routes. A row of iface whose
+// row of iface with any other gateway is skipped and returned in
+// Unrecognised. A row of another interface is not a route of the mesh: it is
+// kept in Foreign (network -> interface, any gateway), so the plan never
+// takes a network that another interface routes. A row of iface whose
 // destination does not parse is an error. Destinations are expanded to the
 // canonical form of the family queried: `default` is 0.0.0.0/0 or ::/0,
 // `192.168.5/24` is 192.168.5.0/24, a bare `127` is 127.0.0.0/8, a bare host
 // is /32 or /128.
 func parseNetstatDarwin(out []byte, iface string, ipv6 bool) (darwinTable, error) {
 	table := darwinTable{Mesh: make([]routes.Entry, 0), Foreign: make(map[string]string)}
+	cols := currentNetstatColumns
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 4 {
+		if header, ok := netstatHeader(fields); ok {
+			cols = header
 			continue
 		}
-		dest, gateway, flags, netif := fields[0], fields[1], fields[2], fields[3]
+		if len(fields) < cols.width() {
+			continue
+		}
+		dest, gateway, flags, netif := fields[cols.dest], fields[cols.gateway], fields[cols.flags], fields[cols.netif]
+		if strings.ContainsAny(flags, "mbLW") || strings.Contains(dest, "%") {
+			continue
+		}
 		mesh := netif == iface
-		if strings.ContainsAny(flags, "mbLW") || strings.Contains(dest, "%") || (mesh && !strings.HasPrefix(gateway, "link#")) {
-			continue
-		}
 		canonical, err := canonicalNetstatDest(dest, ipv6)
 		if err != nil {
 			if mesh {
-				return darwinTable{}, fmt.Errorf("parse netstat row %q: %w", strings.TrimSpace(line), err)
+				return darwinTable{}, fmt.Errorf("parse netstat row %q: %w", strings.Join(fields, " "), err)
 			}
 			continue
 		}
 		if p := netip.MustParsePrefix(canonical); p.Addr().IsMulticast() || p.Addr().IsLinkLocalUnicast() {
 			continue
 		}
-		if mesh {
+		switch {
+		case !mesh:
+			if _, seen := table.Foreign[canonical]; !seen {
+				table.Foreign[canonical] = netif
+			}
+		case strings.HasPrefix(gateway, "link#") || gateway == iface:
 			table.Mesh = append(table.Mesh, routes.Entry{Network: canonical})
-		} else if _, seen := table.Foreign[canonical]; !seen {
-			table.Foreign[canonical] = netif
+		default:
+			table.Unrecognised = append(table.Unrecognised, strings.Join(fields, " "))
 		}
 	}
 	return table, nil

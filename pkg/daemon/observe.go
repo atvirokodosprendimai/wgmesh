@@ -57,6 +57,10 @@ type kernelObserved struct {
 	// mesh interface route (macOS only): canonical network -> interface.
 	Foreign4 map[string]string
 	Foreign6 map[string]string
+	// Unrecognised4 and Unrecognised6 are the mesh-interface rows of netstat
+	// that no accepted shape matched (macOS only).
+	Unrecognised4 []string
+	Unrecognised6 []string
 	// Addrs are the addresses on the mesh interface, both families, each with
 	// the prefix length the kernel holds it with.
 	Addrs []netip.Prefix

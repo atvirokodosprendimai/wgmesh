@@ -718,3 +718,86 @@ func TestDarwinForeignWarningRepeatsAfterTheCaseEnds(t *testing.T) {
 		t.Errorf("foreign-route counted %v times, want 2 (once per time the case holds)", got)
 	}
 }
+func warnedKeys(d *Daemon) []string {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	var keys []string
+	for k := range d.darwinWarned {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// The column layout is read from the header line; both layouts below are
+// hand-written from the man page and unverified on a Mac (S1 decides).
+func TestParseNetstatDarwinTolerance(t *testing.T) {
+	for _, c := range []struct {
+		name, file string
+		want       []string
+	}{
+		{"the old layout with Refs and Use before Netif", "netstat-inet-oldlayout.handwritten.txt",
+			[]string{"0.0.0.0/0", "10.100.0.5/32", "10.99.0.0/16", "192.168.5.0/24"}},
+		{"the interface name as the gateway", "netstat-inet-ifname-gateway.handwritten.txt",
+			[]string{"10.100.0.5/32", "10.99.0.0/16", "192.168.5.0/24"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			table, err := parseNetstatDarwin(readFixture(t, c.file), "utun4", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(networksOf(table.Mesh), c.want) {
+				t.Errorf("networks = %q, want %q", networksOf(table.Mesh), c.want)
+			}
+			if table.Foreign["0.0.0.0/0"] != "en0" {
+				t.Errorf("foreign = %v, want the default route of en0", table.Foreign)
+			}
+			if len(table.Unrecognised) != 0 {
+				t.Errorf("unrecognised rows %q", table.Unrecognised)
+			}
+		})
+	}
+	t.Run("no header line falls back to the current layout", func(t *testing.T) {
+		out := []byte("192.168.5/24 link#16 UCS utun4\n10.7/16 link#14 UCS en0\n")
+		table, err := parseNetstatDarwin(out, "utun4", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got, want := networksOf(table.Mesh), []string{"192.168.5.0/24"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("networks = %q, want %q", got, want)
+		}
+		if table.Foreign["10.7.0.0/16"] != "en0" {
+			t.Errorf("foreign = %v", table.Foreign)
+		}
+	})
+	t.Run("a mesh row of no accepted shape is skipped and reported", func(t *testing.T) {
+		table, err := parseNetstatDarwin(readFixture(t, "netstat-inet.handwritten.txt"), "utun4", false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := []string{"10.99.0.1 10.99.0.1 UH utun4"}; !reflect.DeepEqual(table.Unrecognised, want) {
+			t.Errorf("unrecognised = %q, want %q", table.Unrecognised, want)
+		}
+	})
+}
+
+func TestDarwinUnrecognisedRowIsReportedOnce(t *testing.T) {
+	dh := newDarwinHost()
+	dh.noise[4] = []string{"10.5.0.0/16 10.99.0.9 UGS utun4"}
+	ls := &logSink{}
+	d := newDarwinDaemon(t, dh, ls, newFakeKernel())
+	peers := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "192.168.50.0/24")}
+	d.converge(peers)
+	first := ls.total()
+	d.converge(peers)
+	d.converge(peers)
+	if got := ls.total(); got != first {
+		t.Errorf("ticks 2 and 3 logged %d more lines, want none", got-first)
+	}
+	if got, want := warnedKeys(d), []string{"row|4|10.5.0.0/16 10.99.0.9 UGS utun4"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("warned = %q, want %q", got, want)
+	}
+	if got, want := dh.routeCommands(), []string{"route -n add -net 192.168.50.0/24 -interface utun4"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("route commands = %q, want %q", got, want)
+	}
+}

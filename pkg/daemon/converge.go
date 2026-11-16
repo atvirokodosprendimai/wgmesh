@@ -392,7 +392,8 @@ func (d *Daemon) noteDarwinInstalled(results []itemResult) {
 }
 
 // noteDarwinWarnings logs and counts, once while the case holds, a wanted
-// network that another interface already routes (rule foreign-route): it is
+// network that another interface already routes (rule foreign-route), and
+// each distinct mesh-interface netstat row the parser does not recognise: it is
 // not routed into the mesh, because `route change` would re-point the host's
 // default or another tunnel's route. The set is replaced by the cases of this
 // tick; a family whose observe failed keeps its entries, since nothing is
@@ -418,6 +419,18 @@ func (d *Daemon) noteDarwinWarnings(obs kernelObserved, foreign []darwinForeign)
 			RecordKernelWarning("foreign-route")
 		}
 		now[key] = struct{}{}
+	}
+	for _, rows := range []struct {
+		fam  string
+		rows []string
+	}{{"4", obs.Unrecognised4}, {"6", obs.Unrecognised6}} {
+		for _, row := range rows.rows {
+			key := "row|" + rows.fam + "|" + row
+			if _, was := d.darwinWarned[key]; !was {
+				d.logf("unrecognised route row of %s: %q is skipped (the parser knows no such shape; S1 decides whether it must)", d.config.InterfaceName, row)
+			}
+			now[key] = struct{}{}
+		}
 	}
 	d.darwinWarned = now
 }
