@@ -414,13 +414,33 @@ func TestForwardTickRaceFree(t *testing.T) {
 		}
 		close(done)
 	}()
+	check := func(when string) {
+		t.Helper()
+		if d.converge(nil) == nil {
+			t.Fatalf("%s: converge skipped the tick", when)
+		}
+		// The host never drifts, so each forwarding write happens at most once.
+		if n := h.count("sysctl -w"); n > 1 {
+			t.Fatalf("%s: sysctl written %d times", when, n)
+		}
+		if n := h.count("iptables -A"); n > 1 {
+			t.Fatalf("%s: the FORWARD rule appended %d times", when, n)
+		}
+	}
 	for {
 		select {
 		case <-done:
 			wg.Wait()
+			// Whatever the interleaving did, a tick with forwarding wanted
+			// leaves exactly one sysctl write and one rule append.
+			EnforceForwardScope.Store(false)
+			check("final tick")
+			if got, want := h.writes(), []string{wantSysctl, wantRule}; len(got) != 2 || (!sameLines(got, want) && !sameLines(got, []string{wantRule, wantSysctl})) {
+				t.Errorf("writes after the race = %q, want one sysctl and one rule append", got)
+			}
 			return
 		default:
-			d.converge(nil)
+			check("racing tick")
 		}
 	}
 }
