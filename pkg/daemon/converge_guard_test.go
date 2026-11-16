@@ -456,3 +456,46 @@ func TestRouteWriterCallsGuardForms(t *testing.T) {
 		})
 	}
 }
+
+// The macOS route guard can fail: `route -n add|delete|change` is flagged
+// outside converge.go, except in the first-setup helper setInterfaceAddress of
+// helpers.go; `route -n get` and `route -n monitor` write nothing.
+func TestRouteCommandGuardForms(t *testing.T) {
+	cases := []struct {
+		name string
+		file string
+		fn   string
+		body string
+		bad  bool
+	}{
+		{"converge may add", "converge.go", "f", `cmdExecutor.Command("route", "-n", "add", "-net", "x", "-interface", "utun4")`, false},
+		{"converge may delete", "converge.go", "f", `cmdExecutor.Command("route", "-n", "delete", "-net", "x", "-interface", "utun4")`, false},
+		{"converge may change", "converge.go", "f", `cmdExecutor.Command("route", "-n", "change", "-net", "x", "-interface", "utun4")`, false},
+		{"darwin_routes may not add", "darwin_routes.go", "f", `cmdExecutor.Command("route", "-n", "add", "-net", "x", "-interface", "utun4")`, true},
+		{"darwin_routes may not delete", "darwin_routes.go", "f", `cmdExecutor.Command("route", "-n", "delete", "-net", "x", "-interface", "utun4")`, true},
+		{"observe may not change", "observe.go", "f", `cmdExecutor.Command("route", "-n", "change", "-net", "x", "-interface", "utun4")`, true},
+		{"route add with -inet6", "routes.go", "f", `cmdExecutor.Command("route", "-n", "add", "-inet6", "-net", "x", "-interface", "utun4")`, true},
+		{"route add built with a spread", "routes.go", "f", `cmdExecutor.Command("route", "-n", "add", rest...)`, true},
+		{"first setup helper may add", "helpers.go", "setInterfaceAddress", `cmdExecutor.Command("route", "-n", "add", "-net", "x", "-interface", "utun4")`, false},
+		{"first setup helper may change", "helpers.go", "setInterfaceAddress", `cmdExecutor.Command("route", "-n", "change", "-net", "x", "-interface", "utun4")`, false},
+		{"another helper may not add", "helpers.go", "other", `cmdExecutor.Command("route", "-n", "add", "-net", "x", "-interface", "utun4")`, true},
+		{"the helper's name elsewhere is no exception", "routes.go", "setInterfaceAddress", `cmdExecutor.Command("route", "-n", "add", "-net", "x", "-interface", "utun4")`, true},
+		{"collision may not add", "collision.go", "f", `cmdExecutor.Command("route", "-n", "add", "-net", "x", "-interface", "utun4")`, true},
+		{"word in a constant", "routes.go", "f", "const w = \"delete\"\n\tcmdExecutor.Command(\"route\", \"-n\", w, \"x\")", true},
+		{"route get reads", "darwin_routes.go", "f", `cmdExecutor.Command("route", "-n", "get", "192.168.50.1")`, false},
+		{"netstat reads", "darwin_routes.go", "f", `cmdExecutor.Command("netstat", "-rn", "-f", "inet")`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package daemon\n\nfunc " + c.fn + "(args, rest []string) {\n\t" + c.body + "\n}\n"
+			f, err := parser.ParseFile(token.NewFileSet(), c.file, src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := commandViolations(c.file, f, stringLiterals(map[string]*ast.File{c.file: f}))
+			if (len(got) > 0) != c.bad {
+				t.Errorf("violations = %q, want violation %v", got, c.bad)
+			}
+		})
+	}
+}
