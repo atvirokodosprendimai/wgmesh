@@ -517,18 +517,27 @@ func (d *DHTDiscovery) announceNow() {
 	d.gossip.mu.RLock()
 	port := int(d.gossip.port)
 	d.gossip.mu.RUnlock()
+	failed, skipped := 0, 0
+	var firstErr error
 	for _, p := range d.peerStore.GetActive() {
 		if p.WGPubKey == d.localNode.WGPubKey || p.MeshIP == "" {
 			continue
 		}
 		ip := net.ParseIP(p.MeshIP)
 		if ip == nil {
-			log.Printf("[Resume] Invalid mesh IP for peer %s: %s", p.WGPubKey, p.MeshIP)
+			skipped++
 			continue
 		}
 		if err := d.sendAnnounceFn(&net.UDPAddr{IP: ip, Port: port}); err != nil {
-			log.Printf("[Resume] Failed to announce to %s: %v", p.MeshIP, err)
+			if failed == 0 {
+				firstErr = err
+			}
+			failed++
 		}
+	}
+	// one line per wake, however many peers are down
+	if failed > 0 || skipped > 0 {
+		log.Printf("[Resume] Announce failed for %d peers (first error: %v), %d skipped for an invalid mesh IP", failed, firstErr, skipped)
 	}
 }
 
