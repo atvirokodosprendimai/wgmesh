@@ -93,14 +93,7 @@ func commandAllowed(file, cmd, arg string) bool {
 // restoreConnectedRoute builds its command at run time, which the guard does
 // not see: it is held by its callers (callViolations).
 func ipRouteViolation(name string, call *ast.CallExpr, lits map[string][]string) string {
-	words := make(map[string]bool)
-	for _, a := range call.Args[1:] {
-		if vals, ok := literalValues(firstElement(a), lits); ok {
-			for _, v := range vals {
-				words[v] = true
-			}
-		}
-	}
+	words := callWords(call, lits)
 	if !words["route"] {
 		return ""
 	}
@@ -114,6 +107,46 @@ func ipRouteViolation(name string, call *ast.CallExpr, lits map[string][]string)
 		return fmt.Sprintf("%s runs an ip route read: route reads belong in observe.go", name)
 	}
 	return ""
+}
+
+// callWords are the literal words among the arguments of an `ip` Command call.
+func callWords(call *ast.CallExpr, lits map[string][]string) map[string]bool {
+	words := make(map[string]bool)
+	for _, a := range call.Args[1:] {
+		if vals, ok := literalValues(firstElement(a), lits); ok {
+			for _, v := range vals {
+				words[v] = true
+			}
+		}
+	}
+	return words
+}
+
+// funcAt is the name of the top-level function of f that holds pos, "" outside one.
+func funcAt(f *ast.File, pos token.Pos) string {
+	for _, d := range f.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Pos() <= pos && pos <= fd.End() {
+			return fd.Name.Name
+		}
+	}
+	return ""
+}
+
+// ipAddrViolation is the text of a violation by an `ip` Command call that
+// names `addr` (or `address`) and `add` or `del` among its literal arguments:
+// an address write belongs in converge.go. The one named exception is the
+// first-setup helper setInterfaceAddress of helpers.go (it flushes the family
+// before the interface is up; collision.go reaches it through the variable
+// applyInterfaceAddress, so no `ip` call of collision.go is excepted).
+func ipAddrViolation(name, fn string, call *ast.CallExpr, lits map[string][]string) string {
+	words := callWords(call, lits)
+	if !(words["addr"] || words["address"]) || !(words["add"] || words["del"]) {
+		return ""
+	}
+	if name == "converge.go" || (name == "helpers.go" && fn == "setInterfaceAddress") {
+		return ""
+	}
+	return fmt.Sprintf("%s runs an ip addr write in %q: address writes belong in converge.go (first setup: setInterfaceAddress in helpers.go)", name, fn)
 }
 
 // routeWriters are the functions that write routes; only converge.go calls them.
@@ -238,6 +271,9 @@ func commandViolations(name string, f *ast.File, lits map[string][]string) []str
 				if v := ipRouteViolation(name, call, lits); v != "" {
 					out = append(out, v)
 				}
+				if v := ipAddrViolation(name, funcAt(f, call.Pos()), call, lits); v != "" {
+					out = append(out, v)
+				}
 				continue
 			}
 			if !kernelCommands[cmd] {
@@ -259,8 +295,9 @@ func commandViolations(name string, f *ast.File, lits map[string][]string) []str
 // alias), or the Daemon seams that stand for them, calls applyRouteDiff or
 // restoreConnectedRoute, runs sysctl or iptables through any Command call
 // (whatever the receiver or the os/exec import alias) except observe.go for
-// `iptables -C`, or runs an `ip route` write; an `ip route` read belongs in
-// observe.go. Later tasks extend the pattern list.
+// `iptables -C`, runs an `ip route` write or an `ip addr add` / `ip addr del`
+// (the named exception: setInterfaceAddress of helpers.go, first setup); an
+// `ip route` read belongs in observe.go. Later tasks extend the pattern list.
 func TestKernelWritesOnlyInConverge(t *testing.T) {
 	banned := []struct {
 		sel     string
@@ -339,6 +376,45 @@ func TestCommandGuardForms(t *testing.T) {
 			}
 			files := map[string]*ast.File{c.file: f}
 			got := commandViolations(c.file, f, stringLiterals(files))
+			if (len(got) > 0) != c.bad {
+				t.Errorf("violations = %q, want violation %v", got, c.bad)
+			}
+		})
+	}
+}
+
+// The address guard can fail: `ip addr add` and `ip addr del` are flagged
+// outside converge.go, except in the first-setup helper setInterfaceAddress of
+// helpers.go (also reached through applyInterfaceAddress of collision.go).
+func TestAddressGuardForms(t *testing.T) {
+	cases := []struct {
+		name string
+		file string
+		fn   string
+		body string
+		bad  bool
+	}{
+		{"converge may add", "converge.go", "f", `cmdExecutor.Command("ip", "addr", "add", "x", "dev", "wg0")`, false},
+		{"converge may delete", "converge.go", "f", `cmdExecutor.Command("ip", "addr", "del", "x", "dev", "wg0")`, false},
+		{"observe may read", "observe.go", "f", `cmdExecutor.Command("ip", "-o", "addr", "show", "dev", "wg0")`, false},
+		{"observe may not add", "observe.go", "f", `cmdExecutor.Command("ip", "addr", "add", "x", "dev", "wg0")`, true},
+		{"routes may not delete", "routes.go", "f", `cmdExecutor.Command("ip", "addr", "del", "x", "dev", "wg0")`, true},
+		{"routes may read", "routes.go", "f", `cmdExecutor.Command("ip", "-4", "-o", "addr", "show", "to", "x")`, false},
+		{"first setup helper may add", "helpers.go", "setInterfaceAddress", `cmdExecutor.Command("ip", "addr", "add", "x", "dev", "wg0")`, false},
+		{"another helper may not add", "helpers.go", "resetInterface", `cmdExecutor.Command("ip", "addr", "add", "x", "dev", "wg0")`, true},
+		{"the helper's name elsewhere is no exception", "routes.go", "setInterfaceAddress", `cmdExecutor.Command("ip", "addr", "add", "x", "dev", "wg0")`, true},
+		{"collision may not add", "collision.go", "f", `cmdExecutor.Command("ip", "addr", "add", "x", "dev", "wg0")`, true},
+		{"word in a constant", "routes.go", "f", "const w = \"del\"\n\tcmdExecutor.Command(\"ip\", \"addr\", w, \"x\")", true},
+		{"ip -6 addr add", "other.go", "f", `cmdExecutor.Command("ip", "-6", "addr", "add", "x", "dev", "wg0")`, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			src := "package daemon\n\nfunc " + c.fn + "(args []string) {\n\t" + c.body + "\n}\n"
+			f, err := parser.ParseFile(token.NewFileSet(), c.file, src, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := commandViolations(c.file, f, stringLiterals(map[string]*ast.File{c.file: f}))
 			if (len(got) > 0) != c.bad {
 				t.Errorf("violations = %q, want violation %v", got, c.bad)
 			}
