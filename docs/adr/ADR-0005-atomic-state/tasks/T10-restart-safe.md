@@ -11,14 +11,14 @@
 
 ## Goal
 
-After `Stop` then `Start`, the exchange has exactly one listen loop and the DHT layer's loops see a live context that still ends when the daemon's context ends.
+After `Stop` then `Start`, the exchange has exactly one listen loop and the DHT layer's loops see a live context that still ends when the daemon's context ends. `PeerExchange.Stop` returns only after its listen loop has ended (a `sync.WaitGroup`, as the LAN and gossip layers do since #884), so a following `Start` never meets the old loop; every access to `running`, `stopCh` and `conn` of the exchange is under `pe.mu` or goes through the loop's arguments (M 2026-11-16: no bare shared state). `DHTDiscovery.Start` marks itself running only after its sub-layers started; a startup error stops what was already started and leaves `running` false (issue #894 item 2, review of 2026-11-15, verified by the reviewer under `-race` for the exchange part).
 
 ## Affected Files
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/discovery/exchange.go` | edit | `Start` passes `stopCh` and `conn` to `go pe.listenLoop(...)` (`:146-152`); `listenLoop` uses its arguments, not `pe.stopCh` and `pe.conn` (`:190-201`), and reads `running` under `pe.mu`; an `atomic.Int32` `loops` counts live loops (test seam, one line) |
-| `pkg/discovery/dht.go` | edit | `DHTDiscovery` keeps `parentCtx`; `Start` derives `ctx, cancel` under `d.mu` when it sets `running` (`:104-111`), through `beginRun()` that returns the "already running" error |
+| `pkg/discovery/exchange.go` | edit | `Start` passes `stopCh` and `conn` to `go pe.listenLoop(...)` and adds the loop to a `sync.WaitGroup`; `listenLoop` uses its arguments, not `pe.stopCh` and `pe.conn`, and reads `running` under `pe.mu`; `Stop` closes the channel and the connection and then waits for the group, bounded by a timeout so a stuck read cannot hang the daemon (the connection close makes the blocked read return); an `atomic.Int32` `loops` counts live loops (test seam, one line) |
+| `pkg/discovery/dht.go` | edit | `DHTDiscovery` keeps `parentCtx`; `Start` derives `ctx, cancel` under `d.mu` through `beginRun()` that returns the "already running" error; `running` is set true only after the exchange, gossip and the DHT server started, and on a startup error the layers already started are stopped and `running` stays false (the leaked LAN layer of #894) |
 | `pkg/discovery/restart_test.go` | add | tests below |
 
 Selection: `DHTDiscovery.Start` and `PeerExchange.Start` are the only starters; the exchange test fails if the loop reads the struct fields again, the DHT test fails if the context is not recreated.
@@ -31,13 +31,13 @@ Ordering note: follows T9 (same file) and ADR-0002 T9 (`dht.go`); `Start` and `S
 2. [S2] Pass the arguments to `listenLoop`; read `running` under the lock.
 3. [S3] Add `beginRun` and `parentCtx`; `Stop` keeps cancelling the current `ctx`.
 4. [S4] [proof: human: a full DHT layer restart against the real network was not run, it needs a bootstrap and STUN; the tests cover the context and the exchange] Record whether a restart was run on a development host, with date, in the sign-off.
-5. [S5] Run the mutants with `adr-verify --mutant`: `listenLoop` reads `pe.stopCh` again; `beginRun` keeps the old context; `beginRun` derives from `context.Background()` instead of the parent. [proof: mutation]
+5. [S5] Run the mutants with `adr-verify --mutant`: `listenLoop` reads `pe.stopCh` again; `beginRun` keeps the old context; `beginRun` derives from `context.Background()` instead of the parent; `Stop` does not wait for the loop; `Start` sets `running` before the layers started. [proof: mutation]
 
 ## Acceptance
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/discovery -run '^(TestPeerExchangeRestartKeepsOneLoop|TestPeerExchangeStopEndsTheLoop|TestDHTBeginRunGivesLiveContext|TestDHTRestartContextFollowsParent)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 4 ] && go test -race ./pkg/discovery -count=1
+n=$(go test ./pkg/discovery -run '^(TestPeerExchangeRestartKeepsOneLoop|TestPeerExchangeStopEndsTheLoop|TestDHTBeginRunGivesLiveContext|TestDHTRestartContextFollowsParent|TestPeerExchangeStopWaitsForLoop|TestDHTStartFailureLeavesNotRunning)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 6 ] && go test -race ./pkg/discovery -count=1
 ```
 
 ## Tests
@@ -48,6 +48,8 @@ n=$(go test ./pkg/discovery -run '^(TestPeerExchangeRestartKeepsOneLoop|TestPeer
 | `TestPeerExchangeStopEndsTheLoop` | `pkg/discovery/restart_test.go` | after the second Stop `loops` is 0 | — | S1, S2 |
 | `TestDHTBeginRunGivesLiveContext` | `pkg/discovery/restart_test.go` | after Stop, `beginRun` returns nil and `d.ctx.Err()` is nil; a second `beginRun` while running returns the "already running" error | — | S1, S3 |
 | `TestDHTRestartContextFollowsParent` | `pkg/discovery/restart_test.go` | cancelling the parent context ends the restarted context | — | S1, S3 |
+| `TestPeerExchangeStopWaitsForLoop` | `pkg/discovery/restart_test.go` | right after `Stop` returns the `loops` counter is 0 (no polling): `Stop` waited for the loop; clean under `-race` with Start and Stop in a 20-iteration loop (the reviewer's reproduction of #894 item 2) | — | S1, S2 |
+| `TestDHTStartFailureLeavesNotRunning` | `pkg/discovery/restart_test.go` | a startup error of a sub-layer leaves `running` false and the already started layers stopped | — | S1, S3 |
 
 ## Reachability
 
