@@ -55,10 +55,15 @@ func (r *routeHost) addrExec(line string, args []string) (bool, []byte, error) {
 		want, wok := heldAddr(args[2])
 		for _, a := range r.ifAddrs {
 			// IPv6 holds an address once, whatever its prefix length: the add
-			// of fd99::1/64 over a held fd99::1/128 is "File exists". IPv4
+			// of fd99::1/64 over a held fd99::1/128 fails with "Error: ipv6:
+			// address already assigned." (iproute2, kernel 6.17; not "File
+			// exists", which is the same address with the same length). IPv4
 			// allows the same address with another prefix length.
 			if h, ok := heldAddr(a); a == args[2] || (wok && ok && want.Addr().Is6() && h.Addr() == want.Addr()) {
-				return true, []byte("RTNETLINK answers: File exists"), exitError{2}
+				if a == args[2] {
+					return true, []byte("RTNETLINK answers: File exists"), exitError{2}
+				}
+				return true, []byte("Error: ipv6: address already assigned."), exitError{2}
 			}
 		}
 		r.ifAddrs = append(r.ifAddrs, args[2])
@@ -633,4 +638,80 @@ func TestOnlyWrongPrefixLengthHeld(t *testing.T) {
 			t.Errorf("the /24 was warned about %d times, want once", n)
 		}
 	})
+}
+
+// The kernel refuses the same IPv6 address with another prefix length
+// ("Error: ipv6: address already assigned."), so a held fd99::1/128 holds the
+// wanted fd99::1/64. At release N the stale /128 is only warned about and
+// nothing is added (an add that can never succeed would fail every tick);
+// with the removal enforced the plan removes it and adds the wanted one.
+func TestIPv6OtherPrefixLengthCountsAsHeld(t *testing.T) {
+	want := addressDesired{Wanted: true, Addrs: []netip.Prefix{netip.MustParsePrefix("10.99.0.1/16"), netip.MustParsePrefix("fd99::1/64")}}
+	k := kernelObserved{Addrs: []netip.Prefix{netip.MustParsePrefix("10.99.0.1/16"), netip.MustParsePrefix("fd99::1/128")}}
+	stale := []netip.Prefix{netip.MustParsePrefix("fd99::1/128")}
+	t.Run("plan, enforcement off", func(t *testing.T) {
+		p := planAddresses(want, k, false)
+		if len(p.Add) != 0 || fmt.Sprint(p.Remove) != fmt.Sprint(stale) {
+			t.Errorf("plan add %v remove %v, want no add and remove %v", p.Add, p.Remove, stale)
+		}
+	})
+	t.Run("plan, enforcement on", func(t *testing.T) {
+		p := planAddresses(want, k, true)
+		if fmt.Sprint(p.Add) != "[fd99::1/64]" || fmt.Sprint(p.Remove) != fmt.Sprint(stale) {
+			t.Errorf("plan add %v remove %v, want add [fd99::1/64] and remove %v", p.Add, p.Remove, stale)
+		}
+	})
+	t.Run("IPv4 allows another prefix length, so it is added", func(t *testing.T) {
+		k4 := kernelObserved{Addrs: []netip.Prefix{netip.MustParsePrefix("10.99.0.1/24")}}
+		p := planAddresses(addressDesired{Wanted: true, Addrs: want.Addrs[:1]}, k4, false)
+		if fmt.Sprint(p.Add) != "[10.99.0.1/16]" {
+			t.Errorf("plan add %v, want [10.99.0.1/16]", p.Add)
+		}
+	})
+	t.Run("node, enforcement off: no write, one warning", func(t *testing.T) {
+		enforceAddressRemoval(t, false)
+		before := addressChanges()
+		d, rh, ls := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/128")
+		d.localNode.MeshIPv6 = "fd99::1"
+		d.config.Introducer = true
+		tick(t, d, 3)
+		if got := rh.addrCmds(); len(got) != 0 {
+			t.Errorf("address writes over 3 ticks: %q, want none", got)
+		}
+		if ls.count("Failed to") != 0 {
+			t.Errorf("a failing write was logged: %q", ls.lines)
+		}
+		if n := ls.count("stale address fd99::1/128 inside the mesh network"); n != 1 {
+			t.Errorf("stale warning logged %d times, want once", n)
+		}
+		if addressChanges() != before {
+			t.Errorf("address changes grew by %v", addressChanges()-before)
+		}
+	})
+	t.Run("node, enforcement on: del then add", func(t *testing.T) {
+		enforceAddressRemoval(t, true)
+		d, rh, _ := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/128")
+		d.localNode.MeshIPv6 = "fd99::1"
+		tick(t, d, 2)
+		if got, w := rh.addrCmds(), []string{"ip addr del fd99::1/128 dev wg0", "ip addr add fd99::1/64 dev wg0"}; !sameLines(got, w) {
+			t.Errorf("address commands %q, want %q", got, w)
+		}
+	})
+}
+
+// The kernel's text for the same IPv6 address with another prefix length is
+// success for an add, like "File exists": it is not a failure and not a change.
+func TestAddAlreadyAssignedIsSuccess(t *testing.T) {
+	d, rh, ls := newAddrDaemon(t, "fd99::1/128")
+	before := addressChanges()
+	res := d.applyAddresses(addressPlan{Add: []netip.Prefix{netip.MustParsePrefix("fd99::1/64")}})
+	if len(rh.addrCmds()) != 1 {
+		t.Fatalf("commands %q, want the one add", rh.addrCmds())
+	}
+	if len(res) != 1 || res[0].Err != nil {
+		t.Errorf("results %v, want one success", res)
+	}
+	if addressChanges() != before || ls.count("Failed to") != 0 {
+		t.Errorf("counted %v changes, logged %d failures", addressChanges()-before, ls.count("Failed to"))
+	}
 }

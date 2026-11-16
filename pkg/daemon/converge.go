@@ -543,7 +543,7 @@ type addressPlan struct {
 // desired and lies inside a mesh network (the masked prefix of a desired
 // address, same family) is removed; every other address is left alone. A
 // target whose observe failed, or that is not wanted, plans nothing.
-func planAddresses(want addressDesired, k kernelObserved) addressPlan {
+func planAddresses(want addressDesired, k kernelObserved, enforce bool) addressPlan {
 	var plan addressPlan
 	if k.Errs[targetAddress] != nil {
 		plan.Skipped = true
@@ -697,7 +697,7 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	results := d.applyKernel(plan)
 	// The addresses come before the routes: a gateway is reached over the
 	// connected route of the interface's address.
-	results = append(results, d.applyAddresses(planAddresses(ds.Addresses, obs))...)
+	results = append(results, d.applyAddresses(planAddresses(ds.Addresses, obs, EnforceAddressRemoval.Load()))...)
 	results = append(results, d.applyForward(planForward(ds.Forward, obs), ds.Forward.Wanted && obs.Errs[targetForward] == nil)...)
 	results = append(results, d.convergeRoutes(ds, obs)...)
 	d.logResults(results)
