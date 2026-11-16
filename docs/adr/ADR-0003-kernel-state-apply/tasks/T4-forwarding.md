@@ -63,6 +63,12 @@ n=$(go test ./pkg/daemon -run '^(TestForwardAppliedOnceThenQuiet|TestForwardReap
 | 4 — it is used | every tick of every Linux node |
 
 ## Mutation Log
+- 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · sysctl written every tick: TestForwardAppliedOnceThenQuiet must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · missing iptables logged every tick: TestMissingIptablesLoggedOnce must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/desired.go` · Needed ignores Introducer: TestForwardNeededForIntroducerAndAdvertiser must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/desired.go` · Needed ignores advertise-routes: TestForwardNeededForIntroducerAndAdvertiser must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/desired.go` · Wanted ignores EnforceForwardScope: TestForwardScopeEnforcedStopsForcing must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · rule appended although present: TestForwardPreexistingValueNotRewritten must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
 
 ## Invariants
 
@@ -87,3 +93,24 @@ Stop and ask if `iptables -C` cannot be told apart from "binary missing" by the 
 - nftables and firewall policy (permanent: boundary: wgmesh converges the one rule it already installs).
 
 ## Verification Log
+- 2026-11-16 · ef8b23a* · exit 1 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:2143 · test-lock-sha256:b2d1a3dae467672afe7b0fdd82842b241cf9117b07e8486a7c129780fc6b13e0 · test-lock-file:docs/adr/locks/b2d1a3dae467672afe7b0fdd82842b241cf9117b07e8486a7c129780fc6b13e0.lock
+  ```
+  --- last 10 line(s) of stderr (of 38 after folding 38 raw)
+      forward_test.go:315: Forward = {Wanted:false Needed:false}, want Needed and Wanted both true with the switch on
+      forward_test.go:322: writes = [], want ["sysctl -w net.ipv4.ip_forward=1" "iptables -A FORWARD -i wgmesh-t3-none -o wgmesh-t3-none -j ACCEPT"]
+  === RUN   TestForwardNeededForIntroducerAndAdvertiser/neither
+  --- FAIL: TestForwardNeededForIntroducerAndAdvertiser (0.00s)
+      --- FAIL: TestForwardNeededForIntroducerAndAdvertiser/introducer (0.00s)
+      --- FAIL: TestForwardNeededForIntroducerAndAdvertiser/advertiser (0.00s)
+      --- PASS: TestForwardNeededForIntroducerAndAdvertiser/neither (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.008s
+  FAIL
+  ```
+- 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:9991
+- 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:10153
+- 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:10048
+- 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:9364
+- 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:9806
+- 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:9772
+- 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:6716
