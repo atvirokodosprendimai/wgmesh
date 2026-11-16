@@ -439,3 +439,9 @@ func getWGInterfacePort(name string) int {
 	fmt.Sscanf(strings.TrimSpace(string(output)), "%d", &port)
 	return port
 }
+
+// InterfaceLockPath is the per-interface lock file of a running join; the one
+// state directory stays in this package.
+func InterfaceLockPath(iface string) string {
+	return filepath.Join(localNodeStateDir, iface+".lock")
+}

@@ -326,6 +326,14 @@ func saveSecretFile(path, secretURI string) error {
 	return nil
 }
 
+// acquireInterfaceLock stub (red): takes no lock yet.
+// interfaceLockPath is read once per join and set only by non-parallel tests.
+var interfaceLockPath = daemon.InterfaceLockPath
+
+func acquireInterfaceLock(iface string) (func(), error) {
+	return func() {}, nil
+}
+
 // joinCmd handles the "join --secret" subcommand
 func joinCmd() {
 	fs := flag.NewFlagSet("join", flag.ExitOnError)
