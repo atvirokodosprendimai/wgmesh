@@ -3,6 +3,7 @@
 package node
 
 import (
+	"net"
 	"sync"
 	"time"
 )
@@ -31,8 +32,13 @@ type PeerInfo struct {
 	heardFirstHand   bool // a first-hand claim was accepted at least once
 }
 
-// LocalNode represents the local WireGuard node.
-// Endpoint access is thread-safe via GetEndpoint / SetEndpoint.
+// LocalNode represents our local WireGuard node. It is the one local-node
+// type: pkg/daemon aliases it (peerstore_compat.go), so a method added here
+// reaches the value initLocalNode, discovery and the tests use.
+// The WG endpoint is accessed via GetEndpoint/SetEndpoint to allow
+// concurrent updates from discovery goroutines. RoutableNetworks changes on
+// SIGHUP reload, so once the node is shared it must be accessed only via
+// GetRoutableNetworks/SetRoutableNetworks.
 type LocalNode struct {
 	WGPubKey         string
 	WGPrivateKey     string
@@ -40,11 +46,17 @@ type LocalNode struct {
 	MeshIPv6         string
 	RoutableNetworks []string
 	Introducer       bool
-	NATType          string
+	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
 	Hostname         string
 
 	endpointMu sync.RWMutex
 	wgEndpoint string
+	// pendingSTUN is the STUN value waiting for its third identical
+	// observation; both fields are guarded by endpointMu.
+	pendingSTUN      string
+	pendingSTUNCount int
+
+	routesMu sync.RWMutex // guards RoutableNetworks
 }
 
 // GetEndpoint returns the current WireGuard endpoint (thread-safe).
@@ -59,6 +71,79 @@ func (n *LocalNode) SetEndpoint(ep string) {
 	n.endpointMu.Lock()
 	defer n.endpointMu.Unlock()
 	n.wgEndpoint = ep
+}
+
+// EndpointSource names where an endpoint observation came from.
+type EndpointSource string
+
+const (
+	// EndpointInterface is a global IPv6 address read from a local interface.
+	EndpointInterface EndpointSource = "interface"
+	// EndpointReflection is the address a peer reflected back to us.
+	EndpointReflection EndpointSource = "reflection"
+	// EndpointSTUN is the answer of a STUN server.
+	EndpointSTUN EndpointSource = "stun"
+)
+
+// stunConfirmations is how many identical STUN observations in a row replace
+// a usable endpoint (#828: dual-egress networks flapped between a STUN answer
+// and a peer reflection).
+const stunConfirmations = 3
+
+// ObserveEndpoint applies an observed endpoint and reports whether the
+// announced endpoint changed. While the current endpoint is empty or
+// unspecified any source applies at once. An interface address or a peer
+// reflection applies at once and discards a pending STUN value. A STUN answer
+// that differs from the current endpoint applies only on its third identical
+// observation in a row; one equal to it discards the pending value.
+// It sets the field itself under endpointMu and does not call SetEndpoint:
+// SetEndpoint takes endpointMu too, so calling it here would deadlock.
+func (n *LocalNode) ObserveEndpoint(source EndpointSource, endpoint string) bool {
+	n.endpointMu.Lock()
+	defer n.endpointMu.Unlock()
+	if source == EndpointSTUN && endpoint != n.wgEndpoint && !endpointUnspecified(n.wgEndpoint) {
+		if endpoint == n.pendingSTUN {
+			n.pendingSTUNCount++
+		} else {
+			n.pendingSTUN, n.pendingSTUNCount = endpoint, 1
+		}
+		if n.pendingSTUNCount < stunConfirmations {
+			return false
+		}
+	}
+	n.pendingSTUN, n.pendingSTUNCount = "", 0
+	changed := n.wgEndpoint != endpoint
+	n.wgEndpoint = endpoint
+	return changed
+}
+
+// endpointUnspecified reports whether ep is empty or has an unspecified
+// host (0.0.0.0, ::).
+func endpointUnspecified(ep string) bool {
+	if ep == "" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(ep)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsUnspecified()
+}
+
+// GetRoutableNetworks returns a copy of the advertised networks (thread-safe).
+func (n *LocalNode) GetRoutableNetworks() []string {
+	n.routesMu.RLock()
+	defer n.routesMu.RUnlock()
+	return append([]string(nil), n.RoutableNetworks...)
+}
+
+// SetRoutableNetworks stores a copy of the advertised networks (thread-safe).
+func (n *LocalNode) SetRoutableNetworks(networks []string) {
+	networks = append([]string(nil), networks...)
+	n.routesMu.Lock()
+	defer n.routesMu.Unlock()
+	n.RoutableNetworks = networks
 }
 
 // ConfigReader is the narrow interface that pkg/discovery uses to read

@@ -13,6 +13,8 @@ type Hand = node.Hand
 type Source = node.Source
 type Decision = node.Decision
 type Policy = node.Policy
+type LocalNode = node.LocalNode
+type EndpointSource = node.EndpointSource
 
 const (
 	PeerDeadTimeout   = node.PeerDeadTimeout
@@ -31,6 +33,12 @@ const (
 	FirstHand  = node.FirstHand
 	SecondHand = node.SecondHand
 	Restored   = node.Restored
+)
+
+const (
+	EndpointInterface  = node.EndpointInterface
+	EndpointReflection = node.EndpointReflection
+	EndpointSTUN       = node.EndpointSTUN
 )
 
 func NewPeerStore() *PeerStore { return node.NewPeerStore() }
