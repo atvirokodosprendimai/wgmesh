@@ -75,6 +75,11 @@ type Daemon struct {
 	// least a read lock; SIGHUP reload holds the write lock.
 	configMu sync.RWMutex
 
+	// collisionMu serialises CheckAndResolveCollisions: the reconcile loop and a
+	// SIGHUP reload both reach it, and it reads the mesh IP, derives a new one and
+	// sets it.
+	collisionMu sync.Mutex
+
 	// Discovery layer (DHT discovery will be attached)
 	dhtDiscovery DiscoveryLayer
 

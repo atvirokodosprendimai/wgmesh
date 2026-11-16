@@ -112,6 +112,8 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 // local node loses and moves to a nonce-derived address, the address is written
 // to the local node state file, so it survives a restart (#830).
 func (d *Daemon) CheckAndResolveCollisions() {
+	d.collisionMu.Lock()
+	defer d.collisionMu.Unlock()
 	var local node.Claim
 	if d.localNode != nil {
 		local = node.Claim{Key: d.localNode.WGPubKey, IP: d.localNode.GetMeshIP()}
