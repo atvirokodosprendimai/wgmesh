@@ -211,8 +211,8 @@ func TestApplyRouteDiff_AddAndRemove(t *testing.T) {
 	toRemove := []routes.Entry{{Network: "10.0.2.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
-		if _, err := applyRouteDiff("wg0", toAdd, toRemove); err != nil {
-			t.Fatalf("applyRouteDiff failed: %v", err)
+		if _, results := applyRouteDiff("wg0", toAdd, toRemove); len(results) != 0 {
+			t.Fatalf("applyRouteDiff reported results for a clean apply: %+v", results)
 		}
 	})
 
@@ -231,8 +231,32 @@ func TestApplyRouteDiff_AddAndRemove(t *testing.T) {
 	if !found("route replace 10.0.1.0/24") {
 		t.Errorf("expected 'route replace' command, got: %v", cmds)
 	}
-	if !found("sysctl") {
-		t.Errorf("expected sysctl ip_forward command, got: %v", cmds)
+}
+
+// TestApplyRouteDiffIssuesNoForwardingCommands: forwarding belongs to the
+// forwarding target of converge; applying routes runs neither sysctl nor
+// iptables, however many routes it adds and removes.
+func TestApplyRouteDiffIssuesNoForwardingCommands(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("applyRouteDiff is Linux-only")
+	}
+	var cmds []string
+	mock := &MockCommandExecutor{
+		commandFunc: func(name string, args ...string) Command {
+			cmds = append(cmds, name+" "+strings.Join(args, " "))
+			return &MockCommand{}
+		},
+	}
+	toAdd := []routes.Entry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}, {Network: "fd00:5::/64", Gateway: "fd99::2"}}
+	toRemove := []routes.Entry{{Network: "10.0.2.0/24", Gateway: "10.0.0.1"}}
+	withMockExecutor(t, mock, func() { applyRouteDiff("wg0", toAdd, toRemove) })
+	if len(cmds) != 3 {
+		t.Errorf("applyRouteDiff ran %d commands for 3 routes, want 3: %q", len(cmds), cmds)
+	}
+	for _, c := range cmds {
+		if strings.HasPrefix(c, "sysctl") || strings.HasPrefix(c, "iptables") {
+			t.Errorf("applyRouteDiff ran a forwarding command: %q", c)
+		}
 	}
 }
 
@@ -258,12 +282,12 @@ func TestApplyRouteDiff_AddFailure(t *testing.T) {
 	toAdd := []routes.Entry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
-		_, err := applyRouteDiff("wg0", toAdd, nil)
-		if err == nil {
-			t.Fatal("expected error from failed route replace, got nil")
+		_, results := applyRouteDiff("wg0", toAdd, nil)
+		if len(results) != 1 || results[0].Err == nil {
+			t.Fatalf("expected one failed result from failed route replace, got %+v", results)
 		}
-		if !strings.Contains(err.Error(), "failed to add route") {
-			t.Errorf("unexpected error message: %v", err)
+		if !strings.Contains(results[0].Err.Error(), "failed to add route") {
+			t.Errorf("unexpected error message: %v", results[0].Err)
 		}
 	})
 }

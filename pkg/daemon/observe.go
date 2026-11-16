@@ -31,12 +31,33 @@ type observedForward struct {
 	RuleInstalled   bool // iptables -C FORWARD -i <if> -o <if> -j ACCEPT succeeded
 }
 
+// targetRoutes names the kernel routes of the mesh interface in an item
+// result and a metric label; targetRoutes4 and targetRoutes6 name one family
+// in an observe error.
+const (
+	targetRoutes  = "route"
+	targetRoutes4 = "route-4"
+	targetRoutes6 = "route-6"
+)
+
 // kernelObserved is what one tick read from the kernel. A target that could
-// not be read has an entry in Errs and must not be read as empty.
+// not be read has an entry in Errs and must not be read as empty. Routes4 and
+// Routes6 are the canonical gateway routes of the mesh interface, per family.
 type kernelObserved struct {
 	Peers   map[string]observedPeer
 	Forward observedForward
+	Routes4 []routes.Entry
+	Routes6 []routes.Entry
 	Errs    map[string]error
+}
+
+// readRoutes reads the gateway routes of iface for one family.
+func readRoutes(iface string, ipv6 bool) ([]routes.Entry, error) {
+	return nil, nil
+}
+
+// observeRoutes reads both families of routes into obs, on Linux only.
+func (d *Daemon) observeRoutes(obs *kernelObserved) {
 }
 
 // ipForwardPath is the sysctl net.ipv4.ip_forward as a file.

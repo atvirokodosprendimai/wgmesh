@@ -121,6 +121,12 @@ func subset(a, b map[string]struct{}) bool {
 // alone. Every access is Load or Store.
 var EnforceForwardScope atomic.Bool
 
+// EnforceRouteGuard is the release switch of the rule attached-network: false
+// (release N) installs a route to a network this host is directly attached to
+// and only counts it; true (N+1) drops it from the routes and the AllowedIPs.
+// Every access is Load or Store.
+var EnforceRouteGuard atomic.Bool
+
 // forwardRuleArgs is the FORWARD rule of a mesh interface as iptables
 // arguments after the -C or -A that checks or appends it.
 func forwardRuleArgs(iface string) []string {
