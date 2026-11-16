@@ -355,17 +355,11 @@ func joinCmd() {
 	fs.Parse(os.Args[2:])
 
 	// If secret not provided via flag, try environment variables
-	if *secret == "" {
-		if envSecret := os.Getenv("WGMESH_SECRET"); envSecret != "" {
-			*secret = envSecret
-		} else if secretFile := os.Getenv("WGMESH_SECRET_FILE"); secretFile != "" {
-			secretBytes, err := os.ReadFile(secretFile)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error reading secret file %s: %v\n", secretFile, err)
-				os.Exit(1)
-			}
-			*secret = strings.TrimSpace(string(secretBytes))
-		}
+	if s, err := secretFromFlagOrEnv(*secret); err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
+	} else {
+		*secret = s
 	}
 
 	if *secret == "" {
@@ -617,9 +611,17 @@ func statusCmd() {
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	fs.Parse(os.Args[2:])
 
+	if s, err := secretFromFlagOrEnv(*secret); err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
+	} else {
+		*secret = s
+	}
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh status --secret <SECRET>")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET environment variable")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET_FILE environment variable")
 		os.Exit(1)
 	}
 
@@ -692,7 +694,20 @@ func statusCmd() {
 // secretFromFlagOrEnv returns the join secret: the flag value, else WGMESH_SECRET,
 // else the trimmed content of the file named by WGMESH_SECRET_FILE.
 func secretFromFlagOrEnv(flagValue string) (string, error) {
-	return flagValue, nil
+	if flagValue != "" {
+		return flagValue, nil
+	}
+	if envSecret := os.Getenv("WGMESH_SECRET"); envSecret != "" {
+		return envSecret, nil
+	}
+	if secretFile := os.Getenv("WGMESH_SECRET_FILE"); secretFile != "" {
+		secretBytes, err := os.ReadFile(secretFile)
+		if err != nil {
+			return "", fmt.Errorf("reading secret file %s: %w", secretFile, err)
+		}
+		return strings.TrimSpace(string(secretBytes)), nil
+	}
+	return "", nil
 }
 
 // qrCmd handles the "qr" subcommand - displays secret as a text-based QR code
@@ -701,9 +716,17 @@ func qrCmd() {
 	secret := fs.String("secret", "", "Mesh secret to encode as QR code")
 	fs.Parse(os.Args[2:])
 
+	if s, err := secretFromFlagOrEnv(*secret); err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
+	} else {
+		*secret = s
+	}
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh qr --secret <SECRET>")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET environment variable")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET_FILE environment variable")
 		os.Exit(1)
 	}
 
@@ -818,9 +841,17 @@ func installServiceCmd() {
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	fs.Parse(os.Args[2:])
 
+	if s, err := secretFromFlagOrEnv(*secret); err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
+	} else {
+		*secret = s
+	}
 	if *secret == "" {
 		fmt.Fprintln(os.Stderr, "Error: --secret is required")
 		fmt.Fprintln(os.Stderr, "Usage: wgmesh install-service --secret <SECRET>")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET environment variable")
+		fmt.Fprintln(os.Stderr, "       or set WGMESH_SECRET_FILE environment variable")
 		os.Exit(1)
 	}
 
