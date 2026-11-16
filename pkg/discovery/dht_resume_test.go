@@ -223,13 +223,44 @@ func TestOnResumeBeforeStartAndAfterStopIsSafe(t *testing.T) {
 	})
 }
 
-func TestOnResumeRacesWithStunRefreshLoop(t *testing.T) {
+// With no ticker running, each OnResume is exactly one STUN pass, applied at
+// once (the ticker source would hold a changed answer back).
+func TestOnResumeRunsOneSTUNPassPerCall(t *testing.T) {
+	d, p := resumeDHT(t)
+	d.stunInterval = time.Hour
+	const resumes = 10
+	for i := 0; i < resumes; i++ {
+		d.OnResume()
+		d.resumeWG.Wait()
+		if i == 0 {
+			if got := d.localNode.GetEndpoint(); got != resumeEndpoint(d, resumeNewIP) {
+				t.Fatalf("after the first OnResume endpoint = %s, want the new one applied at once", got)
+			}
+		}
+	}
+	if got := p.stun.Load(); got != resumes {
+		t.Fatalf("STUN passes = %d, want %d (one per OnResume)", got, resumes)
+	}
+}
+
+// The ticker and OnResume share refreshSTUNOnce: stunMu must keep two passes
+// from being inside the STUN query at the same time.
+func TestOnResumeSerialisedWithStunRefreshLoop(t *testing.T) {
 	d, p := resumeDHT(t)
 	d.stunInterval = 2 * time.Millisecond
+	var inFlight, maxInFlight atomic.Int32
 	d.stunFn = func() (NATType, net.IP, error) {
-		n := p.stun.Add(1)
+		n := inFlight.Add(1)
+		for {
+			m := maxInFlight.Load()
+			if n <= m || maxInFlight.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(time.Millisecond)
+		inFlight.Add(-1)
 		nat := NATCone
-		if n%2 == 0 {
+		if p.stun.Add(1)%2 == 0 {
 			nat = NATSymmetric
 		}
 		return nat, net.ParseIP(resumeNewIP), nil
@@ -249,7 +280,6 @@ func TestOnResumeRacesWithStunRefreshLoop(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	tickerOnly := p.stun.Load()
 
 	var readers sync.WaitGroup
 	stopReaders := make(chan struct{})
@@ -267,11 +297,10 @@ func TestOnResumeRacesWithStunRefreshLoop(t *testing.T) {
 		}
 	}()
 
-	const resumes = 30
-	for i := 0; i < resumes; i++ {
+	for i := 0; i < 30; i++ {
 		d.OnResume()
+		d.resumeWG.Wait()
 	}
-	d.resumeWG.Wait()
 	close(stopReaders)
 	readers.Wait()
 
@@ -281,10 +310,7 @@ func TestOnResumeRacesWithStunRefreshLoop(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("stunRefreshLoop did not stop on cancel")
 	}
-	if got := p.stun.Load(); got < tickerOnly+resumes {
-		t.Fatalf("STUN queries = %d, want at least %d (one per resume on top of the ticker's)", got, tickerOnly+resumes)
-	}
-	if got := d.localNode.GetEndpoint(); got != resumeEndpoint(d, resumeNewIP) {
-		t.Fatalf("endpoint = %s, want the resumed STUN answer", got)
+	if got := maxInFlight.Load(); got != 1 {
+		t.Fatalf("max STUN passes in flight = %d, want 1 (stunMu serialises the ticker and OnResume)", got)
 	}
 }
