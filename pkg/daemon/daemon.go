@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
@@ -1198,12 +1199,21 @@ func (d *Daemon) meshProbeLoop() {
 }
 
 func (d *Daemon) probePeersOverMesh() {
-	peers := d.peerStore.GetActive()
+	// GetProbeable adds the Suspect peers (silent 5 to 10 minutes) to what the
+	// loop used to visit. That is additive at N: a Suspect peer is probed only
+	// while it is still configured or relay-routed, and a pong makes it Alive.
+	peers := d.peerStore.GetProbeable()
+	now := time.Now()
 	activeSet := make(map[string]struct{}, len(peers))
 	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
 
 	for _, p := range peers {
 		if p == nil || p.WGPubKey == "" || p.WGPubKey == d.localNode.WGPubKey || p.MeshIP == "" {
+			continue
+		}
+		// A Suspect peer that reconcile already removed from the interface cannot
+		// answer through the tunnel: it returns by an announcement or a handshake.
+		if p.Alive(now) != node.Alive && !d.isConfiguredPeer(p.WGPubKey) && !d.isRelayRoutedPeer(p.WGPubKey) {
 			continue
 		}
 		activeSet[p.WGPubKey] = struct{}{}
@@ -1286,6 +1296,7 @@ func (d *Daemon) probePeer(peer *PeerInfo) bool {
 	ObserveProbeRTT(peer.WGPubKey[:8], start)
 	ObserveProbeRTTSummary(peer.WGPubKey[:8], rtt)
 	d.peerStore.SetLatency(peer.WGPubKey, rtt)
+	d.peerStore.ObserveDataPlane(peer.WGPubKey, time.Now())
 	return true
 }
 
@@ -1600,6 +1611,15 @@ func (d *Daemon) isRelayRoutedPeer(pubKey string) bool {
 	d.relayMu.RLock()
 	_, ok := d.relayRoutes[pubKey]
 	d.relayMu.RUnlock()
+	return ok
+}
+
+// isConfiguredPeer reports whether the last applied WireGuard configuration
+// still holds the peer.
+func (d *Daemon) isConfiguredPeer(pubKey string) bool {
+	d.appliedMu.Lock()
+	_, ok := d.lastAppliedPeerConfigs[pubKey]
+	d.appliedMu.Unlock()
 	return ok
 }
 
