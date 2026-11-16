@@ -19,6 +19,7 @@ Two `ExchangeWithPeer` calls to the same address each wait on their own channel;
 |------|--------|-----|
 | `pkg/discovery/exchange.go` | edit | `pendingReplies` becomes `map[string]map[uint64]chan *daemon.PeerInfo` with a counter under `pendingMu` (`:83-84`, `:118`); `registerReply` replaces `setPendingReplyChannel` and `clearPendingReplyChannel` (`:1039-1049`); `ExchangeWithPeer` registers at `:550-552` and defers the returned `unregister`; `handleReply` delivers to every channel registered for the sender with the existing non-blocking send (`:438-444`), replacing `getPendingReplyChannel` (`:1051-1056`) |
 | `pkg/discovery/exchange_pending_test.go` | add | tests below |
+| `pkg/discovery/exchange_test.go` | edit | four existing tests wrote `pe.pendingReplies[addr] = make(chan ...)` directly and would not compile with the new type; each 3-line lock/set/unlock became `pe.registerReply(addr)`, assertions unchanged (so the stop condition below, "a caller outside `exchange.go` uses `pendingReplies`", was met by tests only and judged not to stop the task) |
 
 Selection: `ExchangeWithPeer` is called by `dht.go` (punch, rendezvous, transitive connect); the two-caller test fails if `ExchangeWithPeer` goes back to a single-slot map.
 
@@ -36,7 +37,7 @@ Ordering note: follows ADR-0002 T9 and T8 of this record (same file). `handleMes
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/discovery -run '^(TestRegisterReplyKeepsBothCallers|TestHandleReplyReachesEveryRegisteredCaller|TestUnregisterRemovesOnlyOwnRegistration|TestUnregisterLastRemovesAddressEntry)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 4 ] && go test -race ./pkg/discovery -count=1
+n=$(go test ./pkg/discovery -run '^(TestRegisterReplyKeepsBothCallers|TestHandleReplyReachesEveryRegisteredCaller|TestUnregisterRemovesOnlyOwnRegistration|TestUnregisterLastRemovesAddressEntry|TestUnregisterIsIdempotentAndConcurrent|TestRegisterReplyConcurrentCallersUnderRace)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 6 ] && go test -race ./pkg/discovery -count=1
 ```
 
 ## Tests
@@ -47,6 +48,8 @@ n=$(go test ./pkg/discovery -run '^(TestRegisterReplyKeepsBothCallers|TestHandle
 | `TestHandleReplyReachesEveryRegisteredCaller` | `pkg/discovery/exchange_pending_test.go` | one reply from that address is received on both channels | — | S1, S2, S3 |
 | `TestUnregisterRemovesOnlyOwnRegistration` | `pkg/discovery/exchange_pending_test.go` | caller 1 unregisters, then a reply reaches caller 2 | — | S1, S2 |
 | `TestUnregisterLastRemovesAddressEntry` | `pkg/discovery/exchange_pending_test.go` | after both unregister the map has no entry for the address | — | S1, S2 |
+| `TestUnregisterIsIdempotentAndConcurrent` | `pkg/discovery/exchange_pending_test.go` | 16 goroutines call one `unregister`: only that registration is removed, once, under `-race` | — | S1, S2 |
+| `TestRegisterReplyConcurrentCallersUnderRace` | `pkg/discovery/exchange_pending_test.go` | 32 callers register, receive a reply and unregister at once under `-race` | — | S1, S2, S3 |
 
 ## Reachability
 

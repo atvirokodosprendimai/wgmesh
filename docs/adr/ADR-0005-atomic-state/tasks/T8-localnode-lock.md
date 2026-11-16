@@ -44,7 +44,7 @@ Ordering note: follows ADR-0002 T9, T7 of this record (which moves the type, wit
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|TestRoutableNetworksAreCopied|TestSnapshotMatchesAccessors|TestLocalNodeFieldsNotWrittenDirectly)$' -count=1 -race -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 4 ] && go build ./... && go vet ./... && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
+n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|TestRoutableNetworksAreCopied|TestSnapshotMatchesAccessors|TestLocalNodeFieldsNotWrittenDirectly|TestIdentityReadsKeyAndIPTogether|TestLocalNodeWriteScannerFlagsViolations|TestCheckAndResolveCollisionsIsSerialized|TestSaveLocalNodeWhileMeshIPv6Changes|TestConfigLogLevelConcurrent)$' -count=1 -race -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 9 ] && go build ./... && go vet ./... && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
 ```
 
 ## Tests
@@ -55,6 +55,11 @@ n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|Tes
 | `TestRoutableNetworksAreCopied` | `pkg/node/localnode_lock_test.go` | mutating the slice passed to the setter, or returned by the getter, does not change the node | — | S1, S2 |
 | `TestSnapshotMatchesAccessors` | `pkg/node/localnode_lock_test.go` | `Snapshot` returns what the getters return at that moment and its routes are a copy | — | S1, S2 |
 | `TestLocalNodeFieldsNotWrittenDirectly` | `pkg/daemon/localnode_guard_test.go` | parses the module's non-test files outside `pkg/node` and fails on an assignment to a selector named `MeshIP`, `MeshIPv6`, `NATType`, `Introducer` or `RoutableNetworks` whose receiver is a local-node expression (`localNode`, `d.localNode`, `pe.localNode`, `GetLocalNode()`), and on an assignment to `WGPubKey`, `WGPrivateKey` or `Hostname` of such a receiver outside `initLocalNode` and `loadLocalNode`; composite literals and `PeerInfo` fields are not flagged | — | S1, S3 |
+| `TestIdentityReadsKeyAndIPTogether` | `pkg/node/localnode_lock_test.go` | a writer alternates the mesh IP between two values while `Identity()` is read: the IP is always one of the two and the key is the node's | — | S1, S2 |
+| `TestLocalNodeWriteScannerFlagsViolations` | `pkg/daemon/localnode_guard_test.go` | the guard's scanner over inline source flags `localNode.MeshIP = x`, `NATType++`, a write-once field written outside the owner, `RoutableNetworks[0] = x`, `*d.localNode = ...`, and does not flag `peer.MeshIP = x` or a write inside `initLocalNode` | — | S1, S3 |
+| `TestCheckAndResolveCollisionsIsSerialized` | `pkg/daemon/collision_serial_test.go` | four goroutines call `reconcile()` on a collision fixture: the interface address is applied exactly once per round (`reconcile` runs from the loop and from SIGHUP; `reconcileMu` serializes it) | — | S1, S3 |
+| `TestSaveLocalNodeWhileMeshIPv6Changes` | `pkg/daemon/helpers_snapshot_test.go` | `saveLocalNode` persists one `Snapshot()`, so the file's IPv4 and IPv6 are a consistent pair under `-race` | — | S1, S3 |
+| `TestConfigLogLevelConcurrent` | `pkg/daemon/config_loglevel_test.go` | `Config.LogLevel` read by the DHT goroutines and written by the reload goroutine is clean under `-race` (found by the panel: `debugf` read it without the lock) | — | S1, S3 |
 
 ## Reachability
 
@@ -73,7 +78,7 @@ n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|Tes
 ## Invariants
 
 - What is announced, logged and reported by `daemon.status` is the same string as before for one node at rest.
-- `WGPubKey`, `WGPrivateKey`, `Introducer` and `Hostname` stay plain fields: the audit shows them written only in `initLocalNode` before goroutines start (grep of 2026-11-15; `Introducer` and `Hostname` at `daemon.go:398-399`).
+- `WGPubKey`, `WGPrivateKey` and `Hostname` stay plain fields: written only in `initLocalNode` and `loadLocalNode` before goroutines start (the guard test enforces it); `Introducer` is under `stateMu`.
 - No setter calls a getter under the lock, no lock is held across a call out of the type (a deadlock rule).
 - `pkg/node` still imports nothing from `pkg/daemon` or `pkg/discovery`.
 
