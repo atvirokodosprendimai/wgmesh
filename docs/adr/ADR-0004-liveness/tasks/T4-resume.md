@@ -82,6 +82,20 @@ a=$(go test ./pkg/daemon -run '^(TestDetectResume|TestResumeLoopCallsHooks|TestB
 - 2026-11-16 · 40b637b* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · Run does not start the resume loop · acceptance-sha256:78c0e55fb90595f7d31f76a49944860235b2b663eaa34feef26c8c64ce07c387
 - 2026-11-16 · 40b637b* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · RunWithDHTDiscovery does not start the resume loop · acceptance-sha256:78c0e55fb90595f7d31f76a49944860235b2b663eaa34feef26c8c64ce07c387
 - 2026-11-16 · 40b637b* · mutant killed · exit 1 · `pkg/daemon/resume.go` · Resumer never called · acceptance-sha256:78c0e55fb90595f7d31f76a49944860235b2b663eaa34feef26c8c64ce07c387
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/resume.go` · threshold boundary · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant survived · exit 0 · `pkg/daemon/resume.go` · DetectResume keeps the monotonic reading (equivalent in-process, expected to survive) · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/resume.go` · grace never applied · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/resume.go` · grace never ends · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/resume.go` · loop does not call NoteResume · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/resume.go` · loop calls reconcile directly · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · Run does not start the resume loop · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · RunWithDHTDiscovery does not start the resume loop · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/resume.go` · Resumer never called · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/resume.go` · grace lower bound removed · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
+- 2026-11-16 · 48aa152* · mutant killed · exit 1 · `pkg/daemon/resume.go` · daemon clock keeps monotonic reading · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944
 
 ## Invariants
 
@@ -130,3 +144,16 @@ Stop and ask if the loop cannot be tested without a real sleep, or if the relay 
 - 2026-11-16 · 40b637b* · exit 0 · `set -o pipefail …` · acceptance-sha256:78c0e55fb90595f7d31f76a49944860235b2b663eaa34feef26c8c64ce07c387 · ms:10611
 - 2026-11-16 · 40b637b* · exit 0 · `set -o pipefail …` · acceptance-sha256:78c0e55fb90595f7d31f76a49944860235b2b663eaa34feef26c8c64ce07c387 · ms:10493
 - 2026-11-16 · 40b637b* · exit 0 · `set -o pipefail …` · acceptance-sha256:78c0e55fb90595f7d31f76a49944860235b2b663eaa34feef26c8c64ce07c387 · ms:7233
+- 2026-11-16 · 48aa152* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:2 · test-lock-sha256:0631a8fdfce9ba200f1feced50c46022b7139d56b7069b8332e040981cf661ed · test-lock-file:docs/adr/locks/0631a8fdfce9ba200f1feced50c46022b7139d56b7069b8332e040981cf661ed.lock · test-lock-kind:replace
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:28591
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:20063
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:22936
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:17681
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:21919
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:24145
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:23383
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:16787
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:17548
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:20220
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:11719
+- 2026-11-16 · 48aa152* · exit 0 · `set -o pipefail …` · acceptance-sha256:a38c3aeb61433a31334c4b2e439b1b8b982a83630ce1282640b3102168b34944 · ms:11471
