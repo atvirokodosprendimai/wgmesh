@@ -110,6 +110,7 @@ func registerMetrics(reg prometheus.Registerer) {
 		livenessDisagree.WithLabelValues(site)
 	}
 	reg.MustRegister(resumeDetected)
+	reg.MustRegister(relayRouteAge)
 	reg.MustRegister(goCollector)
 	reg.MustRegister(processCollector)
 }

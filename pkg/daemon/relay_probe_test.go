@@ -381,29 +381,35 @@ func TestApplySignatureIncludesProbeOnlyMode(t *testing.T) {
 }
 
 func TestProbeOnlyStateIsRaceFree(t *testing.T) {
+	stubWireGuard(t)
 	d := relayProbeDaemon(t) // probeOnlyPeers and relayRouteSince start nil
-	key := "race-probe-peer"
+	key, evictKey := "race-probe-peer", "race-evicted-peer"
 	_, peer := relayProbePeers(key)
+	evicted := &PeerInfo{WGPubKey: evictKey, MeshIP: "10.250.0.4", Endpoint: "172.20.2.21:51820"}
+	routes := func() map[string]string { return map[string]string{key: probeIntroKey, evictKey: probeIntroKey} }
 	probe := func() map[string]*desiredPeerConfig {
-		return map[string]*desiredPeerConfig{key: {peer: peer, allowed: map[string]struct{}{}, probeOnly: true}}
+		return map[string]*desiredPeerConfig{
+			key:      {peer: peer, allowed: map[string]struct{}{}, probeOnly: true},
+			evictKey: {peer: evicted, allowed: map[string]struct{}{}, probeOnly: true},
+		}
 	}
 	const rounds = 300
 
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
 	go func() {
 		defer wg.Done()
 		for i := 0; i < rounds; i++ {
-			d.storeRelayPlan(map[string]string{key: probeIntroKey}, map[string]int{}, probe(), time.Now())
+			d.storeRelayPlan(routes(), map[string]int{}, probe(), time.Now())
 			d.storeRelayPlan(map[string]string{}, map[string]int{}, map[string]*desiredPeerConfig{}, time.Now())
 		}
-		d.storeRelayPlan(map[string]string{key: probeIntroKey}, map[string]int{}, probe(), time.Now())
+		d.storeRelayPlan(routes(), map[string]int{}, probe(), time.Now())
 	}()
 	go func() {
 		defer wg.Done()
 		for i := 0; i < rounds; i++ {
 			d.isProbeOnlyPeer(key)
-			d.isProbeOnlyPeer("")
+			d.isRelayPathPeer(key)
 		}
 	}()
 	go func() {
@@ -413,9 +419,15 @@ func TestProbeOnlyStateIsRaceFree(t *testing.T) {
 			d.currentRelayRoutesSnapshot()
 		}
 	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < rounds/10; i++ {
+			d.evictPeerFromPool(evicted) // deletes the probe-only, route and age state of its own key
+		}
+	}()
 	wg.Wait()
 
-	if !d.isProbeOnlyPeer(key) || !d.isRelayRoutedPeer(key) {
-		t.Errorf("after the last plan the peer is probe-only %v, relay-routed %v, want both", d.isProbeOnlyPeer(key), d.isRelayRoutedPeer(key))
+	if !d.isProbeOnlyPeer(key) || !d.isRelayRoutedPeer(key) || !d.isRelayPathPeer(key) {
+		t.Errorf("after the last plan the peer is probe-only %v, relay-routed %v, on the relay path %v, want all", d.isProbeOnlyPeer(key), d.isRelayRoutedPeer(key), d.isRelayPathPeer(key))
 	}
 }

@@ -1624,6 +1624,8 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	delete(d.relayRoutes, peer.WGPubKey)
 	delete(d.directStableCycles, peer.WGPubKey)
 	delete(d.probeOnlyPeers, peer.WGPubKey)
+	delete(d.relayRouteSince, peer.WGPubKey)
+	relayRouteAge.DeleteLabelValues(peer.WGPubKey)
 	d.relayMu.Unlock()
 	d.healthMu.Lock()
 	delete(d.peerHealthFailures, peer.WGPubKey)

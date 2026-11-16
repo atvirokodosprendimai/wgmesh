@@ -68,8 +68,10 @@ func (d *Daemon) isRelayPathPeer(pubKey string) bool {
 }
 
 // storeRelayPlan stores the relay plan of one reconcile pass under relayMu:
-// the relay routes, the hysteresis counters and the keys the desired set holds
-// probe-only.
+// the relay routes, the hysteresis counters, the keys the desired set holds
+// probe-only and the time each relayed peer entered the routes, and sets
+// wgmesh_relay_route_age_seconds from it. A peer that left the routes loses
+// its series. now is the daemon's wall-clock instant (d.now).
 func (d *Daemon) storeRelayPlan(relayRoutes map[string]string, directStable map[string]int, desired map[string]*desiredPeerConfig, now time.Time) {
 	probeOnly := make(map[string]struct{})
 	for key, cfg := range desired {
@@ -78,8 +80,27 @@ func (d *Daemon) storeRelayPlan(relayRoutes map[string]string, directStable map[
 		}
 	}
 	d.relayMu.Lock()
+	defer d.relayMu.Unlock()
+	since := make(map[string]time.Time, len(relayRoutes))
+	for key := range relayRoutes {
+		at, ok := d.relayRouteSince[key]
+		if !ok {
+			at = now
+		}
+		since[key] = at
+		age := now.Sub(at).Seconds()
+		if age < 0 {
+			age = 0 // the clock stepped back
+		}
+		relayRouteAge.WithLabelValues(key).Set(age)
+	}
+	for key := range d.relayRouteSince {
+		if _, ok := relayRoutes[key]; !ok {
+			relayRouteAge.DeleteLabelValues(key)
+		}
+	}
 	d.relayRoutes = relayRoutes
 	d.directStableCycles = directStable
 	d.probeOnlyPeers = probeOnly
-	d.relayMu.Unlock()
+	d.relayRouteSince = since
 }
