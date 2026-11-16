@@ -285,7 +285,6 @@ func NewDaemon(config *Config) (*Daemon, error) {
 	}
 
 	d.peerStore.SetPolicy(d.admitPolicy())
-	d.peerStore.SetLivenessDisagreeHook(func(string) {}) // T2 wires this to the counter
 
 	return d, nil
 }
