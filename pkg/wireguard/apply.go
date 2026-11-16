@@ -117,10 +117,40 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 	return nil
 }
 
+// AllowedIPsClear is the allowedIPs argument of SetPeer that removes every
+// allowed IP of the peer: wg set keeps the old list when allowed-ips is left
+// out, so "no AllowedIPs" has to be sent as an empty value (ADR-0004 T6, a
+// relayed peer kept on the interface only to handshake). An empty allowedIPs
+// still means "leave the list alone".
+const AllowedIPsClear = "-"
+
+// SetPeerArgs builds the arguments of the wg set call SetPeer runs. hasPSK
+// adds the preshared-key flag, whose value SetPeer feeds on stdin.
+func SetPeerArgs(iface, pubKey string, hasPSK bool, endpoint, allowedIPs string) []string {
+	args := []string{"set", iface, "peer", pubKey}
+
+	if hasPSK {
+		args = append(args, "preshared-key", "/dev/stdin")
+	}
+
+	if endpoint != "" {
+		args = append(args, "endpoint", endpoint)
+	}
+
+	switch allowedIPs {
+	case "":
+	case AllowedIPsClear:
+		args = append(args, "allowed-ips", "")
+	default:
+		args = append(args, "allowed-ips", allowedIPs)
+	}
+
+	// Add persistent keepalive for NAT traversal
+	return append(args, "persistent-keepalive", "25")
+}
+
 // SetPeer adds or updates a peer on the local WireGuard interface
 func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error {
-	// Build wg set command
-	args := []string{"set", iface, "peer", pubKey}
 	var stdin strings.Reader
 	hasStdin := false
 
@@ -129,23 +159,11 @@ func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) er
 	var zeroKey [32]byte
 	if psk != zeroKey {
 		pskB64 := base64.StdEncoding.EncodeToString(psk[:])
-		args = append(args, "preshared-key", "/dev/stdin")
 		stdin = *strings.NewReader(pskB64 + "\n")
 		hasStdin = true
 	}
 
-	if endpoint != "" {
-		args = append(args, "endpoint", endpoint)
-	}
-
-	if allowedIPs != "" {
-		args = append(args, "allowed-ips", allowedIPs)
-	}
-
-	// Add persistent keepalive for NAT traversal
-	args = append(args, "persistent-keepalive", "25")
-
-	cmd := exec.Command(wgPath, args...)
+	cmd := exec.Command(wgPath, SetPeerArgs(iface, pubKey, hasStdin, endpoint, allowedIPs)...)
 	if hasStdin {
 		cmd.Stdin = &stdin
 	}

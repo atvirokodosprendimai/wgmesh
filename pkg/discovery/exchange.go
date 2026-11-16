@@ -1189,11 +1189,25 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal announce: %w", err)
 	}
 
-	_, err = pe.udp().WriteToUDP(data, remoteAddr)
+	// Start writes pe.conn under pe.mu; Stop only closes the socket and leaves
+	// it set, so a send after Stop fails in WriteToUDP, not here.
+	conn := pe.udp()
+	if conn == nil {
+		return fmt.Errorf("peer exchange has no socket")
+	}
+	_, err = conn.WriteToUDP(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send announce: %w", err)
 	}
 	return nil
+}
+
+// hasConn reports whether Start has opened the exchange socket. After Stop the
+// socket is closed but still set, so it still reports true.
+func (pe *PeerExchange) hasConn() bool {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	return pe.conn != nil
 }
 
 // SendGoodbye sends a shutdown notification to a specific peer exchange endpoint.

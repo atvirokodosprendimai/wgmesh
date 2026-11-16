@@ -137,7 +137,7 @@ func TestNATTypeGauge(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.natType, func(t *testing.T) {
 			d := newTestDaemon()
-			d.localNode.NATType = tt.natType
+			d.localNode.SetNATType(tt.natType)
 
 			UpdateMetrics(d)
 

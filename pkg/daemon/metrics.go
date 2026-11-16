@@ -58,6 +58,21 @@ var (
 		Help: "Cases where an admit rule would act once enforced, by rule; counted each time an offer or a collision comparison meets the case, so a standing case counts again on every announcement and every collision pass, per observer",
 	}, []string{"rule"})
 
+	livenessDisagree = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_liveness_disagree_total",
+		Help: "Cases where the decision a reader site takes from LastSeen differs from the decision by the liveness evidence; counted on every call, not once per distinct peer, so a standing case counts again on each pass",
+	}, []string{"site"})
+
+	resumeDetected = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "wgmesh_resume_detected_total",
+		Help: "Wakes from sleep the resume loop detected: the wall clock advanced by more than ResumeGapThreshold between two checks",
+	})
+
+	relayRouteAge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "wgmesh_relay_route_age_seconds",
+		Help: "Seconds since this daemon first saw the peer relayed; restarts at 0 after a daemon restart; one series per relayed peer, labelled with the first 8 characters of its key",
+	}, []string{"peer"})
+
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 )
@@ -87,6 +102,12 @@ func registerMetrics(reg prometheus.Registerer) {
 	reg.MustRegister(natTraversalSuccesses)
 	reg.MustRegister(admitWarnings)
 	admitWarnings.WithLabelValues("winner-differs")
+	reg.MustRegister(livenessDisagree)
+	for _, site := range LivenessDisagreeSites {
+		livenessDisagree.WithLabelValues(site)
+	}
+	reg.MustRegister(resumeDetected)
+	reg.MustRegister(relayRouteAge)
 	reg.MustRegister(goCollector)
 	reg.MustRegister(processCollector)
 }
@@ -107,8 +128,10 @@ func UpdateMetrics(d *Daemon) {
 
 	// NAT type gauge — set exactly one label to 1, the rest to 0.
 	nt := "unknown"
-	if d.localNode != nil && d.localNode.GetNATType() != "" {
-		nt = d.localNode.GetNATType()
+	if d.localNode != nil {
+		if v := d.localNode.GetNATType(); v != "" {
+			nt = v
+		}
 	}
 	for _, label := range []string{"cone", "symmetric", "unknown"} {
 		var v float64
@@ -127,6 +150,15 @@ func ObserveReconcileDuration(start time.Time) {
 // RecordDiscoveryEvent increments the discovery event counter for the given layer.
 func RecordDiscoveryEvent(layer string) {
 	discoveryEvents.WithLabelValues(layer).Inc()
+}
+
+// peerLabel is the value of a per-peer metric label: the first 8 characters of
+// the WireGuard public key, as the probe metrics use.
+func peerLabel(key string) string {
+	if len(key) > 8 {
+		return key[:8]
+	}
+	return key
 }
 
 // ObserveProbeRTT records the round-trip time for a mesh probe to the given peer.
@@ -156,4 +188,32 @@ func RecordNATTraversalSuccess(method string) {
 // RecordAdmitWarning counts one case where an admit rule would act once enforced.
 func RecordAdmitWarning(rule string) {
 	admitWarnings.WithLabelValues(rule).Inc()
+}
+
+// recordLivenessDisagree counts one case where the legacy age test drops a
+// peer that the liveness verdict keeps; it is the body of the store's hook.
+func recordLivenessDisagree(site string) {
+	livenessDisagree.WithLabelValues(site).Inc()
+}
+
+// The sites of wgmesh_liveness_disagree_total: the three store readers (named
+// in pkg/node), the four readers outside it and the wake grace.
+const (
+	SiteRelayCandidate      = "relay-candidate"
+	SiteProbeEnforce        = "probe-enforce"
+	SiteRendezvousSkip      = "rendezvous-skip"
+	SiteIntroducerCandidate = "introducer-candidate"
+	// SiteResumeGrace counts an eviction or a stale-handshake relay choice the
+	// wake grace would have blocked while EnforceLiveness is false.
+	SiteResumeGrace = "resume-grace"
+)
+
+// LivenessDisagreeSites lists every site label of the counter; registerMetrics
+// pre-seeds each at 0 and the tests walk the same list.
+var LivenessDisagreeSites = []string{"get-active", "cleanup", "is-dead", SiteRelayCandidate, SiteProbeEnforce, SiteRendezvousSkip, SiteIntroducerCandidate, SiteResumeGrace}
+
+// LivenessDisagreeCounter returns the counter series of site, for tests of
+// readers in other packages.
+func LivenessDisagreeCounter(site string) prometheus.Counter {
+	return livenessDisagree.WithLabelValues(site)
 }
