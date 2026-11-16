@@ -111,7 +111,8 @@ func DeriveMeshIPWithNonce(meshSubnet [2]byte, wgPubKey, secret string, nonce in
 
 // collisionMoveInterval is the least time between two moves of the local node
 // after a collision: a node moves at most once in this window, whoever holds
-// the claims on its address.
+// the claims on its address. The time of the last move is memory only: a
+// restart starts a new window.
 const collisionMoveInterval = 5 * time.Minute
 
 // collisionTime is the clock of the move cap; a test sets d.collisionNow.
@@ -176,18 +177,19 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 			now := d.collisionTime()
 			if !d.collisionLastMove.IsZero() && now.Sub(d.collisionLastMove) < collisionMoveInterval {
-				if !d.collisionMoveSuppressed {
-					d.collisionMoveSuppressed = true
+				if !repeat {
 					log.Printf("[Collision] Mesh IP move suppressed: this node moved %s ago and moves at most once per %s; it keeps %s until the window passes",
 						now.Sub(d.collisionLastMove).Round(time.Second), collisionMoveInterval, collision.MeshIP)
 				}
 				continue
 			}
-			d.collisionMoveSuppressed = false
 			newIP := d.moverIP()
 			if newIP == "" {
 				log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet — keeping current IP")
 				continue
+			}
+			if newIP == d.localNode.GetMeshIP() {
+				continue // every other address is claimed too: nothing to move to, nothing to write
 			}
 			log.Printf("[Collision] We lost collision, re-deriving mesh IP: %s -> %s", d.localNode.GetMeshIP(), newIP)
 			d.localNode.SetMeshIP(newIP)
