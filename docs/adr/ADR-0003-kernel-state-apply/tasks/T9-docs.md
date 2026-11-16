@@ -59,6 +59,9 @@ n=$(go test ./pkg/daemon -run '^TestSpecNamesConverge$' -count=1 -v 2>&1 | tee /
 - 2026-11-16 · 6b0f7e1* · mutant killed · exit 1 · `eidos/spec - daemon reconciliation - peer config sync with relay routing fallback.md` · the dump is not named: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
 - 2026-11-16 · 6b0f7e1* · mutant killed · exit 1 · `docs/kernel-state.md` · the counter is not named: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
 - 2026-11-16 · 6b0f7e1* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · N+1 row head gone: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `eidos/spec - daemon reconciliation - peer config sync with relay routing fallback.md` · the dump is not named: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `docs/kernel-state.md` · the counter is not named: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · N+1 row head gone: TestSpecNamesConverge must go red · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78
 
 ## Invariants
 
@@ -98,3 +101,8 @@ Stop and ask if a spec section named here does not exist in the file (the sectio
 - 2026-11-16 · 6b0f7e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:3405
 - 2026-11-16 · 6b0f7e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:2775
 - 2026-11-16 · 6b0f7e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:1355
+- 2026-11-16 · 0f45e87* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:0 · test-lock-sha256:5de66f935ff447b2f7534d620c613376d503878eb610b6edafc0924f5e3e8736 · test-lock-file:docs/adr/locks/5de66f935ff447b2f7534d620c613376d503878eb610b6edafc0924f5e3e8736.lock · test-lock-kind:replace
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:2748
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:2484
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:2731
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:1246

@@ -63,6 +63,12 @@ n=$(go test ./pkg/daemon -run '^(TestShutdownRemovesRuleWeAdded|TestShutdownKeep
 - 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · found not recorded: a drift re-write makes the rule ours: TestShutdownRecordSurvivesDriftReapply must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
 - 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · commands at N: TestShutdownRevertIsWarnOnlyAtN must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
 - 2026-11-16 · 308320a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · revertKernel calls removed: TestRunRevertsKernelAfterWait must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `pkg/daemon/converge.go` · found rule deleted: TestShutdownKeepsPreexistingRule must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `pkg/daemon/converge.go` · found ip_forward=1 restored to 0: TestShutdownRestoresIPForwardOnlyIfWeChangedIt must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `pkg/daemon/converge.go` · record overwritten: TestShutdownRecordSurvivesDriftReapply must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `pkg/daemon/converge.go` · found not recorded: TestShutdownRecordSurvivesDriftReapply must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `pkg/daemon/converge.go` · commands at N: TestShutdownRevertIsWarnOnlyAtN must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
+- 2026-11-16 · 0f45e87* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · revertKernel calls removed: TestRunRevertsKernelAfterWait must go red · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc
 
 ## Invariants
 
@@ -107,3 +113,11 @@ Stop and ask if `Run` has more than one exit path that skips the deferred calls.
 - 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:12139
 - 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:14140
 - 2026-11-16 · 308320a* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:7894
+- 2026-11-16 · 0f45e87* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:0 · test-lock-sha256:30fdfb5eb21b12f8be9658d788c00a9426656dfa950c062d6a51a83d231445bd · test-lock-file:docs/adr/locks/30fdfb5eb21b12f8be9658d788c00a9426656dfa950c062d6a51a83d231445bd.lock · test-lock-kind:replace
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:10722
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:12134
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:11031
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:11374
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:10692
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:11867
+- 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:7304
