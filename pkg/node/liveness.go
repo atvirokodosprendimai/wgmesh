@@ -115,8 +115,9 @@ func reportDisagreement(hook func(site string), site string, n int) {
 
 // ObserveDataPlane records at as the newest data-plane evidence (a WireGuard
 // handshake or a successful mesh probe) of pubKey. It is a local measurement,
-// not a claim: a time never moves backwards, no event is sent, no claim field
-// and not LastSeen is touched, and an unknown key is ignored.
+// not a claim: a time never moves backwards (compared as wall-clock instants),
+// a time after the store clock is taken as the store clock, no event is sent,
+// no claim field and not LastSeen is touched, and an unknown key is ignored.
 func (ps *PeerStore) ObserveDataPlane(pubKey string, at time.Time) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
@@ -125,18 +126,25 @@ func (ps *PeerStore) ObserveDataPlane(pubKey string, at time.Time) {
 	if !exists {
 		return
 	}
-	if at.After(peer.LastDataPlane) {
+	if now := ps.now(); at.Round(0).After(now.Round(0)) {
+		at = now
+	}
+	if at.Round(0).After(peer.LastDataPlane.Round(0)) {
 		peer.LastDataPlane = at
 	}
 }
 
 // NoteResume records at as the time the node last woke; it is evidence for
-// every peer. The time never moves backwards.
+// every peer. The time never moves backwards (compared as wall-clock
+// instants) and a time after the store clock is taken as the store clock.
 func (ps *PeerStore) NoteResume(at time.Time) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
 
-	if at.After(ps.resumedAt) {
+	if now := ps.now(); at.Round(0).After(now.Round(0)) {
+		at = now
+	}
+	if at.Round(0).After(ps.resumedAt.Round(0)) {
 		ps.resumedAt = at
 	}
 }
