@@ -242,8 +242,8 @@ func (d *DHTDiscovery) broadcastGoodbye() {
 }
 
 // discoverExternalEndpoint queries two STUN servers to find this node's
-// server-reflexive address and detect NAT type. Updates localNode.WGEndpoint
-// and localNode.NATType. Falls back to the existing endpoint if STUN fails.
+// server-reflexive address and detect NAT type. Updates the local node's
+// endpoint and NAT type (SetEndpoint, SetNATType). Falls back to the existing endpoint if STUN fails.
 // Also discovers IPv6 endpoint if available (no NAT, preferred for direct connection).
 func (d *DHTDiscovery) discoverExternalEndpoint() {
 	if d.config.DisableIPv6 {
