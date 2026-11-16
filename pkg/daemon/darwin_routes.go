@@ -201,13 +201,3 @@ func keptPrefix(network string, keep []netip.Prefix) bool {
 	}
 	return false
 }
-
-// darwinRouteTail is the argument tail of `route -n add|change|delete` for a
-// canonical network: `[-inet6] -net <cidr> -interface <iface>`, no gateway.
-func darwinRouteTail(network, iface string) []string {
-	var tail []string
-	if strings.Contains(network, ":") {
-		tail = append(tail, "-inet6")
-	}
-	return append(tail, "-net", network, "-interface", iface)
-}
