@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anacrolix/dht/v2"
@@ -63,6 +64,10 @@ type DHTDiscovery struct {
 	localNode *daemon.LocalNode
 	peerStore *daemon.PeerStore
 	exchange  *PeerExchange
+
+	// loops counts live DHT loop goroutines. It is a test seam: while the
+	// layer runs it is above 0, after Stop returns it must be 0.
+	loops atomic.Int32
 
 	// mu guards every field below, reads included (ADR-0005 T10): Start writes
 	// server, dhtPort, lan and gossip, while the loops of a stopped run, Stop

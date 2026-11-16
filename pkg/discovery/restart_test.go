@@ -236,3 +236,28 @@ func TestDHTStopStartWithLiveLoops(t *testing.T) {
 		_ = d.Stop()
 	}
 }
+
+// TestDHTStopWaitsForLoops: Stop returns only after the DHT loops ended, so a
+// restart never overlaps an old loop. The loops counter is the seam: it is
+// above 0 while the layer runs and exactly 0 right after Stop, no polling.
+func TestDHTStopWaitsForLoops(t *testing.T) {
+	hermeticDHT(t)
+	d := newRestartDHT(t, context.Background(), "wgmesh-test-restart-loops-1",
+		daemon.DaemonOpts{Gossip: true, DisableIPv6: true})
+	t.Cleanup(func() { _ = d.Stop() })
+
+	for i := 0; i < 3; i++ {
+		if err := d.Start(); err != nil {
+			t.Fatalf("iteration %d: Start: %v", i, err)
+		}
+		if got := d.loops.Load(); got < 1 {
+			t.Fatalf("iteration %d: loops = %d while running, want at least 1", i, got)
+		}
+		if err := d.Stop(); err != nil {
+			t.Fatalf("iteration %d: Stop: %v", i, err)
+		}
+		if got := d.loops.Load(); got != 0 {
+			t.Fatalf("iteration %d: loops = %d right after Stop, want 0", i, got)
+		}
+	}
+}
