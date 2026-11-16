@@ -131,10 +131,17 @@ func (h *fakeHost) set(f func(h *fakeHost)) {
 	f(h)
 }
 
-const (
-	wantSysctl = "sysctl -w net.ipv4.ip_forward=1"
-	wantRule   = "iptables -A FORWARD -i wgmesh-t3-none -o wgmesh-t3-none -j ACCEPT"
-)
+const wantSysctl = "sysctl -w net.ipv4.ip_forward=1"
+
+// wantRule is built from the same helper as the code; its text is pinned by
+// TestForwardRuleText.
+var wantRule = "iptables -A " + strings.Join(forwardRuleArgs("wgmesh-t3-none"), " ")
+
+func TestForwardRuleText(t *testing.T) {
+	if got, want := strings.Join(forwardRuleArgs("wg0"), " "), "FORWARD -i wg0 -o wg0 -j ACCEPT"; got != want {
+		t.Errorf("forwardRuleArgs = %q, want %q", got, want)
+	}
+}
 
 // newForwardDaemon is a Linux daemon on host h. The tests that use it swap the
 // package executor and so never run in parallel.

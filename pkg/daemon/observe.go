@@ -77,7 +77,7 @@ func (d *Daemon) observeForward(want forwardDesired, obs *kernelObserved) {
 	}
 	obs.Forward.IptablesPresent = true
 	iface := d.config.InterfaceName
-	out, err := cmdExecutor.Command("iptables", "-C", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT").CombinedOutput()
+	out, err := cmdExecutor.Command("iptables", append([]string{"-C"}, forwardRuleArgs(iface)...)...).CombinedOutput()
 	var status interface{ ExitCode() int }
 	switch {
 	case err == nil:

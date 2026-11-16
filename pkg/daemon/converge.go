@@ -121,6 +121,12 @@ func subset(a, b map[string]struct{}) bool {
 // alone. Every access is Load or Store.
 var EnforceForwardScope atomic.Bool
 
+// forwardRuleArgs is the FORWARD rule of a mesh interface as iptables
+// arguments after the -C or -A that checks or appends it.
+func forwardRuleArgs(iface string) []string {
+	return []string{"FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT"}
+}
+
 // forwardPlan is what one tick will write for forwarding.
 type forwardPlan struct {
 	Sysctl     bool // write net.ipv4.ip_forward=1
@@ -161,7 +167,7 @@ func (d *Daemon) applyForward(plan forwardPlan, observed bool) []itemResult {
 		results = append(results, d.forwardResult("set", "ip_forward", out, err))
 	}
 	if plan.Rule {
-		out, err := cmdExecutor.Command("iptables", "-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT").CombinedOutput()
+		out, err := cmdExecutor.Command("iptables", append([]string{"-A"}, forwardRuleArgs(iface)...)...).CombinedOutput()
 		results = append(results, d.forwardResult("append", "FORWARD", out, err))
 	}
 	return results
