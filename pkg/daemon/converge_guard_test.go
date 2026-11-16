@@ -471,6 +471,8 @@ func TestRouteWriterCallsGuardForms(t *testing.T) {
 		{"darwin_routes calls darwinRouteCommand", "darwin_routes.go", `darwinRouteCommand("add", "10.0.0.0/24", "utun4")`, true},
 		{"converge calls applyRouteDiffDarwin", "converge.go", `applyRouteDiffDarwin("utun4", routePlan{})`, false},
 		{"converge calls darwinRouteCommand", "converge.go", `darwinRouteCommand("add", "10.0.0.0/24", "utun4")`, false},
+		{"routes calls restoreHostDefault", "routes.go", `restoreHostDefault(hostRoute{}, false)`, true},
+		{"converge calls restoreHostDefault", "converge.go", `restoreHostDefault(hostRoute{}, false)`, false},
 		{"another function", "routes.go", `applyRoutes("wg0")`, false},
 	}
 	for _, c := range cases {

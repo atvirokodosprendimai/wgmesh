@@ -295,6 +295,16 @@ func hasNetwork(entries []routes.Entry, canonical string) bool {
 	return false
 }
 
+// hostRoute is a host default route: the device it leaves by and its
+// gateway ("" for a route without one).
+type hostRoute struct{ Dev, Via string }
+
+// restoreHostDefault puts the host default route back with `ip route replace
+// default [via gw] dev dev`.
+func restoreHostDefault(r hostRoute, ipv6 bool) itemResult {
+	return itemResult{Target: targetRoutes, Op: "replace", Key: "default"}
+}
+
 // noteHostDefault is the rule host-default: before a default route is added,
 // one read of the host's default route of that family; a default on a device
 // other than the mesh interface is logged once and counted, and the route is

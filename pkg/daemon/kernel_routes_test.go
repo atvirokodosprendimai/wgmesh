@@ -156,7 +156,11 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 			case a[2] == "dev" && x.dev == a[3]:
 				fmt.Fprintf(&out, "%s via %s dev %s proto static\n", printRoute(x.net), x.gw, x.dev)
 			case a[2] == "default" && printRoute(x.net) == "default":
-				fmt.Fprintf(&out, "default via %s dev %s\n", x.gw, x.dev)
+				if x.gw == "" {
+					fmt.Fprintf(&out, "default dev %s\n", x.dev)
+				} else {
+					fmt.Fprintf(&out, "default via %s dev %s\n", x.gw, x.dev)
+				}
 			}
 		}
 		if a[2] == "dev" {
@@ -165,14 +169,32 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 			}
 		}
 		return []byte(out.String()), nil
-	case "replace": // ip route replace <net> via <gw> dev <dev>
-		if len(a) != 7 {
+	case "replace": // ip route replace <net> [via <gw>] dev <dev>
+		// The route key is the destination (and metric), not the device: the
+		// kernel replaces a route of the same destination that leaves by
+		// another device (a host default route on eth0 is gone after the
+		// mesh default replaced it on wg0).
+		gw, dev := "", ""
+		switch {
+		case len(a) == 7 && a[3] == "via" && a[5] == "dev":
+			gw, dev = a[4], a[6]
+		case len(a) == 5 && a[3] == "dev":
+			dev = a[4]
+		default:
 			return nil, fmt.Errorf("fake host: unexpected command %q", line)
 		}
-		if err := r.replaceErr[canonRoute(a[2], a[4])]; err != nil {
+		canon := routes.Canonical(a[2], v6 || strings.Contains(a[2], ":") || strings.Contains(gw, ":"))
+		if err := r.replaceErr[canon]; err != nil {
 			return []byte("RTNETLINK answers: Operation not permitted"), err
 		}
-		r.put(kernelRoute{canonRoute(a[2], a[4]), printGateway(a[4]), a[6]})
+		var keep []kernelRoute
+		for _, x := range r.table {
+			if x.net != canon {
+				keep = append(keep, x)
+			}
+		}
+		r.table = keep
+		r.put(kernelRoute{canon, printGateway(gw), dev})
 		return nil, nil
 	case "add": // ip route add <net> dev <dev> ...: the restore of a connected route; not kept
 		return nil, nil
@@ -201,7 +223,7 @@ func (r *routeHost) routeWrites() []string {
 	defer r.mu.Unlock()
 	var out []string
 	for _, c := range r.log {
-		if strings.HasPrefix(c, "ip route replace ") || strings.HasPrefix(c, "ip route del ") || strings.HasPrefix(c, "ip route add ") {
+		if strings.HasPrefix(c, "ip route replace ") || strings.HasPrefix(c, "ip route del ") || strings.HasPrefix(c, "ip route add ") || strings.HasPrefix(c, "ip -6 route replace ") {
 			out = append(out, c)
 		}
 	}
@@ -716,6 +738,95 @@ func TestHostDefaultWarnsAgainAfterDropAndReAdd(t *testing.T) {
 	if n := ls.count("host-default: this host already has an IPv4 default route"); n != 2 {
 		t.Errorf("host-default logged %d times, want 2; log: %q", n, ls.lines)
 	}
+}
+
+// `ip route replace default via <mesh gw> dev wg0` replaces the host's own
+// default route (same destination and metric, whatever the device), so when
+// the mesh default route is removed the daemon puts back the host default it
+// saw before it installed the mesh one: once, logged, counted as a route
+// change, per family.
+func TestMeshDefaultRemovalRestoresHostDefault(t *testing.T) {
+	routeChanges := func() float64 { return testutil.ToFloat64(kernelChanges.WithLabelValues(targetRoutes)) }
+	cases := []struct {
+		name         string
+		hostGW       string // "" a default route without a gateway
+		hostDev      string
+		network      string // the mesh default
+		meshGW       string
+		meshIPv6     string
+		del, restore string
+	}{
+		{"IPv4 with a gateway", "192.168.1.1", "eth0", "0.0.0.0/0", "10.99.0.2", "",
+			"ip route del 0.0.0.0/0 via 10.99.0.2 dev wg0", "ip route replace default via 192.168.1.1 dev eth0"},
+		{"IPv4 without a gateway", "", "ppp0", "0.0.0.0/0", "10.99.0.2", "",
+			"ip route del 0.0.0.0/0 via 10.99.0.2 dev wg0", "ip route replace default dev ppp0"},
+		{"IPv6", "fe80::1", "eth0", "::/0", "fd99::2", "fd99::2",
+			"ip route del ::/0 via fd99::2 dev wg0", "ip -6 route replace default via fe80::1 dev eth0"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			rh := convergedHost()
+			rh.add("default", c.hostGW, c.hostDev)
+			ls := &logSink{}
+			d := newRouteDaemon(t, rh, ls, newFakeKernel())
+			peer := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", c.network)
+			peer.MeshIPv6 = c.meshIPv6
+			ticks(t, d, rh, []*PeerInfo{peer}, 2)
+			if !rh.has(c.network, c.meshGW, "wg0") || rh.has(c.network, c.hostGW, c.hostDev) {
+				t.Fatalf("the mesh default did not replace the host default: mesh %v, host %v", rh.has(c.network, c.meshGW, "wg0"), rh.has(c.network, c.hostGW, c.hostDev))
+			}
+			before := routeChanges()
+			got := ticks(t, d, rh, nil, 3)
+			if want := []string{c.del, c.restore}; !sameLines(got[0], want) {
+				t.Errorf("removal tick writes %q, want %q", got[0], want)
+			}
+			if len(got[1]) != 0 || len(got[2]) != 0 {
+				t.Errorf("later ticks wrote %q %q, want the restore once", got[1], got[2])
+			}
+			if !rh.has(c.network, c.hostGW, c.hostDev) {
+				t.Errorf("the host default (via %q dev %s) is not back; table after: mesh %v", c.hostGW, c.hostDev, rh.has(c.network, c.meshGW, "wg0"))
+			}
+			if n := ls.count("restored the host's"); n != 1 {
+				t.Errorf("the restore was logged %d times, want once: %q", n, ls.lines)
+			}
+			if got := routeChanges() - before; got != 2 {
+				t.Errorf("route changes grew by %v, want 2 (the removal and the restore)", got)
+			}
+		})
+	}
+
+	t.Run("no host default, nothing restored", func(t *testing.T) {
+		rh := convergedHost()
+		d := newRouteDaemon(t, rh, &logSink{}, newFakeKernel())
+		peer := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "0.0.0.0/0")
+		ticks(t, d, rh, []*PeerInfo{peer}, 2)
+		got := ticks(t, d, rh, nil, 2)
+		if want := []string{"ip route del 0.0.0.0/0 via 10.99.0.2 dev wg0"}; !sameLines(got[0], want) || len(got[1]) != 0 {
+			t.Errorf("writes %q %q, want only the removal", got[0], got[1])
+		}
+	})
+
+	// The record is taken from a read made while the mesh default is not
+	// installed, never from the mesh default itself: the mesh gateway changes
+	// (another peer owns the default now) and the read that would see only
+	// wg0's default is not made; the restore still brings the host's back.
+	t.Run("the record survives a gateway change of the mesh default", func(t *testing.T) {
+		rh := convergedHost()
+		rh.add("default", "192.168.1.1", "eth0")
+		d := newRouteDaemon(t, rh, &logSink{}, newFakeKernel())
+		ticks(t, d, rh, []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "0.0.0.0/0")}, 2)
+		d.convergeMu.Lock()
+		d.hostDefaultWarned = nil // the read is allowed again
+		d.convergeMu.Unlock()
+		ticks(t, d, rh, []*PeerInfo{testPeer("keyB", "10.99.0.3", "203.0.113.3:51820", "0.0.0.0/0")}, 2)
+		if !rh.has("0.0.0.0/0", "10.99.0.3", "wg0") {
+			t.Fatalf("the mesh default did not move to keyB: %q", rh.routeWrites())
+		}
+		ticks(t, d, rh, nil, 1)
+		if !rh.has("0.0.0.0/0", "192.168.1.1", "eth0") {
+			t.Errorf("the host default is not back after the mesh default moved and went: %q", rh.routeWrites())
+		}
+	})
 }
 
 const (
