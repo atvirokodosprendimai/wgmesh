@@ -36,6 +36,14 @@ func installFakeWG(t *testing.T) string {
 // writeDump renders a `wg show <iface> dump` with one line per key=handshake.
 func writeDump(t *testing.T, dir, iface string, handshakes map[string]int64) {
 	t.Helper()
+	if err := writeDumpFile(dir, iface, handshakes); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// writeDumpFile is writeDump without the testing.T, for goroutines that must
+// not call t.Fatal.
+func writeDumpFile(dir, iface string, handshakes map[string]int64) error {
 	var b strings.Builder
 	b.WriteString("privkey\tpubkey\t51820\toff\n")
 	for k, hs := range handshakes {
@@ -43,11 +51,9 @@ func writeDump(t *testing.T, dir, iface string, handshakes map[string]int64) {
 	}
 	tmp := filepath.Join(dir, "dump.tmp")
 	if err := os.WriteFile(tmp, []byte(b.String()), 0o644); err != nil {
-		t.Fatal(err)
+		return err
 	}
-	if err := os.Rename(tmp, filepath.Join(dir, "dump."+iface)); err != nil {
-		t.Fatal(err)
-	}
+	return os.Rename(tmp, filepath.Join(dir, "dump."+iface))
 }
 
 func showForks(t *testing.T, dir string) int {
@@ -122,15 +128,18 @@ func TestPunchWaitForksEveryPoll(t *testing.T) {
 
 	go func() {
 		time.Sleep(300 * time.Millisecond)
-		writeDump(t, dir, cfg.InterfaceName, map[string]int64{peer: 100})
+		if err := writeDumpFile(dir, cfg.InterfaceName, map[string]int64{peer: 100}); err != nil {
+			t.Error(err)
+		}
 	}()
 	got := pe.waitForHandshake(peer, 0, time.Second)
 
 	if got != 100 {
 		t.Fatalf("waitForHandshake = %d, want 100 (the handshake that appeared at 300 ms)", got)
 	}
-	if forks := showForks(t, dir); forks < 3 {
-		t.Fatalf("show forks during the wait = %d, want at least 3 (one per 250 ms poll)", forks)
+	// Polls fire at 0, 250 and 500 ms; two forks hold even if a wake-up is 100 ms late.
+	if forks := showForks(t, dir); forks < 2 {
+		t.Fatalf("show forks during the wait = %d, want at least 2 (one per 250 ms poll, not one cached read)", forks)
 	}
 }
 

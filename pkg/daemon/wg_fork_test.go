@@ -134,6 +134,8 @@ func TestProbeAndHealthReuseSnapshotInsideReconcileInterval(t *testing.T) {
 	}
 }
 
+// This test sleeps ReconcileInterval + 200 ms (about 5.2 s of wall time): the
+// snapshot clock is the real one.
 func TestProbeRefreshesSnapshotOlderThanReconcileInterval(t *testing.T) {
 	dir := installFakeWG(t)
 	writeDump(t, dir, map[string]int64{"peer-a": 0})
@@ -144,8 +146,6 @@ func TestProbeRefreshesSnapshotOlderThanReconcileInterval(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeDump(t, dir, map[string]int64{"peer-a": time.Now().Unix()})
-	// The stored result must be older than ReconcileInterval; the snapshot
-	// clock is the real one, so wait.
 	time.Sleep(ReconcileInterval + 200*time.Millisecond)
 
 	d.probePeersOverMesh()
@@ -155,6 +155,12 @@ func TestProbeRefreshesSnapshotOlderThanReconcileInterval(t *testing.T) {
 	}
 	if d.isTemporarilyOffline("peer-a") {
 		t.Fatal("the probe did not see the new handshake: peer-a is still temporarily offline")
+	}
+	// The refresh is a maxAge ReconcileInterval read, not a fork per probe: the
+	// next probe inside the interval reuses it.
+	d.probePeersOverMesh()
+	if got := showForks(t, dir); got != 2 {
+		t.Fatalf("show forks after a second probe = %d, want still 2 (the refreshed snapshot is reused)", got)
 	}
 }
 
