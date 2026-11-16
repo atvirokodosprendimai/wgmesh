@@ -9,6 +9,7 @@ package rpc
 // NewServer.
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -87,11 +88,14 @@ func TestNewServerRefusesOwnedSocket(t *testing.T) {
 		_ = second.Stop()
 		t.Fatal("second NewServer on an owned socket path succeeded")
 	}
+	if !errors.Is(err, flock.ErrHeld) {
+		t.Errorf("error %q does not match flock.ErrHeld", err)
+	}
 	if !strings.Contains(err.Error(), path) {
 		t.Errorf("error %q does not name the socket path %s", err, path)
 	}
-	if pid := strconv.Itoa(os.Getpid()); !strings.Contains(err.Error(), pid) {
-		t.Errorf("error %q does not name the holder pid %s", err, pid)
+	if pid := strconv.Itoa(os.Getpid()); !strings.Contains(err.Error(), "(pid "+pid+")") {
+		t.Errorf("error %q does not name the holder as (pid %s)", err, pid)
 	}
 }
 
@@ -168,24 +172,50 @@ func TestNewServerErrorReleasesLock(t *testing.T) {
 	}
 }
 
-// Stop is called from several goroutines (run under -race); the lock is free
-// afterwards.
+// Stop is called from several goroutines (run under -race): every call
+// returns the same result, the socket file is gone and the lock is free.
 func TestStopIsSafeConcurrently(t *testing.T) {
 	path := shortSocketPath(t)
 	s := startServer(t, path)
 
+	const n = 16
+	errs := make([]error, n)
 	var wg sync.WaitGroup
-	for i := 0; i < 16; i++ {
+	for i := 0; i < n; i++ {
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
-			_ = s.Stop()
-		}()
+			errs[i] = s.Stop()
+		}(i)
 	}
 	wg.Wait()
+	for i, err := range errs {
+		if err != errs[0] {
+			t.Errorf("Stop call %d returned %v, call 0 returned %v", i, err, errs[0])
+		}
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("socket file still there after Stop: %v", err)
+	}
 	if !lockIsFree(t, path) {
 		t.Fatal("socket lock still held after Stop")
 	}
+}
+
+// A second Stop of the old server, after a new owner took the path, must not
+// unlink the new owner's socket (stopOnce).
+func TestSecondStopKeepsNewOwnersSocket(t *testing.T) {
+	path := shortSocketPath(t)
+	first := startServer(t, path)
+	if err := first.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	again := startServer(t, path)
+	defer again.Stop()
+	if err := first.Stop(); err != nil {
+		t.Fatalf("second Stop of the old server: %v", err)
+	}
+	dialOK(t, path)
 }
 
 // Start fails when the socket path is too long for sun_path (about 108 bytes
