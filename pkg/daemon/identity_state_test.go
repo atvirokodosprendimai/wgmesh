@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -106,6 +107,39 @@ func TestLoadLocalNodeDistinguishesMissingAndCorrupt(t *testing.T) {
 }
 
 func strPtr(s string) *string { return &s }
+
+// The corrupt file may hold a private key: no error may carry the text of the
+// JSON decoder, which can quote an input byte.
+func TestCorruptStateErrorsCarryNoFileContent(t *testing.T) {
+	const bad = `{"wg_pubkey":"AAAA","wg_private_key":"QUJD"DEF"}`
+	check := func(what string, err error) {
+		t.Helper()
+		if err == nil {
+			t.Fatalf("%s: no error", what)
+		}
+		var syn *json.SyntaxError
+		if errors.As(err, &syn) {
+			t.Errorf("%s: error wraps the decoder's error: %v", what, err)
+		}
+		for _, leak := range []string{"QUJD", "DEF", "invalid character"} {
+			if strings.Contains(err.Error(), leak) {
+				t.Errorf("%s: error %q contains %q", what, err, leak)
+			}
+		}
+	}
+	d, path := identityTestDaemon(t)
+	if err := os.WriteFile(path, []byte(bad), 0600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := loadLocalNode(path)
+	check("loadLocalNode", err)
+	if !errors.Is(err, ErrStateCorrupt) {
+		t.Errorf("loadLocalNode: %v is not ErrStateCorrupt", err)
+	}
+
+	setRefuseCorruptState(t, true)
+	check("initLocalNode", d.initLocalNode())
+}
 
 func TestInitLocalNodeCorruptMovesAside(t *testing.T) {
 	setRefuseCorruptState(t, false)

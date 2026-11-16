@@ -117,7 +117,9 @@ func loadLocalNode(path string) (*LocalNode, error) {
 
 	var state localNodeState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrStateCorrupt, err)
+		// Fixed text, not err: a json.SyntaxError can quote a byte of the
+		// input, and this file holds a private key.
+		return nil, fmt.Errorf("%w: not valid JSON", ErrStateCorrupt)
 	}
 	if state.WGPubKey == "" || state.WGPrivateKey == "" {
 		return nil, fmt.Errorf("%w: public or private key is empty", ErrStateCorrupt)
