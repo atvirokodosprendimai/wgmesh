@@ -89,9 +89,12 @@ type DHTDiscovery struct {
 	sendAnnounceFn func(*net.UDPAddr) error
 	// resumable is true from the end of Start to the start of Stop (guarded by
 	// mu): OnResume acts only then, so it never reads fields Start is still
-	// writing. resumeWG tracks the goroutine OnResume starts.
-	resumable bool
-	resumeWG  sync.WaitGroup
+	// writing. resumeWG tracks the goroutine OnResume starts; resumeBusy (also
+	// guarded by mu) is true while that goroutine runs, so a burst of wake
+	// events starts one pass, not one per event.
+	resumable  bool
+	resumeBusy bool
+	resumeWG   sync.WaitGroup
 }
 
 // NewDHTDiscovery creates a new DHT discovery instance.
@@ -537,7 +540,8 @@ var _ node.Resumer = (*DHTDiscovery)(nil)
 // (applied at once) and announces. The two network steps run in a goroutine
 // counted by resumeWG, so the caller never waits on them; each step has its own
 // timeout (STUN 3 s per probe, announce 30 s, cancelled with the layer), and
-// Stop does not wait for them. Before Start and after Stop it does nothing.
+// Stop does not wait for them. While such a goroutine is running a further call
+// only clears the back-off. Before Start and after Stop it does nothing.
 func (d *DHTDiscovery) OnResume() {
 	d.mu.Lock()
 	if !d.resumable || d.ctx.Err() != nil {
@@ -545,12 +549,22 @@ func (d *DHTDiscovery) OnResume() {
 		return
 	}
 	clear(d.rendezvousBackoff)
+	if d.resumeBusy {
+		d.mu.Unlock()
+		return
+	}
+	d.resumeBusy = true
 	d.resumeWG.Add(1)
 	d.mu.Unlock()
 
 	log.Printf("[Resume] Wake detected: refreshing STUN endpoint and announcing")
 	go func() {
 		defer d.resumeWG.Done()
+		defer func() {
+			d.mu.Lock()
+			d.resumeBusy = false
+			d.mu.Unlock()
+		}()
 		if d.ctx.Err() != nil {
 			return
 		}
