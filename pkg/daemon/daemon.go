@@ -89,9 +89,10 @@ type Daemon struct {
 	// RPC server
 	rpcServer RPCServer
 
-	// startTime is the daemon start as Unix nanoseconds, 0 until set; the RPC
-	// goroutines read it and the first GetUptime call may set it.
-	startTime atomic.Int64
+	// startTime is the daemon start, nil until set; the RPC goroutines read it
+	// and the first GetUptime call may set it. A pointer keeps the monotonic
+	// clock reading of time.Now, so an NTP step does not change the uptime.
+	startTime atomic.Pointer[time.Time]
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -408,7 +409,8 @@ func (d *Daemon) SetDHTDiscovery(dht DiscoveryLayer) {
 
 // Run starts the daemon and blocks until stopped
 func (d *Daemon) Run() error {
-	d.startTime.Store(time.Now().UnixNano())
+	now := time.Now()
+	d.startTime.Store(&now)
 	log.Printf("Starting wgmesh daemon...")
 
 	// Load or create local node
@@ -2000,12 +2002,13 @@ func (d *Daemon) SetRPCServer(server RPCServer) {
 // GetUptime returns the daemon uptime
 func (d *Daemon) GetUptime() time.Duration {
 	start := d.startTime.Load()
-	if start == 0 {
+	if start == nil {
 		// Lazily initialize startTime to avoid incorrect uptime when it was not set on startup
-		d.startTime.CompareAndSwap(0, time.Now().UnixNano())
+		now := time.Now()
+		d.startTime.CompareAndSwap(nil, &now)
 		return 0
 	}
-	return time.Since(time.Unix(0, start))
+	return time.Since(*start)
 }
 
 // GetInterfaceName returns the WireGuard interface name
