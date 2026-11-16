@@ -4,29 +4,29 @@
 **Covers:** none — no spec
 **Estimated scope:** L (multi-file)
 **Owner:** unassigned
-**Produces:** `LocalNode.GetMeshIP/SetMeshIP`, `GetMeshIPv6/SetMeshIPv6`, `GetNATType/SetNATType`, `Snapshot()`; `TestLocalNodeFieldsNotWrittenDirectly`
+**Produces:** `LocalNode.GetMeshIP/SetMeshIP`, `GetMeshIPv6/SetMeshIPv6`, `GetNATType/SetNATType`, `IsIntroducer/SetIntroducer`, `Identity() (pubKey, meshIP string)`, `Snapshot()`; `TestLocalNodeFieldsNotWrittenDirectly`
 **Consumes:** the one `LocalNode` type (T7)
 **Data dependency:** hermetic
 **Proof map:** v1
 
 ## Goal
 
-`MeshIP`, `MeshIPv6` and `NATType` of the local node are written and read under one new `sync.RWMutex` (`stateMu`), beside the two locks that already exist (`endpointMu` for the endpoint, `routesMu` for `RoutableNetworks`, which PR #895 added with `GetRoutableNetworks`/`SetRoutableNetworks`, merged 2026-11-15, `14a89ff`); one mutex per field group, no lock is held across two groups. `go test -race` over the packages that read them in goroutines is clean, and a direct assignment from outside `pkg/node` fails a test.
+`MeshIP`, `MeshIPv6`, `NATType` and `Introducer` of the local node are written and read under one new `sync.RWMutex` (`stateMu`), beside the two locks that already exist (`endpointMu` for the endpoint, `routesMu` for `RoutableNetworks`, which PR #895 added with `GetRoutableNetworks`/`SetRoutableNetworks`, merged 2026-11-15, `14a89ff`); one mutex per field group, no lock is held across two groups. `WGPubKey`, `WGPrivateKey` and `Hostname` are written once in `initLocalNode`/`loadLocalNode` before any goroutine starts and stay plain fields (the guard test fails on an assignment to them anywhere else); this is the owner rule of M 2026-11-16 08:21 ("no field accessed by more than one goroutine may be bare"): a field with later writes has a lock, a field written once before the goroutines start has a single writer function and a test. `go test -race` over the packages that read them in goroutines is clean, and a direct assignment from outside `pkg/node` fails a test.
 
 ## Affected Files
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/node/types.go` | edit | add `stateMu` for `MeshIP`, `MeshIPv6`, `NATType` (the existing `endpointMu` and `routesMu` stay as #895 left them); the three fields become unexported (`meshIP`, `meshIPv6`, `natType`), `RoutableNetworks` becomes unexported (`routableNetworks`) so the compiler selects every site; getters and setters for the three; `Snapshot() LocalSnapshot` reads each group under its own lock in turn (never nested), so a group is consistent, the groups are not read at one instant; `GetRoutableNetworks`/`SetRoutableNetworks` already copy (#895) and move with the type |
-| `pkg/daemon/daemon.go` | edit | the writes at `:378`, `:380`, `:391`, `:397`, `:490`, `:1719` call setters; the reads at `:224`, `:712`, `:974`, `:1273`, `:1534`, `:1847` call getters; the construction in `initLocalNode` (`:422`) sets the fields through the constructor `node.NewLocalNode(...)` or setters before any goroutine starts |
-| `pkg/daemon/collision.go` | edit | `:119-120` use `GetMeshIP` and `SetMeshIP` (ADR-0002 T4 and T5 edit nearby lines: this follows them) |
-| `pkg/discovery/exchange.go` | edit | announcement builders at `:507`, `:560`, `:563`, `:1170` read one `Snapshot()` |
-| `pkg/discovery/lan.go`, `pkg/discovery/gossip.go` | edit | `lan.go:161`, `gossip.go:90`, `:228` read through getters or `Snapshot()` |
-| `pkg/discovery/dht.go` | edit | `NATType` writes at `:256`, `:272`, `:285`, `:422`, `:445` call `SetNATType` |
+| `pkg/node/types.go` | edit | add `stateMu` for `MeshIP`, `MeshIPv6`, `NATType`, `Introducer` (the existing `endpointMu` and `routesMu` stay as #895 left them); the four fields and `RoutableNetworks` become unexported (`meshIP`, `meshIPv6`, `natType`, `introducer`, `routableNetworks`) so the compiler selects every site; a constructor `NewLocalNode(pubKey, privKey, hostname, ...)` sets the write-once fields; getters and setters for the four; `Identity()` returns the public key and mesh IP read together under `stateMu` (the `Policy.Local` closure and `GetRPCStatus` use it); `Snapshot() LocalSnapshot` reads each group under its own lock in turn (never nested), so a group is consistent, the groups are not read at one instant; `GetRoutableNetworks`/`SetRoutableNetworks` already copy (#895) and move with the type |
+| `pkg/daemon/daemon.go` | edit | every write of `MeshIP`, `MeshIPv6`, `NATType`, `Introducer` calls a setter (the sites are the output of the grep below: `initLocalNode`, `setupWireGuard`, the key-generation literal, the SIGHUP reload) and every read calls a getter, `Identity()` or `Snapshot()` (`Policy.Local`, the mesh probe dialer, `GetRPCStatus`, metrics, reconcile); `initLocalNode` builds the node through `node.NewLocalNode` before any goroutine starts |
+| `pkg/daemon/collision.go` | edit | the `MeshIP` write and read in `CheckAndResolveCollisions` use `GetMeshIP` and `SetMeshIP` |
+| `pkg/discovery/exchange.go` | edit | the announcement builders (HELLO, REPLY, ANNOUNCE) read one `Snapshot()` and the probe/offer paths read through getters |
+| `pkg/discovery/lan.go`, `pkg/discovery/gossip.go` | edit | the announcement builders and the mesh-IP reads go through `Snapshot()` or getters |
+| `pkg/discovery/dht.go` | edit | every `NATType` write (the synchronous discovery and the 60 s STUN refresh loop) calls `SetNATType` |
 | `pkg/node/localnode_lock_test.go` | add | the three behaviour tests |
 | `pkg/daemon/localnode_guard_test.go` | add | `TestLocalNodeFieldsNotWrittenDirectly` |
 
-The list of sites is the output of the two greps in the parent audit (2026-11-15, `b8b83f3`: 12 writes, 62 reads); the task re-runs both at its start and its end, and the end run must print 0 direct writes outside `pkg/node`. `grep -rn "RoutableNetworks" --include=*.go . | grep -v _test.go` also lists announcement structs and `PeerInfo.RoutableNetworks`, which are not the local node's and are not touched.
+The list of sites is the output of `grep -rnE "\blocalNode\.(MeshIP|MeshIPv6|NATType|Introducer|RoutableNetworks)\b" --include=*.go . | grep -v _test.go` (2026-11-15 at `b8b83f3`: 12 writes and 62 reads of the first three plus routes, before #895 and the merge of ADR-0002; re-run at the start); the task re-runs it at its start and its end, and the end run must print 0 direct accesses outside `pkg/node`. `grep -rn "RoutableNetworks" --include=*.go . | grep -v _test.go` also lists announcement structs and `PeerInfo.RoutableNetworks`, which are not the local node's and are not touched.
 
 Selection: with the fields unexported the compiler selects every site; the guard test is the second selector for a reintroduced exported field.
 
@@ -51,10 +51,10 @@ n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|Tes
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestLocalNodeAccessorsConcurrent` | `pkg/node/localnode_lock_test.go` | 8 goroutines set and get `MeshIP`, `MeshIPv6`, `NATType`, the routes and the endpoint for 200 iterations each; clean under `-race` | — | S1, S2 |
+| `TestLocalNodeAccessorsConcurrent` | `pkg/node/localnode_lock_test.go` | 8 goroutines set and get `MeshIP`, `MeshIPv6`, `NATType`, `Introducer`, the routes, the endpoint, `Identity()` and `Snapshot()` for 200 iterations each; clean under `-race` | — | S1, S2 |
 | `TestRoutableNetworksAreCopied` | `pkg/node/localnode_lock_test.go` | mutating the slice passed to the setter, or returned by the getter, does not change the node | — | S1, S2 |
 | `TestSnapshotMatchesAccessors` | `pkg/node/localnode_lock_test.go` | `Snapshot` returns what the getters return at that moment and its routes are a copy | — | S1, S2 |
-| `TestLocalNodeFieldsNotWrittenDirectly` | `pkg/daemon/localnode_guard_test.go` | parses the module's non-test files outside `pkg/node` and fails on an assignment to a selector named `MeshIP`, `MeshIPv6`, `NATType` or `RoutableNetworks` whose receiver is a local-node expression (`localNode`, `d.localNode`, `pe.localNode`, `GetLocalNode()`); composite literals and `PeerInfo` fields are not flagged | — | S1, S3 |
+| `TestLocalNodeFieldsNotWrittenDirectly` | `pkg/daemon/localnode_guard_test.go` | parses the module's non-test files outside `pkg/node` and fails on an assignment to a selector named `MeshIP`, `MeshIPv6`, `NATType`, `Introducer` or `RoutableNetworks` whose receiver is a local-node expression (`localNode`, `d.localNode`, `pe.localNode`, `GetLocalNode()`), and on an assignment to `WGPubKey`, `WGPrivateKey` or `Hostname` of such a receiver outside `initLocalNode` and `loadLocalNode`; composite literals and `PeerInfo` fields are not flagged | — | S1, S3 |
 
 ## Reachability
 
