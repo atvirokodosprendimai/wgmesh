@@ -69,6 +69,7 @@ n=$(go test ./pkg/daemon -run '^(TestEveryMapFieldHasABound|TestBoundTableHasNoS
 
 - The guard is a field-declaration heuristic: a map in a nested type, a slice of maps or a map declared in another file is outside it. The test's doc comment says so, and `TestGuardFailsOnUnlistedMapField` proves the case it does cover.
 - The table is long (19 rows) and drifts if the five files gain fields; that is the intended failure.
+- Scope amendment (ADR-0007 Decision 1, 2026-11-16): the guard also parses `pkg/node/store.go` and `pkg/discovery/replay_cache.go`; the row count is whatever the code has when T4 runs (19 at `b8b83f3` plus the new fields), and the table, not this text, is the count. Concurrency: every map field in the table names the lock that guards it (M's rule 2026-11-16: no field accessed by more than one goroutine without an atomic or a lock); T4 reads each access once and any bare access it finds is a finding, fixed in its own commit.
 
 ## Stop Condition
 
