@@ -148,3 +148,4 @@ Stop and ask if a peer test in `pkg/daemon` needs a changed expectation, or if `
 - 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11056
 - 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:7864
 - 2026-11-16 · f2043d5* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:10710
+- 2026-11-16 · 823f97e* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:0 · test-lock-sha256:ff46e4f5427ee43abf7124add55199cc590bf8829002c083443f7c3d969a3ee7 · test-lock-file:docs/adr/locks/ff46e4f5427ee43abf7124add55199cc590bf8829002c083443f7c3d969a3ee7.lock · test-lock-kind:replace

@@ -69,6 +69,12 @@ n=$(go test ./pkg/daemon -run '^(TestForwardAppliedOnceThenQuiet|TestForwardReap
 - 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/desired.go` · Needed ignores advertise-routes: TestForwardNeededForIntroducerAndAdvertiser must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
 - 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/desired.go` · Wanted ignores EnforceForwardScope: TestForwardScopeEnforcedStopsForcing must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
 - 2026-11-16 · ef8b23a* · mutant killed · exit 1 · `pkg/daemon/converge.go` · rule appended although present: TestForwardPreexistingValueNotRewritten must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · 823f97e* · mutant killed · exit 1 · `pkg/daemon/converge.go` · sysctl written every tick: TestForwardAppliedOnceThenQuiet must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · 823f97e* · mutant killed · exit 1 · `pkg/daemon/converge.go` · missing iptables logged every tick: TestMissingIptablesLoggedOnce must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · 823f97e* · mutant killed · exit 1 · `pkg/daemon/desired.go` · Needed ignores Introducer: TestForwardNeededForIntroducerAndAdvertiser must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · 823f97e* · mutant killed · exit 1 · `pkg/daemon/desired.go` · Needed ignores advertise-routes: TestForwardNeededForIntroducerAndAdvertiser must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · 823f97e* · mutant killed · exit 1 · `pkg/daemon/desired.go` · Wanted ignores EnforceForwardScope: TestForwardScopeEnforcedStopsForcing must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
+- 2026-11-16 · 823f97e* · mutant killed · exit 1 · `pkg/daemon/converge.go` · rule appended although present: TestForwardPreexistingValueNotRewritten must go red · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68
 
 ## Invariants
 
@@ -114,3 +120,11 @@ Stop and ask if `iptables -C` cannot be told apart from "binary missing" by the 
 - 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:9806
 - 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:9772
 - 2026-11-16 · ef8b23a* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:6716
+- 2026-11-16 · 823f97e* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:1 · test-lock-sha256:04b98b328ea4ec48619b208da00775ad3db501c1c6f124d304137190c0cdf020 · test-lock-file:docs/adr/locks/04b98b328ea4ec48619b208da00775ad3db501c1c6f124d304137190c0cdf020.lock · test-lock-kind:replace
+- 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:13767
+- 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:16204
+- 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:16632
+- 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:16039
+- 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:12620
+- 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:10389
+- 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:13036
