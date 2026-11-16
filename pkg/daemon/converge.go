@@ -177,7 +177,7 @@ func (d *Daemon) applyForward(plan forwardPlan, observed bool) []itemResult {
 // as a kernel change.
 func (d *Daemon) forwardResult(op, key string, out []byte, err error) itemResult {
 	if err != nil {
-		err = fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+		err = commandFailure(out, err)
 	} else {
 		RecordKernelChange(targetForward)
 	}

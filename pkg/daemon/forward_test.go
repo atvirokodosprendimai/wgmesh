@@ -610,3 +610,19 @@ func TestForwardReadErrorSkipsOnlyForward(t *testing.T) {
 		})
 	}
 }
+
+// A failing command that printed nothing gives an error text without a
+// leading ": ".
+func TestForwardResultEmptyOutputHasNoLeadingColon(t *testing.T) {
+	d := newConvergeDaemon(t, newFakeKernel(), &logSink{})
+	for _, out := range [][]byte{nil, []byte(" \n")} {
+		r := d.forwardResult("set", "ip_forward", out, errors.New("exit status 255"))
+		if r.Err == nil || r.Err.Error() != "exit status 255" {
+			t.Errorf("error text for output %q = %v, want %q", out, r.Err, "exit status 255")
+		}
+	}
+	r := d.forwardResult("set", "ip_forward", []byte("sysctl: denied\n"), errors.New("exit status 255"))
+	if r.Err == nil || r.Err.Error() != "sysctl: denied: exit status 255" {
+		t.Errorf("error text with output = %v", r.Err)
+	}
+}
