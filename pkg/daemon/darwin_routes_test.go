@@ -38,11 +38,12 @@ type darwinHost struct {
 	log     []string
 	readErr map[string]error // full command line -> what reading fails with
 	addErr  map[string]error // full command line -> what `route add` fails with ("File exists")
+	delErr  map[string]error // full command line -> what `route delete` fails with
 	hold    func()           // called at the start of every command, outside the lock
 }
 
 func newDarwinHost() *darwinHost {
-	return &darwinHost{hidden: map[string]bool{}, noise: map[int][]string{}, readErr: map[string]error{}, addErr: map[string]error{}}
+	return &darwinHost{hidden: map[string]bool{}, noise: map[int][]string{}, readErr: map[string]error{}, addErr: map[string]error{}, delErr: map[string]error{}}
 }
 
 // printDarwin is how netstat prints a canonical network: `default`, a host
@@ -163,6 +164,9 @@ func (h *darwinHost) exec(name string, args ...string) ([]byte, error) {
 			}
 			return []byte("change net " + canon), nil
 		case "delete":
+			if err := h.delErr[line]; err != nil {
+				return []byte("route: writing to routing socket: Operation not permitted"), err
+			}
 			if idx < 0 {
 				return []byte("route: writing to routing socket: not in table"), exitError{1}
 			}
@@ -325,11 +329,6 @@ func TestDarwinRouteAddUsesInterface(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("route commands = %q, want %q", got, want)
 	}
-	for _, c := range got {
-		if strings.Contains(c, " via ") || strings.Contains(c, "-gateway") {
-			t.Errorf("%q names a gateway; WireGuard picks the peer by AllowedIPs", c)
-		}
-	}
 	if n := dh.count("ip "); n != 0 {
 		t.Errorf("%d ip commands ran on macOS", n)
 	}
@@ -446,8 +445,8 @@ func TestDarwinAttachedNetworkSkippedFromFirstRelease(t *testing.T) {
 	if got := warnings() - before; got != 2 {
 		t.Errorf("attached-network counted %v times over 3 ticks, want 2 (equal and inside, once each)", got)
 	}
-	if got := ls.count("attached-network"); got != 2 {
-		t.Errorf("attached-network logged %d times over 3 ticks, want 2; log %q", got, ls.lines)
+	if got, want := routeWarnedKeys(d), []string{"attached 192.168.50.0/24", "attached 192.168.50.128/25"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("warn-once set = %q, want %q", got, want)
 	}
 }
 
@@ -523,8 +522,8 @@ func TestDarwinFileExistsBecomesChange(t *testing.T) {
 		if !reflect.DeepEqual(got, want) {
 			t.Errorf("route commands = %q, want %q", got, want)
 		}
-		if n := ls.count("Failed to"); n != 0 {
-			t.Errorf("File exists logged as a failure: %q", ls.lines)
+		if keys := resultKeys(d); len(keys) != 0 {
+			t.Errorf("File exists is a failure of %q", keys)
 		}
 	})
 	t.Run("IPv6", func(t *testing.T) {
@@ -553,8 +552,8 @@ func TestDarwinFileExistsBecomesChange(t *testing.T) {
 		if !dh.has("10.50.0.0/16", "utun4") {
 			t.Error("the other route was skipped after one failed")
 		}
-		if n := ls.count("Failed to change route"); n != 1 {
-			t.Errorf("failed change logged %d times, want 1: %q", n, ls.lines)
+		if got, want := resultKeys(d), []string{"route change 192.168.50.0/24"}; !reflect.DeepEqual(got, want) {
+			t.Errorf("failed items = %q, want %q", got, want)
 		}
 	})
 }
@@ -615,12 +614,16 @@ func TestDarwinObserveFailureRemovesNothing(t *testing.T) {
 	d := newDarwinDaemon(t, dh, ls, newFakeKernel())
 	peers := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "192.168.50.0/24")}
 	d.converge(peers)
+	afterFirst := ls.total()
 	d.converge(peers)
 	if cmds := dh.routeCommands(); len(cmds) != 0 {
 		t.Errorf("IPv4 routes written although the table could not be read: %q", cmds)
 	}
-	if n := ls.count("Cannot read the IPv4 routes"); n != 1 {
-		t.Errorf("read failure logged %d times over 2 ticks, want 1: %q", n, ls.lines)
+	if observeErr(d, targetRoutes4) == "" || observeErr(d, targetRoutes6) != "" {
+		t.Errorf("observe errors: IPv4 %q, IPv6 %q; want only IPv4 set", observeErr(d, targetRoutes4), observeErr(d, targetRoutes6))
+	}
+	if got := ls.total(); got != afterFirst {
+		t.Errorf("tick 2 logged %d more lines, want none (the failure is logged once)", got-afterFirst)
 	}
 }
 
@@ -799,5 +802,126 @@ func TestDarwinUnrecognisedRowIsReportedOnce(t *testing.T) {
 	}
 	if got, want := dh.routeCommands(), []string{"route -n add -net 192.168.50.0/24 -interface utun4"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("route commands = %q, want %q", got, want)
+	}
+}
+
+// The state the tests read back, each read under convergeMu.
+func routeWarnedKeys(d *Daemon) []string {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	var keys []string
+	for k := range d.routeWarned {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// resultKeys are the items whose last write failed.
+func resultKeys(d *Daemon) []string {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	var keys []string
+	for k := range d.lastResults {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func observeErr(d *Daemon, target string) string {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	return d.routeObserveErr[target]
+}
+
+// Each filter of the parser is pinned alone: a row that only one rule
+// excludes is not a route, whether it belongs to the mesh interface or not.
+func TestParseNetstatDarwinEachFilterAlone(t *testing.T) {
+	const header = "Destination Gateway Flags Netif Expire\n"
+	for _, c := range []struct {
+		name, row string
+		ipv6      bool
+	}{
+		{"flag m", "10.99.0.11 link#16 UHm utun4", false},
+		{"flag b", "10.99.255.255 link#16 UHb utun4", false},
+		{"flag L without a scope", "10.99.0.9 link#16 UHL utun4", false},
+		{"flag W", "10.99.0.10 link#16 UHW utun4", false},
+		{"an IPv4 multicast address without flag m", "224.0.0.251 link#16 UHS utun4", false},
+		{"an IPv6 multicast address without flag m", "ff02::fb link#16 UHS utun4", true},
+		{"an IPv4 link-local network without a scope", "169.254.0.0/16 link#16 UCS utun4", false},
+		{"an IPv6 link-local network without a scope", "fe80::/64 link#16 UCS utun4", true},
+		{"a scope in the destination", "fd00:9::%utun4/64 link#16 UCS utun4", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			control, controlNet := "10.7.0.0/16 link#16 UCS utun4\n", "10.7.0.0/16"
+			if c.ipv6 {
+				control, controlNet = "fd00:7::/48 link#16 UCS utun4\n", "fd00:7::/48"
+			}
+			table, err := parseNetstatDarwin([]byte(header+control+c.row+"\n"), "utun4", c.ipv6)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := networksOf(table.Mesh); !reflect.DeepEqual(got, []string{controlNet}) {
+				t.Errorf("mesh routes = %q, want only the control row %q", got, controlNet)
+			}
+			other := strings.Replace(c.row, "utun4", "en0", 1)
+			table, err = parseNetstatDarwin([]byte(header+strings.Replace(control, "utun4", "en0", 1)+other+"\n"), "utun4", c.ipv6)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if want := map[string]string{controlNet: "en0"}; !reflect.DeepEqual(table.Foreign, want) {
+				t.Errorf("foreign = %v, want only the control row %v", table.Foreign, want)
+			}
+		})
+	}
+}
+
+// A failing delete is that route's failure only: the adds still run, and the
+// route stays in the installed set, so the next tick tries again.
+func TestDarwinFailingDeleteDoesNotStopTheAdds(t *testing.T) {
+	dh := newDarwinHost()
+	dh.delErr["route -n delete -net 172.20.0.0/16 -interface utun4"] = exitError{1}
+	d := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
+	d.converge([]*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "172.20.0.0/16")})
+	next := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "192.168.50.0/24", "10.50.0.0/16")}
+	d.converge(next)
+	if !dh.has("192.168.50.0/24", "utun4") || !dh.has("10.50.0.0/16", "utun4") {
+		t.Error("an add was skipped after a delete failed")
+	}
+	if !dh.has("172.20.0.0/16", "utun4") {
+		t.Error("the route whose delete failed is gone")
+	}
+	if got, want := resultKeys(d), []string{"route delete 172.20.0.0/16"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("failed items = %q, want %q", got, want)
+	}
+	before := len(dh.routeCommands())
+	d.converge(next)
+	if got, want := dh.routeCommands()[before:], []string{"route -n delete -net 172.20.0.0/16 -interface utun4"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("the next tick ran %q, want the delete again %q", got, want)
+	}
+}
+
+// A row of the mesh interface whose destination does not parse makes that
+// family's table unreadable: nothing is written for the family (and its error
+// is kept once), while the other family goes on.
+func TestDarwinParseErrorRowIsAFamilyErrorEndToEnd(t *testing.T) {
+	dh := newDarwinHost()
+	dh.noise[4] = []string{"not-a-network link#16 UCS utun4"}
+	ls := &logSink{}
+	d := newDarwinDaemon(t, dh, ls, newFakeKernel())
+	peers := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "fd99::2", "192.168.50.0/24", "fd00:5::/48")}
+	d.converge(peers)
+	afterFirst := ls.total()
+	d.converge(peers)
+	d.converge(peers)
+	if got, want := dh.routeCommands(), []string{"route -n add -inet6 -net fd00:5::/48 -interface utun4"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("route commands = %q, want only the IPv6 add %q", got, want)
+	}
+	if observeErr(d, targetRoutes4) == "" || observeErr(d, targetRoutes6) != "" {
+		t.Errorf("observe errors: IPv4 %q, IPv6 %q; want only IPv4 set", observeErr(d, targetRoutes4), observeErr(d, targetRoutes6))
+	}
+	if got := ls.total(); got != afterFirst {
+		t.Errorf("ticks 2 and 3 logged %d more lines, want none", got-afterFirst)
 	}
 }
