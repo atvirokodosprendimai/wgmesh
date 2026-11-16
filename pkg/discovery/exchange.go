@@ -149,7 +149,7 @@ func (pe *PeerExchange) Start() error {
 	pe.stopCh = make(chan struct{}) // Re-create for restart safety (B8)
 
 	// Start listener
-	go pe.listenLoop()
+	go pe.listenLoop(pe.stopCh, conn)
 
 	log.Printf("[Exchange] Listening on UDP port %d", port)
 	return nil
@@ -186,24 +186,33 @@ func (pe *PeerExchange) UDPConn() net.PacketConn {
 	return pe.conn
 }
 
+// udp returns the current socket (thread-safe): Start replaces it on restart.
+func (pe *PeerExchange) udp() *net.UDPConn {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	return pe.conn
+}
+
 // listenLoop handles incoming peer exchange requests
-func (pe *PeerExchange) listenLoop() {
+func (pe *PeerExchange) listenLoop(stopCh chan struct{}, conn *net.UDPConn) {
 	buf := make([]byte, MaxExchangeSize)
 
 	for {
 		select {
-		case <-pe.stopCh:
+		case <-stopCh:
 			return
 		default:
 		}
 
-		pe.conn.SetReadDeadline(time.Now().Add(1 * time.Second))
-		n, remoteAddr, err := pe.conn.ReadFromUDP(buf)
+		conn.SetReadDeadline(time.Now().Add(1 * time.Second))
+		n, remoteAddr, err := conn.ReadFromUDP(buf)
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 				continue
 			}
-			if pe.running {
+			select {
+			case <-stopCh: // closed on purpose: Stop (or a restart) closed this socket
+			default:
 				log.Printf("[Exchange] Read error: %v", err)
 			}
 			continue
@@ -497,14 +506,14 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
+		pe.localNode.GetMeshIP(),
 		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.GetRoutableNetworks(),
 		knownPeers,
 		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetMeshIPv6(),
+		string(pe.localNode.GetNATType()),
 	)
 	announcement.ObservedEndpoint = remoteAddr.String()
 
@@ -513,7 +522,7 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal reply: %w", err)
 	}
 
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	_, err = pe.udp().WriteToUDP(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send reply: %w", err)
 	}
@@ -550,14 +559,14 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	// Create HELLO message
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
+		pe.localNode.GetMeshIP(),
 		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.GetRoutableNetworks(),
 		knownPeers,
 		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetMeshIPv6(),
+		string(pe.localNode.GetNATType()),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
@@ -565,15 +574,15 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		return nil, fmt.Errorf("failed to seal hello: %w", err)
 	}
 
-	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), pe.port)
+	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), pe.Port())
 	if !pe.config.DisablePunching {
-		log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, pe.port)
+		log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, pe.Port())
 	}
 
 	attempts := 0
 	sendHello := func() error {
 		attempts++
-		_, sendErr := pe.conn.WriteToUDP(data, remoteAddr)
+		_, sendErr := pe.udp().WriteToUDP(data, remoteAddr)
 		if sendErr != nil {
 			return fmt.Errorf("failed to send hello: %w", sendErr)
 		}
@@ -651,7 +660,7 @@ func (pe *PeerExchange) RequestRendezvous(introducerAddr, targetPubKey string, c
 		return fmt.Errorf("failed to seal rendezvous offer: %w", err)
 	}
 
-	if _, err := pe.conn.WriteToUDP(data, remoteAddr); err != nil {
+	if _, err := pe.udp().WriteToUDP(data, remoteAddr); err != nil {
 		return fmt.Errorf("failed to send rendezvous offer: %w", err)
 	}
 
@@ -796,7 +805,7 @@ func (pe *PeerExchange) sendRendezvousStart(pairID, targetPubKey, targetEndpoint
 		return
 	}
 
-	if _, err := pe.conn.WriteToUDP(data, remoteAddr); err != nil {
+	if _, err := pe.udp().WriteToUDP(data, remoteAddr); err != nil {
 		log.Printf("[NAT] Failed to send rendezvous START to %s: %v", remoteAddr.String(), err)
 		return
 	}
@@ -1166,14 +1175,14 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
+		pe.localNode.GetMeshIP(),
 		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.GetRoutableNetworks(),
 		knownPeers,
 		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetMeshIPv6(),
+		string(pe.localNode.GetNATType()),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)
@@ -1181,11 +1190,25 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal announce: %w", err)
 	}
 
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	// Start writes pe.conn under pe.mu; Stop only closes the socket and leaves
+	// it set, so a send after Stop fails in WriteToUDP, not here.
+	conn := pe.udp()
+	if conn == nil {
+		return fmt.Errorf("peer exchange has no socket")
+	}
+	_, err = conn.WriteToUDP(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send announce: %w", err)
 	}
 	return nil
+}
+
+// hasConn reports whether Start has opened the exchange socket. After Stop the
+// socket is closed but still set, so it still reports true.
+func (pe *PeerExchange) hasConn() bool {
+	pe.mu.RLock()
+	defer pe.mu.RUnlock()
+	return pe.conn != nil
 }
 
 // SendGoodbye sends a shutdown notification to a specific peer exchange endpoint.
@@ -1206,7 +1229,7 @@ func (pe *PeerExchange) SendGoodbye(addr string) error {
 		return fmt.Errorf("failed to seal goodbye: %w", err)
 	}
 
-	_, err = pe.conn.WriteToUDP(data, remoteAddr)
+	_, err = pe.udp().WriteToUDP(data, remoteAddr)
 	if err != nil {
 		return fmt.Errorf("failed to send goodbye: %w", err)
 	}

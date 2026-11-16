@@ -14,8 +14,8 @@ import (
 )
 
 // cmdExecutor is the command executor used by helper functions.
-// It can be replaced with a mock for testing.
-var cmdExecutor CommandExecutor = &RealCommandExecutor{}
+// It can be replaced with a mock for testing (cmdExecutor.swap).
+var cmdExecutor = newSwitchableExecutor(&RealCommandExecutor{})
 
 // wgBinPath is the absolute path to the wg binary, resolved once at package init.
 // Falls back to "wg" (PATH lookup at exec time) if LookPath fails.
@@ -78,11 +78,12 @@ func saveLocalNode(path string, node *LocalNode) error {
 		return fmt.Errorf("failed to create directory: %w", err)
 	}
 
+	meshIP, meshIPv6 := node.GetMeshIPs()
 	state := localNodeState{
 		WGPubKey:     node.WGPubKey,
 		WGPrivateKey: node.WGPrivateKey,
-		MeshIP:       node.MeshIP,
-		MeshIPv6:     node.MeshIPv6,
+		MeshIP:       meshIP,
+		MeshIPv6:     meshIPv6,
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")

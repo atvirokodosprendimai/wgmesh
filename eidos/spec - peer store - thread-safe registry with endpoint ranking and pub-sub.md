@@ -30,6 +30,8 @@ The runtime registry of all discovered mesh peers, shared between discovery, rec
 - **Claim rules in `Decide`:** a first-hand claim for a mesh IP held by a bound claim of another key, and route entries inside the mesh network or equal to a member's mesh IP, are counted as warnings in release N and refused or dropped only when `EnforceIPBinding` or `EnforceRouteBinding` is set (both `false`); the `accept-routes` list of the operator (`Policy.AcceptRoutes`) judges first-hand and restored routes; a network it would drop is counted as `route-not-approved` in N and dropped only when `EnforceRouteBinding` is set (N+2). See `docs/admit-rollout.md`.
 - **Dead timeout:** 5 minutes without an update → peer considered dead; excluded from `GetActive()`.
 - **Remove timeout:** 10 minutes without an update → removed from store by the stale cleanup loop.
+- **Liveness (ADR-0004):** `Assess(Evidence, now)` judges a peer by the newest of four times: `LastSeen` (a claim heard first-hand), `LastDataPlane` (measured by this node: a WireGuard handshake or a successful mesh probe, recorded through `ObserveDataPlane`; it never moves backwards and never touches `LastSeen` or a claim field), `RestoredAt` (set when the cache restores the entry) and the store-wide wake time (`NoteResume`, stamped into every copy the store returns). Younger than `PeerDeadTimeout` is `Alive`, up to `PeerRemoveTimeout` is `Suspect`, older or no evidence is `Dead`. `PeerInfo.Alive(now)` is that verdict; `PeerInfo.LastContact()` is the newest of `LastSeen` and `LastDataPlane` only (measured contact, written to the cache file as `last_seen`).
+- **Switch:** `node.EnforceLiveness` (an atomic, `false` at release N) makes the verdict act in `GetActive`, `CleanupStale` and `IsDead`; while it is `false` the legacy `LastSeen` age decides and each case where the legacy test drops a peer that `Assess` keeps is reported to the hook of `SetLivenessDisagreeHook` (sites `get-active`, `cleanup`, `is-dead`; `wgmesh_liveness_disagree_total{site}`). `GetProbeable()` returns the `Alive` and `Suspect` peers and always judges by `Assess`. See `docs/liveness-rollout.md`.
 - Subscribers receive `PeerEvent` (new / updated) on a buffered channel (size 16). Events are sent outside the store lock to prevent deadlock. Non-blocking send: lagging subscribers drop events silently.
 
 ### Endpoint ranking
@@ -64,6 +66,7 @@ LAN endpoint is sticky — only a newer LAN discovery can replace it.
 - Discovery layers (DHT, LAN, gossip, exchange) and the peer cache — call `Offer`; GOODBYE and health eviction call `Withdraw`.
 - Reconciliation loop — calls `GetActive()` each cycle.
 - Health monitor — calls `GetActive()` and `Withdraw()`.
+- Mesh probe and reconciliation — call `ObserveDataPlane` (a handshake or a pong); the mesh probe loop reads `GetProbeable()`; the resume loop calls `NoteResume`.
 - Peer cache — calls `GetAll()` for serialisation; offers entries as `Restored` on restore.
 - Stale cleanup loop — calls `CleanupStale()` every minute.
 - Daemon — `SetPolicy(Policy)` before discovery starts; `Policy()` returns it to the collision code.

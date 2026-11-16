@@ -53,6 +53,7 @@ var boundTable = []boundRow{
 	{"Daemon.lastAppliedPeerConfigs", "daemon.go", "swept-vs-active-set", "applyDesiredPeerConfigs deletes the WireGuard peers that are not desired; evictPeerFromPool and attemptPeerReconnect delete one key", "d.appliedMu"},
 	{"Daemon.relayRoutes", "daemon.go", "replaced-per-tick", "reconcile assigns a fresh map every tick; evictPeerFromPool deletes one key", "d.relayMu"},
 	{"Daemon.directStableCycles", "daemon.go", "replaced-per-tick", "reconcile assigns a fresh map every tick; evictPeerFromPool deletes one key", "d.relayMu"},
+	{"Daemon.relayRouteSince", "daemon.go", "replaced-per-tick", "storeRelayPlan builds a fresh map from the relay routes every tick, so a peer that left the routes drops out", "d.relayMu"},
 	{"Daemon.peerHealthFailures", "daemon.go", "swept-vs-active-set", "checkPeerHealth deletes keys outside the active set at the end of every pass", "d.healthMu"},
 	{"Daemon.lastPeerTransferTotal", "daemon.go", "swept-vs-active-set", "checkPeerHealth sets it together with peerHealthFailures and deletes both for keys outside the active set at the end of every pass; evictPeerFromPool deletes one key", "d.healthMu"},
 	{"Daemon.probeSessions", "daemon.go", "swept-vs-active-set", "cleanupProbeSessions (probePeersOverMesh, every second) closes and deletes sessions outside the active set", "d.probeMu"},

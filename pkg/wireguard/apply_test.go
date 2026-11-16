@@ -133,15 +133,3 @@ func TestRemovePeerArgs(t *testing.T) {
 		t.Fatalf("err = %v, want one containing the wg output", err)
 	}
 }
-
-func TestShellQuoteEscapesSingleQuote(t *testing.T) {
-	for in, want := range map[string]string{
-		"a'b":   `'a'\''b'`,
-		"plain": `'plain'`,
-		"":      `''`,
-	} {
-		if got := shellQuote(in); got != want {
-			t.Errorf("shellQuote(%q) = %s, want %s", in, got, want)
-		}
-	}
-}

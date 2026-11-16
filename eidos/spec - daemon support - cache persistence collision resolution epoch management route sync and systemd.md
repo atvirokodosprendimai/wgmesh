@@ -20,8 +20,9 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 - The peer store is serialised to `/var/lib/wgmesh/<iface>-peers.json` every 5 minutes and on clean shutdown.
 - On startup, cached entries not older than 24 hours are restored into the peer store via the `"cache"` discovery method.
   This allows the node to reconnect to known peers without waiting for a full DHT/gossip rediscovery cycle.
-- Cache restores do not update `LastSeen` — the peer must be re-confirmed by a live discovery source to be treated as active.
+- Cache restores do not update `LastSeen` of a key that is not already in the store — the peer must be re-confirmed by a live discovery source to be treated as active. For a key already in the store a `Restored` offer raises `LastSeen` when the cache time is newer (`merge`); production restores before discovery starts (`RunWithDHTDiscovery`), so the store is empty then.
 - Restored entries are offered as `Restored` (not first hand): a tombstone refuses them, and the `accept-routes` list judges their routes. A guessed endpoint is not written to the cache.
+- **`last_seen` is `LastContact` (ADR-0004):** the field written for each peer is the newest of `LastSeen` and `LastDataPlane`, never the restore time or the wake grace (a time in the future is written as now), so a peer kept connected by handshakes is saved fresh and a restored peer never heard from keeps its cache time. The field and its type are unchanged. On restore the entry gets `RestoredAt` (it is dialable for `PeerDeadTimeout`) and the log line counts how many restored peers are alive by evidence and how many only suspected.
 
 ### Mesh IP collision resolution
 
@@ -47,6 +48,16 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 - Only runs on Linux (no-op on other platforms).
 - Installs an iptables `FORWARD ACCEPT` rule for the WireGuard interface to allow relay traffic to pass through.
 - `sysctl net.ipv4.ip_forward=1` is set after each route apply.
+
+### Wake from sleep (ADR-0004)
+
+- The resume loop reads the wall clock every `ResumeCheckInterval` (2 s); a gap above `ResumeGapThreshold` (10 s) is a wake: it counts `wgmesh_resume_detected_total`, calls `PeerStore.NoteResume`, signals one extra reconcile and calls `OnResume` on the discovery layer when that implements `node.Resumer`.
+- For `ResumeGrace` (60 s) after a wake the eviction by the health loop and by the mesh probe and the choice of a relay from a stale handshake are skipped, but only while `node.EnforceLiveness` is set; while it is `false` each such case is counted as `resume-grace` in `wgmesh_liveness_disagree_total`.
+
+### Relayed peers kept probe-only (ADR-0004)
+
+- With `daemon.EnforceRelayProbe` set (`false` at release N) a relay-routed peer that has a usable endpoint stays on the interface with its endpoint and no AllowedIPs (`desiredPeerConfig.probeOnly`; `wg set` is sent an empty `allowed-ips`), so a direct handshake can bring it back; the relay carries its traffic meanwhile. The health loop and the reconnect skip relay-routed peers whatever the switch.
+- `wgmesh_relay_route_age_seconds{peer}` is the time since this daemon first saw the peer relayed (0 after a restart); it is exported at every release.
 
 ### Systemd integration
 
