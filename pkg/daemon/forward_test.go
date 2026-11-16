@@ -1,0 +1,326 @@
+package daemon
+
+import (
+	"errors"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+)
+
+// fakeHost is the kernel and the command line of one Linux node: ip_forward,
+// the FORWARD rule, whether iptables is installed, and a log of every command
+// that ran. It is reached through MockCommandExecutor and Daemon.readFileFn.
+type fakeHost struct {
+	mu              sync.Mutex
+	ipForward       bool
+	ruleInstalled   bool
+	iptablesPresent bool
+	cmds            []string
+	sysctlErr       error
+}
+
+func (h *fakeHost) readFile(path string) ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if path != "/proc/sys/net/ipv4/ip_forward" {
+		return nil, fmt.Errorf("fake host: unexpected read of %s", path)
+	}
+	if h.ipForward {
+		return []byte("1\n"), nil
+	}
+	return []byte("0\n"), nil
+}
+
+func (h *fakeHost) lookPath(file string) (string, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if file == "iptables" && h.iptablesPresent {
+		return "/usr/sbin/iptables", nil
+	}
+	return "", errors.New("not found")
+}
+
+func (h *fakeHost) exec(name string, args ...string) ([]byte, error) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	line := name + " " + strings.Join(args, " ")
+	h.cmds = append(h.cmds, line)
+	switch {
+	case name == "sysctl" && line == "sysctl -w net.ipv4.ip_forward=1":
+		if h.sysctlErr != nil {
+			return []byte("sysctl: denied"), h.sysctlErr
+		}
+		h.ipForward = true
+	case name == "iptables" && !h.iptablesPresent:
+		return nil, errors.New("executable file not found")
+	case strings.HasPrefix(line, "iptables -C FORWARD "):
+		if !h.ruleInstalled {
+			return []byte("iptables: Bad rule"), errors.New("exit status 1")
+		}
+	case strings.HasPrefix(line, "iptables -A FORWARD "):
+		h.ruleInstalled = true
+	default:
+		return nil, fmt.Errorf("fake host: unexpected command %q", line)
+	}
+	return nil, nil
+}
+
+func (h *fakeHost) command(name string, args ...string) Command {
+	return &MockCommand{
+		runFunc:            func() error { _, err := h.exec(name, args...); return err },
+		combinedOutputFunc: func() ([]byte, error) { return h.exec(name, args...) },
+		outputFunc:         func() ([]byte, error) { return h.exec(name, args...) },
+	}
+}
+
+// writes are the commands that change the kernel.
+func (h *fakeHost) writes() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var out []string
+	for _, c := range h.cmds {
+		if strings.HasPrefix(c, "sysctl -w") || strings.HasPrefix(c, "iptables -A") {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func (h *fakeHost) count(prefix string) int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	n := 0
+	for _, c := range h.cmds {
+		if strings.HasPrefix(c, prefix) {
+			n++
+		}
+	}
+	return n
+}
+
+func (h *fakeHost) set(f func(h *fakeHost)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	f(h)
+}
+
+const (
+	wantSysctl = "sysctl -w net.ipv4.ip_forward=1"
+	wantRule   = "iptables -A FORWARD -i wgmesh-t3-none -o wgmesh-t3-none -j ACCEPT"
+)
+
+// newForwardDaemon is a Linux daemon on host h. The tests that use it swap the
+// package executor and so never run in parallel.
+func newForwardDaemon(t *testing.T, h *fakeHost, ls *logSink) *Daemon {
+	t.Helper()
+	d := newConvergeDaemon(t, newFakeKernel(), ls)
+	d.goos = "linux"
+	d.readFileFn = h.readFile
+	old := cmdExecutor
+	cmdExecutor = &MockCommandExecutor{lookPathFunc: h.lookPath, commandFunc: h.command}
+	t.Cleanup(func() { cmdExecutor = old })
+	return d
+}
+
+// enforceForwardScope sets the switch for one test and restores it.
+func enforceForwardScope(t *testing.T, v bool) {
+	t.Helper()
+	old := EnforceForwardScope.Load()
+	EnforceForwardScope.Store(v)
+	t.Cleanup(func() { EnforceForwardScope.Store(old) })
+}
+
+func tick(t *testing.T, d *Daemon, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		if d.converge(nil) == nil {
+			t.Fatalf("tick %d: converge skipped the tick", i+1)
+		}
+	}
+}
+
+func sameLines(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestForwardAppliedOnceThenQuiet(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: true}
+	d := newForwardDaemon(t, h, &logSink{})
+
+	tick(t, d, 1)
+	if got, want := h.writes(), []string{wantSysctl, wantRule}; !sameLines(got, want) {
+		t.Fatalf("tick 1 writes = %q, want %q", got, want)
+	}
+	tick(t, d, 5)
+	if got := h.writes(); len(got) != 2 {
+		t.Errorf("ticks 2 to 6 wrote again: %q", got)
+	}
+	if got := h.count("iptables -C"); got != 6 {
+		t.Errorf("iptables -C ran %d times in 6 ticks, want 6 (one read per tick)", got)
+	}
+	if !h.ipForward || !h.ruleInstalled {
+		t.Errorf("host ends with ip_forward=%v rule=%v, want both", h.ipForward, h.ruleInstalled)
+	}
+}
+
+func TestForwardReappliedWhenKernelDrifts(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: true}
+	d := newForwardDaemon(t, h, &logSink{})
+	tick(t, d, 2)
+
+	h.set(func(h *fakeHost) { h.ipForward = false })
+	tick(t, d, 1)
+	if got, want := h.writes(), []string{wantSysctl, wantRule, wantSysctl}; !sameLines(got, want) {
+		t.Fatalf("after ip_forward drifted to 0 writes = %q, want %q", got, want)
+	}
+
+	h.set(func(h *fakeHost) { h.ruleInstalled = false })
+	tick(t, d, 1)
+	if got, want := h.writes(), []string{wantSysctl, wantRule, wantSysctl, wantRule}; !sameLines(got, want) {
+		t.Fatalf("after the rule was dropped writes = %q, want %q", got, want)
+	}
+	tick(t, d, 3)
+	if got := len(h.writes()); got != 4 {
+		t.Errorf("a settled host was written to again: %d writes", got)
+	}
+}
+
+func TestForwardPreexistingValueNotRewritten(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{ipForward: true, ruleInstalled: true, iptablesPresent: true}
+	d := newForwardDaemon(t, h, &logSink{})
+
+	tick(t, d, 5)
+	if got := h.writes(); len(got) != 0 {
+		t.Errorf("ip_forward 1 and the rule present, yet writes = %q", got)
+	}
+	if got := h.count("iptables -C"); got != 5 {
+		t.Errorf("the rule was read %d times, want once per tick (5)", got)
+	}
+}
+
+func TestMissingIptablesLoggedOnce(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: false}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+
+	tick(t, d, 10)
+	if got := ls.count("iptables"); got != 1 {
+		t.Errorf("a missing iptables was logged %d times in 10 ticks, want 1; log: %q", got, ls.lines)
+	}
+	if got := h.count("iptables"); got != 0 {
+		t.Errorf("iptables was run %d times without a binary (no -C, no -A): %q", got, h.cmds)
+	}
+	if got, want := h.writes(), []string{wantSysctl}; !sameLines(got, want) {
+		t.Errorf("writes = %q, want only the sysctl %q", got, want)
+	}
+	if got := ls.count("Failed"); got != 0 {
+		t.Errorf("a missing iptables is an outcome, not a failure; log: %q", ls.lines)
+	}
+}
+
+func TestForwardNotNeededWarnsOnceAtN(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: true}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+	warnings := func() float64 { return testutil.ToFloat64(kernelWarnings.WithLabelValues("forward-scope")) }
+	before := warnings()
+
+	tick(t, d, 5)
+	if got, want := h.writes(), []string{wantSysctl, wantRule}; !sameLines(got, want) {
+		t.Errorf("at N a node that is not needed is still forced: writes = %q, want %q", got, want)
+	}
+	if got := ls.count("forward-scope"); got != 1 {
+		t.Errorf("forward-scope logged %d times in 5 ticks, want 1; log: %q", got, ls.lines)
+	}
+	if got := warnings() - before; got != 1 {
+		t.Errorf("forward-scope counted %v times in 5 ticks, want 1", got)
+	}
+
+	// A transition to needed and back is a new transition: one more warning.
+	d.configMu.Lock()
+	d.config.AdvertiseRoutes = []string{"192.168.50.0/24"}
+	d.configMu.Unlock()
+	tick(t, d, 2)
+	if got := warnings() - before; got != 1 {
+		t.Errorf("a needed node was counted: %v warnings, want still 1", got)
+	}
+	d.configMu.Lock()
+	d.config.AdvertiseRoutes = nil
+	d.configMu.Unlock()
+	tick(t, d, 2)
+	if got := warnings() - before; got != 2 {
+		t.Errorf("after the node stopped advertising %v warnings, want 2", got)
+	}
+	if got := ls.count("forward-scope"); got != 2 {
+		t.Errorf("forward-scope logged %d times over two transitions, want 2", got)
+	}
+}
+
+func TestForwardScopeEnforcedStopsForcing(t *testing.T) {
+	enforceForwardScope(t, true)
+	h := &fakeHost{iptablesPresent: true}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+	before := testutil.ToFloat64(kernelWarnings.WithLabelValues("forward-scope"))
+
+	tick(t, d, 5)
+	if got := h.writes(); len(got) != 0 {
+		t.Errorf("EnforceForwardScope on, node not needed, yet writes = %q", got)
+	}
+	if h.ipForward || h.ruleInstalled {
+		t.Errorf("host changed: ip_forward=%v rule=%v", h.ipForward, h.ruleInstalled)
+	}
+	if got := testutil.ToFloat64(kernelWarnings.WithLabelValues("forward-scope")) - before; got != 0 {
+		t.Errorf("an enforced rule is not a warning: counted %v", got)
+	}
+}
+
+func TestForwardNeededForIntroducerAndAdvertiser(t *testing.T) {
+	enforceForwardScope(t, true)
+	cases := []struct {
+		name   string
+		setup  func(d *Daemon)
+		needed bool
+	}{
+		{"introducer", func(d *Daemon) { d.config.Introducer = true }, true},
+		{"advertiser", func(d *Daemon) { d.config.AdvertiseRoutes = []string{"192.168.50.0/24"} }, true},
+		{"neither", func(d *Daemon) {}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			h := &fakeHost{iptablesPresent: true}
+			d := newForwardDaemon(t, h, &logSink{})
+			c.setup(d)
+			ds := d.converge(nil)
+			if ds == nil {
+				t.Fatal("converge skipped the tick")
+			}
+			if ds.Forward.Needed != c.needed || ds.Forward.Wanted != c.needed {
+				t.Errorf("Forward = %+v, want Needed and Wanted both %v with the switch on", ds.Forward, c.needed)
+			}
+			want := []string(nil)
+			if c.needed {
+				want = []string{wantSysctl, wantRule}
+			}
+			if got := h.writes(); !sameLines(got, want) {
+				t.Errorf("writes = %q, want %q", got, want)
+			}
+		})
+	}
+}

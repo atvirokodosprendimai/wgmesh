@@ -17,12 +17,28 @@ type observedPeer struct {
 	Handshake int64
 }
 
+// targetForward names ip_forward and the FORWARD rule in an observe error, an
+// item result and a metric label.
+const targetForward = "forward"
+
+// observedForward is what the kernel holds for forwarding.
+type observedForward struct {
+	IPForward       bool // /proc/sys/net/ipv4/ip_forward reads 1
+	IptablesPresent bool // exec.LookPath("iptables") found it
+	RuleInstalled   bool // iptables -C FORWARD -i <if> -o <if> -j ACCEPT succeeded
+}
+
 // kernelObserved is what one tick read from the kernel. A target that could
 // not be read has an entry in Errs and must not be read as empty.
 type kernelObserved struct {
-	Peers map[string]observedPeer
-	Errs  map[string]error
+	Peers   map[string]observedPeer
+	Forward observedForward
+	Errs    map[string]error
 }
+
+// observeForward reads the forwarding state into obs, only when forwarding is
+// wanted (stub).
+func (d *Daemon) observeForward(want forwardDesired, obs *kernelObserved) {}
 
 // observeKernel reads the kernel once (peer target only for now).
 func (d *Daemon) observeKernel() kernelObserved {

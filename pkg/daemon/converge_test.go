@@ -158,6 +158,7 @@ func newConvergeDaemon(t *testing.T, k *fakeKernel, ls *logSink) *Daemon {
 		removePeerFn:       k.remove,
 		dumpFn:             k.dump,
 		logFn:              ls.printf,
+		goos:               "darwin", // the forwarding target is not wanted: no iptables or sysctl on the test host
 	}
 }
 

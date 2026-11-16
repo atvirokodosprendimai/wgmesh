@@ -10,11 +10,20 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
 
+// forwardDesired is what a tick wants of ip_forward and the FORWARD rule.
+// Needed: the node is an introducer or advertises a route. Wanted: the
+// target is converged (always on Linux at release N, Needed once
+// EnforceForwardScope is on, never elsewhere).
+type forwardDesired struct {
+	Wanted, Needed bool
+}
+
 // desiredState is what one reconcile tick wants: the AllowedIPs of every
 // peer and the kernel routes, both read from the same owner choice.
 type desiredState struct {
 	Peers        map[string]*desiredPeerConfig
 	Routes       []routes.Entry
+	Forward      forwardDesired
 	relayRoutes  map[string]string
 	directStable map[string]int
 }

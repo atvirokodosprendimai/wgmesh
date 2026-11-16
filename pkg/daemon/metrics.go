@@ -168,6 +168,11 @@ func RecordNATTraversalSuccess(method string) {
 	natTraversalSuccesses.WithLabelValues(method).Inc()
 }
 
+// RecordKernelWarning counts one case where a kernel rule would act once enforced.
+func RecordKernelWarning(rule string) {
+	kernelWarnings.WithLabelValues(rule).Inc()
+}
+
 // RecordKernelChange counts one write that changed the kernel, by target.
 func RecordKernelChange(target string) {
 	kernelChanges.WithLabelValues(target).Inc()

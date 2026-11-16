@@ -3,8 +3,11 @@ package daemon
 import (
 	"fmt"
 	"log"
+	"os"
+	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
@@ -112,6 +115,32 @@ func subset(a, b map[string]struct{}) bool {
 	return true
 }
 
+// EnforceForwardScope is the release switch of the rule forward-scope: false
+// (release N) forces forwarding on every Linux node and only counts a node
+// that neither relays nor advertises routes; true (N+1) leaves such a node
+// alone. Every access is Load or Store.
+var EnforceForwardScope atomic.Bool
+
+// forwardPlan is what one tick will write for forwarding.
+type forwardPlan struct {
+	Sysctl     bool // write net.ipv4.ip_forward=1
+	Rule       bool // append the FORWARD rule
+	NoIptables bool // forwarding is wanted but there is no iptables binary
+}
+
+// planForward is pure (stub).
+func planForward(want forwardDesired, k kernelObserved) forwardPlan {
+	return forwardPlan{}
+}
+
+// applyForward writes the forwarding plan (stub).
+func (d *Daemon) applyForward(plan forwardPlan) []itemResult {
+	return nil
+}
+
+// noteForwardScope counts the rule forward-scope on a transition (stub).
+func (d *Daemon) noteForwardScope(f forwardDesired) {}
+
 // converge runs one tick against the kernel and returns the desired state it
 // applied, or nil when the observe failed and nothing was decided or written.
 // The caller holds reconcileMu.
@@ -127,8 +156,12 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	d.noteObserve(nil)
 
 	ds := d.desire(peers, obs.handshakes(), obs.owners())
+	d.noteForwardScope(ds.Forward)
+	d.observeForward(ds.Forward, &obs)
 	plan := planKernel(ds.Peers, obs, d.pushedLocked(), d.config.DisableIPv6)
-	d.logResults(d.applyKernel(plan))
+	results := d.applyKernel(plan)
+	results = append(results, d.applyForward(planForward(ds.Forward, obs))...)
+	d.logResults(results)
 	return ds
 }
 
@@ -280,6 +313,21 @@ func (d *Daemon) dumpSeam(iface string) (wireguard.DumpPeers, error) {
 		return d.dumpFn(iface)
 	}
 	return wireguard.Dump(iface)
+}
+
+func (d *Daemon) readFileSeam(path string) ([]byte, error) {
+	if d.readFileFn != nil {
+		return d.readFileFn(path)
+	}
+	return os.ReadFile(path)
+}
+
+// osName is the OS the desired state is computed for.
+func (d *Daemon) osName() string {
+	if d.goos != "" {
+		return d.goos
+	}
+	return runtime.GOOS
 }
 
 func (d *Daemon) logf(format string, args ...any) {
