@@ -158,3 +158,4 @@ Stop and ask if a file outside the table already has an `os.WriteFile` that is s
   ```
 - 2026-11-16 · 8529248 · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:25554
 - 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:26611
+- 2026-11-16 · 451afae* · exit 0 · `set -o pipefail …` · acceptance-sha256:3f6ba5a13f7f26a774cdc864f08c016f69c95b69c9b1bdc82d00e1a05b47e7fb · ms:34591

@@ -143,3 +143,4 @@ Stop and ask if ADR-0002 T5 has changed the signature of `saveLocalNode`, or if 
 - 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:26659
 - 2026-11-16 · e4568fb* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:0 · test-lock-sha256:0d572950fe9d7d8032c19a87a5d05b51a052e2b4709eec4dd51c303a9c8099dc · test-lock-file:docs/adr/locks/0d572950fe9d7d8032c19a87a5d05b51a052e2b4709eec4dd51c303a9c8099dc.lock · test-lock-kind:replace
 - 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:30609
+- 2026-11-16 · 451afae* · exit 0 · `set -o pipefail …` · acceptance-sha256:d9b85aa5b121aedb3b8cdf8c390aa68bc59d2bc49ce2d571a126a2929acc996b · ms:30997

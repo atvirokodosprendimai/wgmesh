@@ -108,3 +108,4 @@ Stop and ask if ADR-0002 T8 or T9 changed the signature of `handleReply`, or if 
 - 2026-11-16 · 628d7ec* · exit 0 · `set -o pipefail …` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:6914
 - 2026-11-16 · d29600b* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:0 · test-lock-sha256:2abe20164e5b1f93ae326cb8770d33fe3af956644a4584a462de92a4525c3900 · test-lock-file:docs/adr/locks/2abe20164e5b1f93ae326cb8770d33fe3af956644a4584a462de92a4525c3900.lock · test-lock-kind:replace
 - 2026-11-16 · d29600b* · exit 0 · `set -o pipefail …` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:9268
+- 2026-11-16 · 451afae* · exit 0 · `set -o pipefail …` · acceptance-sha256:85efede25d946b7f3e73e47822f2bacd250d1ac81f3883c3de35888549a95a95 · ms:8999

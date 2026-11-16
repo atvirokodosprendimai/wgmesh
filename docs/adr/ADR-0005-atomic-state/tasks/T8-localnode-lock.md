@@ -13,6 +13,8 @@
 
 `MeshIP`, `MeshIPv6`, `NATType` and `Introducer` of the local node are written and read under one new `sync.RWMutex` (`stateMu`), beside the two locks that already exist (`endpointMu` for the endpoint, `routesMu` for `RoutableNetworks`, which PR #895 added with `GetRoutableNetworks`/`SetRoutableNetworks`, merged 2026-11-15, `14a89ff`); one mutex per field group, no lock is held across two groups. `WGPubKey`, `WGPrivateKey` and `Hostname` are written once in `initLocalNode`/`loadLocalNode` before any goroutine starts and stay plain fields (the guard test fails on an assignment to them anywhere else); this is the owner rule of M 2026-11-16 08:21 ("no field accessed by more than one goroutine may be bare"): a field with later writes has a lock, a field written once before the goroutines start has a single writer function and a test. `go test -race` over the packages that read them in goroutines is clean, and a direct assignment from outside `pkg/node` fails a test.
 
+Merge note 2026-11-16: main's `identityMu` (#901) is folded into `stateMu`; `GetMeshIPs` is added to `node.LocalNode` and `EndpointSTUNResume` (ADR-0004) to `pkg/node`; the only lock of the four fields is `stateMu`, and the daemon lock order is written in ADR-0005 decision 5.
+
 ## Affected Files
 
 | File | Change | Why |
@@ -129,3 +131,5 @@ Stop and ask if ADR-0002 T9 changed `LocalNode` so `stateMu` cannot stand beside
 - 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:28382
 - 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:30325
 - 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:21685
+- 2026-11-16 · 451afae* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:0 · test-lock-sha256:ad0d50f9a5d503f658e218082946c1606c617346b384141891ee55f4ca25e762 · test-lock-file:docs/adr/locks/ad0d50f9a5d503f658e218082946c1606c617346b384141891ee55f4ca25e762.lock · test-lock-kind:replace
+- 2026-11-16 · 451afae* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:27118

@@ -121,3 +121,5 @@ Stop and ask if `DHTDiscovery.Start` is changed by ADR-0002 T9 so that the conte
 - 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:14432
 - 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:13378
 - 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:9316
+- 2026-11-16 · 451afae* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:0 · test-lock-sha256:9fbac1f134f1a2496af57f9682e4f8f771e37c6472f5360eb443d768ff8d6c4b · test-lock-file:docs/adr/locks/9fbac1f134f1a2496af57f9682e4f8f771e37c6472f5360eb443d768ff8d6c4b.lock · test-lock-kind:replace
+- 2026-11-16 · 451afae* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:9990
