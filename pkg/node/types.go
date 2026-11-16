@@ -146,6 +146,55 @@ func (n *LocalNode) SetRoutableNetworks(networks []string) {
 	n.RoutableNetworks = networks
 }
 
+// LocalSnapshot is a plain copy of the local node's announced state. T8 stub:
+// the accessors below read the exported fields with no lock yet.
+type LocalSnapshot struct {
+	PubKey     string
+	Hostname   string
+	MeshIP     string
+	MeshIPv6   string
+	NATType    string
+	Introducer bool
+	Routes     []string
+	Endpoint   string
+}
+
+// GetMeshIP returns the mesh IPv4 address.
+func (n *LocalNode) GetMeshIP() string { return n.MeshIP }
+
+// SetMeshIP stores the mesh IPv4 address.
+func (n *LocalNode) SetMeshIP(ip string) { n.MeshIP = ip }
+
+// GetMeshIPv6 returns the mesh IPv6 address.
+func (n *LocalNode) GetMeshIPv6() string { return n.MeshIPv6 }
+
+// SetMeshIPv6 stores the mesh IPv6 address.
+func (n *LocalNode) SetMeshIPv6(ip string) { n.MeshIPv6 = ip }
+
+// GetNATType returns the detected NAT type.
+func (n *LocalNode) GetNATType() string { return n.NATType }
+
+// SetNATType stores the detected NAT type.
+func (n *LocalNode) SetNATType(t string) { n.NATType = t }
+
+// IsIntroducer reports whether this node is an introducer.
+func (n *LocalNode) IsIntroducer() bool { return n.Introducer }
+
+// SetIntroducer stores the introducer flag.
+func (n *LocalNode) SetIntroducer(v bool) { n.Introducer = v }
+
+// Identity returns the public key and the mesh IP.
+func (n *LocalNode) Identity() (pubKey, meshIP string) { return n.WGPubKey, n.MeshIP }
+
+// Snapshot returns a copy of the announced state.
+func (n *LocalNode) Snapshot() LocalSnapshot {
+	return LocalSnapshot{
+		PubKey: n.WGPubKey, Hostname: n.Hostname,
+		MeshIP: n.MeshIP, MeshIPv6: n.MeshIPv6, NATType: n.NATType, Introducer: n.Introducer,
+		Routes: n.GetRoutableNetworks(), Endpoint: n.GetEndpoint(),
+	}
+}
+
 // ConfigReader is the narrow interface that pkg/discovery uses to read
 // configuration. pkg/daemon.Config implements this interface; callers that
 // embed wgmesh may provide their own implementation.
