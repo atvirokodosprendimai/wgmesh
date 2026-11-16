@@ -3,6 +3,8 @@ package daemon
 import (
 	"testing"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 func TestShouldTreatPeerAsStale(t *testing.T) {
@@ -29,5 +31,27 @@ func TestShouldTreatPeerAsStale(t *testing.T) {
 				t.Fatalf("shouldTreatPeerAsStale(%d, %d, %d) = %v, want %v", tt.hs, tt.prev, tt.curr, got, tt.wantStale)
 			}
 		})
+	}
+}
+
+func TestEvictionLeavesTombstone(t *testing.T) {
+	d := &Daemon{
+		config:           &Config{InterfaceName: "wgmesh-test-nonexistent"},
+		peerStore:        NewPeerStore(),
+		temporaryOffline: make(map[string]time.Time),
+	}
+	d.peerStore.Offer(Candidate{Info: &PeerInfo{WGPubKey: "victim"}, Source: "dht", Hand: FirstHand})
+
+	d.evictPeerFromPool(&PeerInfo{WGPubKey: "victim"})
+	if _, ok := d.peerStore.Get("victim"); ok {
+		t.Fatal("eviction left the peer in the store")
+	}
+
+	dec := d.peerStore.Offer(Candidate{Info: &PeerInfo{WGPubKey: "victim", Introducer: true}, Source: "dht", Hand: SecondHand})
+	if dec.Reason != node.ReasonTombstoned {
+		t.Errorf("second-hand offer after eviction: %+v, want reason tombstoned", dec)
+	}
+	if got, ok := d.peerStore.Get("victim"); ok {
+		t.Errorf("a mention brought the evicted peer back: %+v", got)
 	}
 }

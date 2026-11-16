@@ -252,7 +252,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		// First try IPv6 - no NAT traversal needed
 		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
 			log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
-			d.localNode.SetEndpoint(ipv6Endpoint)
+			d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint)
 			d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
 			return
 		}
@@ -268,7 +268,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		}
 		endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 		log.Printf("[STUN] External endpoint discovered: %s (NAT type unknown — need 2 servers)", endpoint)
-		d.localNode.SetEndpoint(endpoint)
+		d.localNode.ObserveEndpoint(daemon.EndpointSTUN, endpoint)
 		d.localNode.NATType = string(NATUnknown)
 		return
 	}
@@ -281,7 +281,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 
 	endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 	log.Printf("[STUN] External endpoint: %s, NAT type: %s", endpoint, natType)
-	d.localNode.SetEndpoint(endpoint)
+	d.localNode.ObserveEndpoint(daemon.EndpointSTUN, endpoint)
 	d.localNode.NATType = string(natType)
 }
 
@@ -415,9 +415,8 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 			if !d.config.DisableIPv6 {
 				// Prefer IPv6 if available
 				if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
-					if ipv6Endpoint != d.localNode.GetEndpoint() {
+					if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
 						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
-						d.localNode.SetEndpoint(ipv6Endpoint)
 					}
 					d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
 					continue
@@ -435,9 +434,8 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 				currentEP := d.localNode.GetEndpoint()
 				oldNAT := d.localNode.NATType
-				if newEndpoint != currentEP {
+				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
 					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
-					d.localNode.SetEndpoint(newEndpoint)
 				}
 				if string(natType) != oldNAT {
 					log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
@@ -452,9 +450,8 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 				}
 				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 				currentEP := d.localNode.GetEndpoint()
-				if newEndpoint != currentEP {
+				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
 					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
-					d.localNode.SetEndpoint(newEndpoint)
 				}
 			}
 		case <-d.ctx.Done():
@@ -1053,7 +1050,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			return
 		}
 		if peerInfo != nil {
-			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, HandshakeWaitTimeout)
+			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, handshakeWaitTimeout)
 			if newHandshake <= baseline {
 				log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(target.WGPubKey), endpoint)
 				d.recordRendezvousAttempt(target.WGPubKey, false)
@@ -1065,7 +1062,8 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 				log.Printf("[NAT] Punch succeeded: %s (%s)", shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
 			}
 			d.setControlEndpoint(peerInfo.WGPubKey, endpoint)
-			d.peerStore.Update(peerInfo, DHTMethod+"-transitive")
+			// The label is the NAT-path marker daemon.go:720 reads to prefer relay; the hand, not the label, carries trust.
+			d.admitPunchReply(peerInfo, DHTMethod+"-transitive")
 			d.recordRendezvousAttempt(target.WGPubKey, true)
 		}
 	}(targetControlEndpoint, peer)
@@ -1126,14 +1124,27 @@ func (d *DHTDiscovery) exchangeWithAddress(addrStr string, discoveryMethod strin
 		}
 	}
 	d.setControlEndpoint(peerInfo.WGPubKey, addrStr)
-	d.peerStore.Update(peerInfo, discoveryMethod)
+	d.admitPunchReply(peerInfo, daemon.Source(discoveryMethod))
 }
+
+// admitPunchReply offers the reply of a punch or an exchange to the store as
+// the peer's own claim.
+func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.Source) {
+	d.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: source, Hand: daemon.FirstHand})
+}
+
+// peerHandshakes and handshakeWaitTimeout are test seams: production values are
+// wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
+var (
+	peerHandshakes       = wireguard.GetLatestHandshakes
+	handshakeWaitTimeout = HandshakeWaitTimeout
+)
 
 func getPeerHandshakeTS(iface, peerPubKey string) int64 {
 	if iface == "" || peerPubKey == "" {
 		return 0
 	}
-	hs, err := wireguard.GetLatestHandshakes(iface)
+	hs, err := peerHandshakes(iface)
 	if err != nil {
 		return 0
 	}

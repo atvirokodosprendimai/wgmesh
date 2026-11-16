@@ -45,6 +45,7 @@ n=$(go test ./pkg/daemon . -run '^(TestCollisionLoserPersistsResolvedIP|TestRest
 | `TestCollisionLoserPersistsResolvedIP` | `pkg/daemon/collision_test.go` | after the local node loses, the state file holds the nonce-derived IP, not the natural one | — | S1, S2 |
 | `TestRestartKeepsResolvedIP` | `pkg/daemon/mesh_ip_secret_change_test.go` | `initLocalNode` on that file keeps the resolved address | — | S1, S2 |
 | `TestServiceAddReadsResolvedIP` | `service_test.go` | `deriveMeshIPForService` returns the persisted resolved IP | — | S1, S2 |
+| `TestCollisionKeepsAddressWhenSaveFails` | `pkg/daemon/collision_test.go` | when the state file cannot be written the in-memory address and the interface address still move to the resolved IP (added after review) | — | S1 |
 
 ## Reachability
 
@@ -56,12 +57,18 @@ n=$(go test ./pkg/daemon . -run '^(TestCollisionLoserPersistsResolvedIP|TestRest
 | 4 — it is used | the state file on a node that lost a collision |
 
 ## Mutation Log
+- 2026-11-15 · d7d842c* · mutant killed · exit 1 · `pkg/daemon/collision.go` · the save call is removed: TestCollisionLoserPersistsResolvedIP must go red · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722
+- 2026-11-15 · d7d842c* · mutant killed · exit 1 · `pkg/daemon/collision.go` · the save writes the pre-collision IP: TestCollisionLoserPersistsResolvedIP and TestRestartKeepsResolvedIP must go red · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722
+- 2026-11-15 · 4d65d36* · mutant killed · exit 1 · `pkg/daemon/collision.go` · round 2: the save call is removed · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722
+- 2026-11-15 · 4d65d36* · mutant killed · exit 1 · `pkg/daemon/collision.go` · round 2: the save writes the pre-collision IP · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722
+- 2026-11-15 · 4d65d36* · mutant killed · exit 1 · `pkg/daemon/collision.go` · round 2: a failed save puts the old address back in memory: TestCollisionKeepsAddressWhenSaveFails must go red · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722
+- 2026-11-15 · 4d65d36* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · round 2: initLocalNode leaves d.stateFile empty: TestRestartKeepsResolvedIP must go red · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722
 
 ## Invariants
 
 - The state file keeps its present fields and format; an older release reading it keeps the address if it lies in the subnet.
 - The IP is persisted, not the nonce; no new field is added.
-- The loser keeps the address after the other peer leaves (stickiness; Open Question 3).
+- The loser keeps the address after the other peer leaves (stickiness; ADR decision 3).
 
 ## Risks
 
@@ -74,7 +81,32 @@ Stop and ask if `deriveMeshIPForService` stops honouring a persisted address, or
 
 ## Out of Scope
 
-- Letting a loser reclaim its natural address (Open Question 3; permanent: boundary: stability of an address over convergence to the natural one, the invariant of #827).
+- Letting a loser reclaim its natural address (ADR decision 3; permanent: boundary: stability of an address over convergence to the natural one, the invariant of #827).
 - Atomic state file writes (permanent: boundary: #870, another group).
+- `service add` for a daemon with another interface name: `deriveMeshIPForService` reads `wg0.json` only (`service.go:455`), so the resolved IP is persisted but not read there (found by the T5 delivery reviewer; pre-existing for the public key too; deferred: docs/adr/BACKLOG.md, row written by T11).
 
 ## Verification Log
+- 2026-11-15 · d7d842c* · exit 1 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:1909 · test-lock-sha256:a0752af384665f014f2d1addd44231df8e434438b051f808817cd1fed9c9aa4e · test-lock-file:docs/adr/locks/a0752af384665f014f2d1addd44231df8e434438b051f808817cd1fed9c9aa4e.lock
+  ```
+  --- last 10 line(s) of stderr (of 17 after folding 17 raw)
+  2026/11/15 21:56:52 [Collision] We lost collision, re-deriving mesh IP: 10.42.1.1 -> 10.170.106.187
+      mesh_ip_secret_change_test.go:96: after restart the IP is 10.42.1.1, want the resolved address 10.170.106.187
+  --- FAIL: TestRestartKeepsResolvedIP (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.007s
+  === RUN   TestServiceAddReadsResolvedIP
+  --- PASS: TestServiceAddReadsResolvedIP (0.00s)
+  PASS
+  ok  	github.com/atvirokodosprendimai/wgmesh	0.006s
+  FAIL
+  ```
+- 2026-11-15 · d7d842c* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6389
+- 2026-11-15 · d7d842c* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:4142
+- 2026-11-15 · d7d842c* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6460
+- 2026-11-15 · 4d65d36* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:0 · test-lock-sha256:ec0dd8b0f3d925b89aa017cc5a77dac7f8ccf5386464ffd7e8b00a51426c02eb · test-lock-file:docs/adr/locks/ec0dd8b0f3d925b89aa017cc5a77dac7f8ccf5386464ffd7e8b00a51426c02eb.lock · test-lock-kind:replace
+- 2026-11-15 · 4d65d36* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6945
+- 2026-11-15 · 4d65d36* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6320
+- 2026-11-15 · 4d65d36* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6389
+- 2026-11-15 · 4d65d36* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:6966
+- 2026-11-15 · 4d65d36* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:4108
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:250e44cb94620947c4f3a99c3640da7c22c760b326cb3ffc62297cd7b2e10722 · ms:4277
