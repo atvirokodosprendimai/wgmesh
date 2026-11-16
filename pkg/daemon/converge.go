@@ -521,6 +521,7 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	results = append(results, d.applyAddresses(planAddresses(ds.Addresses, obs))...)
 	results = append(results, d.applyForward(planForward(ds.Forward, obs), ds.Forward.Wanted && obs.Errs[targetForward] == nil)...)
 	results = append(results, d.convergeRoutes(ds, obs)...)
+	d.logResults(results)
 	return ds
 }
 
