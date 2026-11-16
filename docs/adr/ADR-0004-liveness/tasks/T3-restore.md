@@ -76,6 +76,12 @@ The two clock tests are in `pkg/node` on purpose: `pkg/daemon` tests cannot set 
 - 2026-11-16 · 4e24f0f* · mutant killed · exit 1 · `pkg/daemon/cache.go` · restore expiry removed · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d
 - 2026-11-16 · 4e24f0f* · mutant killed · exit 1 · `pkg/daemon/cache.go` · SavePeerCache writes LastSeen again · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d
 - 2026-11-16 · 4e24f0f* · mutant killed · exit 1 · `pkg/node/store.go` · RestoredAt set for every new key · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d
+- 2026-11-16 · 344480c* · mutant killed · exit 1 · `pkg/node/store.go` · merge sets LastSeen instead of RestoredAt · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623
+- 2026-11-16 · 344480c* · mutant killed · exit 1 · `pkg/daemon/cache.go` · restore expiry removed · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623
+- 2026-11-16 · 344480c* · mutant killed · exit 1 · `pkg/node/liveness.go` · LastContact includes the grace again · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623
+- 2026-11-16 · 344480c* · mutant killed · exit 1 · `pkg/node/store.go` · RestoredAt set for every new key · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623
+- 2026-11-16 · 344480c* · mutant killed · exit 1 · `pkg/daemon/cache.go` · refused keys counted · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623
+- 2026-11-16 · 344480c* · mutant killed · exit 1 · `pkg/daemon/cache.go` · future last_seen not clamped · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623
 
 ## Invariants
 
@@ -119,3 +125,11 @@ Stop and ask if the `Restored` merge has no place that knows the key is new, so 
 - 2026-11-16 · 4e24f0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:20702
 - 2026-11-16 · 4e24f0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:13901
 - 2026-11-16 · 4e24f0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:6162a4d564686325c7d59b7814d4407c28db7b6dc0b48a6fadcc2de6d4c3973d · ms:12088
+- 2026-11-16 · 344480c* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:0 · test-lock-sha256:6830ab9cc278082a1b768ab21634b83730e08798bc4a84a2ab485656454fa3b8 · test-lock-file:docs/adr/locks/6830ab9cc278082a1b768ab21634b83730e08798bc4a84a2ab485656454fa3b8.lock · test-lock-kind:replace
+- 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:13192
+- 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:14264
+- 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:14326
+- 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:14312
+- 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:14731
+- 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:12370
+- 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:8823
