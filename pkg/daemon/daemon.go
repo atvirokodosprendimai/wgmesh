@@ -1437,6 +1437,12 @@ func (d *Daemon) checkPeerHealth() {
 		return
 	}
 
+	d.evaluatePeerHealth(handshakes, transfers)
+}
+
+// evaluatePeerHealth takes the health decisions of one cycle from the
+// handshake and transfer readings; checkPeerHealth reads them from WireGuard.
+func (d *Daemon) evaluatePeerHealth(handshakes map[string]int64, transfers map[string]wireguard.PeerTransfer) {
 	peers := d.peerStore.GetActive()
 	now := time.Now()
 	activeSet := make(map[string]struct{}, len(peers))
