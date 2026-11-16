@@ -417,6 +417,9 @@ func (d *Daemon) Run() error {
 	// Keep persistent mesh-VPN health connections to peers
 	go d.meshProbeLoop()
 
+	// Notice a wake from sleep (#829)
+	d.startResumeLoop()
+
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 
 	// Wait for shutdown signal
@@ -1788,6 +1791,9 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	// Keep persistent mesh-VPN health connections to peers
 	go d.meshProbeLoop()
+
+	// Notice a wake from sleep (#829)
+	d.startResumeLoop()
 
 	log.Printf("Daemon running. Press Ctrl+C to stop.")
 

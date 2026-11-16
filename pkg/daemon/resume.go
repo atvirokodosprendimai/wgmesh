@@ -1,6 +1,7 @@
 package daemon
 
 import (
+	"log"
 	"time"
 )
 
@@ -20,7 +21,7 @@ const (
 // threshold. The monotonic readings are stripped: they do not run while the
 // machine sleeps, which is what the check looks for.
 func DetectResume(prev, now time.Time, threshold time.Duration) bool {
-	return false
+	return now.Round(0).Sub(prev.Round(0)) > threshold
 }
 
 // now is the daemon's clock: time.Now unless a test injected one, so a
@@ -45,17 +46,39 @@ func (d *Daemon) resumeGraceBlocks(now time.Time) bool {
 	return false
 }
 
-// resumeLoop reads the clock on every tick and acts on a wake.
+// resumeLoop reads the clock on every tick and acts on a wake. Its only state
+// is the previous reading, a local; everything it shares is behind a lock, an
+// atomic or a channel.
 func (d *Daemon) resumeLoop(ticks <-chan time.Time) {
+	prev := d.now()
 	for {
 		select {
 		case <-d.ctx.Done():
 			return
 		case <-ticks:
+			now := d.now()
+			if DetectResume(prev, now, ResumeGapThreshold) {
+				d.handleResume(now, now.Round(0).Sub(prev.Round(0)))
+			}
+			prev = now
 		}
 	}
 }
 
+// handleResume acts on a detected wake. It never calls reconcile: that has one
+// caller at a time, reconcileLoop.
+func (d *Daemon) handleResume(now time.Time, gap time.Duration) {
+	log.Printf("[Resume] wall clock jumped %s", gap.Round(time.Second))
+	resumeDetected.Inc()
+}
+
 // startResumeLoop starts the resume loop; both run paths call it.
 func (d *Daemon) startResumeLoop() {
+	d.wg.Add(1)
+	go func() {
+		defer d.wg.Done()
+		ticker := time.NewTicker(ResumeCheckInterval)
+		defer ticker.Stop()
+		d.resumeLoop(ticker.C)
+	}()
 }
