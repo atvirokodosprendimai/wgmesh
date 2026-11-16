@@ -654,7 +654,7 @@ func (d *Daemon) setupWireGuard() error {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}
 	if d.localNode.MeshIPv6 != "" {
-		if err := setInterfaceAddress(d.config.InterfaceName, d.localNode.MeshIPv6+"/64"); err != nil {
+		if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.MeshIPv6, meshPrefixLenV6)); err != nil {
 			// IPv6 may be disabled by sysctl; the IPv4 mesh still works.
 			log.Printf("Warning: failed to set mesh IPv6 address, continuing IPv4-only: %v", err)
 			d.localNode.MeshIPv6 = ""

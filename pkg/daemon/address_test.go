@@ -342,6 +342,17 @@ func TestFailingRemovalIsLoggedEveryAttempt(t *testing.T) {
 	}
 }
 
+// The mesh IPv6 address is wanted with the one shared prefix length, the one
+// setupWireGuard sets.
+func TestMeshIPv6PrefixLengthIsShared(t *testing.T) {
+	d, _, _ := newAddrDaemon(t)
+	d.localNode.MeshIPv6 = "fd99::1"
+	want := d.desireAddresses()
+	if len(want.Addrs) != 2 || want.Addrs[1] != netip.PrefixFrom(netip.MustParseAddr("fd99::1"), meshPrefixLenV6) || meshPrefixLenV6 != 64 {
+		t.Errorf("desired %v, want the IPv6 address with /%d (64)", want.Addrs, meshPrefixLenV6)
+	}
+}
+
 func TestAddressSteadyStateQuiet(t *testing.T) {
 	before := addressChanges()
 	d, rh, ls := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/64", "192.168.1.5/24")

@@ -311,6 +311,10 @@ func (d *Daemon) desireForward() forwardDesired {
 	}
 }
 
+// meshPrefixLenV6 is the prefix length of the mesh IPv6 address: setupWireGuard
+// sets it and desireAddresses wants it.
+const meshPrefixLenV6 = 64
+
 // desireAddresses is what this node wants of the addresses of the mesh
 // interface: its mesh IPv4 with the prefix length of the mesh, and its mesh
 // IPv6 with /64 unless IPv6 is disabled, as setupWireGuard sets them. It reads
@@ -330,7 +334,7 @@ func (d *Daemon) desireAddresses() addressDesired {
 	want := addressDesired{Wanted: true, Addrs: []netip.Prefix{v4}}
 	if meshIPv6 != "" && !d.config.DisableIPv6 {
 		if ip6, err := netip.ParseAddr(meshIPv6); err == nil && ip6.Is6() {
-			want.Addrs = append(want.Addrs, netip.PrefixFrom(ip6, 64))
+			want.Addrs = append(want.Addrs, netip.PrefixFrom(ip6, meshPrefixLenV6))
 		}
 	}
 	return want
