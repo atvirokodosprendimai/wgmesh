@@ -830,3 +830,31 @@ func TestHostDefaultReadErrorLoggedOnce(t *testing.T) {
 		t.Errorf("a different failure was logged %d times in total, want 2; log: %q", n, ls.lines)
 	}
 }
+
+// With --no-ipv6 the mesh interface has no IPv6: an advertised IPv6 network is
+// left out of the AllowedIPs and of the routes, with one log line.
+func TestDisableIPv6SkipsIPv6Networks(t *testing.T) {
+	rh := convergedHost()
+	ls := &logSink{}
+	k := newFakeKernel()
+	d := newRouteDaemon(t, rh, ls, k)
+	d.config.DisableIPv6 = true
+	peer := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "fd00:5::/64", "192.168.7.0/24")
+	peer.MeshIPv6 = "fd99::2"
+
+	got := ticks(t, d, rh, []*PeerInfo{peer}, 5)
+	if want := []string{replaceCmd("192.168.7.0/24", "10.99.0.2")}; !sameLines(got[0], want) {
+		t.Errorf("tick 1 route writes = %q, want only the IPv4 route %q", got[0], want)
+	}
+	for _, c := range rh.log {
+		if strings.Contains(c, "fd00:5::") {
+			t.Errorf("the IPv6 network was issued with IPv6 disabled: %q", c)
+		}
+	}
+	if allowed := kernelAllowed(k, "keyA"); contains(allowed, "fd00:5::/64") {
+		t.Errorf("the IPv6 network is in the peer's AllowedIPs with IPv6 disabled: %v", allowed)
+	}
+	if n := ls.count("IPv6 is disabled"); n != 1 {
+		t.Errorf("the skipped IPv6 network was logged %d times in 5 ticks, want 1; log: %q", n, ls.lines)
+	}
+}

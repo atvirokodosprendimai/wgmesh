@@ -54,6 +54,9 @@ type desiredMember struct {
 // mesh IP. A network this node advertises itself is owned by nobody: that rule
 // is applied through routes.Resolve (own networks passed in) and isOwnNetwork,
 // both called only from desired.go.
+// An IPv6 network is left out of both when IPv6 is disabled on this node. The
+// function writes no Daemon field: the warn-once set it reads is
+// d.routeWarned and the one it returns is ds.routeWarned, which converge stores.
 // observedOwners is canonical network -> owner key read back from the kernel.
 func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observedOwners map[string]string) *desiredState {
 	ds := &desiredState{
@@ -153,6 +156,12 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 		for _, network := range p.RoutableNetworks {
 			network = strings.TrimSpace(network)
 			if network == "" {
+				continue
+			}
+			if d.config.DisableIPv6 && strings.Contains(network, ":") {
+				if d.warnRoute(warned, "ipv6-disabled "+routes.Canonical(network, true)) {
+					d.logf("Peer %s... advertises %s but IPv6 is disabled on this node (--no-ipv6), so the mesh interface has no IPv6: the network is left out of its AllowedIPs and of the routes", shortKey(p.WGPubKey), network)
+				}
 				continue
 			}
 			canonical := routes.Canonical(network, strings.Contains(network, ":"))
