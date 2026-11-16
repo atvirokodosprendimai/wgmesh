@@ -139,6 +139,9 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			if d.localNode.GetMeshIP() != collision.MeshIP {
 				continue // already moved by an earlier collision of this pass
 			}
+			if !d.losesBoundFirst(collision.MeshIP, derive) {
+				continue // a claim that is not bound does not move a node on an address its key derives
+			}
 			newIP := d.moverIP()
 			if newIP == "" {
 				log.Printf("[Collision] CRITICAL: Failed to derive IP in custom subnet — keeping current IP")
@@ -164,6 +167,23 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 		}
 	}
+}
+
+// losesBoundFirst reports whether the local node, on ip, loses to another
+// stored claim on ip under the bound-first order (node.BoundFirst): a bound
+// claim beats an unbound one, between two of one class the lower key wins.
+// The lower-key order of release N alone does not make the node move.
+func (d *Daemon) losesBoundFirst(ip string, derive func(pubKey string, nonce int) string) bool {
+	self := node.Claim{Key: d.localNode.WGPubKey, IP: ip}
+	for _, p := range d.peerStore.GetAll() {
+		if p.WGPubKey == self.Key || p.MeshIP != ip {
+			continue
+		}
+		if _, loser := node.BoundFirst(self, node.Claim{Key: p.WGPubKey, IP: p.MeshIP}, derive); loser == self {
+			return true
+		}
+	}
+	return false
 }
 
 // moverIP is the address the local node moves to after it lost a collision:

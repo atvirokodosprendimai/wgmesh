@@ -293,8 +293,8 @@ func TestLegacyWinnerAtReleaseN(t *testing.T) {
 	}{
 		{"lower key stays though the other is bound", false, "aaa-local", "zzz-remote",
 			func(t *testing.T) string { return ownIP(t, "zzz-remote") }, false, 1},
-		{"higher key moves though it is bound", false, "zzz-local", "aaa-remote",
-			func(t *testing.T) string { return ownIP(t, "zzz-local") }, true, 1},
+		{"higher key stays when it is bound", false, "zzz-local", "aaa-remote",
+			func(t *testing.T) string { return ownIP(t, "zzz-local") }, false, 1},
 		{"same class is not a warning", false, "zzz-local", "aaa-remote",
 			func(t *testing.T) string { return "10.42.5.5" }, true, 0},
 		{"enforced: the bound claim stays", true, "zzz-local", "aaa-remote",
@@ -324,9 +324,10 @@ func TestLegacyWinnerAtReleaseN(t *testing.T) {
 	}
 }
 
-// A node of release N (lower key decides) and one that already applies the
-// bound order disagree on who moves; every pair of observers still ends on
-// different addresses.
+// A node of release N (lower key decides, but a node on an address its key
+// derives does not yield to an unbound claim) and one that already applies the
+// bound order: where they disagree only the unbound one moves; every pair of
+// observers still ends on different addresses.
 func TestMixedWinnerRulesConverge(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -334,7 +335,7 @@ func TestMixedWinnerRulesConverge(t *testing.T) {
 		aMoves bool
 		bMoves bool
 	}{
-		{"the rules disagree: both move", func(t *testing.T) string { return ownIP(t, "zzz-node") }, true, true},
+		{"the rules disagree: the unbound node moves", func(t *testing.T) string { return ownIP(t, "zzz-node") }, true, false},
 		{"the rules agree: the higher key moves", func(t *testing.T) string { return "10.42.7.7" }, false, true},
 	}
 	for _, tc := range cases {
