@@ -4,8 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"net"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -204,35 +204,39 @@ func TestExcludeOwnOnlyInDesire(t *testing.T) {
 }
 
 // reconcile runs from the ticker and from handleSIGHUP; two at once would
-// race on every kernel write. The command executor counts how many are inside.
+// race on every kernel write. The probe is localSubnetsFn, which desire calls
+// inside reconcile on every OS: the first caller stays inside until the test
+// sees a second reconcile enter (or 2 s pass), and the entries are counted.
 func TestReconcileRunsSerialised(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("reconcile reaches the executor through syncPeerRoutes, Linux-only")
-	}
 	d := makeRelayTestDaemon()
 	d.config.InterfaceName = "wgtest-ser0"
 	d.peerStore = NewPeerStore()
 
 	var inside, maxInside, calls atomic.Int32
-	mock := &MockCommandExecutor{
-		commandFunc: func(name string, args ...string) Command {
-			if name != "ip" || len(args) < 2 || args[0] != "route" || args[1] != "show" {
-				return &MockCommand{}
+	secondEntered := make(chan struct{})
+	d.localSubnetsFn = func() []*net.IPNet {
+		n := inside.Add(1)
+		for {
+			m := maxInside.Load()
+			if n <= m || maxInside.CompareAndSwap(m, n) {
+				break
 			}
-			return &MockCommand{outputFunc: func() ([]byte, error) {
-				n := inside.Add(1)
-				for {
-					m := maxInside.Load()
-					if n <= m || maxInside.CompareAndSwap(m, n) {
-						break
-					}
-				}
-				calls.Add(1)
-				time.Sleep(10 * time.Millisecond)
-				inside.Add(-1)
-				return nil, nil
-			}}
-		},
+		}
+		switch calls.Add(1) {
+		case 1:
+			select {
+			case <-secondEntered:
+			case <-time.After(2 * time.Second):
+			}
+		case 2:
+			close(secondEntered)
+		}
+		inside.Add(-1)
+		return nil
+	}
+
+	mock := &MockCommandExecutor{
+		commandFunc: func(name string, args ...string) Command { return &MockCommand{} },
 	}
 	withMockExecutor(t, mock, func() {
 		var wg sync.WaitGroup
@@ -240,15 +244,13 @@ func TestReconcileRunsSerialised(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				for i := 0; i < 5; i++ {
-					d.reconcile()
-				}
+				d.reconcile()
 			}()
 		}
 		wg.Wait()
 	})
-	if calls.Load() != 10 {
-		t.Fatalf("reconcile reached the executor %d times, want 10", calls.Load())
+	if calls.Load() < 2 {
+		t.Fatalf("desire ran %d times, want one per reconcile", calls.Load())
 	}
 	if m := maxInside.Load(); m != 1 {
 		t.Errorf("%d reconciles ran at the same time, want 1", m)
