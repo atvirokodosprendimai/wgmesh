@@ -705,7 +705,11 @@ func secretFromFlagOrEnv(flagValue string) (string, error) {
 		if err != nil {
 			return "", fmt.Errorf("reading secret file %s: %w", secretFile, err)
 		}
-		return strings.TrimSpace(string(secretBytes)), nil
+		secret := strings.TrimSpace(string(secretBytes))
+		if secret == "" {
+			return "", fmt.Errorf("secret file %s is empty", secretFile)
+		}
+		return secret, nil
 	}
 	return "", nil
 }
