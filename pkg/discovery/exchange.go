@@ -1037,6 +1037,12 @@ func (pe *PeerExchange) getPendingReplyChannel(remote string) (chan *daemon.Peer
 	ch, ok := pe.pendingReplies[remote]
 	return ch, ok
 }
+// registerReply: RED STUB over the old single slot (ADR-0005 T9 S1); replaced in S2.
+func (pe *PeerExchange) registerReply(remote string) (chan *daemon.PeerInfo, func()) {
+	ch := make(chan *daemon.PeerInfo, 1)
+	pe.setPendingReplyChannel(remote, ch)
+	return ch, func() { pe.clearPendingReplyChannel(remote) }
+}
 
 // resolvePeerEndpoint applies the exchange endpoint rules (node.ResolveEndpoint)
 // to a UDP sender; guessed is true when the endpoint is the sender IP with the
