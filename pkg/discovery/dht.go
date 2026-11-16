@@ -129,6 +129,9 @@ func (d *DHTDiscovery) beginRun() error {
 	if d.running || d.starting {
 		return fmt.Errorf("DHT discovery already running")
 	}
+	if d.parentCtx.Err() != nil {
+		return fmt.Errorf("DHT discovery parent context cancelled")
+	}
 	d.cancel() // release the previous context (cancelled by Stop, or the initial one)
 	d.ctx, d.cancel = context.WithCancel(d.parentCtx)
 	d.starting = true
