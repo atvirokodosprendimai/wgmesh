@@ -828,12 +828,13 @@ func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*P
 		return false // No relay available
 	}
 
+	now := d.now()
 	// Check WG handshake first — if we've had a recent handshake, direct
 	// connectivity is confirmed regardless of NAT type or IPv6.
 	if handshakes != nil {
 		if ts, ok := handshakes[peer.WGPubKey]; ok && ts > 0 {
 			lastHandshake := time.Unix(ts, 0)
-			if time.Since(lastHandshake) < HandshakeStaleAfter {
+			if now.Sub(lastHandshake) < HandshakeStaleAfter {
 				return false // Direct path is working
 			}
 			// Handshake is stale (> HandshakeStaleAfter). Fall back to relay so
@@ -855,7 +856,7 @@ func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*P
 			// relay, and the decision falls through the cases below with the
 			// handshake entry still present, so the dht-transitive case, which
 			// needs no entry, does not apply either.
-			if !d.resumeGraceBlocks(d.now()) {
+			if !d.resumeGraceBlocks(now) {
 				return true
 			}
 		}
@@ -1242,7 +1243,7 @@ func (d *Daemon) probePeersOverMesh() {
 		// If WG has a recent handshake, treat the peer as healthy and do not let
 		// probe jitter flap routes/AllowedIPs.
 		ts := handshakes[p.WGPubKey]
-		if ts > 0 && time.Since(time.Unix(ts, 0)) < HandshakeStaleAfter {
+		if ts > 0 && now.Sub(time.Unix(ts, 0)) < HandshakeStaleAfter {
 			d.clearTemporarilyOffline(p.WGPubKey)
 			d.probeMu.Lock()
 			d.probeFailures[p.WGPubKey] = 0
