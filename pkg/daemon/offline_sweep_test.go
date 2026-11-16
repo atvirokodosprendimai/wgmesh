@@ -51,6 +51,19 @@ func TestSweepTemporaryOfflineConcurrentWithMarks(t *testing.T) {
 		d.sweepTemporaryOffline()
 	}
 	wg.Wait()
+
+	// Without -race the loop above asserts nothing: the map must still work.
+	d.markTemporarilyOffline("after")
+	d.offlineMu.Lock()
+	d.temporaryOffline["old"] = time.Now().Add(-time.Second)
+	d.offlineMu.Unlock()
+	d.sweepTemporaryOffline()
+	if !d.isTemporarilyOffline("after") {
+		t.Fatal("isTemporarilyOffline(after) = false after the concurrent run")
+	}
+	if hasOfflineEntry(d, "old") {
+		t.Fatal("expired entry survived a sweep after the concurrent run")
+	}
 }
 
 func TestStaleCleanupTickRunsOfflineSweep(t *testing.T) {
