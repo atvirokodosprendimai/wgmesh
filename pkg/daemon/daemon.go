@@ -111,6 +111,11 @@ type LocalNode struct {
 	Introducer       bool
 	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
 	Hostname         string
+	// identityMu guards MeshIP, MeshIPv6 and NATType once the node is shared
+	// with discovery goroutines: collision resolution and STUN refresh write
+	// them. Read and write them through the accessors; direct field access is
+	// for construction, before the node is shared.
+	identityMu sync.RWMutex
 
 	endpointMu sync.RWMutex
 	wgEndpoint string
@@ -120,6 +125,48 @@ type LocalNode struct {
 	pendingSTUNCount int
 
 	routesMu sync.RWMutex // guards RoutableNetworks
+}
+
+// GetMeshIP returns the mesh IPv4 address (thread-safe).
+func (n *LocalNode) GetMeshIP() string {
+	n.identityMu.RLock()
+	defer n.identityMu.RUnlock()
+	return n.MeshIP
+}
+
+// SetMeshIP stores the mesh IPv4 address (thread-safe).
+func (n *LocalNode) SetMeshIP(ip string) {
+	n.identityMu.Lock()
+	defer n.identityMu.Unlock()
+	n.MeshIP = ip
+}
+
+// GetMeshIPv6 returns the mesh IPv6 address (thread-safe).
+func (n *LocalNode) GetMeshIPv6() string {
+	n.identityMu.RLock()
+	defer n.identityMu.RUnlock()
+	return n.MeshIPv6
+}
+
+// SetMeshIPv6 stores the mesh IPv6 address (thread-safe).
+func (n *LocalNode) SetMeshIPv6(ip string) {
+	n.identityMu.Lock()
+	defer n.identityMu.Unlock()
+	n.MeshIPv6 = ip
+}
+
+// GetNATType returns the detected NAT type (thread-safe).
+func (n *LocalNode) GetNATType() string {
+	n.identityMu.RLock()
+	defer n.identityMu.RUnlock()
+	return n.NATType
+}
+
+// SetNATType stores the detected NAT type (thread-safe).
+func (n *LocalNode) SetNATType(t string) {
+	n.identityMu.Lock()
+	defer n.identityMu.Unlock()
+	n.NATType = t
 }
 
 // GetEndpoint returns the current WireGuard endpoint (thread-safe).
@@ -297,7 +344,7 @@ func (d *Daemon) admitPolicy() *Policy {
 			if d.localNode == nil {
 				return "", ""
 			}
-			return d.localNode.WGPubKey, d.localNode.MeshIP
+			return d.localNode.WGPubKey, d.localNode.GetMeshIP()
 		},
 		MeshNet:      d.meshNet(),
 		Derive:       d.deriveMeshIP,
@@ -356,9 +403,9 @@ func (d *Daemon) Run() error {
 	}
 
 	log.Printf("Local node: %s...", shortKey(d.localNode.WGPubKey))
-	log.Printf("Mesh IP: %s", d.localNode.MeshIP)
-	if d.localNode.MeshIPv6 != "" {
-		log.Printf("Mesh IPv6: %s", d.localNode.MeshIPv6)
+	log.Printf("Mesh IP: %s", d.localNode.GetMeshIP())
+	if d.localNode.GetMeshIPv6() != "" {
+		log.Printf("Mesh IPv6: %s", d.localNode.GetMeshIPv6())
 	}
 
 	// Setup WireGuard interface
@@ -511,9 +558,9 @@ func (d *Daemon) initLocalNode() error {
 				if err != nil {
 					return fmt.Errorf("failed to derive mesh IP in custom subnet: %w", err)
 				}
-				d.localNode.MeshIP = ip
+				d.localNode.SetMeshIP(ip)
 			} else {
-				d.localNode.MeshIP = crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret)
+				d.localNode.SetMeshIP(crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, d.localNode.WGPubKey, d.config.Secret))
 			}
 			// Persist the newly derived IP so subsequent starts reuse it.
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
@@ -524,7 +571,7 @@ func (d *Daemon) initLocalNode() error {
 		// Always re-derive IPv6; IPv6 addresses are not globally routable and
 		// subnet pinning is not applicable for the /64 ULA prefix.
 		if node.MeshIPv6 == "" {
-			d.localNode.MeshIPv6 = crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret)
+			d.localNode.SetMeshIPv6(crypto.DeriveMeshIPv6(d.config.Keys.MeshPrefixV6, d.localNode.WGPubKey, d.config.Secret))
 			if err := saveLocalNode(stateFile, d.localNode); err != nil {
 				log.Printf("Warning: failed to save local node state: %v", err)
 			}
@@ -616,14 +663,14 @@ func (d *Daemon) setupWireGuard() error {
 	}
 
 	// Set IP address with correct prefix length
-	if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.MeshIP, d.config.PrefixLen())); err != nil {
+	if err := setInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", d.localNode.GetMeshIP(), d.config.PrefixLen())); err != nil {
 		return fmt.Errorf("failed to set IP address: %w", err)
 	}
-	if d.localNode.MeshIPv6 != "" {
-		if err := setInterfaceAddress(d.config.InterfaceName, d.localNode.MeshIPv6+"/64"); err != nil {
+	if d.localNode.GetMeshIPv6() != "" {
+		if err := setInterfaceAddress(d.config.InterfaceName, d.localNode.GetMeshIPv6()+"/64"); err != nil {
 			// IPv6 may be disabled by sysctl; the IPv4 mesh still works.
 			log.Printf("Warning: failed to set mesh IPv6 address, continuing IPv4-only: %v", err)
-			d.localNode.MeshIPv6 = ""
+			d.localNode.SetMeshIPv6("")
 		}
 	}
 
@@ -846,7 +893,7 @@ func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*P
 	}
 
 	// Both sides symmetric → hole-punch is unreliable, relay
-	if d.localNode.NATType == "symmetric" && peer.NATType == "symmetric" {
+	if d.localNode.GetNATType() == "symmetric" && peer.NATType == "symmetric" {
 		return true
 	}
 
@@ -1104,13 +1151,13 @@ func (d *Daemon) healthMonitorLoop() {
 }
 
 func (d *Daemon) startMeshProbeServer() error {
-	if d.localNode == nil || d.localNode.MeshIP == "" {
+	if d.localNode == nil || d.localNode.GetMeshIP() == "" {
 		return fmt.Errorf("local mesh IP not initialized")
 	}
 
-	listenAddrs := []string{net.JoinHostPort(d.localNode.MeshIP, strconv.Itoa(d.healthProbePort))}
-	if d.localNode.MeshIPv6 != "" {
-		listenAddrs = append(listenAddrs, net.JoinHostPort(d.localNode.MeshIPv6, strconv.Itoa(d.healthProbePort)))
+	listenAddrs := []string{net.JoinHostPort(d.localNode.GetMeshIP(), strconv.Itoa(d.healthProbePort))}
+	if d.localNode.GetMeshIPv6() != "" {
+		listenAddrs = append(listenAddrs, net.JoinHostPort(d.localNode.GetMeshIPv6(), strconv.Itoa(d.healthProbePort)))
 	}
 
 	started := 0
@@ -1407,13 +1454,13 @@ func (d *Daemon) probeLocalAddrForRemote(remote string) net.Addr {
 		return nil
 	}
 	if ip.To4() != nil {
-		if d.localNode != nil && d.localNode.MeshIP != "" {
-			return &net.TCPAddr{IP: net.ParseIP(d.localNode.MeshIP)}
+		if d.localNode != nil && d.localNode.GetMeshIP() != "" {
+			return &net.TCPAddr{IP: net.ParseIP(d.localNode.GetMeshIP())}
 		}
 		return nil
 	}
-	if d.localNode != nil && d.localNode.MeshIPv6 != "" {
-		return &net.TCPAddr{IP: net.ParseIP(d.localNode.MeshIPv6)}
+	if d.localNode != nil && d.localNode.GetMeshIPv6() != "" {
+		return &net.TCPAddr{IP: net.ParseIP(d.localNode.GetMeshIPv6())}
 	}
 	return nil
 }
@@ -1668,9 +1715,9 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 	}
 
 	log.Printf("Local node: %s...", shortKey(d.localNode.WGPubKey))
-	log.Printf("Mesh IP: %s", d.localNode.MeshIP)
-	if d.localNode.MeshIPv6 != "" {
-		log.Printf("Mesh IPv6: %s", d.localNode.MeshIPv6)
+	log.Printf("Mesh IP: %s", d.localNode.GetMeshIP())
+	if d.localNode.GetMeshIPv6() != "" {
+		log.Printf("Mesh IPv6: %s", d.localNode.GetMeshIPv6())
 	}
 	log.Printf("Network ID: %x (both nodes must show the same ID to find each other)", d.config.Keys.NetworkID[:8])
 
@@ -2013,7 +2060,7 @@ func (d *Daemon) GetRPCStatus() *RPCStatusData {
 		return nil
 	}
 	return &RPCStatusData{
-		MeshIP:    d.localNode.MeshIP,
+		MeshIP:    d.localNode.GetMeshIP(),
 		PubKey:    d.localNode.WGPubKey,
 		Uptime:    d.GetUptime(),
 		Interface: d.config.InterfaceName,

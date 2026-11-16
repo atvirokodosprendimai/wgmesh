@@ -81,8 +81,8 @@ func saveLocalNode(path string, node *LocalNode) error {
 	state := localNodeState{
 		WGPubKey:     node.WGPubKey,
 		WGPrivateKey: node.WGPrivateKey,
-		MeshIP:       node.MeshIP,
-		MeshIPv6:     node.MeshIPv6,
+		MeshIP:       node.GetMeshIP(),
+		MeshIPv6:     node.GetMeshIPv6(),
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")

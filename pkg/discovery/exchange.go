@@ -497,14 +497,14 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
+		pe.localNode.GetMeshIP(),
 		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.GetRoutableNetworks(),
 		knownPeers,
 		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetMeshIPv6(),
+		string(pe.localNode.GetNATType()),
 	)
 	announcement.ObservedEndpoint = remoteAddr.String()
 
@@ -550,14 +550,14 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 	// Create HELLO message
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
+		pe.localNode.GetMeshIP(),
 		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.GetRoutableNetworks(),
 		knownPeers,
 		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetMeshIPv6(),
+		string(pe.localNode.GetNATType()),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
@@ -1165,14 +1165,14 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 
 	announcement := crypto.CreateAnnouncement(
 		pe.localNode.WGPubKey,
-		pe.localNode.MeshIP,
+		pe.localNode.GetMeshIP(),
 		pe.localNode.GetEndpoint(),
 		pe.localNode.Introducer,
 		pe.localNode.GetRoutableNetworks(),
 		knownPeers,
 		pe.localNode.Hostname,
-		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetMeshIPv6(),
+		string(pe.localNode.GetNATType()),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)
