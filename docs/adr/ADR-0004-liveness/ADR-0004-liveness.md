@@ -148,6 +148,7 @@ See `tasks/README.md`. Seven tasks in five waves (the tasks share `daemon.go` an
 | Risk | Likelihood | Impact | Mitigation |
 |------|------------|--------|------------|
 | A probe-only peer carries traffic or leaks a route | Low | High | an empty AllowedIPs list means WireGuard drops its packets at the source check; T6 asserts the empty list is what is sent and a mutant that adds the peer's mesh IP turns a test red |
+| Mixed reachability at N+2: A holds B probe-only while B holds A direct (B can reach A although A cannot reach B) | Med | Low | B's direct packets are dropped at A until A's hysteresis (3 reconcile cycles, about 15 seconds) returns B to direct after the first fresh handshake; A reaches B through the relay meanwhile; T7 names it in the release note |
 | `wg set ... allowed-ips ""` does not clear on macOS userspace WireGuard | Med | Med | T6 S1 runs it on a scratch interface on Linux and records the macOS result as a human step; the probe-only call falls back to remove-and-re-add if the clear fails |
 | A dead peer is kept alive by a probe that succeeds through a stale route | Low | Med | the probe dials the peer's mesh IP through the tunnel and the peer's server must answer `pong` (`daemon.go:1282`); a relay forwards at IP level, so a `pong` is from the peer |
 | The wake grace hides a peer that really died while we slept | Med | Low | the grace is 60 seconds, after which health and probe eviction act as before; `Alive` lasts `PeerDeadTimeout` from the wake, as from any silence |
