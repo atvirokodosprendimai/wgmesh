@@ -35,19 +35,13 @@ func versionOutput() string {
 }
 
 func main() {
-	// --version and -v count only as the first argument, so a subcommand's own flags are its own
-	if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
-		fmt.Println(versionOutput())
-		return
-	}
-
-	// Check for subcommands first
+	// The first argument alone picks a subcommand; --version and -v count only here, so a subcommand's own flags are its own
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "help", "-h", "--help":
 			printUsage(os.Stdout)
 			return
-		case "version":
+		case "version", "--version", "-v":
 			fmt.Println(versionOutput())
 			return
 		case "join":
