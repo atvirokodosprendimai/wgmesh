@@ -275,11 +275,8 @@ func TestApplyRouteDiff_AddFailure(t *testing.T) {
 // config.DisableIPv6 — all zero-valued to match the default (no-force) scenario.
 func makeRelayTestDaemon() *Daemon {
 	return &Daemon{
-		config: &Config{},
-		localNode: &LocalNode{
-			WGPubKey: "local1",
-			NATType:  "symmetric",
-		},
+		config:             &Config{},
+		localNode:          nodeWithNAT("local1", "symmetric"),
 		relayRoutes:        make(map[string]string),
 		directStableCycles: make(map[string]int),
 		temporaryOffline:   make(map[string]time.Time),
@@ -451,7 +448,7 @@ func TestHAExitNodesDropEachOthersDefault(t *testing.T) {
 		{"local is not an exit node", nil, true},
 	} {
 		d := makeRelayTestDaemon()
-		d.localNode.RoutableNetworks = tc.own
+		d.localNode.SetRoutableNetworks(tc.own)
 		desired, _, _ := d.buildDesiredPeerConfigsWithHandshakes([]*PeerInfo{peer}, nil)
 		cfg := desired["exit2"]
 		if cfg == nil {

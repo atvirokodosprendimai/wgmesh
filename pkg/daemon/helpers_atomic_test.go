@@ -148,7 +148,7 @@ func TestSaveLocalNodeIsAtomic(t *testing.T) {
 	pad := [2]string{strings.Repeat("a", size), strings.Repeat("b", size)}
 	path := filepath.Join(t.TempDir(), "wg0.json")
 	node := func(i int) *LocalNode {
-		return &LocalNode{WGPubKey: "pub", WGPrivateKey: "priv", MeshIP: pad[i%2]}
+		return NewLocalNode("pub", "priv", "", pad[i%2], "")
 	}
 	if err := saveLocalNode(path, node(0)); err != nil {
 		t.Fatal(err)

@@ -11,7 +11,7 @@ import (
 func TestShouldRelayPeer_IntroducerNeverRelays(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{Introducer: true},
-		localNode: &LocalNode{NATType: "symmetric"},
+		localNode: nodeWithNAT("", "symmetric"),
 	}
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "symmetric"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -24,7 +24,7 @@ func TestShouldRelayPeer_IntroducerNeverRelays(t *testing.T) {
 func TestShouldRelayPeer_NeverRelayToIntroducer(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "symmetric"},
+		localNode: nodeWithNAT("", "symmetric"),
 	}
 	peer := &PeerInfo{WGPubKey: "intro1", Introducer: true, NATType: "cone"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -37,7 +37,7 @@ func TestShouldRelayPeer_NeverRelayToIntroducer(t *testing.T) {
 func TestShouldRelayPeer_NoRelayCandidates(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "symmetric"},
+		localNode: nodeWithNAT("", "symmetric"),
 	}
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "symmetric"}
 
@@ -49,7 +49,7 @@ func TestShouldRelayPeer_NoRelayCandidates(t *testing.T) {
 func TestShouldRelayPeer_BothSymmetric(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "symmetric"},
+		localNode: nodeWithNAT("", "symmetric"),
 	}
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "symmetric"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -75,7 +75,7 @@ func TestShouldRelayPeer_ConeNAT_NeverRelays(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			d := &Daemon{
 				config:    &Config{},
-				localNode: &LocalNode{NATType: tt.localNAT},
+				localNode: nodeWithNAT("", tt.localNAT),
 			}
 			peer := &PeerInfo{WGPubKey: "peer1", NATType: tt.remoteNAT}
 			relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -91,7 +91,7 @@ func TestShouldRelayPeer_ConeNAT_NeverRelays(t *testing.T) {
 func TestShouldRelayPeer_StaleHandshake_SymmetricSymmetric(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "symmetric"},
+		localNode: nodeWithNAT("", "symmetric"),
 	}
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "symmetric"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -108,7 +108,7 @@ func TestShouldRelayPeer_StaleHandshake_SymmetricSymmetric(t *testing.T) {
 func TestShouldRelayPeer_StaleHandshake_ConeCone_Relays(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "cone"},
+		localNode: nodeWithNAT("", "cone"),
 	}
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "cone"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -125,7 +125,7 @@ func TestShouldRelayPeer_StaleHandshake_ConeCone_Relays(t *testing.T) {
 func TestShouldRelayPeer_RecentHandshake(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "symmetric"},
+		localNode: nodeWithNAT("", "symmetric"),
 	}
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "symmetric"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -145,7 +145,7 @@ func TestShouldRelayPeer_RecentHandshake(t *testing.T) {
 func TestShouldRelayPeer_TransitiveAndDHT_KeepsRelay(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "cone"},
+		localNode: nodeWithNAT("", "cone"),
 	}
 	peer := &PeerInfo{
 		WGPubKey:      "peer1",
@@ -165,7 +165,7 @@ func TestShouldRelayPeer_TransitiveAndDHT_KeepsRelay(t *testing.T) {
 func TestShouldRelayPeer_TransitiveStale_KeepsRelay(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "cone"},
+		localNode: nodeWithNAT("", "cone"),
 	}
 	peer := &PeerInfo{
 		WGPubKey:      "peer1",
@@ -183,7 +183,7 @@ func TestShouldRelayPeer_TransitiveStale_KeepsRelay(t *testing.T) {
 func TestShouldRelayPeer_NoHandshakeYet(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "cone"},
+		localNode: nodeWithNAT("", "cone"),
 	}
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "cone"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -205,7 +205,7 @@ func TestShouldRelayPeer_LocalSubnetNeverRelays(t *testing.T) {
 
 	d := &Daemon{
 		config:    &Config{},
-		localNode: &LocalNode{NATType: "symmetric"},
+		localNode: nodeWithNAT("", "symmetric"),
 		localSubnetsFn: func() []*net.IPNet {
 			return []*net.IPNet{subnet}
 		},
@@ -221,7 +221,7 @@ func TestShouldRelayPeer_LocalSubnetNeverRelays(t *testing.T) {
 func TestShouldRelayPeer_ForceRelayUsesRelayWhenAvailable(t *testing.T) {
 	d := &Daemon{
 		config:    &Config{ForceRelay: true},
-		localNode: &LocalNode{NATType: "cone"},
+		localNode: nodeWithNAT("", "cone"),
 	}
 	peer := &PeerInfo{WGPubKey: "peer1", NATType: "cone", Endpoint: "203.0.113.10:51820"}
 	relays := []*PeerInfo{{WGPubKey: "relay1", Introducer: true, Endpoint: "1.2.3.4:51820"}}
@@ -239,7 +239,7 @@ func TestShouldRelayPeer_ForceRelayStillPrefersLAN(t *testing.T) {
 
 	d := &Daemon{
 		config:    &Config{ForceRelay: true},
-		localNode: &LocalNode{NATType: "symmetric"},
+		localNode: nodeWithNAT("", "symmetric"),
 		localSubnetsFn: func() []*net.IPNet {
 			return []*net.IPNet{subnet}
 		},
@@ -335,10 +335,7 @@ func TestBuildDesiredPeerConfigs_RelayRouting(t *testing.T) {
 			Keys:          keys,
 			ForceRelay:    true,
 		},
-		localNode: &LocalNode{
-			WGPubKey: "local-pubkey",
-			NATType:  "cone",
-		},
+		localNode:              nodeWithNAT("local-pubkey", "cone"),
 		lastAppliedPeerConfigs: make(map[string]string),
 		relayRoutes:            make(map[string]string),
 		directStableCycles:     make(map[string]int),
@@ -400,4 +397,19 @@ func makeTestKeys(t *testing.T) *crypto.DerivedKeys {
 		t.Fatalf("DeriveKeys: %v", err)
 	}
 	return keys
+}
+
+// nodeWithNAT builds a local node with a public key and a NAT type: the type's
+// state fields are unexported, so a test sets them through the setters.
+func nodeWithNAT(pubKey, nat string) *LocalNode {
+	n := &LocalNode{WGPubKey: pubKey}
+	n.SetNATType(nat)
+	return n
+}
+
+// nodeWithRoutes builds a local node advertising the given routes.
+func nodeWithRoutes(routes []string) *LocalNode {
+	n := &LocalNode{}
+	n.SetRoutableNetworks(routes)
+	return n
 }

@@ -19,7 +19,7 @@ func TestSharedSubnetNeverRoutedThroughMesh(t *testing.T) {
 	newDaemon := func() (*Daemon, []*PeerInfo) {
 		d := makeRelayTestDaemon()
 		d.config.InterfaceName = "wg0"
-		d.localNode.RoutableNetworks = []string{shared}
+		d.localNode.SetRoutableNetworks([]string{shared})
 		peer := &PeerInfo{
 			WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(),
 			RoutableNetworks: []string{shared, disjoint},
@@ -73,7 +73,7 @@ func TestSharedSubnetNotRelayedThroughMesh(t *testing.T) {
 
 	d := makeRelayTestDaemon()
 	d.config.ForceRelay = true
-	d.localNode.RoutableNetworks = []string{shared}
+	d.localNode.SetRoutableNetworks([]string{shared})
 	relay := &PeerInfo{
 		WGPubKey: "relay1", MeshIP: "10.0.0.10", Endpoint: "1.2.3.4:51820",
 		Introducer: true, LastSeen: time.Now(),
@@ -118,7 +118,7 @@ func TestRemovedOwnViaRouteRestoresConnectedRoute(t *testing.T) {
 
 	d := makeRelayTestDaemon()
 	d.config.InterfaceName = "wg0"
-	d.localNode.RoutableNetworks = []string{shared}
+	d.localNode.SetRoutableNetworks([]string{shared})
 	peer := &PeerInfo{WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(), RoutableNetworks: []string{shared}}
 
 	var cmds []string
@@ -167,7 +167,7 @@ func TestFailedDelDoesNotRestoreConnectedRoute(t *testing.T) {
 
 	d := makeRelayTestDaemon()
 	d.config.InterfaceName = "wg0"
-	d.localNode.RoutableNetworks = []string{shared}
+	d.localNode.SetRoutableNetworks([]string{shared})
 	peer := &PeerInfo{WGPubKey: "peer1", MeshIP: "10.0.0.20", LastSeen: time.Now(), RoutableNetworks: []string{shared}}
 
 	var cmds []string

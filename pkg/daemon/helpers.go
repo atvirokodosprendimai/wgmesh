@@ -125,12 +125,7 @@ func loadLocalNode(path string) (*LocalNode, error) {
 		return nil, fmt.Errorf("%w: public or private key is empty", ErrStateCorrupt)
 	}
 
-	return &LocalNode{
-		WGPubKey:     state.WGPubKey,
-		WGPrivateKey: state.WGPrivateKey,
-		MeshIP:       state.MeshIP,
-		MeshIPv6:     state.MeshIPv6,
-	}, nil
+	return NewLocalNode(state.WGPubKey, state.WGPrivateKey, "", state.MeshIP, state.MeshIPv6), nil
 }
 
 // saveLocalNode saves the local node state to a file. The write is atomic: a
@@ -145,8 +140,8 @@ func saveLocalNode(path string, node *LocalNode) error {
 	state := localNodeState{
 		WGPubKey:     node.WGPubKey,
 		WGPrivateKey: node.WGPrivateKey,
-		MeshIP:       node.MeshIP,
-		MeshIPv6:     node.MeshIPv6,
+		MeshIP:       node.GetMeshIP(),
+		MeshIPv6:     node.GetMeshIPv6(),
 	}
 
 	data, err := json.MarshalIndent(state, "", "  ")

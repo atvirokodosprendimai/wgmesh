@@ -183,7 +183,7 @@ func TestInitLocalNodeCorruptMovesAside(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%q: new identity at %s does not load: %v", bad, path, err)
 		}
-		if fresh.WGPubKey == "" || fresh.WGPrivateKey == "" || fresh.MeshIP == "" {
+		if fresh.WGPubKey == "" || fresh.WGPrivateKey == "" || fresh.GetMeshIP() == "" {
 			t.Errorf("%q: new identity incomplete: %+v", bad, fresh)
 		}
 		if d.localNode == nil || d.localNode.WGPubKey != fresh.WGPubKey {

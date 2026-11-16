@@ -30,15 +30,15 @@ func TestCollisionLoserPersistsResolvedIP(t *testing.T) {
 	if want == "10.42.1.1" {
 		t.Fatalf("test needs a resolved address that differs from the natural one, both %s", want)
 	}
-	if d.localNode.MeshIP != want {
-		t.Fatalf("local IP = %s, want the nonce-1 address %s", d.localNode.MeshIP, want)
+	if d.localNode.GetMeshIP() != want {
+		t.Fatalf("local IP = %s, want the nonce-1 address %s", d.localNode.GetMeshIP(), want)
 	}
 	saved, err := loadLocalNode(d.stateFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.MeshIP != want {
-		t.Errorf("state file holds %s, want the resolved address %s", saved.MeshIP, want)
+	if saved.GetMeshIP() != want {
+		t.Errorf("state file holds %s, want the resolved address %s", saved.GetMeshIP(), want)
 	}
 }
 
@@ -63,8 +63,8 @@ func TestCollisionKeepsAddressWhenSaveFails(t *testing.T) {
 	if want == "10.42.1.1" {
 		t.Fatalf("test needs a resolved address that differs from the natural one, both %s", want)
 	}
-	if d.localNode.MeshIP != want {
-		t.Errorf("local IP = %s, want the resolved address %s", d.localNode.MeshIP, want)
+	if d.localNode.GetMeshIP() != want {
+		t.Errorf("local IP = %s, want the resolved address %s", d.localNode.GetMeshIP(), want)
 	}
 	if wantSet := fmt.Sprintf("%s/%d", want, d.config.PrefixLen()); len(*set) != 1 || (*set)[0] != wantSet {
 		t.Errorf("addresses set = %v, want [%s]", *set, wantSet)
@@ -199,7 +199,7 @@ func collisionDaemon(t *testing.T, key, ip string) *Daemon {
 		t.Fatalf("NewDaemon: %v", err)
 	}
 	// A private key too: a state file without one is a corrupt identity (ADR-0005 T4).
-	d.localNode = &LocalNode{WGPubKey: key, WGPrivateKey: "test-private-" + key, MeshIP: ip}
+	d.localNode = NewLocalNode(key, "test-private-"+key, "", ip, "")
 	return d
 }
 
@@ -265,14 +265,14 @@ func TestLocalNodeLosesCollisionAgainstRemote(t *testing.T) {
 			d.CheckAndResolveCollisions()
 
 			if !tc.moves {
-				if d.localNode.MeshIP != "10.42.1.1" || len(*set) != 0 {
-					t.Errorf("the winner moved: IP %s, addresses set %v", d.localNode.MeshIP, *set)
+				if d.localNode.GetMeshIP() != "10.42.1.1" || len(*set) != 0 {
+					t.Errorf("the winner moved: IP %s, addresses set %v", d.localNode.GetMeshIP(), *set)
 				}
 				return
 			}
 			want := nonceOne(d)
-			if d.localNode.MeshIP != want {
-				t.Errorf("local IP = %s, want the nonce-1 address %s", d.localNode.MeshIP, want)
+			if d.localNode.GetMeshIP() != want {
+				t.Errorf("local IP = %s, want the nonce-1 address %s", d.localNode.GetMeshIP(), want)
 			}
 			if wantSet := fmt.Sprintf("%s/%d", want, d.config.PrefixLen()); len(*set) != 1 || (*set)[0] != wantSet {
 				t.Errorf("addresses set = %v, want [%s]", *set, wantSet)
@@ -312,9 +312,9 @@ func TestLegacyWinnerAtReleaseN(t *testing.T) {
 			before := winnerDiffers()
 			d.CheckAndResolveCollisions()
 
-			moved := d.localNode.MeshIP != ip
-			if moved != tc.moves || (moved && d.localNode.MeshIP != nonceOne(d)) || (len(*set) == 1) != tc.moves {
-				t.Errorf("moved = %v (IP %s, addresses set %v), want %v", moved, d.localNode.MeshIP, *set, tc.moves)
+			moved := d.localNode.GetMeshIP() != ip
+			if moved != tc.moves || (moved && d.localNode.GetMeshIP() != nonceOne(d)) || (len(*set) == 1) != tc.moves {
+				t.Errorf("moved = %v (IP %s, addresses set %v), want %v", moved, d.localNode.GetMeshIP(), *set, tc.moves)
 			}
 			if got := winnerDiffers() - before; got != tc.warnings {
 				t.Errorf("winner-differs counted %v, want %v", got, tc.warnings)
@@ -349,14 +349,14 @@ func TestMixedWinnerRulesConverge(t *testing.T) {
 			checkAs(a, true)
 			checkAs(b, false)
 
-			if (a.localNode.MeshIP != ip) != tc.aMoves || (tc.aMoves && a.localNode.MeshIP != nonceOne(a)) {
-				t.Errorf("node a: IP %s, moves = %v wanted", a.localNode.MeshIP, tc.aMoves)
+			if (a.localNode.GetMeshIP() != ip) != tc.aMoves || (tc.aMoves && a.localNode.GetMeshIP() != nonceOne(a)) {
+				t.Errorf("node a: IP %s, moves = %v wanted", a.localNode.GetMeshIP(), tc.aMoves)
 			}
-			if (b.localNode.MeshIP != ip) != tc.bMoves || (tc.bMoves && b.localNode.MeshIP != nonceOne(b)) {
-				t.Errorf("node b: IP %s, moves = %v wanted", b.localNode.MeshIP, tc.bMoves)
+			if (b.localNode.GetMeshIP() != ip) != tc.bMoves || (tc.bMoves && b.localNode.GetMeshIP() != nonceOne(b)) {
+				t.Errorf("node b: IP %s, moves = %v wanted", b.localNode.GetMeshIP(), tc.bMoves)
 			}
-			if a.localNode.MeshIP == b.localNode.MeshIP {
-				t.Errorf("both nodes ended on %s", a.localNode.MeshIP)
+			if a.localNode.GetMeshIP() == b.localNode.GetMeshIP() {
+				t.Errorf("both nodes ended on %s", a.localNode.GetMeshIP())
 			}
 		})
 	}
@@ -378,8 +378,8 @@ func TestMixedWinnerNeitherMovesIsNotWorse(t *testing.T) {
 	checkAs(oldNode, false)
 	checkAs(newNode, true)
 
-	if oldNode.localNode.MeshIP != ip || newNode.localNode.MeshIP != ip || len(*set) != 0 {
-		t.Errorf("an address moved: old %s, new %s, addresses set %v", oldNode.localNode.MeshIP, newNode.localNode.MeshIP, *set)
+	if oldNode.localNode.GetMeshIP() != ip || newNode.localNode.GetMeshIP() != ip || len(*set) != 0 {
+		t.Errorf("an address moved: old %s, new %s, addresses set %v", oldNode.localNode.GetMeshIP(), newNode.localNode.GetMeshIP(), *set)
 	}
 	if got := winnerDiffers() - before; got != 1 {
 		t.Errorf("winner-differs counted %v, want 1 (the old node's)", got)
@@ -407,12 +407,12 @@ func TestLocalMoverSkipsClaimedNonceAddress(t *testing.T) {
 
 	d.CheckAndResolveCollisions()
 	want := DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, "zzz-local", collisionSecret, 2)
-	if d.localNode.MeshIP != want {
-		t.Errorf("local IP = %s, want the nonce-2 address %s", d.localNode.MeshIP, want)
+	if d.localNode.GetMeshIP() != want {
+		t.Errorf("local IP = %s, want the nonce-2 address %s", d.localNode.GetMeshIP(), want)
 	}
 	d.CheckAndResolveCollisions()
-	if d.localNode.MeshIP != want || len(*set) != 1 {
-		t.Errorf("the next check moved again: IP %s, addresses set %v", d.localNode.MeshIP, *set)
+	if d.localNode.GetMeshIP() != want || len(*set) != 1 {
+		t.Errorf("the next check moved again: IP %s, addresses set %v", d.localNode.GetMeshIP(), *set)
 	}
 }
 
@@ -428,7 +428,7 @@ func TestLocalNodeLosesWithCustomSubnet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
 	}
-	d.localNode = &LocalNode{WGPubKey: "zzz-local", MeshIP: "192.168.100.7"}
+	d.localNode = NewLocalNode("zzz-local", "", "", "192.168.100.7", "")
 	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "192.168.100.7"}, "test")
 	d.CheckAndResolveCollisions()
 
@@ -436,8 +436,8 @@ func TestLocalNodeLosesWithCustomSubnet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("derive: %v", err)
 	}
-	if d.localNode.MeshIP != want || !subnet.Contains(net.ParseIP(want)) {
-		t.Errorf("local IP = %s, want %s inside %s", d.localNode.MeshIP, want, subnet)
+	if d.localNode.GetMeshIP() != want || !subnet.Contains(net.ParseIP(want)) {
+		t.Errorf("local IP = %s, want %s inside %s", d.localNode.GetMeshIP(), want, subnet)
 	}
 	if wantSet := fmt.Sprintf("%s/%d", want, d.config.PrefixLen()); len(*set) != 1 || (*set)[0] != wantSet {
 		t.Errorf("addresses set = %v, want [%s]", *set, wantSet)

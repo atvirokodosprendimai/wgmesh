@@ -42,3 +42,6 @@ const (
 )
 
 func NewPeerStore() *PeerStore { return node.NewPeerStore() }
+func NewLocalNode(pubKey, privKey, hostname, meshIP, meshIPv6 string) *LocalNode {
+	return node.NewLocalNode(pubKey, privKey, hostname, meshIP, meshIPv6)
+}

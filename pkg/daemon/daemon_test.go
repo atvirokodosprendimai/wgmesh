@@ -195,7 +195,7 @@ func TestDaemon_NoPunchingSkipsHolePunch(t *testing.T) {
 
 	d := &Daemon{
 		config:             cfg,
-		localNode:          &LocalNode{WGPubKey: "local1", NATType: "cone"},
+		localNode:          nodeWithNAT("local1", "cone"),
 		relayRoutes:        make(map[string]string),
 		directStableCycles: make(map[string]int),
 		temporaryOffline:   make(map[string]time.Time),
@@ -232,7 +232,7 @@ func TestDaemon_RelayRouteNotDroppedDuringNATPunchAttempt(t *testing.T) {
 	// config.ForceRelay, and config.DisableIPv6 (all zero/false by default).
 	d := &Daemon{
 		config:             &Config{},
-		localNode:          &LocalNode{WGPubKey: "local1", NATType: "symmetric"},
+		localNode:          nodeWithNAT("local1", "symmetric"),
 		relayRoutes:        make(map[string]string),
 		directStableCycles: make(map[string]int),
 		temporaryOffline:   make(map[string]time.Time),
@@ -281,7 +281,7 @@ func TestDaemon_OfflinePeerRelayCleanup(t *testing.T) {
 	// relay-map mutation (delete on eviction), not relay decision logic.
 	d := &Daemon{
 		config:             &Config{},
-		localNode:          &LocalNode{WGPubKey: "local1", NATType: "symmetric"},
+		localNode:          nodeWithNAT("local1", "symmetric"),
 		relayRoutes:        make(map[string]string),
 		directStableCycles: make(map[string]int),
 		temporaryOffline:   make(map[string]time.Time),
@@ -487,15 +487,15 @@ func TestSetupWireGuardContinuesWhenIPv6Disabled(t *testing.T) {
 
 	d := &Daemon{
 		config:    &Config{InterfaceName: "wgmesh-test-nonexistent", WGListenPort: 0},
-		localNode: &LocalNode{MeshIP: "10.99.0.1", MeshIPv6: "fd00::1"},
+		localNode: NewLocalNode("", "", "", "10.99.0.1", "fd00::1"),
 	}
 	withMockExecutor(t, mock, func() {
 		if err := d.setupWireGuard(); err != nil {
 			t.Fatalf("setupWireGuard() error = %v, want nil", err)
 		}
 	})
-	if d.localNode.MeshIPv6 != "" {
-		t.Errorf("MeshIPv6 = %q, want cleared", d.localNode.MeshIPv6)
+	if d.localNode.GetMeshIPv6() != "" {
+		t.Errorf("MeshIPv6 = %q, want cleared", d.localNode.GetMeshIPv6())
 	}
 	if !upCalled {
 		t.Error("interface was not brought up")
@@ -515,11 +515,11 @@ func TestDaemonInstallsAdmitPolicy(t *testing.T) {
 		t.Errorf("Local() before the local node exists = %q, %q; want empty", key, ip)
 	}
 
-	d.localNode = &LocalNode{WGPubKey: "key-local", MeshIP: "10.42.1.2"}
+	d.localNode = NewLocalNode("key-local", "", "", "10.42.1.2", "")
 	if key, ip := p.Local(); key != "key-local" || ip != "10.42.1.2" {
 		t.Errorf("Local() = %q, %q; want key-local, 10.42.1.2", key, ip)
 	}
-	d.localNode.MeshIP = "10.42.9.9"
+	d.localNode.SetMeshIP("10.42.9.9")
 	if _, ip := p.Local(); ip != "10.42.9.9" {
 		t.Errorf("Local() IP = %q after the local node moved; want 10.42.9.9", ip)
 	}

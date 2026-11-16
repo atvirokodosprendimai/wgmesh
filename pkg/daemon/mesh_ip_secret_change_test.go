@@ -85,8 +85,8 @@ func TestRestartKeepsResolvedIP(t *testing.T) {
 	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "10.42.1.1"}, "test")
 	d.CheckAndResolveCollisions()
 	want := nonceOne(d)
-	if d.localNode.MeshIP != want {
-		t.Fatalf("local IP = %s, want the nonce-1 address %s", d.localNode.MeshIP, want)
+	if d.localNode.GetMeshIP() != want {
+		t.Fatalf("local IP = %s, want the nonce-1 address %s", d.localNode.GetMeshIP(), want)
 	}
 
 	restarted := &Daemon{config: d.config}
@@ -96,7 +96,7 @@ func TestRestartKeepsResolvedIP(t *testing.T) {
 	if wantFile := filepath.Join(localNodeStateDir, restarted.config.InterfaceName+".json"); restarted.stateFile != wantFile {
 		t.Errorf("stateFile = %q, want %q", restarted.stateFile, wantFile)
 	}
-	if restarted.localNode.MeshIP != want {
-		t.Errorf("after restart the IP is %s, want the resolved address %s", restarted.localNode.MeshIP, want)
+	if restarted.localNode.GetMeshIP() != want {
+		t.Errorf("after restart the IP is %s, want the resolved address %s", restarted.localNode.GetMeshIP(), want)
 	}
 }
