@@ -56,6 +56,12 @@ type PeerStore struct {
 	// it is emptied when it reaches DefaultMaxPeers, so it stays bounded.
 	ipHeldLogged map[string]struct{}
 	now          func() time.Time
+	// resumedAt is when the node last woke (ADR-0004); it is stamped into every
+	// copy the store returns. livenessDisagree is the per-store hook that hears
+	// each case the legacy age test drops a peer Assess would keep. Both are
+	// guarded by mu.
+	resumedAt        time.Time
+	livenessDisagree func(site string)
 }
 
 // NewPeerStore creates a new peer store.
@@ -117,7 +123,7 @@ func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
 // Merge logic: newest timestamp wins for mutable fields (endpoint, routable_networks)
 func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKind) {
 	info, discoveryMethod := c.Info, c.Method()
-	now := time.Now()
+	now := ps.now()
 
 	existing, exists := ps.peers[info.WGPubKey]
 	if !exists {
@@ -278,8 +284,7 @@ func (ps *PeerStore) Get(pubKey string) (*PeerInfo, bool) {
 		return nil, false
 	}
 
-	peerCopy := *peer
-	return &peerCopy, true
+	return ps.stamped(peer), true
 }
 
 // GetAll returns all peers.
@@ -289,8 +294,7 @@ func (ps *PeerStore) GetAll() []*PeerInfo {
 
 	result := make([]*PeerInfo, 0, len(ps.peers))
 	for _, peer := range ps.peers {
-		peerCopy := *peer
-		result = append(result, &peerCopy)
+		result = append(result, ps.stamped(peer))
 	}
 	return result
 }
@@ -300,19 +304,26 @@ func (ps *PeerStore) List() []*PeerInfo {
 	return ps.GetAll()
 }
 
-// GetActive returns all peers that have been seen recently (not dead).
+// GetActive returns the peers that are Alive. While EnforceLiveness is false
+// the legacy LastSeen age test decides and each peer it drops that Assess
+// would keep is reported through the disagree hook (site "get-active").
 func (ps *PeerStore) GetActive() []*PeerInfo {
 	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-
 	result := make([]*PeerInfo, 0, len(ps.peers))
-	now := time.Now()
+	now := ps.now()
+	hook := ps.livenessDisagree
+	disagreed := 0
 	for _, peer := range ps.peers {
-		if now.Sub(peer.LastSeen) < PeerDeadTimeout {
-			peerCopy := *peer
-			result = append(result, &peerCopy)
+		drop, disagree := judge(now.Sub(peer.LastSeen) >= PeerDeadTimeout, ps.assess(peer, now) != Alive)
+		if disagree {
+			disagreed++
+		}
+		if !drop {
+			result = append(result, ps.stamped(peer))
 		}
 	}
+	ps.mu.RUnlock()
+	reportDisagreement(hook, "get-active", disagreed)
 	return result
 }
 
@@ -370,15 +381,22 @@ func (ps *PeerStore) isTombstoned(pubKey string) bool {
 	return ok
 }
 
-// CleanupStale removes peers that haven't been seen for too long.
+// CleanupStale removes peers whose liveness is Dead. While EnforceLiveness is
+// false the legacy LastSeen age test decides and each removal Assess would
+// not make is reported through the disagree hook (site "cleanup").
 func (ps *PeerStore) CleanupStale() []string {
 	ps.mu.Lock()
-	defer ps.mu.Unlock()
 
 	var removed []string
 	now := ps.now()
+	hook := ps.livenessDisagree
+	disagreed := 0
 	for pubKey, peer := range ps.peers {
-		if now.Sub(peer.LastSeen) > PeerRemoveTimeout {
+		drop, disagree := judge(now.Sub(peer.LastSeen) > PeerRemoveTimeout, ps.assess(peer, now) == Dead)
+		if disagree {
+			disagreed++
+		}
+		if drop {
 			delete(ps.peers, pubKey)
 			if peer.heardFirstHand {
 				ps.tombstone(pubKey, "stale")
@@ -386,6 +404,8 @@ func (ps *PeerStore) CleanupStale() []string {
 			removed = append(removed, pubKey)
 		}
 	}
+	ps.mu.Unlock()
+	reportDisagreement(hook, "cleanup", disagreed)
 	return removed
 }
 
@@ -408,16 +428,24 @@ func (ps *PeerStore) SetLatency(pubKey string, rtt time.Duration) {
 	peer.Latency = &rtt
 }
 
-// IsDead checks if a peer is considered dead.
+// IsDead reports whether a peer is Dead or unknown. While EnforceLiveness is
+// false the legacy LastSeen age test decides and a peer it calls dead that
+// Assess would keep is reported through the disagree hook (site "is-dead").
 func (ps *PeerStore) IsDead(pubKey string) bool {
 	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-
 	peer, exists := ps.peers[pubKey]
 	if !exists {
+		ps.mu.RUnlock()
 		return true
 	}
-	return time.Since(peer.LastSeen) > PeerDeadTimeout
+	now := ps.now()
+	hook := ps.livenessDisagree
+	dead, disagree := judge(now.Sub(peer.LastSeen) > PeerDeadTimeout, ps.assess(peer, now) == Dead)
+	ps.mu.RUnlock()
+	if disagree {
+		reportDisagreement(hook, "is-dead", 1)
+	}
+	return dead
 }
 
 // shortKey safely truncates a key for logging.

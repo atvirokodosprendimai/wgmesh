@@ -77,17 +77,99 @@ func (p *PeerInfo) Alive(now time.Time) Liveness { return Assess(p.evidence(), n
 // changing callers.
 func (p *PeerInfo) LastAlive(now time.Time) time.Time { return p.evidence().newest() }
 
-// ObserveDataPlane is a stub.
-func (ps *PeerStore) ObserveDataPlane(pubKey string, at time.Time) {}
+// stamped returns a copy of peer that carries the store-wide resumedAt; the
+// caller holds ps.mu.
+func (ps *PeerStore) stamped(peer *PeerInfo) *PeerInfo {
+	c := *peer
+	c.resumedAt = ps.resumedAt
+	return &c
+}
 
-// NoteResume is a stub.
-func (ps *PeerStore) NoteResume(at time.Time) {}
+// assess is Assess of peer's evidence with the store-wide resumedAt; the
+// caller holds ps.mu.
+func (ps *PeerStore) assess(peer *PeerInfo, now time.Time) Liveness {
+	e := peer.evidence()
+	e.ResumedAt = ps.resumedAt
+	return Assess(e, now)
+}
 
-// ResumedAt is a stub.
-func (ps *PeerStore) ResumedAt() time.Time { return time.Time{} }
+// judge picks the answer of a reader: Assess's when EnforceLiveness is on,
+// the legacy age test's otherwise. disagree is true when the legacy test
+// drops a peer that Assess keeps and the legacy test is the one acting.
+func judge(legacyDrop, assessDrop bool) (drop, disagree bool) {
+	if EnforceLiveness.Load() {
+		return assessDrop, false
+	}
+	return legacyDrop, legacyDrop && !assessDrop
+}
 
-// GetProbeable is a stub.
-func (ps *PeerStore) GetProbeable() []*PeerInfo { return nil }
+// reportDisagreement calls hook n times with site; it is called outside ps.mu.
+func reportDisagreement(hook func(site string), site string, n int) {
+	if hook == nil {
+		return
+	}
+	for i := 0; i < n; i++ {
+		hook(site)
+	}
+}
 
-// SetLivenessDisagreeHook is a stub.
-func (ps *PeerStore) SetLivenessDisagreeHook(fn func(site string)) {}
+// ObserveDataPlane records at as the newest data-plane evidence (a WireGuard
+// handshake or a successful mesh probe) of pubKey. It is a local measurement,
+// not a claim: a time never moves backwards, no event is sent, no claim field
+// and not LastSeen is touched, and an unknown key is ignored.
+func (ps *PeerStore) ObserveDataPlane(pubKey string, at time.Time) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	peer, exists := ps.peers[pubKey]
+	if !exists {
+		return
+	}
+	if at.After(peer.LastDataPlane) {
+		peer.LastDataPlane = at
+	}
+}
+
+// NoteResume records at as the time the node last woke; it is evidence for
+// every peer. The time never moves backwards.
+func (ps *PeerStore) NoteResume(at time.Time) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+
+	if at.After(ps.resumedAt) {
+		ps.resumedAt = at
+	}
+}
+
+// ResumedAt returns the time given to the last NoteResume, or the zero time.
+func (ps *PeerStore) ResumedAt() time.Time {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+	return ps.resumedAt
+}
+
+// GetProbeable returns the peers that are Alive or Suspect: the ones a probe
+// may still reach. It always judges by Assess.
+func (ps *PeerStore) GetProbeable() []*PeerInfo {
+	ps.mu.RLock()
+	defer ps.mu.RUnlock()
+
+	result := make([]*PeerInfo, 0, len(ps.peers))
+	now := ps.now()
+	for _, peer := range ps.peers {
+		if ps.assess(peer, now) != Dead {
+			result = append(result, ps.stamped(peer))
+		}
+	}
+	return result
+}
+
+// SetLivenessDisagreeHook sets the hook that hears, with the reader's site
+// name (get-active, cleanup, is-dead), each case the legacy age test drops a
+// peer that Assess would keep while EnforceLiveness is false. It is per store
+// and may be nil.
+func (ps *PeerStore) SetLivenessDisagreeHook(fn func(site string)) {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.livenessDisagree = fn
+}
