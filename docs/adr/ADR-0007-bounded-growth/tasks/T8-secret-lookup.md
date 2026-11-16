@@ -39,7 +39,7 @@ The four `.txtar` scripts (`status-secret-env`, `status-secret-file`, `qr-secret
 
 ```bash
 set -o pipefail
-n=$(go test . -run '^(TestSecretFromFlagOrEnvPrecedence|TestSecretFromFlagOrEnvFileTrimmed|TestSecretFromFlagOrEnvUnreadableFile|TestResolveSecretReadsFile|TestScript/(status-secret-env|status-secret-file|qr-secret-env|join-secret-file-missing))$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c -- '^\s*--- PASS') && [ "$n" -ge 8 ] && go test -race . -count=1
+n=$(go test . -run '^(TestSecretFromFlagOrEnvPrecedence|TestSecretFromFlagOrEnvFileTrimmed|TestSecretFromFlagOrEnvUnreadableFile|TestResolveSecretReadsFile|TestCommandsFindSecretFromEnvAndFile|TestJoinUnreadableSecretFileExitsOne)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c -- '^--- PASS') && [ "$n" -ge 6 ] && go test . -run '^TestScript/(status-secret-env|status-secret-file|qr-secret-env|join-secret-file-missing)$' -count=1 && go test -race . -count=1
 ```
 
 ## Tests
@@ -50,10 +50,8 @@ n=$(go test . -run '^(TestSecretFromFlagOrEnvPrecedence|TestSecretFromFlagOrEnvF
 | `TestSecretFromFlagOrEnvFileTrimmed` | `main_test.go` | a file holding the secret and a newline gives the secret without it | — | S1, S2 |
 | `TestSecretFromFlagOrEnvUnreadableFile` | `main_test.go` | a missing file returns an error containing the path | — | S1, S2 |
 | `TestResolveSecretReadsFile` | `service_test.go` | with only `WGMESH_SECRET_FILE` set `resolveSecret("")` returns the normalized secret (existing `TestResolveSecret` stays) | — | S1, S4 |
-| `TestScript/status-secret-env` | `testdata/script/status-secret-env.txtar` | `wgmesh status --json` with `WGMESH_SECRET` and no flag prints the JSON `status-json-with-secret` expects | — | S1, S3 |
-| `TestScript/status-secret-file` | `testdata/script/status-secret-file.txtar` | the same with `WGMESH_SECRET_FILE` pointing into the script's work dir | — | S1, S3 |
-| `TestScript/qr-secret-env` | `testdata/script/qr-secret-env.txtar` | `wgmesh qr` with the variable and no flag prints a QR block, not "--secret is required" | — | S1, S3 |
-| `TestScript/join-secret-file-missing` | `testdata/script/join-secret-file-missing.txtar` | `join` with an unreadable `WGMESH_SECRET_FILE` exits 1 and stderr names the path (behaviour kept) | — | S1, S3 |
+| `TestCommandsFindSecretFromEnvAndFile` | `main_test.go` | a built binary: `wgmesh status --json` finds the secret from `WGMESH_SECRET` and from `WGMESH_SECRET_FILE` (no flag) and prints the JSON of the `--secret` run; `wgmesh qr` with the variable prints a QR block, not "--secret is required" (the four scripts say the same in `testscript` form) | — | S1, S3 |
+| `TestJoinUnreadableSecretFileExitsOne` | `main_test.go` | a built binary: `join` with an unreadable `WGMESH_SECRET_FILE` exits 1 and stderr names the path (behaviour kept) | — | S1, S3 |
 
 ## Reachability
 
