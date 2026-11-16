@@ -626,9 +626,10 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		return nil, fmt.Errorf("failed to seal hello: %w", err)
 	}
 
-	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), pe.port)
+	port := pe.Port() // under pe.mu: Start writes it
+	log.Printf("[Exchange] Sending HELLO to %s (exchange port: %d)", remoteAddr.String(), port)
 	if !pe.config.DisablePunching {
-		log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, pe.port)
+		log.Printf("[NAT] Punch attempt started with %s (timeout=%v interval=%v local_port=%d)", remoteAddr.String(), ExchangeTimeout, PunchInterval, port)
 	}
 
 	attempts := 0
