@@ -134,6 +134,12 @@ func (d *DHTDiscovery) beginRun() error {
 // network call cannot hang the daemon; it is the exchange's bound.
 const dhtStopTimeout = exchangeStopTimeout
 
+// startHook is a test seam: when set, Start calls it right after beginRun,
+// before any layer starts, so a test can hold a Start in the middle. It is read
+// only by the goroutine running Start and set only by non-parallel tests before
+// that goroutine begins, so it needs no lock.
+var startHook func()
+
 // goLoop runs fn as a loop of the current run: it is counted in d.loops and
 // in the run's group, which Stop waits on. It is called only between beginRun
 // and setRunning, while Stop is still a no-op, so the group never grows under
@@ -230,6 +236,9 @@ func (d *DHTDiscovery) Start() error {
 			d.abortRun()
 		}
 	}()
+	if startHook != nil {
+		startHook()
+	}
 	ctx := d.runCtx()
 
 	// Discover external endpoint via STUN before announcing to peers.

@@ -2,6 +2,7 @@ package discovery
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -284,4 +285,106 @@ func TestPeerExchangeWithPeerDuringRestart(t *testing.T) {
 	}
 	pe.Stop()
 	<-done
+}
+
+// dhtRunning reads d.running under d.mu.
+func dhtRunning(d *DHTDiscovery) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.running
+}
+
+// TestDHTStopDuringStartStopsTheRun: a Stop issued while a Start is in the
+// middle waits for that Start and then stops its run.
+// Why: Stop returned at once (running was still false) and the run then went
+// live with nobody left to stop it. Invariant: after both calls return,
+// nothing runs. The seam startHook holds Start between beginRun and
+// setRunning; Stop must not return while it is held (a 200 ms window to see it
+// return early; it never fires when Stop waits).
+func TestDHTStopDuringStartStopsTheRun(t *testing.T) {
+	hermeticDHT(t)
+	d := newRestartDHT(t, context.Background(), "wgmesh-test-restart-stopduring-1",
+		daemon.DaemonOpts{Gossip: true, DisableIPv6: true})
+	t.Cleanup(func() { _ = d.Stop() })
+
+	reached := make(chan struct{})
+	release := make(chan struct{})
+	startHook = func() {
+		close(reached)
+		<-release
+	}
+	t.Cleanup(func() { startHook = nil })
+
+	startErr := make(chan error, 1)
+	go func() { startErr <- d.Start() }()
+	<-reached
+
+	stopErr := make(chan error, 1)
+	go func() { stopErr <- d.Stop() }()
+	stoppedEarly := false
+	select {
+	case <-stopErr:
+		stoppedEarly = true
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(release)
+	if err := <-startErr; err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	if !stoppedEarly {
+		if err := <-stopErr; err != nil {
+			t.Fatalf("Stop: %v", err)
+		}
+	}
+	if stoppedEarly {
+		t.Error("Stop returned while a Start was still in progress")
+	}
+	if dhtRunning(d) {
+		t.Error("DHT layer still running after Stop issued during Start")
+	}
+	if d.exchange.isRunning() {
+		t.Error("exchange still running after Stop issued during Start")
+	}
+}
+
+// TestDHTStopThenStartRace runs `go Stop(); Start()` on a running layer 20
+// times. Words: Stop and Start are serialized by runMu, so one wins and the
+// other follows whole. Invariant: when Start returned nil it ran after Stop
+// and everything runs; when it returned "already running" Stop came last and
+// nothing runs; the exchange always agrees with the DHT layer. It is a -race
+// test.
+func TestDHTStopThenStartRace(t *testing.T) {
+	hermeticDHT(t)
+	d := newRestartDHT(t, context.Background(), "wgmesh-test-restart-stopstart-1",
+		daemon.DaemonOpts{Gossip: true, DisableIPv6: true})
+	t.Cleanup(func() { _ = d.Stop() })
+
+	if err := d.Start(); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		var wg sync.WaitGroup
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = d.Stop()
+		}()
+		err := d.Start()
+		wg.Wait()
+		if err != nil && !strings.Contains(err.Error(), "already running") {
+			t.Fatalf("iteration %d: Start: %v", i, err)
+		}
+		want := err == nil
+		if got := dhtRunning(d); got != want {
+			t.Fatalf("iteration %d: running = %v, want %v (Start err %v)", i, got, want, err)
+		}
+		if got := d.exchange.isRunning(); got != want {
+			t.Fatalf("iteration %d: exchange running = %v, want %v", i, got, want)
+		}
+		if !want {
+			if err := d.Start(); err != nil {
+				t.Fatalf("iteration %d: restart: %v", i, err)
+			}
+		}
+	}
 }
