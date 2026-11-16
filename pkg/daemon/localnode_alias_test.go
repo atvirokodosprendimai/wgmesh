@@ -8,8 +8,8 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
-// TestLocalNodeIsOneType: a method added to node.LocalNode (ADR-0005 T8's
-// accessors) must reach the value initLocalNode, discovery and the tests use,
+// TestLocalNodeIsOneType: a method added to node.LocalNode must reach the
+// value initLocalNode, discovery and the tests use,
 // so daemon.LocalNode and node.LocalNode must be one type, not two.
 func TestLocalNodeIsOneType(t *testing.T) {
 	if reflect.TypeOf(daemon.LocalNode{}) != reflect.TypeOf(node.LocalNode{}) {

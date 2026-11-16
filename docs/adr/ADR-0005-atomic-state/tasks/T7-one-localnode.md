@@ -17,14 +17,14 @@
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/node/types.go` | edit | replace the unused `LocalNode` (`:32-60`) by the daemon's struct and methods as they stand after ADR-0002 T9: `GetEndpoint`, `SetEndpoint`, `ObserveEndpoint`, `EndpointSource` and its constants, the pending-STUN fields, all under the one `endpointMu` |
+| `pkg/node/types.go` | edit | replace the unused `LocalNode` by the daemon's struct and methods as they stand on main after ADR-0002 T9 and PR #895 (ADR M7): `GetEndpoint`, `SetEndpoint`, `ObserveEndpoint`, `EndpointSource` and its constants, `stunConfirmations`, `endpointUnspecified`, the pending-STUN fields, all under `endpointMu`, and `routesMu` with `GetRoutableNetworks` and `SetRoutableNetworks` |
 | `pkg/daemon/peerstore_compat.go` | edit | `type LocalNode = node.LocalNode`, beside the `PeerInfo` and `PeerStore` aliases; the `EndpointSource` constants are re-exported there if `dht.go` and `exchange.go` name them as `daemon.X` |
-| `pkg/daemon/daemon.go` | edit | delete the struct, its methods and the `EndpointSource` declarations (`:99-128` plus what ADR-0002 T9 added); the doc comment moves to the alias |
+| `pkg/daemon/daemon.go` | edit | delete the struct, its methods and the `EndpointSource` declarations (about 110 lines); the doc comment stays on `node.LocalNode`, which names the alias |
 | `pkg/daemon/localnode_alias_test.go` | add | the identity test |
 
-Selection: `grep -rn "LocalNode{" --include=*.go . | grep -v _test.go` lists the construction sites (`daemon.go:422`); all keep compiling because the structs have the same fields except what ADR-0002 T9 adds (read on 2026-11-15: `pkg/node/types.go:34-46`, `pkg/daemon/daemon.go:102-114`).
+Selection: `grep -rn "LocalNode{" --include=*.go . | grep -v _test.go` lists the construction sites (`pkg/daemon/daemon.go` in `initLocalNode`, and `pkg/daemon/helpers.go` in `loadLocalNode`); all keep compiling because the type is the same. Test files build it with keyed fields only.
 
-Ordering note: runs **after** ADR-0002 T9 (M4; ADR-0002 decision 10: `ObserveEndpoint` lives on `daemon.LocalNode` and the type merge is this record's work). T9 lands its tests in `pkg/node/local_endpoint_test.go` against `daemon.LocalNode`; after this move they sit beside the type, and they must pass unchanged.
+Ordering note: runs **after** ADR-0002 T9 (M4; ADR-0002 decision 10: `ObserveEndpoint` lives on `daemon.LocalNode` and the type merge is this record's work). T9's tests are `pkg/daemon/local_endpoint_test.go` (package `daemon`, exported API only); they stay where they are, pass through the alias unchanged, and need no move.
 
 ## Ordered Steps
 
@@ -36,7 +36,7 @@ Ordering note: runs **after** ADR-0002 T9 (M4; ADR-0002 decision 10: `ObserveEnd
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/daemon -run '^TestLocalNodeIsOneType$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 1 ] && go build ./... && go vet ./... && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
+n=$(go test ./pkg/daemon -run '^TestLocalNodeIsOneType$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -eq 1 ] && go build ./... && go vet ./... && go test -race ./pkg/node ./pkg/daemon ./pkg/discovery -count=1
 ```
 
 ## Tests
@@ -51,7 +51,7 @@ n=$(go test ./pkg/daemon -run '^TestLocalNodeIsOneType$' -count=1 -v 2>&1 | tee 
 |------|------------------------|
 | 1 — exists | the test |
 | 2 — something selects it | the alias is the type every caller names |
-| 3 — the caller can discover it | the alias comment in `peerstore_compat.go` |
+| 3 — the caller can discover it | the doc comment on `node.LocalNode` names the alias in `peerstore_compat.go` |
 | 4 — it is used | T8; ADR-0002 T9's `ObserveEndpoint` after the move |
 
 ## Mutation Log
