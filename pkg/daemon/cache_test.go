@@ -103,6 +103,71 @@ func TestCacheExpiration(t *testing.T) {
 	if len(active) != 1 {
 		t.Errorf("Expected 1 active peer, got %d", len(active))
 	}
+
+	// With the restore grace in place an entry older than the expiry is still
+	// not restored, and one inside it is.
+	enforceLiveness(t)
+	cache := &PeerCache{Peers: []PeerCacheEntry{
+		{WGPubKey: "expired", MeshIP: "10.0.0.3", LastSeen: time.Now().Add(-CacheExpiration - time.Hour).Unix()},
+		{WGPubKey: "inside", MeshIP: "10.0.0.4", LastSeen: time.Now().Add(-CacheExpiration + time.Hour).Unix()},
+	}}
+	restored := NewPeerStore()
+	if n := restorePeers(cache, restored); n != 1 {
+		t.Fatalf("restorePeers = %d, want 1 (the entry inside the 24 h expiry)", n)
+	}
+	if _, ok := restored.Get("expired"); ok {
+		t.Error("an entry older than 24 hours was restored")
+	}
+	if got, ok := restored.Get("inside"); !ok || got.RestoredAt.IsZero() {
+		t.Errorf("the entry inside the expiry = %+v, %v, want it restored with RestoredAt set", got, ok)
+	}
+}
+
+// A restart more than five minutes after the last save: the cache entry is
+// old, yet the peer is dialable for PeerDeadTimeout from the restore (#851).
+func TestRestoreGivesGrace(t *testing.T) {
+	cache := &PeerCache{Peers: []PeerCacheEntry{{
+		WGPubKey: "k",
+		MeshIP:   "10.0.0.2",
+		Endpoint: "1.2.3.4:51820",
+		LastSeen: time.Now().Add(-time.Hour).Unix(),
+	}}}
+
+	t.Run("enforced", func(t *testing.T) {
+		enforceLiveness(t)
+		ps := NewPeerStore()
+		if n := restorePeers(cache, ps); n != 1 {
+			t.Fatalf("restorePeers = %d, want 1", n)
+		}
+		active := ps.GetActive()
+		if len(active) != 1 || active[0].WGPubKey != "k" {
+			t.Fatalf("GetActive = %v, want the restored peer", active)
+		}
+	})
+	t.Run("legacy", func(t *testing.T) {
+		ps := NewPeerStore()
+		restorePeers(cache, ps)
+		if active := ps.GetActive(); len(active) != 0 {
+			t.Fatalf("GetActive = %v, want none while the switch is off", active)
+		}
+		if got, ok := ps.Get("k"); !ok || got.RestoredAt.IsZero() {
+			t.Fatalf("restored peer = %+v, %v, want RestoredAt recorded from release N", got, ok)
+		}
+	})
+}
+
+// The saved last_seen is the newest evidence, so a node connected by
+// handshakes saves a fresh time.
+func TestSaveWritesLastAlive(t *testing.T) {
+	ps := NewPeerStore()
+	ps.SetPeerDirectly("k", &PeerInfo{WGPubKey: "k", MeshIP: "10.0.0.2", LastSeen: time.Now().Add(-3 * time.Hour)})
+	handshake := time.Now().Add(-30 * time.Second).Truncate(time.Second)
+	ps.ObserveDataPlane("k", handshake)
+
+	cache := buildPeerCache(ps)
+	if len(cache.Peers) != 1 || cache.Peers[0].LastSeen != handshake.Unix() {
+		t.Fatalf("cache peers = %+v, want last_seen %d (the handshake)", cache.Peers, handshake.Unix())
+	}
 }
 
 // TestCacheRestoreOffersRestored verifies that a restored entry neither

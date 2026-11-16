@@ -574,3 +574,96 @@ func TestDisagreementHookIsCalledPerDisagreeingPeer(t *testing.T) {
 		t.Fatalf("hook after CleanupStale = %v, want two more cleanup", got)
 	}
 }
+
+// restoredOffer offers a cache entry for key to ps the way the daemon's
+// restore does.
+func restoredOffer(ps *PeerStore, key string, lastSeen time.Time) {
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: key, MeshIP: "10.0.0.2", LastSeen: lastSeen}, Source: "cache", Hand: Restored})
+}
+
+func TestRestoredAtIsSetOnlyForNewKeys(t *testing.T) {
+	cur := livenessNow
+	ps := movableStore(&cur)
+	seen := cur.Add(-2 * time.Minute)
+	seedPeer(ps, "known", seen)
+
+	cur = cur.Add(time.Minute)
+	restoredOffer(ps, "known", cur.Add(-time.Hour))
+	restoredOffer(ps, "fresh", cur.Add(-time.Hour))
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "second", MeshIP: "10.0.0.3"}, Source: "gossip", Hand: SecondHand})
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "first", MeshIP: "10.0.0.4"}, Source: "dht", Hand: FirstHand})
+
+	known, _ := ps.Get("known")
+	if !known.RestoredAt.IsZero() || !known.LastSeen.Equal(seen) || !known.LastDataPlane.IsZero() {
+		t.Fatalf("a Restored offer changed a known key's evidence: RestoredAt %v LastSeen %v (want zero and %v) LastDataPlane %v", known.RestoredAt, known.LastSeen, seen, known.LastDataPlane)
+	}
+	fresh, _ := ps.Get("fresh")
+	if !fresh.RestoredAt.Equal(cur) {
+		t.Fatalf("a new Restored key has RestoredAt %v, want the store clock %v", fresh.RestoredAt, cur)
+	}
+	if !fresh.LastSeen.Equal(cur.Add(-time.Hour)) {
+		t.Fatalf("a new Restored key has LastSeen %v, want the cache time %v untouched", fresh.LastSeen, cur.Add(-time.Hour))
+	}
+	for _, k := range []string{"second", "first"} {
+		if p, _ := ps.Get(k); !p.RestoredAt.IsZero() {
+			t.Fatalf("a %s new key has RestoredAt %v, want zero: only a Restored candidate sets it", k, p.RestoredAt)
+		}
+	}
+}
+
+func TestRestoredNeverHeardLeavesAfterRemoveTimeout(t *testing.T) {
+	enforceLiveness(t, true)
+	cur := livenessNow
+	ps := movableStore(&cur)
+	restoredOffer(ps, "k1", cur.Add(-time.Hour))
+
+	steps := []struct {
+		name    string
+		after   time.Duration
+		active  bool
+		removed bool
+	}{
+		{"just restored", 0, true, false},
+		{"before PeerDeadTimeout", PeerDeadTimeout - time.Second, true, false},
+		{"at PeerDeadTimeout", PeerDeadTimeout, false, false},
+		{"at PeerRemoveTimeout", PeerRemoveTimeout, false, false},
+		{"after PeerRemoveTimeout", PeerRemoveTimeout + time.Second, false, true},
+	}
+	for _, s := range steps {
+		cur = livenessNow.Add(s.after)
+		if got := hasKey(ps.GetActive(), "k1"); got != s.active {
+			t.Fatalf("%s: in GetActive = %v, want %v", s.name, got, s.active)
+		}
+		removed := ps.CleanupStale()
+		if (len(removed) == 1) != s.removed {
+			t.Fatalf("%s: CleanupStale removed %v, want removed=%v", s.name, removed, s.removed)
+		}
+	}
+	if ps.Count() != 0 {
+		t.Fatalf("Count = %d, want the restored peer gone", ps.Count())
+	}
+}
+
+func TestRestoredPeerIsNotFirstHandAndLeavesNoTombstone(t *testing.T) {
+	enforceLiveness(t, true)
+	cur := livenessNow
+	ps := movableStore(&cur)
+	restoredOffer(ps, "k1", cur.Add(-time.Hour))
+
+	ps.mu.RLock()
+	first := ps.peers["k1"].heardFirstHand
+	ps.mu.RUnlock()
+	if first {
+		t.Fatal("a restored peer is first-hand")
+	}
+	cur = livenessNow.Add(PeerRemoveTimeout + time.Second)
+	if removed := ps.CleanupStale(); len(removed) != 1 {
+		t.Fatalf("CleanupStale removed %v, want the restored peer", removed)
+	}
+	if _, ok := ps.tombstones["k1"]; ok {
+		t.Fatal("CleanupStale of a restored, never heard peer left a tombstone")
+	}
+	if d := ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k1", MeshIP: "10.0.0.2"}, Source: "cache", Hand: Restored}); d.Verdict == Refuse {
+		t.Fatalf("a restore after the removal was refused: %v", d.Reason)
+	}
+}
