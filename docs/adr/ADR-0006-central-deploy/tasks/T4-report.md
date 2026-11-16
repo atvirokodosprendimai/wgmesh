@@ -154,3 +154,4 @@ Stop and ask if a failure in one node's apply can corrupt the config of a node p
 - 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:11995
 - 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:8669
 - 2026-11-16 · e3546a6* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:12427
+- 2026-11-16 · 164dd40* · exit 0 · `set -o pipefail …` · acceptance-sha256:649e92a966c533d223a3ec19e11d8e6bb977c721b24392f2bf0daab0894847d7 · ms:11092

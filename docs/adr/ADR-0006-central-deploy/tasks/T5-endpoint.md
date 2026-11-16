@@ -131,3 +131,4 @@ Stop and ask if a test shows the local node must not receive an endpoint, or if 
 - 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:10976
 - 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:11182
 - 2026-11-16 · b73ca0f* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:9226
+- 2026-11-16 · 164dd40* · exit 0 · `set -o pipefail …` · acceptance-sha256:088a2848aafd56d156fbef5bc007c001ef3232792058e2658c3304a41f6240d8 · ms:9301

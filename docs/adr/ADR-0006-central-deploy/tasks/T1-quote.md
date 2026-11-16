@@ -125,3 +125,4 @@ Stop and ask if an existing `ifname` test needs a changed expectation, or if a c
 - 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:6397
 - 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:6176
 - 2026-11-15 · 15230e9* · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:5309
+- 2026-11-16 · 164dd40 · exit 0 · `set -o pipefail …` · acceptance-sha256:add5507172bc31016b7187b4b1b55fefd863d68084cc1f17a3f9cf7ddee74df2 · ms:4511

@@ -152,3 +152,4 @@ Stop and ask if either saved state produces a class A finding (the safe set refu
 - 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:8464
 - 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:10155
 - 2026-11-16 · e299b83* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:6340
+- 2026-11-16 · 164dd40* · exit 0 · `set -o pipefail …` · acceptance-sha256:85252aae1c20ca4407707b481cd86ea38aef04167adbcd00a783266423bec554 · ms:10912

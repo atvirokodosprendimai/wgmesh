@@ -115,3 +115,4 @@ Stop and ask if `CalculateRouteDiff` does not put a gatewayed own-network route 
 - 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:11878
 - 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:12732
 - 2026-11-16 · 5fb793a* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:7893
+- 2026-11-16 · 164dd40* · exit 0 · `set -o pipefail …` · acceptance-sha256:03e45c3aae3b6a145699bffe26d39d7116da810f7e04cbc38fc4a0d9273587fa · ms:9625
