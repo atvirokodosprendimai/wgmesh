@@ -1,9 +1,13 @@
 package discovery
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"log"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -418,5 +422,47 @@ func TestOnResumeCoalescesWhileAPassRuns(t *testing.T) {
 	}
 	if got := p.announce.Load(); got != 2 {
 		t.Fatalf("announce() calls after the pass ended = %d, want 2", got)
+	}
+}
+
+// One wake with failing peers writes one summary line, not one per peer.
+func TestAnnounceNowLogsOneSummaryLine(t *testing.T) {
+	d, _ := resumeDHT(t)
+	d.config.Gossip = true
+	g, err := NewMeshGossipWithExchange(d.config, d.localNode, d.peerStore, d.exchange)
+	if err != nil {
+		t.Fatalf("NewMeshGossipWithExchange: %v", err)
+	}
+	d.gossip = g
+	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	d.exchange.mu.Lock()
+	d.exchange.conn = conn
+	d.exchange.mu.Unlock()
+	d.sendAnnounceFn = func(*net.UDPAddr) error { return errors.New("boom") }
+	addActivePeers(t, d, "10.250.0.2", "10.250.0.3", "10.250.0.4", "not-an-ip")
+
+	var buf bytes.Buffer
+	prev := log.Writer()
+	log.SetOutput(&buf)
+	d.announceNow()
+	log.SetOutput(prev)
+
+	var lines []string
+	for _, l := range strings.Split(strings.TrimSpace(buf.String()), "\n") {
+		if strings.Contains(l, "[Resume]") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 1 {
+		t.Fatalf("[Resume] log lines = %d, want 1 summary:\n%s", len(lines), strings.Join(lines, "\n"))
+	}
+	for _, want := range []string{"failed for 3", "boom", "1 skipped"} {
+		if !strings.Contains(lines[0], want) {
+			t.Errorf("summary %q lacks %q", lines[0], want)
+		}
 	}
 }
