@@ -21,7 +21,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | Add the pure `Assess` and make the store's three liveness readers use it | done | — | `go test ./pkg/node` eleven named tests, then `-race` on node, daemon, discovery |
-| T2 | Feed the handshake and the probe into the store and move every liveness reader to `Alive` (#850) | pending | — | eight named tests in two packages, `LastSeen` age grep count is 0 outside `pkg/node`, then `-race` |
+| T2 | Feed the handshake and the probe into the store and move every liveness reader to `Alive` (#850) | done | — | eight named tests in two packages, `LastSeen` age grep count is 0 outside `pkg/node`, then `-race` |
 | T3 | Treat a restored cache entry as dialable for `PeerDeadTimeout` (#851) | pending | — | five named tests in two packages plus the existing cache tests, then `-race` |
 | T4 | Detect a wake from sleep and give the peers a grace period (#829) | pending | — | nine named tests, then `-race`; a human step times a real wake |
 | T5 | Make the DHT layer refresh its endpoint and announce at once on a wake (#829) | pending | — | eight named tests in two packages, then `-race` |

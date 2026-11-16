@@ -68,6 +68,15 @@ a=$(go test ./pkg/daemon -run '^(TestReconcileRecordsHandshakes|TestReconcileObs
 | 4 — it is used | from N+1 the verdict acts; from N `wgmesh_liveness_disagree_total{site}` shows each peer that would have been kept |
 
 ## Mutation Log
+- 2026-11-16 · 82a6211* · mutant killed · exit 1 · `pkg/daemon/liveness.go` · observeHandshakes not called · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 82a6211* · mutant killed · exit 1 · `pkg/daemon/liveness.go` · observe after GetActive · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 82a6211* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · probe does not record · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 82a6211* · mutant inconclusive · exit 1 · `pkg/daemon/liveness_guard_test.go` · guard name check removed · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-16 · 82a6211* · mutant killed · exit 1 · `pkg/discovery/dht.go` · dht 1270 back to LastSeen · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
+- 2026-11-16 · 82a6211* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · probe loop back to GetActive · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143
 
 ## Invariants
 
@@ -92,3 +101,24 @@ Stop and ask if `TestReconcileRecordsHandshakes` needs a second `wg show` per re
 - The restore grace (T3) and the wake grace (T4).
 
 ## Verification Log
+- 2026-11-16 · 82a6211* · exit 1 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:2140 · test-lock-sha256:c0dcdd39b2cefc9d3e41d5401dd82fa9c9292ed058a1aa84aff93d1ca293008f · test-lock-file:docs/adr/locks/c0dcdd39b2cefc9d3e41d5401dd82fa9c9292ed058a1aa84aff93d1ca293008f.lock
+  ```
+  --- last 10 line(s) of stderr (of 52 after folding 52 raw)
+      liveness_test.go:251: pings = 0, want 1
+      liveness_test.go:256: Alive after the loop = false, want true
+  === RUN   TestProbeLoopVisitsSuspectPeers/neither_configured_nor_relay_routed
+  --- FAIL: TestProbeLoopVisitsSuspectPeers (0.00s)
+      --- FAIL: TestProbeLoopVisitsSuspectPeers/still_configured (0.00s)
+      --- FAIL: TestProbeLoopVisitsSuspectPeers/relay_routed (0.00s)
+      --- PASS: TestProbeLoopVisitsSuspectPeers/neither_configured_nor_relay_routed (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.050s
+  FAIL
+  ```
+- 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:13344
+- 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:11992
+- 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:14208
+- 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:12655
+- 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:14522
+- 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:14905
+- 2026-11-16 · 82a6211* · exit 0 · `set -o pipefail …` · acceptance-sha256:8d77cd2b3ef8f4a7840d623264fcd1972d5426e32edef7a5de04cc37ea358143 · ms:9432
