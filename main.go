@@ -328,15 +328,12 @@ func saveSecretFile(path, secretURI string) error {
 	return nil
 }
 
-// acquireInterfaceLock takes the exclusive lock of one interface for the life
-// of the process, so a second join cannot unlink the running daemon's RPC
-// socket or reset its interface (#860). The kernel drops the lock when the
-// process dies.
-// interfaceLockPath is read once per join and set only by non-parallel tests.
-var interfaceLockPath = daemon.InterfaceLockPath
-
-func acquireInterfaceLock(iface string) (func(), error) {
-	path := interfaceLockPath(iface)
+// acquireInterfaceLock takes the exclusive lock on the file at path (its
+// directory is created 0700) for the life of the process, so a second join
+// cannot unlink the running daemon's RPC socket or reset its interface (#860).
+// It returns the release func; when another process holds the lock the error
+// names the lock file and that process's pid.
+func acquireInterfaceLock(path string) (func(), error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("create lock directory: %w", err)
 	}
@@ -346,7 +343,7 @@ func acquireInterfaceLock(iface string) (func(), error) {
 			if holder == "" {
 				holder = "unknown"
 			}
-			return nil, fmt.Errorf("another wgmesh join holds interface %s (lock %s, pid %s); stop it first", iface, path, holder)
+			return nil, fmt.Errorf("another wgmesh join holds the lock %s (pid %s); stop it first", path, holder)
 		}
 		return nil, fmt.Errorf("interface lock %s: %w", path, err)
 	}
@@ -445,7 +442,7 @@ func joinCmd() {
 
 	// One join per interface: take the lock before NewDaemon and before the RPC
 	// server, which unlinks the socket. Held until the process exits.
-	releaseLock, err := acquireInterfaceLock(cfg.InterfaceName)
+	releaseLock, err := acquireInterfaceLock(daemon.InterfaceLockPath(cfg.InterfaceName))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

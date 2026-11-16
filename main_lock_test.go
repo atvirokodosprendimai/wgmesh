@@ -17,27 +17,21 @@ import (
 // interface and its deferred teardown deleted it (#860).
 // Invariants: the error names the lock file and the holder's pid; the lock is
 // taken before daemon.NewDaemon and createRPCServer.
-// interfaceLockPath is read once per join and set only by non-parallel tests.
 
 func TestAcquireInterfaceLockMessage(t *testing.T) {
-	dir := t.TempDir()
-	old := interfaceLockPath
-	interfaceLockPath = func(iface string) string { return filepath.Join(dir, iface+".lock") }
-	defer func() { interfaceLockPath = old }()
+	lock := filepath.Join(t.TempDir(), "wgtest0.lock")
 
-	release, err := acquireInterfaceLock("wgtest0")
+	release, err := acquireInterfaceLock(lock)
 	if err != nil {
 		t.Fatalf("first acquire: %v", err)
 	}
 	defer release()
-	_, err = acquireInterfaceLock("wgtest0")
+	_, err = acquireInterfaceLock(lock)
 	if err == nil {
 		t.Fatal("second acquire succeeded while the first is held")
 	}
-	lock := filepath.Join(dir, "wgtest0.lock")
 	for _, want := range []string{
-		"another wgmesh join holds interface wgtest0",
-		"lock " + lock,
+		"another wgmesh join holds the lock " + lock,
 		"pid " + strconv.Itoa(os.Getpid()),
 		"stop it first",
 	} {
