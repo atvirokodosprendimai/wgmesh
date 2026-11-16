@@ -76,12 +76,10 @@ func TestSaveServicesAtomicWrite(t *testing.T) {
 		t.Fatalf("SaveServices failed: %v", err)
 	}
 
-	// Verify no .tmp file remains
-	tmpPath := path + ".tmp"
-	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
-		t.Error("temp file should not exist after successful save")
+	// Verify no temp file remains
+	if m, _ := filepath.Glob(path + ".tmp-*"); len(m) != 0 {
+		t.Errorf("temp file should not exist after successful save: %v", m)
 	}
-
 	// Verify file permissions
 	info, err := os.Stat(path)
 	if err != nil {
