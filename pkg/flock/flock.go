@@ -42,6 +42,10 @@ func (e *HeldError) Error() string {
 // Is makes errors.Is(err, ErrHeld) true.
 func (e *HeldError) Is(target error) bool { return target == ErrHeld }
 
+// Known limit: flock locks an inode, not a name. If the lock file is unlinked
+// while a holder runs, a later TryLock creates and locks a new inode. The
+// directory is root-owned (0700); nothing here can detect that, and a test
+// would need a hook between open and flock, which is not worth a seam.
 // TryLock takes an exclusive non-blocking flock on path (created 0600) and
 // writes the caller's pid into it. When another holder has it, the error
 // matches ErrHeld and holder is the pid that holder wrote. release unlocks and
