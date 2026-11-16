@@ -143,8 +143,57 @@ var EnforceAddressRemoval atomic.Bool
 // or Store.
 var EnforceRevertOnExit atomic.Bool
 
-// revertKernel is the graceful-exit revert (stub).
-func (d *Daemon) revertKernel() {}
+// forwardOwner is what a run knows of who set one forwarding item. It is
+// decided once, by the first tick that observes the item or writes it, and
+// never changes in the run: an item found in place is not ours, also when it
+// drifts away and a later tick writes it again.
+type forwardOwner int
+
+const (
+	ownerUnknown forwardOwner = iota // no tick has seen or written the item yet
+	ownerFound                       // present when first seen
+	ownerOurs                        // first seen absent (or 0) and this run's write succeeded
+)
+
+// revertKernel undoes at a graceful exit what this run did to forwarding: the
+// FORWARD rule it appended (the rule first) and ip_forward it changed from 0 to
+// 1, nothing else. With EnforceRevertOnExit off it logs once what it will undo
+// from the next release and issues no command. Run calls it after the
+// goroutines have stopped; it takes convergeMu like every kernel write.
+func (d *Daemon) revertKernel() {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	rule, ip := d.ruleOwner == ownerOurs, d.ipForwardOwner == ownerOurs
+	if !rule && !ip {
+		return
+	}
+	iface := d.config.InterfaceName
+	if !EnforceRevertOnExit.Load() {
+		if !d.revertWarned {
+			d.revertWarned = true
+			var did []string
+			if rule {
+				did = append(did, "added the FORWARD rule on "+iface)
+			}
+			if ip {
+				did = append(did, "changed ip_forward from 0 to 1")
+			}
+			d.logf("revert-on-exit: this run %s; it stays after exit, a later release undoes it at exit (EnforceRevertOnExit)", strings.Join(did, " and "))
+		}
+		return
+	}
+	var results []itemResult
+	if rule {
+		out, err := cmdExecutor.Command("iptables", append([]string{"-D"}, forwardRuleArgs(iface)...)...).CombinedOutput()
+		results = append(results, d.forwardResult("delete", "FORWARD", out, err))
+	}
+	if ip {
+		out, err := cmdExecutor.Command("sysctl", "-w", "net.ipv4.ip_forward=0").CombinedOutput()
+		results = append(results, d.forwardResult("restore", "ip_forward", out, err))
+	}
+	d.ruleOwner, d.ipForwardOwner = ownerUnknown, ownerUnknown
+	d.logResults(results)
+}
 
 // forwardRuleArgs is the FORWARD rule of a mesh interface as iptables
 // arguments after the -C or -A that checks or appends it.
@@ -157,6 +206,9 @@ type forwardPlan struct {
 	Sysctl     bool // write net.ipv4.ip_forward=1
 	Rule       bool // append the FORWARD rule
 	NoIptables bool // forwarding is wanted but there is no iptables binary
+	// Found: the observe read the value in place (ip_forward 1, the rule
+	// present), so this run does not own it.
+	IPForwardFound, RuleFound bool
 }
 
 // planForward is pure: the sysctl is written only when it reads 0, the rule
@@ -171,13 +223,16 @@ func planForward(want forwardDesired, k kernelObserved) forwardPlan {
 	plan.Sysctl = !k.Forward.IPForward
 	plan.NoIptables = !k.Forward.IptablesPresent
 	plan.Rule = k.Forward.IptablesPresent && !k.Forward.RuleInstalled
+	plan.IPForwardFound = k.Forward.IPForward
+	plan.RuleFound = k.Forward.IptablesPresent && k.Forward.RuleInstalled
 	return plan
 }
 
 // applyForward writes the forwarding plan, one item at a time; a failure of
 // one is a result, never an abort. A missing iptables is logged once, not
 // every tick, and is not a result; the flag that remembers it is touched only
-// on a tick that observed the target. The caller holds convergeMu.
+// on a tick that observed the target. It also records, once per item, whether
+// this run owns it (forwardOwner) for revertKernel. The caller holds convergeMu.
 func (d *Daemon) applyForward(plan forwardPlan, observed bool) []itemResult {
 	if observed && plan.NoIptables != d.forwardNoIptables {
 		d.forwardNoIptables = plan.NoIptables
@@ -187,13 +242,27 @@ func (d *Daemon) applyForward(plan forwardPlan, observed bool) []itemResult {
 	}
 	iface := d.config.InterfaceName
 	var results []itemResult
+	if plan.IPForwardFound && d.ipForwardOwner == ownerUnknown {
+		d.ipForwardOwner = ownerFound
+	}
+	if plan.RuleFound && d.ruleOwner == ownerUnknown {
+		d.ruleOwner = ownerFound
+	}
 	if plan.Sysctl {
 		out, err := cmdExecutor.Command("sysctl", "-w", "net.ipv4.ip_forward=1").CombinedOutput()
-		results = append(results, d.forwardResult("set", "ip_forward", out, err))
+		r := d.forwardResult("set", "ip_forward", out, err)
+		if r.Err == nil && d.ipForwardOwner == ownerUnknown {
+			d.ipForwardOwner = ownerOurs
+		}
+		results = append(results, r)
 	}
 	if plan.Rule {
 		out, err := cmdExecutor.Command("iptables", append([]string{"-A"}, forwardRuleArgs(iface)...)...).CombinedOutput()
-		results = append(results, d.forwardResult("append", "FORWARD", out, err))
+		r := d.forwardResult("append", "FORWARD", out, err)
+		if r.Err == nil && d.ruleOwner == ownerUnknown {
+			d.ruleOwner = ownerOurs
+		}
+		results = append(results, r)
 	}
 	return results
 }

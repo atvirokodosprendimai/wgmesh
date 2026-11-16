@@ -60,7 +60,7 @@ type Daemon struct {
 	// convergeMu serialises every write to the WireGuard peers of the kernel
 	// (see converge.go) and guards pushedEndpoint, lastResults,
 	// observeErrLogged and the forwarding target's state (forwardScopeWarned,
-	// forwardNoIptables, forwardObserveErr) and the route target's state
+	// forwardNoIptables, forwardObserveErr, ruleOwner, ipForwardOwner, revertWarned) and the route target's state
 	// (routeObserveErr, routeWarned, hostDefaultWarned, hostDefaultReadErr, hostDefaults,
 	// darwinWarned). Lock order: reconcileMu, then
 	// convergeMu; the health paths (attemptPeerReconnect, evictPeerFromPool,
@@ -73,6 +73,10 @@ type Daemon struct {
 	forwardScopeWarned bool   // the node is forced to forward without needing to (rule forward-scope)
 	forwardNoIptables  bool   // "iptables missing" was logged
 	forwardObserveErr  string // last forwarding observe error text
+	// Ownership of what this run wrote for forwarding, and the revert's
+	// logged-once flag (converge.go revertKernel).
+	ruleOwner, ipForwardOwner forwardOwner
+	revertWarned              bool
 	// Address target (converge.go): logged once per change.
 	addressObserveErr string              // last address observe error text
 	addressWarned     map[string]struct{} // stale addresses warned about that still hold (rule stale-address)
@@ -465,6 +469,7 @@ func (d *Daemon) Run() error {
 	d.cancel()
 	log.Printf("Waiting for background tasks to complete...")
 	d.wg.Wait()
+	d.revertKernel()
 	return nil
 }
 
@@ -1642,6 +1647,7 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 
 	log.Printf("Waiting for background tasks to complete...")
 	d.wg.Wait()
+	d.revertKernel()
 	return nil
 }
 
