@@ -81,6 +81,7 @@ type Daemon struct {
 	routeWarned        map[string]struct{} // rule cases that desire warned about and that still hold
 	hostDefaultWarned  map[string]struct{} // families whose host default route was warned about
 	darwinWarned       map[string]struct{} // macOS: kind|family|text of the cases warned about that still hold
+	darwinInstalled    map[string]struct{} // macOS: canonical networks this daemon run installed on the mesh interface
 	hostDefaultReadErr map[string]string   // family -> last error text of reading the host default route
 	// Seams of the kernel and the log, set at construction; nil means the
 	// real wireguard functions and log.Printf (see converge.go).

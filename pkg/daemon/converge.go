@@ -362,9 +362,33 @@ func (d *Daemon) convergeRoutes(ds *desiredState, obs kernelObserved) []itemResu
 // convergeMu.
 func (d *Daemon) convergeRoutesDarwin(ds *desiredState, obs kernelObserved) []itemResult {
 	d.noteRouteObserve(obs)
-	plan, foreign := planRoutesDarwin(ds.Routes, obs, d.meshPrefixes())
+	plan, foreign := planRoutesDarwin(ds.Routes, obs, d.meshPrefixes(), d.darwinInstalled)
 	d.noteDarwinWarnings(obs, foreign)
-	return applyRouteDiffDarwin(d.config.InterfaceName, plan)
+	results := applyRouteDiffDarwin(d.config.InterfaceName, plan)
+	d.noteDarwinInstalled(results)
+	return results
+}
+
+// noteDarwinInstalled keeps the set of networks this daemon run installed on
+// the mesh interface (the only ones it may delete): a successful add or
+// change puts a network in, a successful delete takes it out. The interface
+// is recreated at every daemon start, so the in-memory set is exact. The
+// caller holds convergeMu.
+func (d *Daemon) noteDarwinInstalled(results []itemResult) {
+	if d.darwinInstalled == nil {
+		d.darwinInstalled = make(map[string]struct{})
+	}
+	for _, r := range results {
+		if r.Err != nil {
+			continue
+		}
+		switch r.Op {
+		case "add", "change":
+			d.darwinInstalled[r.Key] = struct{}{}
+		case "delete":
+			delete(d.darwinInstalled, r.Key)
+		}
+	}
 }
 
 // noteDarwinWarnings logs and counts, once while the case holds, a wanted

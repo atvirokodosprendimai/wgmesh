@@ -165,11 +165,13 @@ type darwinForeign struct{ Network, Iface string }
 // not hold is added, unless another interface already routes it (foreign: it
 // is returned instead, never added, so the host's default route or another
 // tunnel's route is not re-pointed), and a held network that is not wanted
-// is removed, except the prefixes in keep (the mesh connected routes). The
+// is removed only if this daemon run installed it (installed: canonical
+// networks, so a route added by hand or left by an earlier run stays) and it
+// is not one of keep (the mesh connected routes). The
 // gateway of a wanted entry is ignored. A family whose observe failed plans
 // nothing, so it removes nothing. Adds, removals and foreign are sorted, IPv4
 // first.
-func planRoutesDarwin(want []routes.Entry, k kernelObserved, keep []netip.Prefix) (routePlan, []darwinForeign) {
+func planRoutesDarwin(want []routes.Entry, k kernelObserved, keep []netip.Prefix, installed map[string]struct{}) (routePlan, []darwinForeign) {
 	var plan routePlan
 	var skipped []darwinForeign
 	for _, f := range []struct {
@@ -192,7 +194,10 @@ func planRoutesDarwin(want []routes.Entry, k kernelObserved, keep []netip.Prefix
 		for _, e := range f.current {
 			network := routes.Canonical(e.Network, f.ipv6)
 			held[network] = struct{}{}
-			if _, ok := wanted[network]; !ok && !keptPrefix(network, keep) {
+			if _, ok := wanted[network]; ok || keptPrefix(network, keep) {
+				continue
+			}
+			if _, ours := installed[network]; ours {
 				remove = append(remove, network)
 			}
 		}

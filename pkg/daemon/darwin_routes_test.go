@@ -347,26 +347,66 @@ func TestDarwinRouteAddUsesInterface(t *testing.T) {
 
 func TestDarwinRouteDeleteUsesInterface(t *testing.T) {
 	dh := newDarwinHost()
-	dh.add("172.20.0.0/16", "utun4")   // ours, no longer wanted
-	dh.add("172.21.0.0/16", "en0")     // another interface: never touched
-	dh.add("192.168.50.0/24", "utun4") // wanted: stays
-	ls := &logSink{}
-	d := newDarwinDaemon(t, dh, ls, newFakeKernel())
-	peers := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "192.168.50.0/24")}
-
-	if d.converge(peers) == nil {
-		t.Fatal("converge skipped the tick")
+	dh.add("172.21.0.0/16", "en0") // another interface: never touched
+	d := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
+	if d.converge([]*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "172.20.0.0/16", "192.168.50.0/24")}) == nil {
+		t.Fatal("converge skipped the first tick")
 	}
-	got := dh.routeCommands()
+	dh.add("172.22.0.0/16", "utun4") // added by hand later: not ours
+	before := len(dh.routeCommands())
+
+	if d.converge([]*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "192.168.50.0/24")}) == nil {
+		t.Fatal("converge skipped the second tick")
+	}
+	got := dh.routeCommands()[before:]
 	want := []string{"route -n delete -net 172.20.0.0/16 -interface utun4"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("route commands = %q, want %q", got, want)
 	}
 	if dh.has("172.20.0.0/16", "utun4") {
-		t.Error("the stale route is still in the table")
+		t.Error("the route this daemon installed is still in the table after its peer left")
 	}
-	if !dh.has("172.21.0.0/16", "en0") || !dh.has("192.168.50.0/24", "utun4") {
+	if !dh.has("172.21.0.0/16", "en0") || !dh.has("172.22.0.0/16", "utun4") || !dh.has("192.168.50.0/24", "utun4") {
 		t.Error("a route that must stay was removed")
+	}
+}
+
+// Only a route this daemon installed in this run is ever deleted: a route
+// somebody added by hand to the mesh interface, and one left by an earlier
+// run of the daemon, stay.
+func TestDarwinHandAddedRouteIsNeverDeleted(t *testing.T) {
+	dh := newDarwinHost()
+	dh.add("172.20.0.0/16", "utun4") // by hand, before any tick
+	d := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
+	peers := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "192.168.50.0/24")}
+	d.converge(peers)
+	d.converge(peers)
+	for _, c := range dh.routeCommands() {
+		if strings.HasPrefix(c, "route -n delete") {
+			t.Errorf("deleted a route this daemon did not install: %q", c)
+		}
+	}
+	if !dh.has("172.20.0.0/16", "utun4") {
+		t.Error("the hand-added route is gone")
+	}
+}
+
+func TestDarwinRestartDoesNotDeleteTheRoutesOfTheEarlierRun(t *testing.T) {
+	dh := newDarwinHost()
+	first := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
+	first.converge([]*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "172.20.0.0/16")})
+	if !dh.has("172.20.0.0/16", "utun4") {
+		t.Fatal("the first run did not install the route")
+	}
+	restarted := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
+	restarted.converge([]*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "192.168.50.0/24")})
+	for _, c := range dh.routeCommands() {
+		if strings.HasPrefix(c, "route -n delete") {
+			t.Errorf("the restarted daemon deleted %q", c)
+		}
+	}
+	if !dh.has("172.20.0.0/16", "utun4") {
+		t.Error("the route of the earlier run was deleted")
 	}
 }
 
@@ -413,14 +453,16 @@ func TestDarwinAttachedNetworkSkippedFromFirstRelease(t *testing.T) {
 
 func TestDarwinV6RouteUsesInet6(t *testing.T) {
 	dh := newDarwinHost()
-	dh.add("fd00:6::/64", "utun4") // ours, no longer wanted
 	d := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
-	peers := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "fd99::2", "fd00:5::/48", "192.168.50.0/24")}
-
-	if d.converge(peers) == nil {
-		t.Fatal("converge skipped the tick")
+	if d.converge([]*PeerInfo{darwinPeer("keyA", "10.99.0.2", "fd99::2", "fd00:6::/64")}) == nil {
+		t.Fatal("converge skipped the first tick")
 	}
-	got := dh.routeCommands()
+	before := len(dh.routeCommands())
+
+	if d.converge([]*PeerInfo{darwinPeer("keyA", "10.99.0.2", "fd99::2", "fd00:5::/48", "192.168.50.0/24")}) == nil {
+		t.Fatal("converge skipped the second tick")
+	}
+	got := dh.routeCommands()[before:]
 	sort.Strings(got)
 	want := []string{
 		"route -n add -inet6 -net fd00:5::/48 -interface utun4",
@@ -430,8 +472,8 @@ func TestDarwinV6RouteUsesInet6(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("route commands = %q, want %q", got, want)
 	}
-	if n := dh.count("netstat -rn -f inet6"); n != 1 {
-		t.Errorf("the IPv6 table was read %d times, want 1", n)
+	if n := dh.count("netstat -rn -f inet6"); n != 2 {
+		t.Errorf("the IPv6 table was read %d times over 2 ticks, want 2", n)
 	}
 }
 
@@ -520,23 +562,26 @@ func TestDarwinFileExistsBecomesChange(t *testing.T) {
 func TestDarwinPlanLeavesMeshSubnetAlone(t *testing.T) {
 	keep := []netip.Prefix{netip.MustParsePrefix("10.99.0.0/16"), netip.MustParsePrefix("fd99::/64")}
 	entry := func(n string) routes.Entry { return routes.Entry{Network: n} }
+	// 172.20.0.0/16 and fd00:6::/64 were installed by this daemon; 10.77.0.0/16
+	// and fd00:7::/64 are on the interface but not ours.
+	installed := map[string]struct{}{"172.20.0.0/16": {}, "fd00:6::/64": {}, "10.99.0.0/16": {}}
 	obs := kernelObserved{
-		Routes4: []routes.Entry{entry("10.99.0.0/16"), entry("172.20.0.0/16"), entry("192.168.50.0/24")},
-		Routes6: []routes.Entry{entry("fd99::/64"), entry("fd00:6::/64")},
+		Routes4: []routes.Entry{entry("10.99.0.0/16"), entry("172.20.0.0/16"), entry("192.168.50.0/24"), entry("10.77.0.0/16")},
+		Routes6: []routes.Entry{entry("fd99::/64"), entry("fd00:6::/64"), entry("fd00:7::/64")},
 	}
 	want := []routes.Entry{entry("192.168.50.0/24"), entry("10.50.0.0/16"), entry("fd00:5::/48")}
-	plan, _ := planRoutesDarwin(want, obs, keep)
+	plan, _ := planRoutesDarwin(want, obs, keep, installed)
 	if got, w := networksOf(plan.Add), []string{"10.50.0.0/16", "fd00:5::/48"}; !reflect.DeepEqual(got, w) {
 		t.Errorf("add = %q, want %q", got, w)
 	}
 	if got, w := networksOf(plan.Remove), []string{"172.20.0.0/16", "fd00:6::/64"}; !reflect.DeepEqual(got, w) {
-		t.Errorf("remove = %q, want %q", got, w)
+		t.Errorf("remove = %q, want %q (not the mesh subnet, not a route that is not ours)", got, w)
 	}
 
 	t.Run("a family whose read failed plans nothing, removes nothing", func(t *testing.T) {
 		failed := obs
 		failed.Errs = map[string]error{targetRoutes4: fmt.Errorf("netstat failed")}
-		plan, _ := planRoutesDarwin(want, failed, keep)
+		plan, _ := planRoutesDarwin(want, failed, keep, installed)
 		if got, w := networksOf(plan.Remove), []string{"fd00:6::/64"}; !reflect.DeepEqual(got, w) {
 			t.Errorf("remove = %q, want %q (IPv4 unread)", got, w)
 		}
