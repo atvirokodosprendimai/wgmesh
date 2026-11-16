@@ -333,6 +333,7 @@ func joinCmd() {
 	account := fs.String("account", "", "Lighthouse API key (cr_...) — saved for service commands")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory for account config")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated list of routes to advertise")
+	acceptRoutes := fs.String("accept-routes", "", "Comma-separated networks this node accepts from peers; unset accepts all (unapproved routes are counted as route-not-approved, dropped in a later release)")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	logLevel := fs.String("log-level", "info", "Log level (debug, info, warn, error)")
@@ -395,12 +396,21 @@ func joinCmd() {
 		}
 	}
 
+	var accept []string
+	if *acceptRoutes != "" {
+		accept = strings.Split(*acceptRoutes, ",")
+		for i, r := range accept {
+			accept[i] = strings.TrimSpace(r)
+		}
+	}
+
 	// Create daemon config
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{
 		Secret:              *secret,
 		InterfaceName:       *iface,
 		WGListenPort:        *listenPort,
 		AdvertiseRoutes:     routes,
+		AcceptRoutes:        accept,
 		LogLevel:            *logLevel,
 		Privacy:             *privacyMode,
 		Gossip:              *gossipMode,
@@ -788,6 +798,7 @@ func installServiceCmd() {
 	iface := fs.String("interface", "", "WireGuard interface name (default: wg0 on non-macOS, utun20 on macOS)")
 	listenPort := fs.Int("listen-port", 51820, "WireGuard listen port")
 	advertiseRoutes := fs.String("advertise-routes", "", "Comma-separated routes to advertise")
+	acceptRoutes := fs.String("accept-routes", "", "Comma-separated networks this node accepts from peers; unset accepts all")
 	privacyMode := fs.Bool("privacy", false, "Enable privacy mode")
 	gossipMode := fs.Bool("gossip", false, "Enable in-mesh gossip")
 	noLANDiscovery := fs.Bool("no-lan-discovery", false, "Disable LAN multicast discovery")
@@ -819,11 +830,20 @@ func installServiceCmd() {
 		}
 	}
 
+	var accept []string
+	if *acceptRoutes != "" {
+		accept = strings.Split(*acceptRoutes, ",")
+		for i, r := range accept {
+			accept[i] = strings.TrimSpace(r)
+		}
+	}
+
 	cfg := daemon.SystemdServiceConfig{
 		Secret:              *secret,
 		InterfaceName:       *iface,
 		ListenPort:          *listenPort,
 		AdvertiseRoutes:     routes,
+		AcceptRoutes:        accept,
 		Privacy:             *privacyMode,
 		Gossip:              *gossipMode,
 		DisableLANDiscovery: *noLANDiscovery,

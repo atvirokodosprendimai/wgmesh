@@ -140,6 +140,32 @@ func TestGenerateSystemdUnitWithRoutes(t *testing.T) {
 	}
 }
 
+func TestGenerateSystemdUnitAcceptRoutes(t *testing.T) {
+	cfg := SystemdServiceConfig{
+		Secret:       "test-secret-that-is-long-enough",
+		BinaryPath:   "/usr/local/bin/wgmesh",
+		AcceptRoutes: []string{"192.168.0.0/16", "10.0.0.0/8"},
+	}
+
+	unit, err := GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+
+	if !strings.Contains(unit, "--accept-routes 192.168.0.0/16,10.0.0.0/8") {
+		t.Errorf("Unit should contain accept routes:\n%s", unit)
+	}
+
+	cfg.AcceptRoutes = nil
+	unit, err = GenerateSystemdUnit(cfg)
+	if err != nil {
+		t.Fatalf("GenerateSystemdUnit failed: %v", err)
+	}
+	if strings.Contains(unit, "--accept-routes") {
+		t.Errorf("Unit without a list should not contain --accept-routes:\n%s", unit)
+	}
+}
+
 func TestGenerateSystemdUnitWithPrivacy(t *testing.T) {
 	cfg := SystemdServiceConfig{
 		Secret:     "test-secret-that-is-long-enough",

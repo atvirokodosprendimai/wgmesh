@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
@@ -60,5 +61,42 @@ func TestPersistedMeshIPFollowsExplicitSubnetChange(t *testing.T) {
 	}
 	if meshIPInSubnet("not-an-ip", cfg) {
 		t.Error("garbage accepted as a mesh IP")
+	}
+}
+
+// TestRestartKeepsResolvedIP: a node that lost a collision restarts and keeps
+// the address it moved to (#830). initLocalNode reads the state file, not the
+// PeerStore. It must not run in parallel: it points localNodeStateDir at a
+// temp directory.
+func TestRestartKeepsResolvedIP(t *testing.T) {
+	enforceIPBinding(t, false)
+	recordAddresses(t)
+
+	dir := t.TempDir()
+	old := localNodeStateDir
+	localNodeStateDir = dir
+	t.Cleanup(func() { localNodeStateDir = old })
+
+	d := collisionDaemon(t, "zzz-local", "10.42.1.1")
+	d.stateFile = filepath.Join(dir, d.config.InterfaceName+".json")
+	if err := saveLocalNode(d.stateFile, d.localNode); err != nil {
+		t.Fatal(err)
+	}
+	d.peerStore.Update(&PeerInfo{WGPubKey: "aaa-remote", MeshIP: "10.42.1.1"}, "test")
+	d.CheckAndResolveCollisions()
+	want := nonceOne(d)
+	if d.localNode.MeshIP != want {
+		t.Fatalf("local IP = %s, want the nonce-1 address %s", d.localNode.MeshIP, want)
+	}
+
+	restarted := &Daemon{config: d.config}
+	if err := restarted.initLocalNode(); err != nil {
+		t.Fatalf("initLocalNode: %v", err)
+	}
+	if wantFile := filepath.Join(localNodeStateDir, restarted.config.InterfaceName+".json"); restarted.stateFile != wantFile {
+		t.Errorf("stateFile = %q, want %q", restarted.stateFile, wantFile)
+	}
+	if restarted.localNode.MeshIP != want {
+		t.Errorf("after restart the IP is %s, want the resolved address %s", restarted.localNode.MeshIP, want)
 	}
 }

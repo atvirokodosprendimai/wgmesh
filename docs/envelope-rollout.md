@@ -2,6 +2,8 @@
 
 Decision record: [ADR-0001](adr/ADR-0001-envelope-aad/ADR-0001-envelope-aad.md). This page is for the operator of a mesh.
 
+The staged rollout of the admit step (mesh IP binding, route rules, `accept-routes`) is described in [Admit step rollout](admit-rollout.md).
+
 ## What changes and in which release
 
 | Release | Readers | Writers | What it closes |

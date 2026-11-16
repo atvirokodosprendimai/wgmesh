@@ -23,6 +23,7 @@ An endpoint built from the sender's address and a guessed port is stored below e
 | `pkg/discovery/exchange.go` | edit | `resolvePeerEndpoint` (`:1058`) calls `ResolveEndpoint` with `daemon.DefaultWGPort`; `getKnownPeers` (`:1140`) skips the endpoint of a guessed peer |
 | `pkg/discovery/lan.go` | edit | `resolveEndpoint` (`:235`) calls it with `preferSender` true (LAN keeps the sender's IP on purpose) |
 | `pkg/discovery/gossip.go` | edit | `:306-310` uses it |
+| `pkg/discovery/gossip.go` (standalone announce), `pkg/daemon/cache.go` | edit | added after review: a guessed endpoint is neither announced by the standalone gossip builder nor persisted by `SavePeerCache` (it would come back as a rank-cache advertisement, the #839 failure) |
 | `pkg/node/endpoint_test.go`, `pkg/discovery/exchange_test.go`, `pkg/node/admit_test.go` | add / edit | tests below |
 
 Selection: the three sources reach `ResolveEndpoint` through the functions they already call; reverting `resolvePeerEndpoint` to its old body turns `TestGuessedEndpointNotAnnounced` red.
@@ -33,7 +34,7 @@ Selection: the three sources reach `ResolveEndpoint` through the functions they 
 2. [S2] Implement `ResolveEndpoint` and replace the three local functions with calls to it; the exchange path keeps an advertised real host, LAN keeps the sender host.
 3. [S3] Add `EndpointGuessed` and the rank; make `getKnownPeers` skip a guessed endpoint.
 4. [S4] Reproduce the report once on a branch, if a test mesh is available: join two nodes with distinct `--listen-port` values and read `[DHT] SUCCESS! Found wgmesh peer ... at "..."`; write what was seen into the commit message, or write "not reproduced, no test mesh". The issue's claim that the DHT record carries the exchange port (52654) as the WireGuard endpoint is not reproduced by reading `5edcdd0`: `grep -n "pe.port\|Keys.GossipPort" pkg/discovery/exchange.go` shows the exchange port used to bind the socket (`:137-147`), to derive a control endpoint (`:743`) and to log. [proof: human: needs two real nodes; the gate is hermetic]
-5. [S5] Run the mutants with `adr-verify --mutant`: the guess is stored at rank 30; `getKnownPeers` stops skipping; `ResolveEndpoint` uses the sender's port. [proof: mutation]
+5. [S5] Run the mutants with `adr-verify --mutant`: the guess is stored at rank 30; `getKnownPeers` stops skipping; the exchange fallback uses the sender's UDP port instead of `DefaultWGPort` (`ResolveEndpoint` takes no port, so the mutant lives in the exchange wrapper); the merge forgets `EndpointGuessed`; a non-LAN guess is not marked guessed; LAN stops preferring the sender; the rank mutant (`return 10` to 30) is recorded in the round-2 log. [proof: mutation]
 
 ## Acceptance
 
@@ -41,7 +42,7 @@ Selection: the three sources reach `ResolveEndpoint` through the functions they 
 set -o pipefail
 a=$(go test ./pkg/node -run '^(TestResolveEndpointKeepsAdvertisedPort|TestResolveEndpointMarksGuess|TestGuessedEndpointLosesToAdvertisement|TestEmptyFirstHandEndpointKeepsKnown|TestNoEndpointFromSenderPort)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 5 ] \
  && b=$(go test ./pkg/discovery -run '^TestGuessedEndpointNotAnnounced$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$b" -ge 1 ] \
- && go test -race ./pkg/node ./pkg/discovery -count=1
+ && go test -race ./pkg/node ./pkg/discovery ./pkg/daemon -count=1
 ```
 
 ## Tests
@@ -62,9 +63,35 @@ a=$(go test ./pkg/node -run '^(TestResolveEndpointKeepsAdvertisedPort|TestResolv
 | 1 — exists | the six tests |
 | 2 — something selects it | `resolvePeerEndpoint`, `resolveEndpoint` and the gossip path call `ResolveEndpoint`; reverting one turns a named test red |
 | 3 — the caller can discover it | doc comment; T11 amends the peer store and exchange specs |
-| 4 — it is used | `daemon.status` peers show an empty endpoint instead of a wrong one until an advertisement arrives |
+| 4 — it is used | a guessed endpoint is not re-announced in `KnownPeers` (the peer keeps its key with an empty endpoint); `daemon.status` still shows the guess, and `pkg/daemon/cache.go` does not persist it |
 
 ## Mutation Log
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · getKnownPeers stops skipping a guessed endpoint: TestGuessedEndpointNotAnnounced must go red · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the exchange path falls back to the sender UDP port · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/node/store.go` · the merge forgets the guessed flag · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/node/endpoint.go` · ResolveEndpoint does not mark the sender+fallback endpoint as guessed · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · dacefb2* · mutant killed · exit 1 · `pkg/discovery/lan.go` · LAN takes the advertised host instead of the sender IP · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/node/store.go` · the guess is stored at rank 30: TestGuessedEndpointLosesToAdvertisement must go red · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · getKnownPeers announces a guess · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the exchange fallback uses the sender UDP port · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/node/store.go` · the merge forgets the guessed flag · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/node/endpoint.go` · a non-LAN guess is not marked guessed · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/discovery/lan.go` · LAN takes the advertised host · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/node/endpoint.go` · an advertisement with an empty port is kept: TestResolveEndpointEmptyPortIsUnusable must go red · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant survived · exit 0 · `pkg/daemon/cache.go` · the peer cache persists a guessed endpoint · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/discovery/gossip.go` · the standalone gossip announce lists a guess · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/node/store.go` · the guess is stored at rank 30: TestGuessedEndpointLosesToAdvertisement must go red · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · getKnownPeers announces a guess · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the exchange fallback uses the sender UDP port · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/node/store.go` · the merge forgets the guessed flag · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/node/endpoint.go` · a non-LAN guess is not marked guessed · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/discovery/lan.go` · LAN takes the advertised host · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/node/endpoint.go` · an advertisement with an empty port is kept: TestResolveEndpointEmptyPortIsUnusable must go red · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/daemon/cache.go` · the peer cache persists a guessed endpoint · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
+- 2026-11-15 · 226dccc* · mutant killed · exit 1 · `pkg/discovery/gossip.go` · the standalone gossip announce lists a guess · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3
 
 ## Invariants
 
@@ -75,6 +102,7 @@ a=$(go test ./pkg/node -run '^(TestResolveEndpointKeepsAdvertisedPort|TestResolv
 ## Risks
 
 - A peer known only by a guess has no endpoint to announce; transitive discovery of it waits for its own advertisement. This is the intended trade (a wrong address is worse than none) and is why `getKnownPeers` keeps the key.
+- Mixed fleet: a node before this release still announces its own guesses as advertised endpoints, so the wrong address keeps spreading until every node runs it (T11 release note); an empty port in an advertisement is now a guess in every mode (it was kept as is in the exchange mode); `daemon.status` and `peers.list` show a guess like any endpoint (no new field; BACKLOG row written by T11); `registry.go` copies `p.Endpoint` unguarded but has no production caller of `UpdatePeerListWithAll`.
 - Test doubles: none.
 
 ## Stop Condition
@@ -87,3 +115,46 @@ Stop and ask if a source needs the guessed endpoint to establish the first WireG
 - The local node's own endpoint (T9).
 
 ## Verification Log
+- 2026-11-15 · dacefb2* · exit 1 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:976 · test-lock-sha256:8a4ab011b1ad2b641e9da438746c9beb4d2747a60df5655e7119a3b4718ba262 · test-lock-file:docs/adr/locks/8a4ab011b1ad2b641e9da438746c9beb4d2747a60df5655e7119a3b4718ba262.lock
+  ```
+  --- last 10 line(s) of stderr (of 34 after folding 35 raw)
+      endpoint_test.go:44: preferSender=true: ResolveEndpoint("") = "203.0.113.1:51820", false; want 203.0.113.1:51820, true
+  --- FAIL: TestResolveEndpointMarksGuess (0.00s)
+  === CONT  TestResolveEndpointKeepsAdvertisedPort
+      endpoint_test.go:31: preferSender keeps sender IP over a real host: ResolveEndpoint("198.51.100.7:51821") = "198.51.100.7:51821", false; want "203.0.113.1:51821", false  (x2)
+  --- FAIL: TestResolveEndpointKeepsAdvertisedPort (0.00s)
+  === CONT  TestEmptyFirstHandEndpointKeepsKnown
+  --- PASS: TestEmptyFirstHandEndpointKeepsKnown (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.004s
+  FAIL
+  ```
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:11164
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:15612
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:12498
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:12534
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:12500
+- 2026-11-15 · dacefb2* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:7919
+- 2026-11-15 · 226dccc* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:2 · test-lock-sha256:ce0cd696998c17afefd0c8a2820c077ba12b109acca8250f19ddde79f8d2629f · test-lock-file:docs/adr/locks/ce0cd696998c17afefd0c8a2820c077ba12b109acca8250f19ddde79f8d2629f.lock · test-lock-kind:replace
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:21723
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:35421
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:36207
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:19702
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:24485
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:20671
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:23170
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:18220
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:29072
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:130fd28db59c2b10cd54704a26c0a049f6e5ab4f0f088ba58cc3f9eadbafedb2 · ms:18951
+- 2026-11-15 · 226dccc* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:1 · test-lock-sha256:ce0cd696998c17afefd0c8a2820c077ba12b109acca8250f19ddde79f8d2629f · test-lock-file:docs/adr/locks/ce0cd696998c17afefd0c8a2820c077ba12b109acca8250f19ddde79f8d2629f.lock · test-lock-kind:replace
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:23610
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:20465
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:25714
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:27071
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:23621
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:19503
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:23390
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:23360
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:22279
+- 2026-11-15 · 226dccc* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:12729
+- 2026-11-16 · 51e018f* · exit 0 · `set -o pipefail …` · acceptance-sha256:cd16d752d39e2bb8fafa9df393d467faff1afb72b711c57fc4d9e197a0d15da3 · ms:7568
