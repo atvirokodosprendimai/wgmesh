@@ -73,6 +73,12 @@ n=$(go test ./pkg/daemon -run '^(TestObserveRoutesBothFamilies|TestSharedSubnetN
 - 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/converge.go` · forwarding call in applyRouteDiff: TestApplyRouteDiffIssuesNoForwardingCommands must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
 - 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/observe.go` · IPv6 never read: TestObserveRoutesBothFamilies must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
 - 2026-11-16 · ff69c48* · mutant killed · exit 1 · `pkg/daemon/desired.go` · no skip: TestPeerWithoutMeshIPv6SkippedLoggedOnce must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · 8e9f14f* · mutant killed · exit 1 · `pkg/daemon/observe.go` · default not canonical: TestObserveRoutesBothFamilies must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · 8e9f14f* · mutant killed · exit 1 · `pkg/daemon/converge.go` · first failed add aborts: TestRouteAddFailureDoesNotAbortOthers must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · 8e9f14f* · mutant killed · exit 1 · `pkg/daemon/desired.go` · inside not matched: TestAttachedNetworkWarnsThenSkips must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · 8e9f14f* · mutant killed · exit 1 · `pkg/daemon/converge.go` · forwarding call in applyRouteDiff: TestApplyRouteDiffIssuesNoForwardingCommands must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · 8e9f14f* · mutant killed · exit 1 · `pkg/daemon/observe.go` · IPv6 never read: TestObserveRoutesBothFamilies must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
+- 2026-11-16 · 8e9f14f* · mutant killed · exit 1 · `pkg/daemon/desired.go` · no skip: TestPeerWithoutMeshIPv6SkippedLoggedOnce must go red · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90
 
 ## Invariants
 
@@ -120,3 +126,11 @@ Stop and ask if the observe cannot tell a route we installed from a foreign rout
 - 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:13226
 - 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:12440
 - 2026-11-16 · ff69c48* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:7747
+- 2026-11-16 · 8e9f14f* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:0 · test-lock-sha256:1350f4a7c864e561c1a24372dc9b40f27bc99c430128ff7e0e8fa60d2f8fe18a · test-lock-file:docs/adr/locks/1350f4a7c864e561c1a24372dc9b40f27bc99c430128ff7e0e8fa60d2f8fe18a.lock · test-lock-kind:replace
+- 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:9723
+- 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:9815
+- 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:9830
+- 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:10257
+- 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:10465
+- 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:9969
+- 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:7951

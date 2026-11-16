@@ -128,3 +128,4 @@ Stop and ask if `iptables -C` cannot be told apart from "binary missing" by the 
 - 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:12620
 - 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:10389
 - 2026-11-16 · 823f97e* · exit 0 · `set -o pipefail …` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:13036
+- 2026-11-16 · 8e9f14f* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:f66ca0d9dc34ca3629c02f0cb73945ec021fcbf46e79bbcdb6a12b14790a3b68 · ms:0 · test-lock-sha256:04b98b328ea4ec48619b208da00775ad3db501c1c6f124d304137190c0cdf020 · test-lock-file:docs/adr/locks/04b98b328ea4ec48619b208da00775ad3db501c1c6f124d304137190c0cdf020.lock · test-lock-kind:replace
