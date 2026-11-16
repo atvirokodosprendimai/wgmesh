@@ -1597,6 +1597,12 @@ func (d *Daemon) isTemporarilyOffline(pubKey string) bool {
 	return true
 }
 
+// sweepTemporaryOffline is a stub (ADR-0007 T4 S1).
+func (d *Daemon) sweepTemporaryOffline() {}
+
+// staleCleanupTick is a stub (ADR-0007 T4 S1).
+func (d *Daemon) staleCleanupTick() {}
+
 func (d *Daemon) isRelayRoutedPeer(pubKey string) bool {
 	if pubKey == "" {
 		return false
