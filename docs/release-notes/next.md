@@ -1,6 +1,17 @@
-# Release notes: v0.3.0-rc3 (pre-release)
+# Release notes: v0.3.0-rc4 (pre-release)
 
 For operators of existing nodes. This is a release candidate: test it on a few nodes before the rest. "Release N" is this release; "the release after" is N+1, and N+2 follows it. No dates are set. PR numbers are merged PRs on `main`. Each feature has a rollout page in `docs/` with the full detail; this page keeps what an operator must know before upgrading.
+
+## Since rc3
+
+The rest of this page is cumulative; these are the changes made after v0.3.0-rc3.
+
+- A mesh IP stays only inside the current secret subnet (#890): a persisted address outside the `/16` the secret derives (or outside an explicit `--mesh-subnet`) is re-derived, saved and logged. Upgrade all nodes before you rotate a secret.
+- `install-service` writes `/etc/wgmesh/secret.env` with mode 0600 on every run, by an atomic write.
+- The host default route replaced by an advertised default route is restored when the mesh default is removed and when the daemon exits gracefully, with its metric (#907).
+- `install-service` validates `--advertise-routes`, `--accept-routes` and `--mesh-subnet` before it writes the unit and quotes every `ExecStart` value (#908).
+- Three fixes (#909): `Mesh.List` no longer takes a nested read lock, a `(none)` AllowedIPs entry in `wg show dump` reads as empty, and a bracketed IPv6 host is accepted for `-deploy` SSH connections.
+- A node on a mesh address its own key derives keeps it against a claim from a key that does not derive it, and a node moves its mesh address at most once in 5 minutes per process (ADR-0002, `docs/admit-rollout.md`).
 
 ## Upgrade actions
 
