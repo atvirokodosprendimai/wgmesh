@@ -506,8 +506,8 @@ func TestCLIFirstWordExitCodes(t *testing.T) {
 		wants  []string
 	}{
 		{nil, 2, "stderr", []string{usage}},
-		{[]string{"statu"}, 2, "stderr", []string{usage}},
-		{[]string{""}, 2, "stderr", []string{usage}},
+		{[]string{"statu"}, 2, "stderr", []string{`wgmesh: unknown command "statu" (run 'wgmesh help' for usage)`, usage}},
+		{[]string{""}, 2, "stderr", []string{`wgmesh: unknown command "" (run 'wgmesh help' for usage)`, usage}},
 		{[]string{"help"}, 0, "stdout", []string{usage}},
 		{[]string{"-h"}, 0, "stdout", []string{usage}},
 		{[]string{"--help"}, 0, "stdout", []string{usage}},

@@ -1,4 +1,5 @@
 ! exec wgmesh statu
+stderr '^wgmesh: unknown command "statu" \(run ''wgmesh help'' for usage\)'
 stderr 'wgmesh - WireGuard mesh network builder'
 stderr 'SUBCOMMANDS'
 ! stderr 'Failed to load mesh state'

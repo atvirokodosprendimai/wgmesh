@@ -94,6 +94,9 @@ func main() {
 
 	// A first word that is not a flag and matched no subcommand is a typo, not legacy mode
 	if len(os.Args) == 1 || !strings.HasPrefix(os.Args[1], "-") {
+		if len(os.Args) > 1 {
+			fmt.Fprintf(os.Stderr, "wgmesh: unknown command %q (run 'wgmesh help' for usage)\n", os.Args[1])
+		}
 		printUsage(os.Stderr)
 		os.Exit(2)
 	}
