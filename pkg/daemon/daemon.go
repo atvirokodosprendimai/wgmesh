@@ -965,7 +965,7 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 			continue
 		}
 		allowedCSV := allowedCSVFor(cfg)
-		signature := cfg.peer.Endpoint + "|" + allowedCSV + "|" + applyMode(cfg)
+		signature := cfg.peer.Endpoint + "|" + allowedCSV
 
 		// Check-and-mark under the same lock to avoid TOCTOU (W4)
 		d.appliedMu.Lock()

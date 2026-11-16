@@ -378,6 +378,9 @@ func TestHealthCheckSkipsRelayRoutedAndProbeOnlyPeers(t *testing.T) {
 	}
 }
 
+// A peer switched between direct and probe-only with the same endpoint is sent
+// again, because the clear differs from every list in the signature; the same
+// configuration twice is sent once.
 func TestApplySignatureIncludesProbeOnlyMode(t *testing.T) {
 	rec := stubWireGuard(t)
 	d := relayProbeDaemon(t)

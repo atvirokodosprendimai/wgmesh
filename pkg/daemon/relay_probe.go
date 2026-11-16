@@ -32,16 +32,6 @@ func allowedCSVFor(cfg *desiredPeerConfig) string {
 	return strings.Join(mapKeysSorted(cfg.allowed), ",")
 }
 
-// applyMode names how cfg is applied. It is part of the signature of the last
-// applied configuration, so a peer that switches between probe-only and direct
-// is sent again.
-func applyMode(cfg *desiredPeerConfig) string {
-	if cfg.probeOnly {
-		return "probe-only"
-	}
-	return "direct"
-}
-
 // storeRelayPlan stores the relay plan of one reconcile pass under relayMu:
 // the relay routes, the hysteresis counters and the time each relayed peer
 // entered the routes, and sets wgmesh_relay_route_age_seconds from it. A peer
