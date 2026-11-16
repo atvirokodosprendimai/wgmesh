@@ -67,21 +67,49 @@ var (
 // and set only by non-parallel tests, so it is a plain bool.
 var RefuseCorruptState = false
 
-// quarantineState renames a corrupt state file aside. STUB (red commit).
+// quarantineState moves a corrupt state file to path+".corrupt-"+unix and
+// returns the new path. The file is never deleted and never overwritten: if
+// the name is taken a numeric suffix is added. The rename stays in the same
+// directory, so it cannot cross a filesystem.
 func quarantineState(path string) (string, error) {
-	return "", errors.New("quarantineState: not implemented")
+	base := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+	target := base
+	for i := 1; ; i++ {
+		if _, err := os.Lstat(target); os.IsNotExist(err) {
+			break
+		} else if err != nil {
+			return "", fmt.Errorf("check quarantine name %s: %w", target, err)
+		}
+		if i > 1000 {
+			return "", fmt.Errorf("no free quarantine name for %s", path)
+		}
+		target = fmt.Sprintf("%s-%d", base, i)
+	}
+	if err := os.Rename(path, target); err != nil {
+		return "", fmt.Errorf("move corrupt state file aside: %w", err)
+	}
+	return target, nil
 }
 
-// loadLocalNode loads the local node state from a file
+// loadLocalNode loads the local node state from a file. A missing file is
+// ErrStateMissing (also os.ErrNotExist); a file that exists but is not JSON,
+// is empty, or lacks a public or private key is ErrStateCorrupt; any other
+// read error (permission) is returned as it is.
 func loadLocalNode(path string) (*LocalNode, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: %w", ErrStateMissing, err)
+		}
 		return nil, err
 	}
 
 	var state localNodeState
 	if err := json.Unmarshal(data, &state); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrStateCorrupt, err)
+	}
+	if state.WGPubKey == "" || state.WGPrivateKey == "" {
+		return nil, fmt.Errorf("%w: public or private key is empty", ErrStateCorrupt)
 	}
 
 	return &LocalNode{

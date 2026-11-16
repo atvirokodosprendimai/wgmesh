@@ -198,7 +198,8 @@ func collisionDaemon(t *testing.T, key, ip string) *Daemon {
 	if err != nil {
 		t.Fatalf("NewDaemon: %v", err)
 	}
-	d.localNode = &LocalNode{WGPubKey: key, MeshIP: ip}
+	// A private key too: a state file without one is a corrupt identity (ADR-0005 T4).
+	d.localNode = &LocalNode{WGPubKey: key, WGPrivateKey: "test-private-" + key, MeshIP: ip}
 	return d
 }
 

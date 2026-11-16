@@ -3,6 +3,7 @@ package daemon
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -496,6 +497,23 @@ func (d *Daemon) initLocalNode() error {
 	d.stateFile = filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
 	stateFile := d.stateFile
 	node, err := loadLocalNode(stateFile)
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrStateMissing):
+			// No identity yet: generate one below.
+		case errors.Is(err, ErrStateCorrupt):
+			if RefuseCorruptState {
+				return fmt.Errorf("local node state file %s is corrupt and RefuseCorruptState is set; the file is left untouched: %w", stateFile, err)
+			}
+			moved, qerr := quarantineState(stateFile)
+			if qerr != nil {
+				return fmt.Errorf("local node state file %s is corrupt and could not be moved aside: %w", stateFile, qerr)
+			}
+			log.Printf("Local node state file %s is corrupt; it was moved to %s and a NEW identity (new key, new mesh IP) is being created", stateFile, moved)
+		default:
+			return fmt.Errorf("failed to read local node state file %s: %w", stateFile, err)
+		}
+	}
 	if err == nil && node != nil {
 		d.localNode = node
 
