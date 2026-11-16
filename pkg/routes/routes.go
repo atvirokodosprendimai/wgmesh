@@ -7,7 +7,9 @@ package routes
 import (
 	"fmt"
 	"net"
+	"net/netip"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -53,29 +55,42 @@ func MakeKey(network, gateway string) string {
 //   - If a current network is no longer in the desired set at all, and it has
 //     a non-empty gateway (i.e. it is a managed mesh route), it is removed.
 //   - Directly-connected routes (empty gateway) are never removed.
+//   - Networks are compared in canonical form per family, so the kernel's
+//     "default" and a desired "0.0.0.0/0" are one network.
+//   - Two desired entries for one network keep the one whose gateway is
+//     numerically lowest, so the result does not depend on the input order
+//     and does not alternate between cycles.
+//
+// The result is sorted by network, then gateway.
 func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
-	currentMap := make(map[string]Entry)       // "network|gateway" -> entry
-	desiredMap := make(map[string]Entry)       // "network|gateway" -> entry
-	currentByNetwork := make(map[string]Entry) // "network" -> entry
-	desiredByNetwork := make(map[string]Entry) // "network" -> entry
+	currentMap := make(map[string]Entry)       // "canonical network|gateway" -> entry
+	desiredMap := make(map[string]Entry)       // "canonical network|gateway" -> entry
+	currentByNetwork := make(map[string]Entry) // canonical network -> entry
+	desiredByNetwork := make(map[string]Entry) // canonical network -> entry
 
 	for _, r := range current {
-		key := MakeKey(r.Network, r.Gateway)
-		currentMap[key] = r
-		currentByNetwork[r.Network] = r
+		network := entryNetwork(r)
+		currentMap[MakeKey(network, r.Gateway)] = r
+		if prev, ok := currentByNetwork[network]; !ok || addrLess(r.Gateway, prev.Gateway) {
+			currentByNetwork[network] = r
+		}
 	}
 
 	for _, r := range desired {
-		key := MakeKey(r.Network, r.Gateway)
-		desiredMap[key] = r
-		desiredByNetwork[r.Network] = r
+		network := entryNetwork(r)
+		if prev, ok := desiredByNetwork[network]; !ok || addrLess(r.Gateway, prev.Gateway) {
+			desiredByNetwork[network] = r
+		}
+	}
+	for network, r := range desiredByNetwork {
+		desiredMap[MakeKey(network, r.Gateway)] = r
 	}
 
 	// Determine routes to add (and any prerequisite removals for gateway changes).
 	for key, route := range desiredMap {
 		if _, exists := currentMap[key]; !exists {
 			// Route with this exact network+gateway doesn't exist yet.
-			if currentRoute, networkExists := currentByNetwork[route.Network]; networkExists {
+			if currentRoute, networkExists := currentByNetwork[entryNetwork(route)]; networkExists {
 				if currentRoute.Gateway != route.Gateway && currentRoute.Gateway != "" {
 					// Gateway changed — must remove old route first.
 					toRemove = append(toRemove, currentRoute)
@@ -89,7 +104,7 @@ func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 	// Determine routes to remove (network no longer in desired state at all).
 	for key, route := range currentMap {
 		if _, exactMatch := desiredMap[key]; !exactMatch {
-			if _, stillNeeded := desiredByNetwork[route.Network]; !stillNeeded {
+			if _, stillNeeded := desiredByNetwork[entryNetwork(route)]; !stillNeeded {
 				// Network completely absent from desired state.
 				// Only remove managed (gateway-routed) routes.
 				if route.Gateway != "" {
@@ -101,7 +116,44 @@ func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 		}
 	}
 
+	sortEntries(toAdd)
+	sortEntries(toRemove)
 	return toAdd, toRemove
+}
+
+// entryNetwork returns the canonical network of e. The family is read from the
+// network, or from the gateway when the network is the family-less "default".
+func entryNetwork(e Entry) string {
+	return Canonical(e.Network, familyOf(e.Network) || familyOf(e.Gateway))
+}
+
+func sortEntries(entries []Entry) {
+	sort.Slice(entries, func(i, j int) bool {
+		ni, nj := entryNetwork(entries[i]), entryNetwork(entries[j])
+		if ni != nj {
+			return ni < nj
+		}
+		return entries[i].Gateway < entries[j].Gateway
+	})
+}
+
+// addrLess orders two address strings as numbers (10.99.0.9 before
+// 10.99.0.10); a string that does not parse sorts after every address, and
+// two such strings fall back to string order.
+func addrLess(a, b string) bool {
+	pa, errA := netip.ParseAddr(strings.TrimSpace(a))
+	pb, errB := netip.ParseAddr(strings.TrimSpace(b))
+	switch {
+	case errA == nil && errB == nil:
+		if c := pa.Compare(pb); c != 0 {
+			return c < 0
+		}
+	case errA == nil:
+		return true
+	case errB == nil:
+		return false
+	}
+	return a < b
 }
 
 // Canonical returns the canonical CIDR form of network for one address
