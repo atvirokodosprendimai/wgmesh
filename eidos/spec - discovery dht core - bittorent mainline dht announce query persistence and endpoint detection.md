@@ -43,7 +43,7 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
 - Each returned peer address is dispatched to `contactPeer`:
   - Deduplicates: skips addresses contacted within the past 60 seconds.
   - Skips own external address.
-  - Calls `ExchangeWithPeer` (via `PeerExchange`) — on reply, peer is stored as `"dht"`.
+  - Calls `ExchangeWithPeer` (via `PeerExchange`) — on reply, peer is offered as `"dht"`.
 - Query interval slows from 30s to 60s once the peer store holds ≥3 peers.
 
 ### Goodbye broadcast
@@ -62,8 +62,8 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
   - -5 penalty for EUI-64 addresses (bytes 11–12 are `ff:fe` — embeds MAC, less stable)
   - Deterministic tiebreak: lexicographic
   - IPv6 is preferred: implies no NAT, so `NATType = "unknown"` is set (not `cone` or `symmetric`)
-- **STUN (IPv4 fallback)**: `DetectNATType` with two servers; updates `localNode.WGEndpoint`
-  (STUN-derived external IP + WG listen port) and `localNode.NATType`.
+- **STUN (IPv4 fallback)**: `DetectNATType` with two servers; reports the STUN-derived external IP + WG listen port to `LocalNode.ObserveEndpoint` and sets `localNode.NATType`.
+- **`ObserveEndpoint(source, endpoint)`** (ADR-0002 R7, `pkg/daemon/daemon.go`) is the one place the announced endpoint changes. Sources: `interface` (global IPv6 from an interface), `reflection` (a peer's `ObservedEndpoint`), `stun`. An `interface` or `reflection` observation applies at once and discards a pending STUN value; any source applies at once while the current endpoint is empty or unspecified; a STUN answer that differs from a usable endpoint applies on its third identical observation in a row (about two minutes after the first differing answer at the 60 s refresh), and one equal to the current endpoint discards the pending value. Not damped: reflection against reflection (second half of #828, `docs/adr/BACKLOG.md`).
 
 ### STUN refresh loop (every 60 seconds)
 
@@ -87,9 +87,9 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
 - `github.com/anacrolix/dht/v2` — DHT server, announce, get_peers.
 - `pkg/crypto.GetCurrentAndPreviousNetworkIDs` — hourly-rotating infohash derivation.
 - `PeerExchange.ExchangeWithPeer` — contact each DHT-discovered peer address.
-- `pkg/daemon.PeerStore.Update(peer, "dht")` — store discovered peers.
+- `pkg/daemon.PeerStore.Offer(peer, "dht")` — offer discovered peers.
 - `DetectNATType`, `DiscoverExternalEndpoint` — STUN queries.
-- `pkg/daemon.LocalNode.SetEndpoint`, `.NATType` — update local state.
+- `pkg/daemon.LocalNode.ObserveEndpoint`, `.NATType` — update local state.
 
 ## Mapping
 

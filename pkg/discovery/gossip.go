@@ -211,12 +211,17 @@ func (g *MeshGossip) exchangeWithRandomPeer(conn *net.UDPConn) {
 	var knownPeers []crypto.KnownPeer
 	for _, p := range peers {
 		if p.WGPubKey != target.WGPubKey {
+			// A guessed endpoint is not announced; the key stays (#839).
+			endpoint := p.Endpoint
+			if p.EndpointGuessed {
+				endpoint = ""
+			}
 			knownPeers = append(knownPeers, crypto.KnownPeer{
 				WGPubKey:   p.WGPubKey,
 				Hostname:   p.Hostname,
 				MeshIP:     p.MeshIP,
 				MeshIPv6:   p.MeshIPv6,
-				WGEndpoint: p.Endpoint,
+				WGEndpoint: endpoint,
 				Introducer: p.Introducer,
 				NATType:    p.NATType,
 			})
@@ -303,11 +308,13 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		return
 	}
 
-	endpoint := resolvePeerEndpoint(announcement.WGEndpoint, sender)
+	var endpoint string
+	var guessed bool
 	if sender == nil {
-		endpoint = normalizeKnownPeerEndpoint(announcement.WGEndpoint)
+		endpoint = filterEndpointForConfig(normalizeKnownPeerEndpoint(announcement.WGEndpoint), g.config.DisableIPv6)
+	} else {
+		endpoint, guessed = peerEndpoint(announcement.WGEndpoint, sender, g.config.DisableIPv6)
 	}
-	endpoint = filterEndpointForConfig(endpoint, g.config.DisableIPv6)
 
 	// Update the sender's info
 	peer := &daemon.PeerInfo{
@@ -316,11 +323,12 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 		MeshIP:           announcement.MeshIP,
 		MeshIPv6:         announcement.MeshIPv6,
 		Endpoint:         endpoint,
+		EndpointGuessed:  guessed,
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
 		NATType:          announcement.NATType,
 	}
-	g.peerStore.Update(peer, GossipMethod)
+	g.peerStore.Offer(daemon.Candidate{Info: peer, Source: GossipMethod, Hand: daemon.FirstHand})
 	daemon.RecordDiscoveryEvent("gossip")
 
 	// Process transitive peers
@@ -337,7 +345,7 @@ func (g *MeshGossip) handleAnnouncement(announcement *crypto.PeerAnnouncement, s
 			Introducer: kp.Introducer,
 			NATType:    kp.NATType,
 		}
-		g.peerStore.Update(transitivePeer, GossipMethod+"-transitive")
+		g.peerStore.Offer(daemon.Candidate{Info: transitivePeer, Source: GossipMethod + "-transitive", Hand: daemon.SecondHand})
 	}
 }
 
