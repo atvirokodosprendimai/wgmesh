@@ -21,7 +21,9 @@
 | `main.go` | edit | the version scan (`main.go:38-43`) looks at `os.Args[1]` only; before the legacy flag block (`:93-145`), a first argument that does not start with `-` and matched no subcommand prints usage to stderr and exits 2; `help`, `-h` and `--help` print usage and exit 0 |
 | `testdata/script/cli-unknown-command.txtar`, `cli-bare-usage.txtar`, `cli-version-position.txtar`, `cli-legacy-flag.txtar` | add | `exec wgmesh ...` scripts run by `TestScript` (`main_test.go:20`) |
 
-Selection: the scripts run in `go test .` through `TestScript`; deleting the new branch in `main` turns `cli-unknown-command` and `cli-bare-usage` red.
+Selection: the scripts run in `go test .` through `TestScript`; deleting the new branch in `main` turns `cli-unknown-command` and `cli-bare-usage` red. The scripts cannot assert an exit code (`! exec` accepts any non-zero) and adr-lint cannot hash a `.txtar` row, so the Tests table names the Go test `TestCLIFirstWordExitCodes`, which asserts every exit code and stream; the four scripts stay in the acceptance fence and assert the printed text.
+
+Behaviour changes beyond the Goal, all from "first argument only" and the table test: `wgmesh -list --version` is now a flag error (exit 2, it printed the version before); `-h` and `--help` print the usage on stdout (the flag package printed its defaults on stderr before); the unknown-word branch names the word on a first stderr line. Line numbers in this file are those of 2026-11-15 and have drifted by about 8.
 
 ## Ordered Steps
 
@@ -35,17 +37,14 @@ Selection: the scripts run in `go test .` through `TestScript`; deleting the new
 
 ```bash
 set -o pipefail
-n=$(go test . -run '^TestScript/(cli-unknown-command|cli-bare-usage|cli-version-position|cli-legacy-flag)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c -- '--- PASS: TestScript/cli-') && [ "$n" -ge 4 ] && go test -race . -count=1
+n=$(go test . -run '^TestScript/(cli-unknown-command|cli-bare-usage|cli-version-position|cli-legacy-flag)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c -- '--- PASS: TestScript/cli-') && [ "$n" -ge 4 ] && go test . -run '^TestCLIFirstWordExitCodes$' -count=1 && go test -race . -count=1
 ```
 
 ## Tests
 
 | Test name | File | Verifies | Covers | Steps |
 |-----------|------|----------|--------|-------|
-| `TestScript/cli-unknown-command` | `testdata/script/cli-unknown-command.txtar` | `wgmesh statu` exits 2 and stderr holds the usage text, not "Failed to load mesh state" | — | S1, S4 |
-| `TestScript/cli-bare-usage` | `testdata/script/cli-bare-usage.txtar` | `wgmesh` and `wgmesh help` print usage; bare exits 2, `help` exits 0 | — | S1, S2, S4 |
-| `TestScript/cli-version-position` | `testdata/script/cli-version-position.txtar` | `wgmesh --version` prints the version; `wgmesh peers list --version` does not | — | S1, S3 |
-| `TestScript/cli-legacy-flag` | `testdata/script/cli-legacy-flag.txtar` | `wgmesh -list -state <missing file>` still reaches legacy mode and prints "Failed to load mesh state" | — | S1, S4 |
+| `TestCLIFirstWordExitCodes` | `main_test.go` | a built binary: no arguments, `statu` and `""` exit 2 with the usage on stderr (`statu` and `""` name the word first); `help`, `-h`, `--help` exit 0 with the usage on stdout; `--version`, `-v`, `version` exit 0; legacy `-list -state <missing>` exits 1 with "Failed to load mesh state"; `-list --version` exits 2 (the version is honoured only as the first argument) | — | S1, S2, S3, S4 |
 
 ## Reachability
 
@@ -61,6 +60,12 @@ n=$(go test . -run '^TestScript/(cli-unknown-command|cli-bare-usage|cli-version-
 - 2026-11-16 · d246b4a* · mutant killed · exit 1 · `main.go` · trailing --version hijacks a subcommand: cli-version-position red · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893
 - 2026-11-16 · d246b4a* · mutant killed · exit 1 · `main.go` · legacy flags refused: cli-legacy-flag red · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893
 - 2026-11-16 · d246b4a* · mutant killed · exit 1 · `main.go` · help falls to the typo branch and exits 2: cli-bare-usage red · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `main.go` · typo falls into legacy mode: TestCLIFirstWordExitCodes and the scripts red · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `main.go` · --version refused as first argument: version-position script red · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `main.go` · legacy flags refused: cli-legacy-flag red · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `main.go` · help falls to the typo branch: cli-bare-usage red · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `main.go` · exit code 1 for a typo: TestCLIFirstWordExitCodes red · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `main.go` · bad word not named: cli-unknown-command red · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85
 
 ## Invariants
 
@@ -102,3 +107,11 @@ Stop and ask if a documented invocation (README, `docs/`, packaging unit files, 
 - 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:30207
 - 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:30294
 - 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:919567ecc5a69a9cd04800fadecfbdc95f6e1ed280205d47ed11b95577de4893 · ms:26645
+- 2026-11-16 · aa38078* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:0 · test-lock-sha256:0886e9c96b58e95927409a68efcb4e59dabbb351afb18183637adec43f01a54f · test-lock-file:docs/adr/locks/0886e9c96b58e95927409a68efcb4e59dabbb351afb18183637adec43f01a54f.lock · test-lock-kind:replace
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:33905
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:32764
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:33905
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:31966
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:32559
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:31472
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:29748

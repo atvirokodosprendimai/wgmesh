@@ -71,6 +71,16 @@ n=$(go test ./pkg/discovery -run '^(TestMarkContactedSweepsEntriesOlderThanWindo
 - 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · deletes present keys: TestSweepPeerKeyedKeepsKeysInStore red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
 - 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · rendezvousBackoff keeps absent keys: TestSweepPeerKeyedDropsKeysNotInStore red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
 - 2026-11-16 · d246b4a* · mutant killed · exit 1 · `pkg/discovery/dht.go` · sweep drops entries inside the window: TestMarkContactedKeepsEntriesInsideWindow red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · no sweep ever: TestMarkContactedSweepsEntriesOlderThanWindow red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · off by one at the cap: TestMarkContactedFailsClosedAtCap red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · ticker never sweeps: TestCheckStaleHandshakesRunsPeerKeyedSweep red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · window above caller interval: sweep test with 61 s entries red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · deletes present keys: TestSweepPeerKeyedKeepsKeysInStore red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · rendezvousBackoff keeps absent keys: TestSweepPeerKeyedDropsKeysNotInStore red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · sweep drops entries inside the window: TestMarkContactedKeepsEntriesInsideWindow red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · sweep on every call: second round of the sweep test red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · DisablePunching nodes never swept: TestQueryLoopRunsPeerKeyedSweep red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
+- 2026-11-16 · aa38078* · mutant killed · exit 1 · `pkg/discovery/dht.go` · entries 59 s old swept: TestMarkContactedKeepsEntriesInsideWindow red · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d
 
 ## Invariants
 
@@ -118,3 +128,15 @@ Stop and ask if ADR-0002's tasks have changed `markContacted`, `checkStaleHandsh
 - 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11634
 - 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:14343
 - 2026-11-16 · d246b4a* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:14204
+- 2026-11-16 · aa38078* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:0 · test-lock-sha256:e4631ea30c8ee2866a0443afb9768ca8bfcd3ad40ab2e0f1c2924d96308bc788 · test-lock-file:docs/adr/locks/e4631ea30c8ee2866a0443afb9768ca8bfcd3ad40ab2e0f1c2924d96308bc788.lock · test-lock-kind:replace
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11885
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:13921
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:13444
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11164
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:10504
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:10381
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11219
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11053
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11177
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11662
+- 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:7745
