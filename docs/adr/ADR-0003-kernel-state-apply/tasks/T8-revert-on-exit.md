@@ -4,7 +4,7 @@
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
-**Produces:** `EnforceRevertOnExit`, `Daemon.revertKernel`, the ownership record of what this run changed
+**Produces:** `EnforceRevertOnExit`, `Daemon.revertKernel`, the ownership records `ruleOwner` and `ipForwardOwner` (each unknown, found or ours) of what this run changed
 **Consumes:** the forwarding target and its observed values (T4); the specs and note (T9)
 **Data dependency:** hermetic
 **Proof map:** v1
@@ -17,12 +17,12 @@ At a graceful exit the daemon removes the FORWARD rule only if this run added it
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/converge.go` | edit | the forwarding apply records `addedRule` (the rule was absent and `-A` succeeded) and `prevIPForward` (the value read before the first write); `revertKernel` issues `iptables -D` and the sysctl restore from those records; `EnforceRevertOnExit` (`atomic.Bool`, `false`; every access `Load`/`Store`) |
-| `pkg/daemon/daemon.go` | edit | `Run` calls `revertKernel` after `d.wg.Wait()` and before the deferred `teardownWireGuard` (`:233`, `:292-295`) |
+| `pkg/daemon/converge.go` | edit | the forwarding apply decides once per item whether the rule and `ip_forward` were found in place or are ours (first successful write of an item seen absent or 0; an observed `ip_forward` of 1 means the previous value was 0 only for items we wrote, so no previous value is stored); `revertKernel` issues `iptables -D` and the sysctl restore from those records; `EnforceRevertOnExit` (`atomic.Bool`, `false`; every access `Load`/`Store`) |
+| `pkg/daemon/daemon.go` | edit | `Run` and `RunWithDHTDiscovery` (the one `wgmesh join` calls) call `revertKernel` after `d.wg.Wait()` and before the deferred `teardownWireGuard` |
 | `docs/kernel-state.md`, `pkg/daemon/spec_converge_test.go` | edit | the note and the spec test name the revert and its switch |
 | `pkg/daemon/revert_test.go` | add | the four tests below |
 
-Selection: `Run` calls `revertKernel`; deleting the call turns `TestShutdownRemovesRuleWeAdded` red.
+Selection: `Run` and `RunWithDHTDiscovery` call `revertKernel`; deleting a call turns `TestRunRevertsKernelAfterWait` red (the revert tests call `revertKernel` themselves).
 
 ## Ordered Steps
 
@@ -52,7 +52,7 @@ n=$(go test ./pkg/daemon -run '^(TestShutdownRemovesRuleWeAdded|TestShutdownKeep
 | Rung | How this task shows it |
 |------|------------------------|
 | 1 — exists | the four tests |
-| 2 — something selects it | `Run` calls `revertKernel`; deleting the call turns the first test red |
+| 2 — something selects it | `Run` and `RunWithDHTDiscovery` call `revertKernel`; deleting a call turns `TestRunRevertsKernelAfterWait` red |
 | 3 — the caller can discover it | the log line at N, the note (T9) |
 | 4 — it is used | every graceful exit |
 
@@ -67,7 +67,7 @@ n=$(go test ./pkg/daemon -run '^(TestShutdownRemovesRuleWeAdded|TestShutdownKeep
 ## Invariants
 
 - A crash or `SIGKILL` leaves the host as today; nothing here claims otherwise.
-- Nothing is undone that this run did not do. The two records (`addedRule`, `prevIPForward`) live on the `Daemon` under `convergeMu`, are set only by the FIRST successful write of a run and are never overwritten by a later drift re-apply (T4 re-writes on drift: the second write must not make a run think it owns a rule or a value it found), and `TestShutdownKeepsPreexistingRule` covers a re-apply after a drift.
+- Nothing is undone that this run did not do. The two records (`ruleOwner`, `ipForwardOwner`) live on the `Daemon` under `convergeMu`, are set only by the FIRST successful write of a run and are never overwritten by a later drift re-apply (T4 re-writes on drift: the second write must not make a run think it owns a rule or a value it found), and `TestShutdownKeepsPreexistingRule` covers a re-apply after a drift.
 - The interface teardown (`teardownWireGuard`) is unchanged.
 
 ## Risks
