@@ -20,16 +20,24 @@ import (
 // WireGuard picks the peer by AllowedIPs, so the Entry of a Darwin route
 // carries only its canonical Network.
 
+// darwinTable is one family of `netstat -rn`: the routes of the mesh
+// interface, and the networks that OTHER interfaces route (canonical
+// network -> interface name), which this daemon must never re-point.
+type darwinTable struct {
+	Mesh    []routes.Entry
+	Foreign map[string]string
+}
+
 // readRoutesDarwin reads the routes of iface for one family with
 // `netstat -rn -f inet` or `-f inet6`.
-func readRoutesDarwin(iface string, ipv6 bool) ([]routes.Entry, error) {
+func readRoutesDarwin(iface string, ipv6 bool) (darwinTable, error) {
 	family := "inet"
 	if ipv6 {
 		family = "inet6"
 	}
 	out, err := cmdExecutor.Command("netstat", "-rn", "-f", family).Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to read routes: %w", commandFailure(out, err))
+		return darwinTable{}, fmt.Errorf("failed to read routes: %w", commandFailure(out, err))
 	}
 	return parseNetstatDarwin(out, iface, ipv6)
 }
@@ -39,15 +47,15 @@ func readRoutesDarwin(iface string, ipv6 bool) ([]routes.Entry, error) {
 // only; it is never read as "no routes".
 func (d *Daemon) observeRoutesDarwin(obs *kernelObserved) {
 	iface := d.config.InterfaceName
-	if entries, err := readRoutesDarwin(iface, false); err != nil {
+	if table, err := readRoutesDarwin(iface, false); err != nil {
 		obs.fail(targetRoutes4, err)
 	} else {
-		obs.Routes4 = entries
+		obs.Routes4, obs.Foreign4 = table.Mesh, table.Foreign
 	}
-	if entries, err := readRoutesDarwin(iface, true); err != nil {
+	if table, err := readRoutesDarwin(iface, true); err != nil {
 		obs.fail(targetRoutes6, err)
 	} else {
-		obs.Routes6 = entries
+		obs.Routes6, obs.Foreign6 = table.Mesh, table.Foreign
 	}
 }
 
@@ -57,32 +65,42 @@ func (d *Daemon) observeRoutesDarwin(obs *kernelObserved) {
 // with `-interface`: a link-level gateway (`link#N`) and none of the flags
 // m (multicast), b (broadcast), L (link-layer entry) or W (cloned), not a
 // multicast or link-local destination, not a scoped one (`fe80::%utun4`). A
-// row of another interface is not read at all; a row of iface whose
+// row of another interface is not a route of the mesh: it is kept in
+// Foreign (network -> interface, any gateway), so the plan never takes a
+// network that another interface routes. A row of iface whose
 // destination does not parse is an error. Destinations are expanded to the
 // canonical form of the family queried: `default` is 0.0.0.0/0 or ::/0,
 // `192.168.5/24` is 192.168.5.0/24, a bare `127` is 127.0.0.0/8, a bare host
 // is /32 or /128.
-func parseNetstatDarwin(out []byte, iface string, ipv6 bool) ([]routes.Entry, error) {
-	result := make([]routes.Entry, 0)
+func parseNetstatDarwin(out []byte, iface string, ipv6 bool) (darwinTable, error) {
+	table := darwinTable{Mesh: make([]routes.Entry, 0), Foreign: make(map[string]string)}
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
-		if len(fields) < 4 || fields[3] != iface {
+		if len(fields) < 4 {
 			continue
 		}
-		dest, gateway, flags := fields[0], fields[1], fields[2]
-		if !strings.HasPrefix(gateway, "link#") || strings.ContainsAny(flags, "mbLW") || strings.Contains(dest, "%") {
+		dest, gateway, flags, netif := fields[0], fields[1], fields[2], fields[3]
+		mesh := netif == iface
+		if strings.ContainsAny(flags, "mbLW") || strings.Contains(dest, "%") || (mesh && !strings.HasPrefix(gateway, "link#")) {
 			continue
 		}
 		canonical, err := canonicalNetstatDest(dest, ipv6)
 		if err != nil {
-			return nil, fmt.Errorf("parse netstat row %q: %w", strings.TrimSpace(line), err)
+			if mesh {
+				return darwinTable{}, fmt.Errorf("parse netstat row %q: %w", strings.TrimSpace(line), err)
+			}
+			continue
 		}
 		if p := netip.MustParsePrefix(canonical); p.Addr().IsMulticast() || p.Addr().IsLinkLocalUnicast() {
 			continue
 		}
-		result = append(result, routes.Entry{Network: canonical})
+		if mesh {
+			table.Mesh = append(table.Mesh, routes.Entry{Network: canonical})
+		} else if _, seen := table.Foreign[canonical]; !seen {
+			table.Foreign[canonical] = netif
+		}
 	}
-	return result, nil
+	return table, nil
 }
 
 // canonicalNetstatDest expands a destination as netstat prints it. An
@@ -140,18 +158,26 @@ func (d *Daemon) meshPrefixes() []netip.Prefix {
 	return keep
 }
 
+// darwinForeign is a wanted network that another interface already routes.
+type darwinForeign struct{ Network, Iface string }
+
 // planRoutesDarwin is pure: per family, a wanted network the interface does
-// not hold is added, and a held network that is not wanted is removed, except
-// the prefixes in keep (the mesh connected routes). The gateway of a wanted
-// entry is ignored. A family whose observe failed plans nothing, so it
-// removes nothing. Adds and removals are sorted, IPv4 first.
-func planRoutesDarwin(want []routes.Entry, k kernelObserved, keep []netip.Prefix) routePlan {
+// not hold is added, unless another interface already routes it (foreign: it
+// is returned instead, never added, so the host's default route or another
+// tunnel's route is not re-pointed), and a held network that is not wanted
+// is removed, except the prefixes in keep (the mesh connected routes). The
+// gateway of a wanted entry is ignored. A family whose observe failed plans
+// nothing, so it removes nothing. Adds, removals and foreign are sorted, IPv4
+// first.
+func planRoutesDarwin(want []routes.Entry, k kernelObserved, keep []netip.Prefix) (routePlan, []darwinForeign) {
 	var plan routePlan
+	var skipped []darwinForeign
 	for _, f := range []struct {
 		target  string
 		ipv6    bool
 		current []routes.Entry
-	}{{targetRoutes4, false, k.Routes4}, {targetRoutes6, true, k.Routes6}} {
+		foreign map[string]string
+	}{{targetRoutes4, false, k.Routes4, k.Foreign4}, {targetRoutes6, true, k.Routes6, k.Foreign6}} {
 		if k.Errs[f.target] != nil {
 			continue
 		}
@@ -171,21 +197,29 @@ func planRoutesDarwin(want []routes.Entry, k kernelObserved, keep []netip.Prefix
 			}
 		}
 		var add []string
+		var foreign []darwinForeign
 		for network := range wanted {
-			if _, ok := held[network]; !ok {
-				add = append(add, network)
+			if _, ok := held[network]; ok {
+				continue
 			}
+			if iface, ok := f.foreign[network]; ok {
+				foreign = append(foreign, darwinForeign{network, iface})
+				continue
+			}
+			add = append(add, network)
 		}
 		sort.Strings(add)
 		sort.Strings(remove)
+		sort.Slice(foreign, func(i, j int) bool { return foreign[i].Network < foreign[j].Network })
 		for _, n := range add {
 			plan.Add = append(plan.Add, routes.Entry{Network: n})
 		}
 		for _, n := range remove {
 			plan.Remove = append(plan.Remove, routes.Entry{Network: n})
 		}
+		skipped = append(skipped, foreign...)
 	}
-	return plan
+	return plan, skipped
 }
 
 // keptPrefix reports whether the canonical network is one of keep.

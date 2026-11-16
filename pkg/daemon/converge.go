@@ -362,8 +362,40 @@ func (d *Daemon) convergeRoutes(ds *desiredState, obs kernelObserved) []itemResu
 // convergeMu.
 func (d *Daemon) convergeRoutesDarwin(ds *desiredState, obs kernelObserved) []itemResult {
 	d.noteRouteObserve(obs)
-	plan := planRoutesDarwin(ds.Routes, obs, d.meshPrefixes())
+	plan, foreign := planRoutesDarwin(ds.Routes, obs, d.meshPrefixes())
+	d.noteDarwinWarnings(obs, foreign)
 	return applyRouteDiffDarwin(d.config.InterfaceName, plan)
+}
+
+// noteDarwinWarnings logs and counts, once while the case holds, a wanted
+// network that another interface already routes (rule foreign-route): it is
+// not routed into the mesh, because `route change` would re-point the host's
+// default or another tunnel's route. The set is replaced by the cases of this
+// tick; a family whose observe failed keeps its entries, since nothing is
+// known about it. The caller holds convergeMu.
+func (d *Daemon) noteDarwinWarnings(obs kernelObserved, foreign []darwinForeign) {
+	now := make(map[string]struct{}, len(foreign))
+	for key := range d.darwinWarned {
+		fam := strings.SplitN(key, "|", 3)[1]
+		if (fam == "4" && obs.Errs[targetRoutes4] != nil) || (fam == "6" && obs.Errs[targetRoutes6] != nil) {
+			now[key] = struct{}{}
+		}
+	}
+	for _, f := range foreign {
+		fam := "4"
+		if strings.Contains(f.Network, ":") {
+			fam = "6"
+		}
+		key := "foreign|" + fam + "|" + f.Network
+		if _, was := d.darwinWarned[key]; !was {
+			// Unverified on a Mac, S1 decides: `route add` is believed to
+			// answer File exists for a network another interface holds.
+			d.logf("foreign-route: the network %s of a peer is already routed by %s on this Mac; the peer's network is not routed on this Mac and the route of %s is left alone", f.Network, f.Iface, f.Iface)
+			RecordKernelWarning("foreign-route")
+		}
+		now[key] = struct{}{}
+	}
+	d.darwinWarned = now
 }
 
 // convergeRoutesLinux is the route target on Linux.

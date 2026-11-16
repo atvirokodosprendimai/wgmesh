@@ -61,7 +61,8 @@ type Daemon struct {
 	// (see converge.go) and guards pushedEndpoint, lastResults,
 	// observeErrLogged and the forwarding target's state (forwardScopeWarned,
 	// forwardNoIptables, forwardObserveErr) and the route target's state
-	// (routeObserveErr, routeWarned, hostDefaultWarned, hostDefaultReadErr). Lock order: reconcileMu, then
+	// (routeObserveErr, routeWarned, hostDefaultWarned, hostDefaultReadErr,
+	// darwinWarned). Lock order: reconcileMu, then
 	// convergeMu; the health paths (attemptPeerReconnect, evictPeerFromPool,
 	// staleCleanupLoop) take only convergeMu; never the reverse.
 	convergeMu       sync.Mutex
@@ -79,6 +80,7 @@ type Daemon struct {
 	routeObserveErr    map[string]string   // target -> last observe error text of that family
 	routeWarned        map[string]struct{} // rule cases that desire warned about and that still hold
 	hostDefaultWarned  map[string]struct{} // families whose host default route was warned about
+	darwinWarned       map[string]struct{} // macOS: kind|family|text of the cases warned about that still hold
 	hostDefaultReadErr map[string]string   // family -> last error text of reading the host default route
 	// Seams of the kernel and the log, set at construction; nil means the
 	// real wireguard functions and log.Printf (see converge.go).

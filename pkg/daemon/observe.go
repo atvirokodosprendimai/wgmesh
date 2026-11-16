@@ -53,6 +53,10 @@ type kernelObserved struct {
 	Forward observedForward
 	Routes4 []routes.Entry
 	Routes6 []routes.Entry
+	// Foreign4 and Foreign6 are the networks that interfaces other than the
+	// mesh interface route (macOS only): canonical network -> interface.
+	Foreign4 map[string]string
+	Foreign6 map[string]string
 	// Addrs are the addresses on the mesh interface, both families, each with
 	// the prefix length the kernel holds it with.
 	Addrs []netip.Prefix

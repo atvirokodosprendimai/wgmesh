@@ -67,6 +67,14 @@ func (h *darwinHost) add(canon, netif string) {
 	h.table = append(h.table, darwinRoute{canon, "link#16", "UCS", netif})
 }
 
+// addRow puts a row with its own gateway and flags in the table, for a route
+// that another interface (or the host) owns.
+func (h *darwinHost) addRow(canon, gw, flags, netif string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.table = append(h.table, darwinRoute{canon, gw, flags, netif})
+}
+
 func (h *darwinHost) has(canon, netif string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -248,10 +256,11 @@ func TestParseNetstatDarwin(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := parseNetstatDarwin(readFixture(t, c.file), c.iface, c.ipv6)
+			table, err := parseNetstatDarwin(readFixture(t, c.file), c.iface, c.ipv6)
 			if err != nil {
 				t.Fatal(err)
 			}
+			got := table.Mesh
 			for _, e := range got {
 				if e.Gateway != "" {
 					t.Errorf("route %s carries gateway %q, macOS routes have none", e.Network, e.Gateway)
@@ -271,8 +280,28 @@ func TestParseNetstatDarwin(t *testing.T) {
 	})
 	t.Run("a row of another interface is not parsed at all", func(t *testing.T) {
 		out := []byte("Internet:\nDestination Gateway Flags Netif Expire\nnot-a-network link#14 UCS en0\n")
-		if got, err := parseNetstatDarwin(out, "utun4", false); err != nil || len(got) != 0 {
+		if got, err := parseNetstatDarwin(out, "utun4", false); err != nil || len(got.Mesh) != 0 {
 			t.Errorf("got %v, %v; want nothing", got, err)
+		}
+	})
+	t.Run("the networks of other interfaces are kept as foreign", func(t *testing.T) {
+		for _, c := range []struct {
+			file string
+			ipv6 bool
+			want map[string]string
+		}{
+			{"netstat-inet.handwritten.txt", false, map[string]string{
+				"0.0.0.0/0": "en0", "127.0.0.0/8": "lo0", "127.0.0.1/32": "lo0", "172.20.1.0/24": "en0",
+				"192.168.1.0/24": "en0", "192.168.1.1/32": "en0", "255.255.255.255/32": "en0"}},
+			{"netstat-inet6.handwritten.txt", true, map[string]string{"::/0": "en0", "fd12:3456::/32": "en0"}},
+		} {
+			table, err := parseNetstatDarwin(readFixture(t, c.file), "utun4", c.ipv6)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(table.Foreign, c.want) {
+				t.Errorf("%s: foreign = %v, want %v", c.file, table.Foreign, c.want)
+			}
 		}
 	})
 }
@@ -496,7 +525,7 @@ func TestDarwinPlanLeavesMeshSubnetAlone(t *testing.T) {
 		Routes6: []routes.Entry{entry("fd99::/64"), entry("fd00:6::/64")},
 	}
 	want := []routes.Entry{entry("192.168.50.0/24"), entry("10.50.0.0/16"), entry("fd00:5::/48")}
-	plan := planRoutesDarwin(want, obs, keep)
+	plan, _ := planRoutesDarwin(want, obs, keep)
 	if got, w := networksOf(plan.Add), []string{"10.50.0.0/16", "fd00:5::/48"}; !reflect.DeepEqual(got, w) {
 		t.Errorf("add = %q, want %q", got, w)
 	}
@@ -507,7 +536,7 @@ func TestDarwinPlanLeavesMeshSubnetAlone(t *testing.T) {
 	t.Run("a family whose read failed plans nothing, removes nothing", func(t *testing.T) {
 		failed := obs
 		failed.Errs = map[string]error{targetRoutes4: fmt.Errorf("netstat failed")}
-		plan := planRoutesDarwin(want, failed, keep)
+		plan, _ := planRoutesDarwin(want, failed, keep)
 		if got, w := networksOf(plan.Remove), []string{"fd00:6::/64"}; !reflect.DeepEqual(got, w) {
 			t.Errorf("remove = %q, want %q (IPv4 unread)", got, w)
 		}
@@ -589,5 +618,58 @@ func TestDarwinRouteTickRaceFree(t *testing.T) {
 	}
 	if got := dh.routeCommands(); !reflect.DeepEqual(got, []string{"route -n add -net 192.168.50.0/24 -interface utun4"}) {
 		t.Errorf("route commands = %q, want exactly one add", got)
+	}
+}
+
+func foreignWarnings() float64 {
+	return testutil.ToFloat64(kernelWarnings.WithLabelValues("foreign-route"))
+}
+
+// A network that another interface already routes (the host's default via
+// en0, a route of another VPN) is never re-pointed into the mesh: no route
+// command at all, one warning however many ticks.
+func TestDarwinForeignRouteIsNeverRepointed(t *testing.T) {
+	for _, c := range []struct{ name, network, gw, flags, netif string }{
+		{"the host's default via en0", "0.0.0.0/0", "192.168.1.1", "UGScg", "en0"},
+		{"a network of another VPN", "10.50.0.0/16", "link#20", "UCS", "utun2"},
+		{"an IPv6 default via en0", "::/0", "fe80::1%en0", "UGcg", "en0"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dh := newDarwinHost()
+			dh.addRow(c.network, c.gw, c.flags, c.netif)
+			d := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
+			peers := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "fd99::2", c.network)}
+			before := foreignWarnings()
+			for i := 0; i < 3; i++ {
+				if d.converge(peers) == nil {
+					t.Fatalf("tick %d skipped", i+1)
+				}
+			}
+			if cmds := dh.routeCommands(); len(cmds) != 0 {
+				t.Errorf("route commands ran for a foreign network: %q", cmds)
+			}
+			if !dh.has(c.network, c.netif) || dh.has(c.network, "utun4") {
+				t.Errorf("the route of %s moved", c.netif)
+			}
+			if got := foreignWarnings() - before; got != 1 {
+				t.Errorf("foreign-route counted %v times over 3 ticks, want 1", got)
+			}
+		})
+	}
+}
+
+// The warn-once set holds only what still holds: a peer that leaves and comes
+// back is warned about again.
+func TestDarwinForeignWarningRepeatsAfterTheCaseEnds(t *testing.T) {
+	dh := newDarwinHost()
+	dh.addRow("10.50.0.0/16", "link#20", "UCS", "utun2")
+	d := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
+	peers := []*PeerInfo{darwinPeer("keyA", "10.99.0.2", "", "10.50.0.0/16")}
+	before := foreignWarnings()
+	d.converge(peers)
+	d.converge(nil)
+	d.converge(peers)
+	if got := foreignWarnings() - before; got != 2 {
+		t.Errorf("foreign-route counted %v times, want 2 (once per time the case holds)", got)
 	}
 }
