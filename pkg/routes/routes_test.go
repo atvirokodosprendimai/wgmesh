@@ -410,7 +410,7 @@ func TestResolveAllStaleLowestIPNumeric(t *testing.T) {
 	adv := []Advertiser{
 		{Key: "x", MeshIP: "10.99.0.10", Networks: []string{sharedNet}},
 		{Key: "y", MeshIP: "10.99.0.9", Networks: []string{sharedNet}},
-		{Key: "z", MeshIP: "bogus", Networks: []string{sharedNet}},
+		{Key: "z", MeshIP: "!bogus", Networks: []string{sharedNet}},
 	}
 	if got := resolveAll(t, adv, nil, nil); got[sharedNet] != "y" {
 		t.Errorf("Resolve = %v, want y (10.99.0.9 < 10.99.0.10, unparsable last)", got)
@@ -543,5 +543,31 @@ func TestResolveIPv6NetworkIgnoresPeerWithoutMeshIPv6(t *testing.T) {
 	}
 	if got := resolveAll(t, adv, nil, nil); got["fd01::/64"] != "Y" {
 		t.Errorf("Resolve = %v, want Y (X has no MeshIPv6 and cannot be an IPv6 gateway)", got)
+	}
+}
+
+func TestCalculateDiffIPv6DefaultReadsGatewayFamily(t *testing.T) {
+	t.Parallel()
+	current := []Entry{{Network: "default", Gateway: "fd00::1"}}
+	desired := []Entry{{Network: "::/0", Gateway: "fd00::1"}}
+	add, remove := CalculateDiff(current, desired)
+	if len(add) != 0 || len(remove) != 0 {
+		t.Errorf("add=%v remove=%v, want empty diff", add, remove)
+	}
+}
+
+func TestCalculateDiffResultsSortedByNetwork(t *testing.T) {
+	t.Parallel()
+	const lo, hi = "192.168.50.0/24", "192.168.60.0/24"
+	desired := []Entry{{Network: hi, Gateway: "10.99.0.1"}, {Network: lo, Gateway: "10.99.0.1"}}
+	current := []Entry{{Network: "172.16.9.0/24", Gateway: "10.99.0.1"}, {Network: "172.16.1.0/24", Gateway: "10.99.0.1"}}
+	for i := 0; i < 20; i++ {
+		add, remove := CalculateDiff(current, desired)
+		if len(add) != 2 || add[0].Network != lo || add[1].Network != hi {
+			t.Fatalf("add = %v, want %s before %s", add, lo, hi)
+		}
+		if len(remove) != 2 || remove[0].Network != "172.16.1.0/24" || remove[1].Network != "172.16.9.0/24" {
+			t.Fatalf("remove = %v, want 172.16.1.0/24 before 172.16.9.0/24", remove)
+		}
 	}
 }
