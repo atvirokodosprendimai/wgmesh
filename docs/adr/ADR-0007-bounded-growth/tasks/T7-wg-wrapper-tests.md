@@ -104,3 +104,4 @@ Stop and ask if a test shows a defect in `SetPeer` or `GenerateKeyPair` that cha
 - 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4804
 - 2026-11-15 · 84172d7* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4317
 - 2026-11-15 · 5bc447c* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:0 · test-lock-sha256:d7bbfc503e9f7a0412a02eb692bc4672788cb3b73a70be9ce2a954205111dd79 · test-lock-file:docs/adr/locks/d7bbfc503e9f7a0412a02eb692bc4672788cb3b73a70be9ce2a954205111dd79.lock · test-lock-kind:replace
+- 2026-11-16 · b6554cc* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4179
