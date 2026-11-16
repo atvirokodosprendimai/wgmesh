@@ -4,13 +4,17 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/flock"
 )
 
 // PeerData represents peer information for RPC
@@ -54,9 +58,23 @@ type Server struct {
 	getPeerFn       func(pubKey string) (*PeerData, bool)
 	getPeerCountsFn func() (active, total, dead int)
 	getStatusFn     func() *StatusData
+
+	// releaseLock frees <socketPath>.lock; set once in NewServer, never
+	// written again, so concurrent Stop calls only read it.
+	releaseLock func()
+	stopOnce    sync.Once
+	stopErr     error // written inside stopOnce.Do, read after it returns
 }
 
-// NewServer creates a new RPC server
+// NewServer creates a new RPC server.
+//
+// Words: it takes the lock <SocketPath>.lock before it removes a stale
+// socket, and fails (naming the socket path and the holder pid) when the
+// lock is held; Stop releases the lock after the socket file is removed.
+// Why: the default socket path has no interface in it, so a second daemon
+// unlinked the first daemon's live socket (#860, ADR-0005 M3).
+// Invariants: with no other holder the behaviour is as before (stale socket
+// removed, directory created); a failed NewServer releases what it took.
 func NewServer(config ServerConfig) (*Server, error) {
 	// Validate required fields
 	if config.SocketPath == "" {
@@ -66,8 +84,27 @@ func NewServer(config ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("all callback functions are required")
 	}
 
+	// Ensure directory exists (the lock file lives beside the socket)
+	dir := filepath.Dir(config.SocketPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create socket directory: %w", err)
+	}
+
+	// Own the path before anything is removed.
+	releaseLock, holder, err := flock.TryLock(config.SocketPath + ".lock")
+	if err != nil {
+		if errors.Is(err, flock.ErrHeld) {
+			if holder == "" {
+				holder = "unknown"
+			}
+			return nil, fmt.Errorf("RPC socket %s is in use by another daemon (pid %s): %w", config.SocketPath, holder, err)
+		}
+		return nil, fmt.Errorf("lock RPC socket %s: %w", config.SocketPath, err)
+	}
+
 	// Remove existing socket if it exists (handles race condition by ignoring ENOENT)
 	if err := os.Remove(config.SocketPath); err != nil && !os.IsNotExist(err) {
+		releaseLock()
 		// If removal fails for reasons other than "file doesn't exist", verify it's a socket
 		if info, statErr := os.Stat(config.SocketPath); statErr == nil {
 			if info.Mode()&os.ModeSocket == 0 {
@@ -75,12 +112,6 @@ func NewServer(config ServerConfig) (*Server, error) {
 			}
 		}
 		return nil, fmt.Errorf("failed to remove existing socket: %w", err)
-	}
-
-	// Ensure directory exists
-	dir := filepath.Dir(config.SocketPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create socket directory: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -94,6 +125,7 @@ func NewServer(config ServerConfig) (*Server, error) {
 		getPeerFn:       config.GetPeer,
 		getPeerCountsFn: config.GetPeerCounts,
 		getStatusFn:     config.GetStatus,
+		releaseLock:     releaseLock,
 	}
 
 	return s, nil
@@ -352,21 +384,25 @@ func (s *Server) handleDaemonPing(params map[string]interface{}) (*DaemonPingRes
 	}, nil
 }
 
-// Stop stops the RPC server
+// Stop stops the RPC server and releases the socket lock after the socket
+// file is removed. It is safe to call twice and from several goroutines.
 func (s *Server) Stop() error {
-	s.cancel()
+	s.stopOnce.Do(func() {
+		s.cancel()
 
-	if s.listener != nil {
-		s.listener.Close()
-	}
+		if s.listener != nil {
+			s.listener.Close()
+		}
 
-	// Remove socket file
-	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove socket: %w", err)
-	}
+		// Remove socket file, then free the path for the next owner
+		if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+			s.stopErr = fmt.Errorf("failed to remove socket: %w", err)
+		}
+		s.releaseLock()
 
-	log.Printf("RPC server stopped")
-	return nil
+		log.Printf("RPC server stopped")
+	})
+	return s.stopErr
 }
 
 // GetSocketPath determines the appropriate socket path
