@@ -286,8 +286,8 @@ func (pe *PeerExchange) listenLoop(stopCh chan struct{}, conn *net.UDPConn, wg *
 	}
 }
 
-// LegacyEnvelopeOpens returns how many received envelopes were sealed without
-// type authentication.
+// LegacyEnvelopeOpens returns how many received envelopes of a known message
+// type were sealed without type authentication.
 func (pe *PeerExchange) LegacyEnvelopeOpens() uint64 { return pe.legacyOpens.Load() }
 
 // handleMessage processes an incoming peer exchange message
@@ -297,6 +297,15 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	if err != nil {
 		// Could be a DHT message or wrong key - log for debugging
 		log.Printf("[Exchange] Received non-wgmesh packet from %s (len=%d, possibly DHT or wrong secret)", remoteAddr.String(), len(data))
+		return
+	}
+
+	// Only the message types handled below are processed. Anything else is
+	// dropped here, before logging, the legacy counter and the nonce cache.
+	if !isExchangeMessageType(envelope.MessageType) {
+		if pe.allowLog("unknown type", remoteAddr) {
+			log.Printf("[Exchange] Dropped message of unknown type from %s (type length %d)", remoteAddr.String(), len(envelope.MessageType))
+		}
 		return
 	}
 
@@ -425,9 +434,23 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			name = name[:8] + "..."
 		}
 		log.Printf("[Exchange] Peer %s reported shutdown, removed from active set", name)
-	default:
-		log.Printf("[Exchange] Unknown message type: %s", envelope.MessageType)
 	}
+}
+
+// isExchangeMessageType reports whether handleMessage's dispatch has a case for
+// the type. Keep it in step with that switch; TestExchangeMessageTypesMatchTheDispatch
+// fails when they drift.
+func isExchangeMessageType(messageType string) bool {
+	switch messageType {
+	case crypto.MessageTypeHello,
+		crypto.MessageTypeReply,
+		crypto.MessageTypeAnnounce,
+		crypto.MessageTypeGoodbye,
+		crypto.MessageTypeRendezvousOffer,
+		crypto.MessageTypeRendezvousStart:
+		return true
+	}
+	return false
 }
 
 // validateExchangeAnnouncement exists because a locked test calls it by this

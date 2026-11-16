@@ -33,7 +33,7 @@ If you see these after upgrading some nodes, upgrade the rest; the secret is not
 
 ## Reading the counters
 
-- `LegacyEnvelopeOpens` counts envelopes received in the old form, per packet and not per sender. At N it counts nearly all traffic (every writer except GOODBYE is old). From N+1 on it counts only traffic from nodes older than N+1, so it is the number to watch before deploying N+2.
+- `LegacyEnvelopeOpens` counts envelopes received in the old form, per packet and not per sender; only known message types are counted. At N it counts nearly all traffic (every writer except GOODBYE is old). From N+1 on it counts only traffic from nodes older than N+1, so it is the number to watch before deploying N+2.
 - `ReplayedDatagrams` counts datagrams dropped as replays.
 - Neither counter is exposed in `wgmesh status` yet. They live on the exchange object, and each legacy open and each dropped replay is also logged, at most once per 30 seconds per kind and source.
 
