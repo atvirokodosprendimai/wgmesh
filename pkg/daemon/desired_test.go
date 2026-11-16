@@ -309,3 +309,38 @@ func TestReconnectAllowedRelayedPeer(t *testing.T) {
 		}
 	})
 }
+
+// Two advertisers of one network, the lowest-IP one without a fresh
+// handshake: the other owns it. Fresh means a handshake younger than
+// HandshakeStaleAfter; a timestamp of 0 is no handshake.
+func TestDesireFreshnessBoundary(t *testing.T) {
+	const network = "192.168.50.0/24"
+	pLow := &PeerInfo{WGPubKey: "plow", MeshIP: "10.0.0.20", LastSeen: time.Now(), RoutableNetworks: []string{network}}
+	pHigh := &PeerInfo{WGPubKey: "phigh", MeshIP: "10.0.0.30", LastSeen: time.Now(), RoutableNetworks: []string{network}}
+	peers := []*PeerInfo{pLow, pHigh}
+	younger := time.Now().Add(-HandshakeStaleAfter + 2*time.Second).Unix()
+
+	for name, lowTS := range map[string]int64{
+		"older than HandshakeStaleAfter": time.Now().Add(-HandshakeStaleAfter - 2*time.Second).Unix(),
+		"timestamp 0":                    0,
+	} {
+		t.Run(name, func(t *testing.T) {
+			d := makeRelayTestDaemon()
+			ds := d.desire(peers, map[string]int64{"plow": lowTS, "phigh": younger}, map[string]string{})
+			if got := ownersInAllowed(ds, network); len(got) != 1 || got[0] != "phigh" {
+				t.Errorf("owners of %s = %v, want [phigh]", network, got)
+			}
+			if rs := routesTo(ds, network); len(rs) != 1 || rs[0].Gateway != "10.0.0.30" {
+				t.Errorf("routes to %s = %v, want one via 10.0.0.30", network, rs)
+			}
+		})
+	}
+
+	t.Run("both fresh keeps the lowest IP", func(t *testing.T) {
+		d := makeRelayTestDaemon()
+		ds := d.desire(peers, map[string]int64{"plow": younger, "phigh": younger}, map[string]string{})
+		if got := ownersInAllowed(ds, network); len(got) != 1 || got[0] != "plow" {
+			t.Errorf("owners of %s = %v, want [plow]", network, got)
+		}
+	})
+}
