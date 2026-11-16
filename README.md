@@ -291,6 +291,7 @@ wgmesh version
 
 - **Message type authentication** and replay handling of peer messages are rolled out in three releases; see [Envelope rollout](docs/envelope-rollout.md).
 - **Admit step** (which peer claims a node accepts: mesh IP, routes, endpoints, the 5-minute tombstone, the `--accept-routes` list) is rolled out in three releases; see [Admit step rollout](docs/admit-rollout.md).
+- **Kernel state** (how the daemon reads the kernel and writes only the difference: one owner per shared network, forwarding scope, routes on Linux and macOS, the `wgmesh_kernel_warnings_total` counter) is rolled out in two releases; see [Kernel state](docs/kernel-state.md).
 ## Architecture
 
 ```
