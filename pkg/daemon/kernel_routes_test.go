@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"reflect"
 	"strings"
 	"sync"
@@ -55,6 +56,15 @@ func printRoute(canon string) string {
 		return strings.TrimSuffix(canon, "/128")
 	}
 	return canon
+}
+
+// printGateway is how the kernel prints a gateway: IPv6 compressed and in
+// lower case, whatever form it was given in.
+func printGateway(gw string) string {
+	if a, err := netip.ParseAddr(gw); err == nil {
+		return a.String()
+	}
+	return gw
 }
 
 // add puts a route in the table.
@@ -150,7 +160,7 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 		if err := r.replaceErr[canonRoute(a[2], a[4])]; err != nil {
 			return []byte("RTNETLINK answers: Operation not permitted"), err
 		}
-		r.put(kernelRoute{canonRoute(a[2], a[4]), a[4], a[6]})
+		r.put(kernelRoute{canonRoute(a[2], a[4]), printGateway(a[4]), a[6]})
 		return nil, nil
 	case "add": // ip route add <net> dev <dev> ...: the restore of a connected route; not kept
 		return nil, nil
@@ -158,7 +168,7 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 		if len(a) != 7 {
 			return nil, fmt.Errorf("fake host: unexpected command %q", line)
 		}
-		want := kernelRoute{canonRoute(a[2], a[4]), a[4], a[6]}
+		want := kernelRoute{canonRoute(a[2], a[4]), printGateway(a[4]), a[6]}
 		for i, x := range r.table {
 			if x == want {
 				r.table = append(r.table[:i], r.table[i+1:]...)
@@ -652,5 +662,27 @@ func TestRemovedPlainRouteIsNotRestored(t *testing.T) {
 	}
 	if n := ls.count("no local address") + ls.count("connected route"); n != 0 {
 		t.Errorf("a plain removal logged restore noise: %q", ls.lines)
+	}
+}
+
+// The kernel prints a gateway compressed and in lower case; a peer announces
+// its mesh IPv6 in any form. A non-canonical announcement must not make every
+// tick delete and replace the route.
+func TestIPv6GatewayNormalisedNoChurn(t *testing.T) {
+	for _, announced := range []string{"fd12:3456:789a:0001::1", "FD12:3456:789A:1::1"} {
+		t.Run(announced, func(t *testing.T) {
+			rh := convergedHost()
+			d := newRouteDaemon(t, rh, &logSink{}, newFakeKernel())
+			peer := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "fd00:5::/64")
+			peer.MeshIPv6 = announced
+
+			got := ticks(t, d, rh, []*PeerInfo{peer}, 3)
+			if want := []string{replaceCmd("fd00:5::/64", "fd12:3456:789a:1::1")}; !sameLines(got[0], want) {
+				t.Fatalf("tick 1 route writes = %q, want %q", got[0], want)
+			}
+			if len(got[1]) != 0 || len(got[2]) != 0 {
+				t.Errorf("a non-canonical gateway churned: tick 2 %q, tick 3 %q", got[1], got[2])
+			}
+		})
 	}
 }

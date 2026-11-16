@@ -188,7 +188,7 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 				}
 			}
 			d.addAllowedIP(ds.Peers, m.carrier, network)
-			ds.Routes = append(ds.Routes, routes.Entry{Network: network, Gateway: gateway})
+			ds.Routes = append(ds.Routes, routes.Entry{Network: network, Gateway: canonicalGateway(gateway)})
 		}
 	}
 
@@ -205,6 +205,17 @@ func (d *Daemon) warnRoute(warned map[string]struct{}, key string) bool {
 	warned[key] = struct{}{}
 	_, was := d.routeWarned[key]
 	return !was
+}
+
+// canonicalGateway is the gateway in the form the kernel prints it (IPv6
+// compressed, in lower case), which is what the observed routes carry: a
+// peer announces its mesh IPv6 in any form, and the diff compares strings. An
+// unparsable gateway stays as it is.
+func canonicalGateway(gateway string) string {
+	if a, err := netip.ParseAddr(gateway); err == nil {
+		return a.String()
+	}
+	return gateway
 }
 
 // prefixOf is the masked prefix of a local subnet.
