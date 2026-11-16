@@ -181,8 +181,8 @@ type Advertiser struct {
 // candidates the owner already observed in current (canonical network -> owner
 // key, read back from the kernel) keeps the network; otherwise the lowest
 // mesh IP wins, compared as an address, then the lowest key. For an IPv6
-// network the candidate's MeshIPv6 is compared when it has one, else its
-// MeshIP; an address that does not parse sorts last. Resolve is pure: adv,
+// network only the candidate's MeshIPv6 is compared (a peer without one has
+// no IPv6 gateway and sorts last); an address that does not parse sorts last.
 // own and current are not modified.
 func Resolve(adv []Advertiser, own []string, current map[string]string) map[string]string {
 	type candidate struct {
@@ -198,7 +198,7 @@ func Resolve(adv []Advertiser, own []string, current map[string]string) map[stri
 			v6 := familyOf(n)
 			network := Canonical(n, v6)
 			ip := a.MeshIP
-			if v6 && strings.TrimSpace(a.MeshIPv6) != "" {
+			if v6 {
 				ip = a.MeshIPv6
 			}
 			byNetwork[network] = append(byNetwork[network], candidate{a.Key, ip, a.Fresh})

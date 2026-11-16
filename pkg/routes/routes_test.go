@@ -534,3 +534,14 @@ func TestCalculateDiffRemovesEveryStaleGatewayOfDesiredNetwork(t *testing.T) {
 		t.Errorf("table = %v, want exactly the desired route", table)
 	}
 }
+
+func TestResolveIPv6NetworkIgnoresPeerWithoutMeshIPv6(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "X", MeshIP: "10.99.0.1", Fresh: true, Networks: []string{"fd01::/64"}},
+		{Key: "Y", MeshIP: "10.99.0.2", MeshIPv6: "fd00::5", Fresh: true, Networks: []string{"fd01::/64"}},
+	}
+	if got := resolveAll(t, adv, nil, nil); got["fd01::/64"] != "Y" {
+		t.Errorf("Resolve = %v, want Y (X has no MeshIPv6 and cannot be an IPv6 gateway)", got)
+	}
+}
