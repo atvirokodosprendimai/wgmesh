@@ -370,3 +370,85 @@ func TestLivenessStateIsRaceFree(t *testing.T) {
 	run(func(i int) { _ = EnforceLiveness.Load() })
 	wg.Wait()
 }
+
+// movableStore is a store whose clock is *cur; the test moves it.
+func movableStore(cur *time.Time) *PeerStore {
+	ps := NewPeerStore()
+	ps.now = func() time.Time { return *cur }
+	return ps
+}
+
+func TestNoteResumeFutureTimeIsClamped(t *testing.T) {
+	enforceLiveness(t, true)
+	cur := livenessNow
+	ps := movableStore(&cur)
+	seedPeer(ps, "k1", cur.Add(-11*time.Minute))
+
+	ps.NoteResume(cur.Add(time.Hour))
+	if got := ps.ResumedAt(); got.After(cur) {
+		t.Fatalf("ResumedAt = %v, a time after the store clock %v", got, cur)
+	}
+	cur = cur.Add(11 * time.Minute)
+	if hasKey(ps.GetProbeable(), "k1") {
+		t.Fatal("a future NoteResume time kept the peer probeable 11 minutes later")
+	}
+	if removed := ps.CleanupStale(); len(removed) != 1 || removed[0] != "k1" {
+		t.Fatalf("CleanupStale removed %v, want [k1]", removed)
+	}
+}
+
+func TestObserveDataPlaneFutureTimeIsClamped(t *testing.T) {
+	enforceLiveness(t, true)
+	cur := livenessNow
+	ps := movableStore(&cur)
+	seedPeer(ps, "k1", cur.Add(-time.Hour))
+
+	ps.ObserveDataPlane("k1", cur.Add(time.Hour))
+	ps.ObserveDataPlane("k1", cur.Add(-time.Minute))
+	cur = cur.Add(30 * time.Minute)
+	if hasKey(ps.GetActive(), "k1") {
+		t.Fatal("a future ObserveDataPlane time pinned the peer Alive 30 minutes later")
+	}
+}
+
+func TestNoteResumeNeverMovesBack(t *testing.T) {
+	t.Parallel()
+	ps := clockStore()
+	newer := livenessNow.Add(-time.Minute)
+	ps.NoteResume(newer)
+	ps.NoteResume(newer.Add(-time.Minute))
+	if got := ps.ResumedAt(); !got.Equal(newer) {
+		t.Fatalf("ResumedAt = %v after an older time, want %v", got, newer)
+	}
+	later := newer.Add(30 * time.Second)
+	ps.NoteResume(later)
+	if got := ps.ResumedAt(); !got.Equal(later) {
+		t.Fatalf("ResumedAt = %v after a newer time, want %v", got, later)
+	}
+}
+
+func TestOfferedEvidenceIsNotTrusted(t *testing.T) {
+	enforceLiveness(t, true)
+	ps := clockStore()
+	ps.Offer(Candidate{
+		Info: &PeerInfo{
+			WGPubKey:      "k1",
+			LastSeen:      livenessNow.Add(-time.Hour),
+			LastDataPlane: livenessNow,
+			RestoredAt:    livenessNow,
+			resumedAt:     livenessNow,
+		},
+		Source: "dht",
+		Hand:   SecondHand,
+	})
+	if ps.Count() != 1 {
+		t.Fatalf("setup: Count = %d, want 1", ps.Count())
+	}
+	if hasKey(ps.GetActive(), "k1") {
+		t.Fatal("a second-hand claim carrying LastDataPlane/RestoredAt/resumedAt made the peer Alive")
+	}
+	got, _ := ps.Get("k1")
+	if !got.LastDataPlane.IsZero() || !got.RestoredAt.IsZero() {
+		t.Fatalf("stored LastDataPlane %v, RestoredAt %v, want zero (measured here only)", got.LastDataPlane, got.RestoredAt)
+	}
+}
