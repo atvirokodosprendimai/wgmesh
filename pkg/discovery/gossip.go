@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
@@ -14,8 +15,11 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 )
 
-// gossipInterval is the tick used by gossipLoop; a variable so tests can shorten it.
-var gossipInterval = GossipInterval
+// gossipInterval is the tick of gossipLoop in nanoseconds; atomic so tests can
+// shorten it while loops of an earlier test still run.
+var gossipInterval atomic.Int64
+
+func init() { gossipInterval.Store(int64(GossipInterval)) }
 
 const (
 	GossipInterval       = 10 * time.Second
@@ -149,7 +153,7 @@ func (g *MeshGossip) Stop() error {
 // gossipLoop periodically exchanges peer information with random peers
 func (g *MeshGossip) gossipLoop(stopCh chan struct{}, conn *net.UDPConn, wg *sync.WaitGroup) {
 	defer wg.Done()
-	ticker := time.NewTicker(gossipInterval)
+	ticker := time.NewTicker(time.Duration(gossipInterval.Load()))
 	defer ticker.Stop()
 
 	for {

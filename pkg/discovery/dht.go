@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anacrolix/dht/v2"
@@ -1050,7 +1051,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			return
 		}
 		if peerInfo != nil {
-			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, handshakeWaitTimeout)
+			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, time.Duration(handshakeWaitTimeout.Load()))
 			if newHandshake <= baseline {
 				log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(target.WGPubKey), endpoint)
 				d.recordRendezvousAttempt(target.WGPubKey, false)
@@ -1133,18 +1134,25 @@ func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.
 	d.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: source, Hand: daemon.FirstHand})
 }
 
-// peerHandshakes and handshakeWaitTimeout are test seams: production values are
-// wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
+// peerHandshakes and handshakeWaitTimeout (nanoseconds) are test seams, atomic
+// because the punch goroutines read them while a test replaces them: production
+// values are wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
 var (
-	peerHandshakes       = wireguard.GetLatestHandshakes
-	handshakeWaitTimeout = HandshakeWaitTimeout
+	peerHandshakes       atomic.Pointer[func(string) (map[string]int64, error)]
+	handshakeWaitTimeout atomic.Int64
 )
+
+func init() {
+	f := wireguard.GetLatestHandshakes
+	peerHandshakes.Store(&f)
+	handshakeWaitTimeout.Store(int64(HandshakeWaitTimeout))
+}
 
 func getPeerHandshakeTS(iface, peerPubKey string) int64 {
 	if iface == "" || peerPubKey == "" {
 		return 0
 	}
-	hs, err := peerHandshakes(iface)
+	hs, err := (*peerHandshakes.Load())(iface)
 	if err != nil {
 		return 0
 	}
