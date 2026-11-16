@@ -307,38 +307,36 @@ func TestInitLocalNodeMissingGeneratesKey(t *testing.T) {
 	}
 }
 
+// A directory at the state path is a read error that is neither "missing" nor
+// "corrupt" (ReadFile returns EISDIR), and it works the same for root and not.
 func TestInitLocalNodeUnreadableIsNotAbsent(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("running as root: file permissions do not stop root from reading, so an unreadable file cannot be made")
-	}
 	setRefuseCorruptState(t, false)
 	d, path := identityTestDaemon(t)
-	orig := []byte(`{"wg_pubkey":"pub","wg_private_key":"priv"}`)
-	if err := os.WriteFile(path, orig, 0600); err != nil {
+	if err := os.Mkdir(path, 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(path, 0); err != nil {
+	inner := filepath.Join(path, "keep")
+	if err := os.WriteFile(inner, []byte("x"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(path, 0600) })
 
 	err := d.initLocalNode()
 	if err == nil {
-		t.Fatal("initLocalNode succeeded on a file it cannot read")
+		t.Fatal("initLocalNode succeeded on a state path it cannot read")
 	}
 	if errors.Is(err, ErrStateMissing) || errors.Is(err, ErrStateCorrupt) {
-		t.Errorf("a permission error was classified as %v", err)
+		t.Errorf("a read error was classified as %v", err)
 	}
 	if d.localNode != nil {
 		t.Errorf("a key was generated: %+v", d.localNode)
 	}
 	if m := corruptCopies(t, path); len(m) != 0 {
-		t.Errorf("an unreadable file was moved: %v", m)
+		t.Errorf("an unreadable path was moved: %v", m)
 	}
-	if err := os.Chmod(path, 0600); err != nil {
-		t.Fatal(err)
+	if fi, serr := os.Stat(path); serr != nil || !fi.IsDir() {
+		t.Errorf("the state path after the error: %v, %v; want the directory untouched", fi, serr)
 	}
-	if got, _ := os.ReadFile(path); !bytes.Equal(got, orig) {
-		t.Errorf("file after the error = %q, want it untouched", got)
+	if got, _ := os.ReadFile(inner); string(got) != "x" {
+		t.Errorf("the directory's content changed: %q", got)
 	}
 }
