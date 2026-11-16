@@ -113,3 +113,4 @@ Stop and ask if ADR-0002's persist-IP task has not landed, or if the interface c
 - 2026-11-16 · f110717* · exit 0 · `set -o pipefail …` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:13516
 - 2026-11-16 · f110717* · exit 0 · `set -o pipefail …` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:12246
 - 2026-11-16 · f110717* · exit 0 · `set -o pipefail …` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:7680
+- 2026-11-16 · fe6f879* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:2 · test-lock-sha256:e6a4cb9baa42b1704480c6a5aba40079ba549240029a5c314b7458d62a8872f8 · test-lock-file:docs/adr/locks/e6a4cb9baa42b1704480c6a5aba40079ba549240029a5c314b7458d62a8872f8.lock · test-lock-kind:replace

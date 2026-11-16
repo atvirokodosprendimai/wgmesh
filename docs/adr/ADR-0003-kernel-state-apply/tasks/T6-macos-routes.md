@@ -69,6 +69,10 @@ The fence is hermetic apart from the two recorded files; the real behaviour is S
 - 2026-11-16 · 69e2b4d* · mutant killed · exit 1 · `pkg/daemon/darwin_routes.go` · abbreviation not expanded: TestParseNetstatDarwin must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
 - 2026-11-16 · 69e2b4d* · mutant killed · exit 1 · `pkg/daemon/converge.go` · early return restored: TestSyncRoutesRunsOnDarwin must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
 - 2026-11-16 · 69e2b4d* · mutant killed · exit 1 · `pkg/daemon/converge.go` · File exists not turned into change: TestDarwinFileExistsBecomesChange must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
+- 2026-11-16 · fe6f879* · mutant killed · exit 1 · `pkg/daemon/converge.go` · no -interface: TestDarwinRouteAddUsesInterface must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
+- 2026-11-16 · fe6f879* · mutant killed · exit 1 · `pkg/daemon/darwin_routes.go` · abbreviation not expanded: TestParseNetstatDarwin must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
+- 2026-11-16 · fe6f879* · mutant killed · exit 1 · `pkg/daemon/converge.go` · early return restored: TestSyncRoutesRunsOnDarwin must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
+- 2026-11-16 · fe6f879* · mutant killed · exit 1 · `pkg/daemon/converge.go` · File exists not turned into change: TestDarwinFileExistsBecomesChange must go red · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a
 
 ## Invariants
 
@@ -111,3 +115,9 @@ Stop and ask if `route -n add -net <cidr> -interface <utun>` does not route into
 - 2026-11-16 · 69e2b4d* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:10390
 - 2026-11-16 · 69e2b4d* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:11106
 - 2026-11-16 · 69e2b4d* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:6853
+- 2026-11-16 · fe6f879* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:0 · test-lock-sha256:030032fb0dfecd8cedcc293237cde2df97d6e57fe2bb1f8f1fc30aa6e4235e55 · test-lock-file:docs/adr/locks/030032fb0dfecd8cedcc293237cde2df97d6e57fe2bb1f8f1fc30aa6e4235e55.lock · test-lock-kind:replace
+- 2026-11-16 · fe6f879* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:10732
+- 2026-11-16 · fe6f879* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:10303
+- 2026-11-16 · fe6f879* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:11613
+- 2026-11-16 · fe6f879* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:10343
+- 2026-11-16 · fe6f879* · exit 0 · `set -o pipefail …` · acceptance-sha256:c2b2a9a9842ce42cb5d47a46e26148a410e4a0d3525921f20ebff28390d7db6a · ms:7086
