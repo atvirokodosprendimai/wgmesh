@@ -801,3 +801,32 @@ func TestReconnectDoesNotResetWarnOnce(t *testing.T) {
 		t.Errorf("attached-network logged %d times across a reconnect, want 2; log: %q", n, ls.lines)
 	}
 }
+
+// A host default that cannot be read is logged once per distinct error while
+// the add keeps being tried, and the recovery once.
+func TestHostDefaultReadErrorLoggedOnce(t *testing.T) {
+	rh := convergedHost()
+	rh.replaceErr["0.0.0.0/0"] = errors.New("exit status 2") // the add is tried every tick
+	rh.readErr["ip -4 route show default"] = errors.New("RTNETLINK answers: Operation not supported")
+	ls := &logSink{}
+	d := newRouteDaemon(t, rh, ls, newFakeKernel())
+	peers := []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "0.0.0.0/0")}
+
+	ticks(t, d, rh, peers, 5)
+	if n := ls.count("Cannot read the host's IPv4 default route"); n != 1 {
+		t.Errorf("the failed host default read was logged %d times in 5 ticks, want 1; log: %q", n, ls.lines)
+	}
+	delete(rh.readErr, "ip -4 route show default")
+	ticks(t, d, rh, peers, 3)
+	if n := ls.count("Cannot read the host's IPv4 default route"); n != 1 {
+		t.Errorf("the failed read was logged again after it worked: %d; log: %q", n, ls.lines)
+	}
+	if n := ls.count("Reading the host's IPv4 default route works again"); n != 1 {
+		t.Errorf("the recovery was logged %d times, want 1; log: %q", n, ls.lines)
+	}
+	rh.readErr["ip -4 route show default"] = errors.New("a different failure")
+	ticks(t, d, rh, peers, 2)
+	if n := ls.count("Cannot read the host's IPv4 default route"); n != 2 {
+		t.Errorf("a different failure was logged %d times in total, want 2; log: %q", n, ls.lines)
+	}
+}

@@ -297,12 +297,16 @@ func (d *Daemon) noteHostDefault(want []routes.Entry, plan routePlan) {
 	if d.hostDefaultWarned == nil {
 		d.hostDefaultWarned = make(map[string]struct{})
 	}
+	if d.hostDefaultReadErr == nil {
+		d.hostDefaultReadErr = make(map[string]string)
+	}
 	for _, f := range []struct {
 		name, network string
 		ipv6          bool
 	}{{"IPv4", "0.0.0.0/0", false}, {"IPv6", "::/0", true}} {
 		if !hasNetwork(want, f.network) {
 			delete(d.hostDefaultWarned, f.name)
+			delete(d.hostDefaultReadErr, f.name)
 			continue
 		}
 		if _, warned := d.hostDefaultWarned[f.name]; warned || !hasNetwork(plan.Add, f.network) {
@@ -310,8 +314,15 @@ func (d *Daemon) noteHostDefault(want []routes.Entry, plan routePlan) {
 		}
 		dev, err := hostDefaultElsewhere(d.config.InterfaceName, f.ipv6)
 		if err != nil {
-			d.logf("Cannot read the host's %s default route: %v", f.name, err)
+			if msg := err.Error(); msg != d.hostDefaultReadErr[f.name] {
+				d.logf("Cannot read the host's %s default route: %v", f.name, err)
+				d.hostDefaultReadErr[f.name] = msg
+			}
 			continue
+		}
+		if d.hostDefaultReadErr[f.name] != "" {
+			d.logf("Reading the host's %s default route works again", f.name)
+			delete(d.hostDefaultReadErr, f.name)
 		}
 		if dev != "" {
 			d.logf("host-default: this host already has an %s default route on %s; the mesh's %s default route on %s is installed as well", f.name, dev, f.name, d.config.InterfaceName)
