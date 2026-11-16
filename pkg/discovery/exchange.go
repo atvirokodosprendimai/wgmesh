@@ -1180,7 +1180,8 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		return fmt.Errorf("failed to seal announce: %w", err)
 	}
 
-	// Stop and a restart replace the socket under pe.mu.
+	// Start writes pe.conn under pe.mu; Stop only closes the socket and leaves
+	// it set, so a send after Stop fails in WriteToUDP, not here.
 	pe.mu.RLock()
 	conn := pe.conn
 	pe.mu.RUnlock()
@@ -1194,7 +1195,8 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 	return nil
 }
 
-// hasConn reports whether the exchange socket is open.
+// hasConn reports whether Start has opened the exchange socket. After Stop the
+// socket is closed but still set, so it still reports true.
 func (pe *PeerExchange) hasConn() bool {
 	pe.mu.RLock()
 	defer pe.mu.RUnlock()
