@@ -69,6 +69,12 @@ type DHTDiscovery struct {
 	// layer runs it is above 0, after Stop returns it must be 0.
 	loops atomic.Int32
 
+	// runMu serializes the whole of Start and the whole of Stop, the bounded
+	// waits included: a Stop issued during a Start waits for it and then stops
+	// it, and a Start waits for the teardown of the run before it. Lock order:
+	// runMu first, then mu; code holding mu never calls Start or Stop.
+	runMu sync.Mutex
+
 	// mu guards every field below, reads included (ADR-0005 T10): Start writes
 	// server, dhtPort, lan and gossip, while the loops of a stopped run, Stop
 	// and the next Start read them. Read server and dhtPort through dhtServer
@@ -227,6 +233,8 @@ func (d *DHTDiscovery) dhtPortNow() int {
 // again and gets a fresh context derived from the parent. running is set only
 // after every sub-layer started; on an error the started layers are stopped.
 func (d *DHTDiscovery) Start() error {
+	d.runMu.Lock()
+	defer d.runMu.Unlock()
 	if err := d.beginRun(); err != nil {
 		return err
 	}
@@ -320,6 +328,9 @@ func (d *DHTDiscovery) Start() error {
 
 // Stop stops DHT discovery
 func (d *DHTDiscovery) Stop() error {
+	d.runMu.Lock()
+	defer d.runMu.Unlock()
+
 	d.mu.Lock()
 	if !d.running {
 		d.mu.Unlock()
