@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +16,12 @@ import (
 
 type Client struct {
 	conn *ssh.Client
+}
+
+// dialAddr formats host and port for dialing and known_hosts lookups; IPv6
+// hosts come out bracketed ("[::1]:22").
+func dialAddr(host string, port int) string {
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 func NewClient(host string, port int) (*Client, error) {
@@ -46,7 +53,7 @@ func NewClient(host string, port int) (*Client, error) {
 		return nil, err
 	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := dialAddr(host, port)
 	config := &ssh.ClientConfig{
 		User:              "root",
 		Auth:              authMethods,
