@@ -459,3 +459,51 @@ func TestDHTStartAfterParentCancelled(t *testing.T) {
 		t.Error("exchange started although Start was refused")
 	}
 }
+
+// dhtLayers reads the lan and gossip layers under d.mu.
+func dhtLayers(d *DHTDiscovery) (*LANDiscovery, *MeshGossip) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.lan, d.gossip
+}
+
+// TestDHTNoStaleGossip: every run builds its own gossip and LAN layers, and a
+// stopped or failed run keeps none.
+// Why: abortRun cleared lan but left d.gossip, and a Start with gossip
+// disabled kept the previous run's. Invariant: after a failed Start both are
+// nil; a run with Gossip off has no gossip even after a run that had it.
+func TestDHTNoStaleGossip(t *testing.T) {
+	oldNodes, oldSTUN := DHTBootstrapNodes, DefaultSTUNServers
+	DHTBootstrapNodes, DefaultSTUNServers = nil, nil
+	t.Cleanup(func() { DHTBootstrapNodes, DefaultSTUNServers = oldNodes, oldSTUN })
+
+	d := newRestartDHT(t, context.Background(), "wgmesh-test-restart-stalegossip-1",
+		daemon.DaemonOpts{Gossip: true, DisableIPv6: true})
+	t.Cleanup(func() { _ = d.Stop() })
+
+	if err := d.Start(); err == nil {
+		t.Fatal("Start succeeded without bootstrap nodes, want the DHT server error")
+	}
+	if _, gossip := dhtLayers(d); gossip != nil {
+		t.Error("gossip still held after a failed Start")
+	}
+
+	// The same instance with gossip off must not see a gossip from before.
+	DHTBootstrapNodes = []string{"127.0.0.1:1"}
+	if err := d.Start(); err != nil {
+		t.Fatalf("Start with gossip: %v", err)
+	}
+	if _, gossip := dhtLayers(d); gossip == nil {
+		t.Fatal("run with Gossip on has no gossip layer")
+	}
+	if err := d.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	d.config.Gossip = false
+	if err := d.Start(); err != nil {
+		t.Fatalf("Start without gossip: %v", err)
+	}
+	if _, gossip := dhtLayers(d); gossip != nil {
+		t.Error("run with Gossip off holds the gossip of the previous run")
+	}
+}
