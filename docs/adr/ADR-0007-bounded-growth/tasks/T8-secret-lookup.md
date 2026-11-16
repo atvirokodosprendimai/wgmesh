@@ -1,7 +1,7 @@
 # Task ADR-0007-T8: One join-secret lookup for `join`, `status`, `qr`, `install-service` and `wgmesh service` (#891)
 
 **Depends-on:** none
-**Blocked-on:** the last task of ADR-0002 (its documentation task) is merged on main: `git cat-file -e origin/main:pkg/node/spec_admit_test.go` exits 0, because `main.go` is also edited by ADR-0002 T10 (`--accept-routes`); expect a rebase onto the merged PR #893 (`NormalizeRoutes`, `install-service` validation), which edits the same `installServiceCmd`
+**Resolved:** ADR-0002 is merged on main (f3860c6, 2026-11-16; `git cat-file -e origin/main:pkg/node/spec_admit_test.go` exits 0)
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned

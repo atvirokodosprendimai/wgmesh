@@ -1,7 +1,7 @@
 # Task ADR-0007-T5: Replace the deprecated `Announce` with `AnnounceTraversal` (#836)
 
 **Depends-on:** none
-**Blocked-on:** the last task of ADR-0002 (its documentation task) is merged on main: `git cat-file -e origin/main:pkg/node/spec_admit_test.go` exits 0, because the files this task edits are also edited by ADR-0002 tasks
+**Resolved:** ADR-0002 is merged on main (f3860c6, 2026-11-16; `git cat-file -e origin/main:pkg/node/spec_admit_test.go` exits 0)
 **Covers:** none — no spec
 **Estimated scope:** S (single file)
 **Owner:** unassigned
