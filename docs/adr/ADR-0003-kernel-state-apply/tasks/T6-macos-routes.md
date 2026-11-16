@@ -5,7 +5,7 @@
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
-**Produces:** `darwinRouteAdapter`
+**Produces:** `planRoutesDarwin`, `applyRouteDiffDarwin`, `observeRoutesDarwin`, `parseNetstatDarwin`
 **Consumes:** `routeTarget`, `EnforceRouteGuard` (T5); `routes.Canonical` (T1)
 **Data dependency:** needs recorded `netstat -rn -f inet` and `netstat -rn -f inet6` output from a Mac with a `utun` WireGuard interface, recorded by S1 into `pkg/daemon/testdata/darwin/`
 **Proof map:** v1
@@ -18,10 +18,10 @@ On macOS the route target reads the kernel table with `netstat`, adds `route -n 
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/darwin_routes.go` | add | `observeRoutesDarwin`, `applyRouteDarwin`, `parseNetstatDarwin` (abbreviated destinations such as `192.168.5/24` and `10.99/16` are expanded; `default` by the family queried); not named `*_darwin.go`, because that suffix is a Go build constraint and the file would not compile or test on Linux |
-| `pkg/daemon/routes.go` | edit | `syncPeerRoutes` loses the early `return nil` for non-Linux (`:14-16`) and selects the adapter by `runtime.GOOS` through a `Daemon` field `goos` that tests set |
+| `pkg/daemon/darwin_routes.go` | add | `observeRoutesDarwin`, `parseNetstatDarwin` and the pure `planRoutesDarwin` (macOS routes carry no gateway, so `routes.CalculateDiff` is not reused; the mesh subnet and mesh IPv6 prefix are kept); the apply `applyRouteDiffDarwin` is in `converge.go`, so the guard test can name it (abbreviated destinations such as `192.168.5/24` and `10.99/16` are expanded; `default` by the family queried); not named `*_darwin.go`, because that suffix is a Go build constraint and the file would not compile or test on Linux |
+| `pkg/daemon/routes.go` | edit | none: `syncPeerRoutes` no longer exists (T5 moved it); the non-Linux early returns were in `convergeRoutes`, `observeRoutes` and `attachedSubnet` in `converge.go`, `observe.go` and `desired.go`, now one switch on `osName()` (the `Daemon` field `goos`) each |
 | `pkg/daemon/converge.go` | edit | on Darwin the forwarding and address targets are not wanted (out of scope), the attached-network rule is enforced regardless of `EnforceRouteGuard` |
-| `pkg/daemon/darwin_routes_test.go`, `pkg/daemon/testdata/darwin/netstat-inet.txt`, `netstat-inet6.txt` | add | the six tests below |
+| `pkg/daemon/darwin_routes_test.go`, `pkg/daemon/testdata/darwin/netstat-inet.handwritten.txt`, `netstat-inet6.handwritten.txt` (hand-written from the man page, NOT recorded: S1 replaces them with `netstat-inet.txt` and `netstat-inet6.txt` from a Mac and renames the references in the test and in the Acceptance check) | add | the six tests below |
 
 Selection: `syncPeerRoutes` picks the adapter by `goos`; deleting that branch turns `TestSyncRoutesRunsOnDarwin` red.
 
@@ -39,7 +39,7 @@ Selection: `syncPeerRoutes` picks the adapter by `goos`; deleting that branch tu
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/daemon -run '^(TestParseNetstatDarwin|TestDarwinRouteAddUsesInterface|TestDarwinRouteDeleteUsesInterface|TestDarwinAttachedNetworkSkippedFromFirstRelease|TestDarwinV6RouteUsesInet6|TestSyncRoutesRunsOnDarwin)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 6 ] && [ -s pkg/daemon/testdata/darwin/netstat-inet.txt ] && go test -race ./pkg/daemon -count=1
+n=$(go test ./pkg/daemon -run '^(TestParseNetstatDarwin|TestDarwinRouteAddUsesInterface|TestDarwinRouteDeleteUsesInterface|TestDarwinAttachedNetworkSkippedFromFirstRelease|TestDarwinV6RouteUsesInet6|TestSyncRoutesRunsOnDarwin)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 6 ] && [ -s pkg/daemon/testdata/darwin/netstat-inet.handwritten.txt ] && go test -race ./pkg/daemon -count=1
 ```
 
 The fence is hermetic apart from the two recorded files; the real behaviour is S6's sign-off.
