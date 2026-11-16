@@ -180,8 +180,9 @@ func TestBoundTableHasNoStaleRows(t *testing.T) {
 }
 
 // TestGuardFailsOnUnlistedMapField proves the checker on a synthetic file: one
-// map field without a row is one finding naming it, and a row for a field that
-// is gone is one stale finding.
+// map field without a row is one finding naming it, a row for a field that is
+// gone is one stale finding, and each kind of invalid row (unknown kind, empty
+// how, empty lock, a file that was not parsed) is one finding naming the column.
 func TestGuardFailsOnUnlistedMapField(t *testing.T) {
 	const file = "synthetic.go"
 	src := map[string]string{file: `package x
@@ -204,5 +205,22 @@ type Holder struct {
 	got = checkBoundTable(src, table)
 	if len(got) != 2 || !strings.Contains(strings.Join(got, "\n"), "stale row Holder.gone") {
 		t.Fatalf("want a stale finding for Holder.gone and the unlisted one, got %q", got)
+	}
+
+	good := boundRow{field: "Holder.known", file: file, kind: "session-local", how: "dies with the holder", lock: "none"}
+	for _, tc := range []struct {
+		name   string
+		extra  boundRow
+		column string
+	}{
+		{"unknown kind", boundRow{field: "Holder.seenAt", file: file, kind: "bogus", how: "x", lock: "none"}, "column kind"},
+		{"empty how", boundRow{field: "Holder.seenAt", file: file, kind: "session-local", how: "", lock: "none"}, "column how"},
+		{"empty lock", boundRow{field: "Holder.seenAt", file: file, kind: "session-local", how: "x", lock: ""}, "column lock"},
+		{"file not parsed", boundRow{field: "Holder.seenAt", file: "other.go", kind: "session-local", how: "x", lock: "none"}, "column file"},
+	} {
+		got := findingsWithPrefix(checkBoundTable(src, []boundRow{good, tc.extra}), "invalid")
+		if len(got) != 1 || !strings.Contains(got[0], tc.column) {
+			t.Errorf("%s: want one invalid finding naming %q, got %q", tc.name, tc.column, got)
+		}
 	}
 }
