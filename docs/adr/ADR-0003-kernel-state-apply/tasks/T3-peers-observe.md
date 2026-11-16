@@ -79,6 +79,7 @@ a=$(go test ./pkg/wireguard -run '^TestParseDump$' -count=1 -v 2>&1 | tee /dev/s
 - A peer without an endpoint is still not configured (`daemon.go:791-793`); IPv6 endpoints are still skipped with `--no-ipv6`.
 - `GetLatestHandshakes` and `GetPeerTransfers` keep working for the health loop and discovery.
 - Concurrency (M 2026-11-16): every field the step shares between goroutines (`pushedEndpoint`, the last results, the warn-once sets) is under one mutex on every access; the `SetPeer` seam is a `Daemon` field; `go test -race` runs a test with two goroutines calling `converge`.
+- From the T2 review: (a) the handshakes of a tick and the peers' AllowedIPs come from the one `wg show dump`; when that read fails the whole tick skips `desire` and every write, so a failed read can never make every owner look stale and move routes (T2 passes handshakes read separately and ignores the error until this task); (b) `attemptPeerReconnect`, `evictPeerFromPool` and `removePeer` write through the converge helpers under the same lock that `reconcile` holds (`reconcileMu` or one lock inside converge, never both ordered two ways), and a forced reconnect of a relayed peer must not pull the peer's mesh `/32` off its relay (set it from the desired state of the peer's carrier, or not at all).
 
 ## Risks
 

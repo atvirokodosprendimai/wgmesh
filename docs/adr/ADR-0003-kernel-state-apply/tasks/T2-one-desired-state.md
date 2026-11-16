@@ -20,16 +20,16 @@
 |------|--------|-----|
 | `pkg/daemon/desired.go` | add | `desiredState{Peers map[string]*desiredPeerConfig; Routes []routes.Entry; relayRoutes map[string]string; directStable map[string]int}` and `(d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observedOwners map[string]string) *desiredState`; `Fresh` is a handshake newer than `HandshakeStaleAfter`; the relay mapping and hysteresis of `buildDesiredPeerConfigsWithHandshakes` move here unchanged |
 | `pkg/daemon/daemon.go` | edit | `buildDesiredPeerConfigsWithHandshakes` stays as a thin wrapper returning the same three values (so `routes_test.go` relay tests run unchanged); `reconcile` (`:534-559`) calls `desire` once and passes `Routes` to `syncPeerRoutes`; `reconnectAllowedCSV` (`:1356-1371`) takes the allowed set from `desire` instead of calling `ExcludeOwn` itself |
-| `pkg/daemon/routes.go` | edit | `syncPeerRoutes` takes the desired routes instead of deriving them (removes the loop at `:18-46` and the `ExcludeOwn` at `:58` moves to a helper in `desired.go`) |
+| `pkg/daemon/routes.go` | edit | new `applyRoutes(desired []routes.Entry)` takes the desired routes instead of deriving them (removes the loop at `:18-46`; the `ExcludeOwn` at `:58` moves to the helper `isOwnNetwork` in `desired.go`); `syncPeerRoutes(peers)` stays only as a thin test wrapper over `desire` and `applyRoutes` so the pinned tests keep their call shape |
 | `pkg/daemon/desired_test.go` | add | the six tests below |
-| `pkg/daemon/ha_routes_test.go`, `pkg/daemon/routes_test.go` | none | the pinned tests run unchanged |
+| `pkg/daemon/ha_routes_test.go`, `pkg/daemon/routes_test.go` | none | the pinned tests run unchanged; the one call of `reconnectAllowedCSV` in `ha_routes_test.go` changes shape only (it is a method now), its expectation does not |
 
 Selection: `reconcile` calls `desire`; deleting that call turns `TestDesireRoutesAndAllowedIPsFromOneOwner` and every reconcile test red.
 
 ## Ordered Steps
 
 1. [S1] Add `pkg/daemon/desired_test.go` with the six tests and a compiling stub (`desire` returns an empty state) so the first run fails on assertions. Run red.
-2. [S2] Implement `desire`: peers and relay mapping as today, then the route list and the AllowedIPs of non-mesh networks from `routes.Resolve`, so both read the same owner; a skipped network is skipped in both. `Resolve` takes `current` as canonical network -> owner KEY: build it from the observed kernel gateway (mesh IP or relay) mapped back to the peer key, and test it with a kernel-shaped table (T1 review). An IPv6 network whose owner has no `MeshIPv6` is still emitted with the peer's IPv4 mesh IP as gateway here (`Resolve` sorts such a peer last); skipping it with one log line is T5. `desire` logs the losing gateway of a shared network once (T1 review).
+2. [S2] Implement `desire`: peers and relay mapping as today, then the route list and the AllowedIPs of non-mesh networks from `routes.Resolve`, so both read the same owner; a skipped network is skipped in both. `Resolve` takes `current` as canonical network -> owner KEY: build it from the observed kernel gateway (mesh IP or relay) mapped back to the peer key, and test it with a kernel-shaped table (T1 review). An IPv6 network whose owner has no `MeshIPv6` is still emitted with the peer's IPv4 mesh IP as gateway here (`Resolve` sorts such a peer last); skipping it with one log line is T5. `desire` logs the losing gateway of a shared network once per change (T1 review). `observedOwners` is an empty map in every caller until T3 builds it from the kernel; `reconnectAllowedCSV` falls back to the peer's mesh /32 and /128 when the peer has no entry of its own in the desired state (relayed, temporarily offline); T3 replaces that path.
 3. [S3] Switch `reconcile`, `syncPeerRoutes` and `reconnectAllowedCSV` to the desired state.
 4. [S4] Add `TestExcludeOwnOnlyInDesire`: it parses the non-test `.go` files of `pkg/daemon` and fails on a call to `routes.ExcludeOwn` outside `desired.go`. Run it red before S3 (`grep -rn "ExcludeOwn(" pkg/daemon/*.go | grep -v _test.go | grep -v desired.go | wc -l` is 5 at `b8b83f3`), green after.
 5. [S5] Run the pinned tests `TestSharedSubnetNeverRoutedThroughMesh`, `TestSharedSubnetNotRelayedThroughMesh` and ADR-0002's `TestHAExitNodesDropEachOthersDefault` unchanged. [proof: acceptance]
@@ -60,7 +60,7 @@ a=$(go test ./pkg/daemon -run '^(TestDesireRoutesAndAllowedIPsFromOneOwner|TestD
 
 | Rung | How this task shows it |
 |------|------------------------|
-| 1 — exists | the five tests |
+| 1 — exists | the six tests |
 | 2 — something selects it | `reconcile` calls `desire`; the removed-call mutant turns the first test red |
 | 3 — the caller can discover it | doc comment on `desire`; T9 amends the reconciliation spec |
 | 4 — it is used | every tick |
