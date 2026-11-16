@@ -132,3 +132,4 @@ Stop and ask if `joinCmd` builds the RPC server or touches the interface before 
 - 2026-11-16 · f04f321* · exit 0 · `set -o pipefail …` · acceptance-sha256:14f7a42d3ef5eb28b14b093c72308fbde88a63f59a155b6b67afc6e4993e74db · ms:17670
 - 2026-11-16 · f04f321* · exit 0 · `set -o pipefail …` · acceptance-sha256:152408ee19737e0a0b79b7275f4b250262d4ecc8192396ea3d4c746855585212 · ms:21967
 - 2026-11-16 · f04f321* · exit 0 · `set -o pipefail …` · acceptance-sha256:152408ee19737e0a0b79b7275f4b250262d4ecc8192396ea3d4c746855585212 · ms:14752
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:152408ee19737e0a0b79b7275f4b250262d4ecc8192396ea3d4c746855585212 · ms:14436

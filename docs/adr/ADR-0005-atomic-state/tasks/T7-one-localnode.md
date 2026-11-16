@@ -56,6 +56,7 @@ n=$(go test ./pkg/daemon -run '^TestLocalNodeIsOneType$' -count=1 -v 2>&1 | tee 
 
 ## Mutation Log
 - 2026-11-16 · b848ddf* · mutant killed · exit 1 · `pkg/daemon/peerstore_compat.go` · the alias is replaced by a second struct: TestLocalNodeIsOneType must go red · acceptance-sha256:ad61c9da5e52ff36801db753b2127f4bc844bdd26901757dc9c264e55f11251a
+- 2026-11-16 · 5be2569* · mutant killed · exit 1 · `pkg/daemon/peerstore_compat.go` · the alias is replaced by a second struct: TestLocalNodeIsOneType must go red · acceptance-sha256:776d9f4ebe7738be64e9835826e3225ff83ea5e0f7da5a614e86383be907eaeb
 
 ## Invariants
 
@@ -89,3 +90,6 @@ Stop and ask if ADR-0002 T9 is not merged (there is nothing to move yet), if the
   ```
 - 2026-11-16 · b848ddf* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad61c9da5e52ff36801db753b2127f4bc844bdd26901757dc9c264e55f11251a · ms:31307
 - 2026-11-16 · b848ddf* · exit 0 · `set -o pipefail …` · acceptance-sha256:ad61c9da5e52ff36801db753b2127f4bc844bdd26901757dc9c264e55f11251a · ms:22996
+- 2026-11-16 · 5be2569 · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:776d9f4ebe7738be64e9835826e3225ff83ea5e0f7da5a614e86383be907eaeb · ms:1 · test-lock-sha256:761002d792e8d15db32d25adad6f4f206ac03e23c17a3b4a8e6d33685f0f18ee · test-lock-file:docs/adr/locks/761002d792e8d15db32d25adad6f4f206ac03e23c17a3b4a8e6d33685f0f18ee.lock · test-lock-kind:replace
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:776d9f4ebe7738be64e9835826e3225ff83ea5e0f7da5a614e86383be907eaeb · ms:21717
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:776d9f4ebe7738be64e9835826e3225ff83ea5e0f7da5a614e86383be907eaeb · ms:21085

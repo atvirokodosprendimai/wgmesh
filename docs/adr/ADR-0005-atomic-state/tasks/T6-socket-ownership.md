@@ -65,6 +65,11 @@ n=$(go test ./pkg/rpc ./pkg/flock . -run '^(TestNewServerRefusesOwnedSocket|Test
 | 4 — it is used | every daemon that starts an RPC server |
 
 ## Mutation Log
+- 2026-11-16 · 5be2569* · mutant killed · exit 1 · `pkg/rpc/server.go` · NewServer takes no lock: TestNewServerRefusesOwnedSocket must go red · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de
+- 2026-11-16 · 5be2569* · mutant killed · exit 1 · `pkg/rpc/server.go` · Stop does not release the lock: TestStopReleasesSocketLock must go red · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de
+- 2026-11-16 · 5be2569* · mutant killed · exit 1 · `pkg/rpc/server.go` · the error path after the lock leaks it: TestNewServerErrorReleasesLock must go red · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de
+- 2026-11-16 · 5be2569* · mutant killed · exit 1 · `pkg/rpc/server.go` · a second Stop runs again: TestSecondStopKeepsNewOwnersSocket must go red · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de
+- 2026-11-16 · 5be2569* · mutant killed · exit 1 · `pkg/flock/flock.go` · TryLock follows a planted symlink: TestTryLockRefusesSymlink must go red · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de
 
 ## Invariants
 
@@ -89,3 +94,23 @@ Stop and ask if `NewServer` gains a second caller that treats an error as fatal.
 - A per-interface default socket path (permanent: boundary: it would change what `wgmesh peers` finds; M3).
 
 ## Verification Log
+- 2026-11-16 · 5be2569* · exit 1 · `set -o pipefail …` · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de · ms:1845 · test-lock-sha256:c3043ed4ab07aa80c34d1d2d3ffad9ffdb949fd09f40ba941700f32aff0b5c91 · test-lock-file:docs/adr/locks/c3043ed4ab07aa80c34d1d2d3ffad9ffdb949fd09f40ba941700f32aff0b5c91.lock
+  ```
+  --- last 10 line(s) of stderr (of 108 after folding 143 raw)
+      flock_test.go:272: TryLock followed a symlink at the lock path
+  --- FAIL: TestTryLockRefusesSymlink (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/flock	0.003s
+  === RUN   TestCreateRPCServerReturnsUntypedNilOnError
+      main_rpc_test.go:26: createRPCServer on an owned socket path succeeded
+  --- FAIL: TestCreateRPCServerReturnsUntypedNilOnError (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh	0.005s
+  FAIL
+  ```
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de · ms:5195
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de · ms:6154
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de · ms:6223
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de · ms:5743
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de · ms:5975
+- 2026-11-16 · 5be2569* · exit 0 · `set -o pipefail …` · acceptance-sha256:6d57a05172e2e1e1595ea99a0588140cf4c3abba367a38afefa9bbf48a8698de · ms:3332
