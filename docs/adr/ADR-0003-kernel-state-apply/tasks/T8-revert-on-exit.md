@@ -17,7 +17,7 @@ At a graceful exit the daemon removes the FORWARD rule only if this run added it
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/converge.go` | edit | the forwarding apply records `addedRule` (the rule was absent and `-A` succeeded) and `prevIPForward` (the value read before the first write); `revertKernel` issues `iptables -D` and the sysctl restore from those records; `EnforceRevertOnExit` (package variable, `false`) |
+| `pkg/daemon/converge.go` | edit | the forwarding apply records `addedRule` (the rule was absent and `-A` succeeded) and `prevIPForward` (the value read before the first write); `revertKernel` issues `iptables -D` and the sysctl restore from those records; `EnforceRevertOnExit` (`atomic.Bool`, `false`; every access `Load`/`Store`) |
 | `pkg/daemon/daemon.go` | edit | `Run` calls `revertKernel` after `d.wg.Wait()` and before the deferred `teardownWireGuard` (`:233`, `:292-295`) |
 | `docs/kernel-state.md`, `pkg/daemon/spec_converge_test.go` | edit | the note and the spec test name the revert and its switch |
 | `pkg/daemon/revert_test.go` | add | the four tests below |

@@ -78,12 +78,13 @@ a=$(go test ./pkg/wireguard -run '^TestParseDump$' -count=1 -v 2>&1 | tee /dev/s
 - Obsolete peers are still removed when absent from the desired state; an observe error removes nothing.
 - A peer without an endpoint is still not configured (`daemon.go:791-793`); IPv6 endpoints are still skipped with `--no-ipv6`.
 - `GetLatestHandshakes` and `GetPeerTransfers` keep working for the health loop and discovery.
+- Concurrency (M 2026-11-16): every field the step shares between goroutines (`pushedEndpoint`, the last results, the warn-once sets) is under one mutex on every access; the `SetPeer` seam is a `Daemon` field; `go test -race` runs a test with two goroutines calling `converge`.
 
 ## Risks
 
 - `wg show dump` differs on an old wireguard-tools: a parse error skips the tick and logs once; the fixture is real output (S1).
 - Two reconciles at once (tick and `handleSIGHUP`, `daemon.go:1680`): `pushedEndpoint` and the result log are under one mutex, and `go test -race` is in the fence.
-- The test double is `MockCommandExecutor`; `wireguard.SetPeer` uses `os/exec` directly (`pkg/wireguard/apply.go:159`), so the converge helpers call it through a package variable that tests replace.
+- The test double is `MockCommandExecutor`; `wireguard.SetPeer` uses `os/exec` directly (`pkg/wireguard/apply.go:159`), so the converge helpers call it through a field of the `Daemon` set at construction (a bare package variable replaced by tests is a race with leftover goroutines, M 2026-11-16).
 
 ## Stop Condition
 

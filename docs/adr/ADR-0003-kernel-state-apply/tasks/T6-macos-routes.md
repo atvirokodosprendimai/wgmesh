@@ -19,7 +19,7 @@ On macOS the route target reads the kernel table with `netstat`, adds `route -n 
 | File | Change | Why |
 |------|--------|-----|
 | `pkg/daemon/darwin_routes.go` | add | `observeRoutesDarwin`, `applyRouteDarwin`, `parseNetstatDarwin` (abbreviated destinations such as `192.168.5/24` and `10.99/16` are expanded; `default` by the family queried); not named `*_darwin.go`, because that suffix is a Go build constraint and the file would not compile or test on Linux |
-| `pkg/daemon/routes.go` | edit | `syncPeerRoutes` loses the early `return nil` for non-Linux (`:14-16`) and selects the adapter by `runtime.GOOS` through a package variable `goos` that tests replace |
+| `pkg/daemon/routes.go` | edit | `syncPeerRoutes` loses the early `return nil` for non-Linux (`:14-16`) and selects the adapter by `runtime.GOOS` through a `Daemon` field `goos` that tests set |
 | `pkg/daemon/converge.go` | edit | on Darwin the forwarding and address targets are not wanted (out of scope), the attached-network rule is enforced regardless of `EnforceRouteGuard` |
 | `pkg/daemon/darwin_routes_test.go`, `pkg/daemon/testdata/darwin/netstat-inet.txt`, `netstat-inet6.txt` | add | the six tests below |
 
@@ -76,7 +76,7 @@ The fence is hermetic apart from the two recorded files; the real behaviour is S
 
 - `netstat` abbreviates destinations and differs between macOS versions; the fixtures are real output and S6 verifies the result; the task is not done without the sign-off.
 - A peer network that overlaps the Mac's own LAN would break its LAN; the attached-network rule is on from the first release for that reason.
-- Test doubles: `MockCommandExecutor` and the `goos` variable.
+- Test doubles: `MockCommandExecutor` and the `goos` field.
 
 ## Stop Condition
 

@@ -17,8 +17,8 @@ A Linux node reads `net.ipv4.ip_forward` and the FORWARD rule before writing the
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/daemon/observe.go` | edit | forwarding target: read `/proc/sys/net/ipv4/ip_forward` through a package variable, `iptables -C FORWARD -i <if> -o <if> -j ACCEPT` only when forwarding is wanted, `LookPath("iptables")` result |
-| `pkg/daemon/converge.go` | edit | plan: write the sysctl only when it reads 0, append the rule only when `-C` fails; apply result "unavailable" for a missing binary; `EnforceForwardScope` (package variable, `false`) and the rule `forward-scope` |
+| `pkg/daemon/observe.go` | edit | forwarding target: read `/proc/sys/net/ipv4/ip_forward` through a `Daemon` field (`readFile`), `iptables -C FORWARD -i <if> -o <if> -j ACCEPT` only when forwarding is wanted, `LookPath("iptables")` result |
+| `pkg/daemon/converge.go` | edit | plan: write the sysctl only when it reads 0, append the rule only when `-C` fails; apply result "unavailable" for a missing binary; `EnforceForwardScope` (`atomic.Bool`, `false`; every access `Load`/`Store`) and the rule `forward-scope` |
 | `pkg/daemon/desired.go` | edit | `desiredState.Forward{Wanted, Needed bool}`: `Needed` is `config.Introducer` or at least one `advertise-routes` entry (the only relay is an introducer, `daemon.go:586`); at N `Wanted` is true on Linux always, with `EnforceForwardScope` it equals `Needed` |
 | `pkg/daemon/converge_guard_test.go` | edit | the pattern list gains `sysctl` and `iptables` |
 | `pkg/daemon/routes.go` | none | the blind `sysctl` and `iptables` calls at `:172-175` and `ensureWGForwardingRule` (`:180-192`) stay until T5 removes them, so no tick runs without forwarding between T4 and T5 |
@@ -28,7 +28,7 @@ Selection: `reconcile` calls `converge`, which now includes the forwarding targe
 
 ## Ordered Steps
 
-1. [S1] Add the seven tests with compiling stubs (an empty forwarding plan) and run red; the fake host is a struct holding `ipForward`, `ruleInstalled`, `iptablesPresent` and a command log, reached through `MockCommandExecutor` and the package variable that replaces the file read.
+1. [S1] Add the seven tests with compiling stubs (an empty forwarding plan) and run red; the fake host is a struct holding `ipForward`, `ruleInstalled`, `iptablesPresent` and a command log, reached through `MockCommandExecutor` and the `Daemon` field that replaces the file read.
 2. [S2] Implement the forwarding target: observe, plan, apply, result.
 3. [S3] Implement `Needed` and the `forward-scope` rule: at N one log line and one counter increment per transition, no change of behaviour; with `EnforceForwardScope` the target is not wanted when not needed.
 4. [S4] Extend `TestKernelWritesOnlyInConverge` with `sysctl` and `iptables` for the files other than `routes.go`, which T5 cleans; the test lists `routes.go` as a known exception that T5 removes. [proof: acceptance]
@@ -73,8 +73,8 @@ n=$(go test ./pkg/daemon -run '^(TestForwardAppliedOnceThenQuiet|TestForwardReap
 ## Risks
 
 - A node that relays or advertises but whose config is changed by SIGHUP (`reloadConfig`, `daemon.go:1719`) is judged by the next tick; `Needed` reads the current value.
-- Reading `/proc` through a variable means the production default must be set in `init`; a test that forgets to reset it would read the host; each test sets it.
-- Test doubles: `MockCommandExecutor` and the file-read variable.
+- Reading `/proc` through a `Daemon` field: the production default is set in `New`; each test sets its own field, so no test touches a shared variable. `Needed` reads advertise-routes through `GetAdvertiseRoutes()` (config lock), never `d.config.AdvertiseRoutes`.
+- Test doubles: `MockCommandExecutor` and the file-read field.
 
 ## Stop Condition
 

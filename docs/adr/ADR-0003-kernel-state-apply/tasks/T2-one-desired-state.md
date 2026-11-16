@@ -1,7 +1,7 @@
 # Task ADR-0003-T2: Build one desired state per tick for AllowedIPs and routes
 
 **Depends-on:** T1
-**Blocked-on:** ADR-0002's route approval task has landed on main: `grep -q 'func Approved' pkg/node/binding.go` exits 0 (it adds `TestHAExitNodesDropEachOthersDefault`, which this task keeps green, and edits `daemon.go`)
+**Blocked-on:** ADR-0002's route approval task has landed on main: `grep -q 'func Approved' pkg/node/binding.go` exits 0 (it adds `TestHAExitNodesDropEachOthersDefault`, which this task keeps green, and edits `daemon.go`) Landed on main at `f3860c6` (2026-11-16): the command exits 0.
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
@@ -21,25 +21,26 @@
 | `pkg/daemon/desired.go` | add | `desiredState{Peers map[string]*desiredPeerConfig; Routes []routes.Entry; relayRoutes map[string]string; directStable map[string]int}` and `(d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observedOwners map[string]string) *desiredState`; `Fresh` is a handshake newer than `HandshakeStaleAfter`; the relay mapping and hysteresis of `buildDesiredPeerConfigsWithHandshakes` move here unchanged |
 | `pkg/daemon/daemon.go` | edit | `buildDesiredPeerConfigsWithHandshakes` stays as a thin wrapper returning the same three values (so `routes_test.go` relay tests run unchanged); `reconcile` (`:534-559`) calls `desire` once and passes `Routes` to `syncPeerRoutes`; `reconnectAllowedCSV` (`:1356-1371`) takes the allowed set from `desire` instead of calling `ExcludeOwn` itself |
 | `pkg/daemon/routes.go` | edit | `syncPeerRoutes` takes the desired routes instead of deriving them (removes the loop at `:18-46` and the `ExcludeOwn` at `:58` moves to a helper in `desired.go`) |
-| `pkg/daemon/desired_test.go` | add | the five tests below |
+| `pkg/daemon/desired_test.go` | add | the six tests below |
 | `pkg/daemon/ha_routes_test.go`, `pkg/daemon/routes_test.go` | none | the pinned tests run unchanged |
 
 Selection: `reconcile` calls `desire`; deleting that call turns `TestDesireRoutesAndAllowedIPsFromOneOwner` and every reconcile test red.
 
 ## Ordered Steps
 
-1. [S1] Add `pkg/daemon/desired_test.go` with the five tests and a compiling stub (`desire` returns an empty state) so the first run fails on assertions. Run red.
+1. [S1] Add `pkg/daemon/desired_test.go` with the six tests and a compiling stub (`desire` returns an empty state) so the first run fails on assertions. Run red.
 2. [S2] Implement `desire`: peers and relay mapping as today, then the route list and the AllowedIPs of non-mesh networks from `routes.Resolve`, so both read the same owner; a skipped network is skipped in both.
 3. [S3] Switch `reconcile`, `syncPeerRoutes` and `reconnectAllowedCSV` to the desired state.
 4. [S4] Add `TestExcludeOwnOnlyInDesire`: it parses the non-test `.go` files of `pkg/daemon` and fails on a call to `routes.ExcludeOwn` outside `desired.go`. Run it red before S3 (`grep -rn "ExcludeOwn(" pkg/daemon/*.go | grep -v _test.go | grep -v desired.go | wc -l` is 5 at `b8b83f3`), green after.
 5. [S5] Run the pinned tests `TestSharedSubnetNeverRoutedThroughMesh`, `TestSharedSubnetNotRelayedThroughMesh` and ADR-0002's `TestHAExitNodesDropEachOthersDefault` unchanged. [proof: acceptance]
 6. [S6] Run the mutants with `adr-verify --mutant`: `desire` builds routes from every advertiser without `Resolve`; the route loop skips the relay mapping; the `ExcludeOwn` call is removed. [proof: mutation]
+7. [S7] Add `reconcileMu sync.Mutex` to `Daemon` and hold it for the whole of `reconcile`; add `TestReconcileRunsSerialised` (two goroutines call `reconcile` at once under `-race`; a counter in the fake command executor never sees two reconciles inside at the same moment). Run red before the mutex, green after; mutant: remove the lock.
 
 ## Acceptance
 
 ```bash
 set -o pipefail
-a=$(go test ./pkg/daemon -run '^(TestDesireRoutesAndAllowedIPsFromOneOwner|TestDesireHAExitNodeDropsPeerDefault|TestDesireRelayedOwnerGoesToRelay|TestReconnectAllowedMatchesDesired|TestExcludeOwnOnlyInDesire)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 5 ] \
+a=$(go test ./pkg/daemon -run '^(TestDesireRoutesAndAllowedIPsFromOneOwner|TestDesireHAExitNodeDropsPeerDefault|TestDesireRelayedOwnerGoesToRelay|TestReconnectAllowedMatchesDesired|TestExcludeOwnOnlyInDesire|TestReconcileRunsSerialised)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$a" -ge 6 ] \
  && b=$(go test ./pkg/daemon -run '^(TestSharedSubnetNeverRoutedThroughMesh|TestSharedSubnetNotRelayedThroughMesh|TestHAExitNodesDropEachOthersDefault)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$b" -ge 3 ] \
  && [ "$(grep -rn 'ExcludeOwn(' pkg/daemon/*.go | grep -v _test.go | grep -v desired.go | wc -l)" -eq 0 ] && go test -race ./pkg/daemon -count=1
 ```
@@ -53,6 +54,7 @@ a=$(go test ./pkg/daemon -run '^(TestDesireRoutesAndAllowedIPsFromOneOwner|TestD
 | `TestDesireRelayedOwnerGoesToRelay` | `pkg/daemon/desired_test.go` | when the owner is relayed its networks are in the relay's AllowedIPs and the route gateway is the relay's mesh IP | — | S1, S2 |
 | `TestReconnectAllowedMatchesDesired` | `pkg/daemon/desired_test.go` | the list used by a forced reconnect equals the desired AllowedIPs of that peer, including the case where the peer is not the owner of a shared network | — | S1, S3 |
 | `TestExcludeOwnOnlyInDesire` | `pkg/daemon/desired_test.go` | no production file of `pkg/daemon` except `desired.go` calls `routes.ExcludeOwn` | — | S4 |
+| `TestReconcileRunsSerialised` | `pkg/daemon/desired_test.go` | tick and `handleSIGHUP` never run `reconcile` at the same time | — | S7 |
 
 ## Reachability
 
@@ -74,7 +76,7 @@ a=$(go test ./pkg/daemon -run '^(TestDesireRoutesAndAllowedIPsFromOneOwner|TestD
 ## Risks
 
 - A shared network owned by a relayed peer moves to the relay's AllowedIPs, which also carries other peers' networks; covered by `TestDesireRelayedOwnerGoesToRelay`.
-- `reconcile` reads `localNode.RoutableNetworks` without a lock (`daemon.go:625`, reload writes at `:1719`); unchanged here (permanent: boundary: another group owns it).
+- The read of `localNode.RoutableNetworks` is locked since ADR-0002 (`ownRoutableNetworks`); `desire` keeps using it. `reconcile` can run on two goroutines (tick and `handleSIGHUP`), so S7 serialises it with one mutex (decision 9).
 - Test doubles: none; the tests use a hand-built `Daemon` like `makeRelayTestDaemon`.
 
 ## Stop Condition

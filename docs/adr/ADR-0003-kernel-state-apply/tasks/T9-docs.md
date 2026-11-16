@@ -1,7 +1,7 @@
 # Task ADR-0003-T9: Amend the specs, write the operator note and the backlog rows
 
 **Depends-on:** T3, T4, T5, T6, T7
-**Blocked-on:** ADR-0002's documentation task has landed on main: `test -s docs/admit-rollout.md` exits 0 (both amend the daemon support spec)
+**Blocked-on:** ADR-0002's documentation task has landed on main: `test -s docs/admit-rollout.md` exits 0 (both amend the daemon support spec) Landed on main at `f3860c6` (2026-11-16): the command exits 0.
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned

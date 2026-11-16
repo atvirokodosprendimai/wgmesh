@@ -1,7 +1,7 @@
 # Task ADR-0003-T1: Make routes canonical per family and give each shared network one owner
 
 **Depends-on:** none
-**Blocked-on:** ADR-0002's route approval task has landed on main: `grep -q 'func Approved' pkg/node/binding.go` exits 0 (its fence asserts an empty diff of `pkg/routes` at its own commit)
+**Blocked-on:** ADR-0002's route approval task has landed on main: `grep -q 'func Approved' pkg/node/binding.go` exits 0 (its fence asserts an empty diff of `pkg/routes` at its own commit) Landed on main at `f3860c6` (2026-11-16): the command exits 0.
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned

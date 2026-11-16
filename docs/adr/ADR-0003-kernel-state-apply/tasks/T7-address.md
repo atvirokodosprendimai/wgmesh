@@ -1,7 +1,7 @@
 # Task ADR-0003-T7: Converge the interface address instead of writing it once
 
 **Depends-on:** T3
-**Blocked-on:** ADR-0002's persist-the-resolved-IP task has landed on main: `grep -q 'saveLocalNode' pkg/daemon/collision.go` exits 0 (exits 1 at `b8b83f3`)
+**Blocked-on:** ADR-0002's persist-the-resolved-IP task has landed on main: `grep -q 'saveLocalNode' pkg/daemon/collision.go` exits 0 (exits 1 at `b8b83f3`) Landed on main at `f3860c6` (2026-11-16): the command exits 0.
 **Covers:** none — no spec
 **Estimated scope:** M (multi-file)
 **Owner:** unassigned
@@ -21,7 +21,7 @@ Each tick compares the addresses on the mesh interface with the local node's mes
 | `pkg/daemon/observe.go` | edit | Linux only: `ip -o addr show dev <if>` (both families); Darwin is out of scope, as for forwarding |
 | `pkg/daemon/desired.go` | edit | `desiredState.Addresses`: `<MeshIP>/<prefix>` and `<MeshIPv6>/64` |
 | `pkg/daemon/converge.go` | edit | plan: add a missing desired address (`ip addr add`), remove an address inside the mesh network that is not desired (`ip addr del`), leave others; apply with a result per item |
-| `pkg/daemon/converge_guard_test.go` | edit | `ip addr add` and `ip addr del` outside `converge.go` and the setup helper `setInterfaceAddress` fail the guard |
+| `pkg/daemon/converge_guard_test.go` | edit | `ip addr add` and `ip addr del` outside `converge.go` and the setup helper `setInterfaceAddress` (also reached through the `applyInterfaceAddress` variable of `collision.go`) fail the guard |
 | `pkg/daemon/address_test.go` | add | the five tests below |
 | `pkg/daemon/collision.go`, `pkg/daemon/helpers.go` | none | `collision.go` is governed by ADR-0002 and is not edited; its call at `:123` becomes a no-op beside this target and a follow-up row removes it; `setInterfaceAddress` keeps its flush for first setup |
 
@@ -70,8 +70,8 @@ n=$(go test ./pkg/daemon -run '^(TestObserveAddresses|TestMissingAddressReadded|
 
 ## Risks
 
-- Two writers for a collision-resolved address (`collision.go:123` and this target) until the follow-up row is done; the second finds nothing to change.
-- Reading `localNode.MeshIP` while collision resolution writes it is the existing unlocked access (`collision.go:120`), not fixed here (permanent: boundary: another group owns it).
+- Two writers for a collision-resolved address (`applyInterfaceAddress` at `collision.go:142`, a variable holding `setInterfaceAddress`, and this target) until the follow-up row is done; the second finds nothing to change.
+- `localNode.MeshIP` is written bare by collision resolution (`collision.go`, `d.localNode.MeshIP = newIP`) and read by other goroutines; with `reconcile` serialised (T2 S7) the target reads it only on the reconcile path, where the writer also runs; the remaining bare accesses belong to the atomic-state draft (permanent: boundary).
 - Test doubles: `MockCommandExecutor` with a fake address table.
 
 ## Stop Condition
