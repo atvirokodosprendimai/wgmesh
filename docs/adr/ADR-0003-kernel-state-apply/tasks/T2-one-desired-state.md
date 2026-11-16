@@ -66,6 +66,18 @@ a=$(go test ./pkg/daemon -run '^(TestDesireRoutesAndAllowedIPsFromOneOwner|TestD
 | 4 — it is used | every tick |
 
 ## Mutation Log
+- 2026-11-16 · a8cf1f7* · mutant inconclusive · exit 1 · `pkg/daemon/desired.go` · no owner check: TestDesireRoutesAndAllowedIPsFromOneOwner must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-16 · a8cf1f7* · mutant killed · exit 1 · `pkg/daemon/desired.go` · gateway is the peer, not the relay: TestDesireRelayedOwnerGoesToRelay must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
+- 2026-11-16 · a8cf1f7* · mutant inconclusive · exit 1 · `pkg/daemon/desired.go` · own-network rule dropped: TestDesireHAExitNodeDropsPeerDefault must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-16 · a8cf1f7* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · reconcileMu lock removed: TestReconcileRunsSerialised must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
+- 2026-11-16 · a8cf1f7* · mutant killed · exit 1 · `pkg/daemon/desired.go` · no owner check: TestDesireRoutesAndAllowedIPsFromOneOwner must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
+- 2026-11-16 · a8cf1f7* · mutant killed · exit 1 · `pkg/daemon/desired.go` · own-network rule dropped: TestDesireHAExitNodeDropsPeerDefault must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
 
 ## Invariants
 
@@ -89,3 +101,25 @@ Stop and ask if a pinned test needs a changed expectation, or if `desire` cannot
 - Forwarding and the interface address (T4, T7).
 
 ## Verification Log
+- 2026-11-16 · a8cf1f7* · exit 1 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:1513 · test-lock-sha256:c8c2f20aade2a3a3ec0c6a8cc22ab07b250761bccaa1a024372473fbd8e4f9a9 · test-lock-file:docs/adr/locks/c8c2f20aade2a3a3ec0c6a8cc22ab07b250761bccaa1a024372473fbd8e4f9a9.lock
+  ```
+  --- last 10 line(s) of stderr (of 53 after folding 53 raw)
+      desired_test.go:196: daemon.go:1502:24: routes.ExcludeOwn used outside desired.go
+      desired_test.go:196: routes.go:40:27: routes.ExcludeOwn used outside desired.go
+      desired_test.go:196: routes.go:59:10: routes.ExcludeOwn used outside desired.go
+  --- FAIL: TestExcludeOwnOnlyInDesire (0.01s)
+  === RUN   TestReconcileRunsSerialised
+      desired_test.go:254: 2 reconciles ran at the same time, want 1
+  --- FAIL: TestReconcileRunsSerialised (0.06s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.077s
+  FAIL
+  ```
+- 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:7423
+- 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:7613
+- 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:8418
+- 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:8499
+- 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:5257
+- 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:8037
+- 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:7840
+- 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:5241

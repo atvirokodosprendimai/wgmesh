@@ -24,7 +24,7 @@ README must be regenerated.
 | ID | Title | Status | Covers | Acceptance |
 |----|-------|--------|--------|------------|
 | T1 | Make routes canonical per family and give each shared network one owner | done | — | `go test ./pkg/routes` eight named tests, then `-race` on routes, ssh, mesh, daemon |
-| T2 | Build one desired state per tick for AllowedIPs and routes | pending | — | six named tests, three pinned tests unchanged, `ExcludeOwn` call count outside `desired.go` is 0, then `-race` |
+| T2 | Build one desired state per tick for AllowedIPs and routes | done | — | six named tests, three pinned tests unchanged, `ExcludeOwn` call count outside `desired.go` is 0, then `-race` |
 | T3 | Compare peers with the kernel, and move every peer writer into converge | pending | — | eleven named tests in two packages, `lastAppliedPeerConfigs` count is 0, then `-race` |
 | T4 | Converge ip_forward and the FORWARD rule once, and log a missing iptables once (#872) | pending | — | seven named tests, then `-race` |
 | T5 | Converge routes for both families, and stop re-adding what is already there (#859) | pending | — | ten named tests, no forwarding code left in `routes.go`, then `-race` |
