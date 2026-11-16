@@ -35,19 +35,28 @@ type PeerInfo struct {
 // LocalNode represents our local WireGuard node. It is the one local-node
 // type: pkg/daemon aliases it (peerstore_compat.go), so a method added here
 // reaches the value initLocalNode, discovery and the tests use.
-// The WG endpoint is accessed via GetEndpoint/SetEndpoint to allow
-// concurrent updates from discovery goroutines. RoutableNetworks changes on
-// SIGHUP reload, so once the node is shared it must be accessed only via
-// GetRoutableNetworks/SetRoutableNetworks.
+//
+// Every field a second goroutine can touch sits behind a lock, one lock per
+// group, and a method holds at most one of them:
+//   - stateMu guards meshIP, meshIPv6, natType and introducer (reconcile,
+//     STUN refresh and the announcement builders race on them);
+//   - endpointMu guards wgEndpoint, pendingSTUN and pendingSTUNCount;
+//   - routesMu guards routableNetworks (SIGHUP reload).
+//
+// WGPubKey, WGPrivateKey and Hostname are assigned once, by NewLocalNode and
+// by initLocalNode/loadLocalNode, before any goroutine starts, and are never
+// written again (TestLocalNodeFieldsNotWrittenDirectly), so they stay plain
+// exported fields and need no lock.
 type LocalNode struct {
-	WGPubKey         string
-	WGPrivateKey     string
-	MeshIP           string
-	MeshIPv6         string
-	RoutableNetworks []string
-	Introducer       bool
-	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
-	Hostname         string
+	WGPubKey     string
+	WGPrivateKey string
+	Hostname     string
+
+	stateMu    sync.RWMutex
+	meshIP     string
+	meshIPv6   string
+	natType    string // detected NAT type: "cone", "symmetric", or "unknown"
+	introducer bool
 
 	endpointMu sync.RWMutex
 	wgEndpoint string
@@ -56,7 +65,84 @@ type LocalNode struct {
 	pendingSTUN      string
 	pendingSTUNCount int
 
-	routesMu sync.RWMutex // guards RoutableNetworks
+	routesMu         sync.RWMutex
+	routableNetworks []string
+}
+
+// NewLocalNode builds the node with its identity and addresses. Call it before
+// any goroutine starts: the key and the hostname are written only here.
+func NewLocalNode(pubKey, privKey, hostname, meshIP, meshIPv6 string) *LocalNode {
+	return &LocalNode{
+		WGPubKey:     pubKey,
+		WGPrivateKey: privKey,
+		Hostname:     hostname,
+		meshIP:       meshIP,
+		meshIPv6:     meshIPv6,
+	}
+}
+
+// GetMeshIP returns the mesh IPv4 address (thread-safe).
+func (n *LocalNode) GetMeshIP() string {
+	n.stateMu.RLock()
+	defer n.stateMu.RUnlock()
+	return n.meshIP
+}
+
+// SetMeshIP stores the mesh IPv4 address (thread-safe).
+func (n *LocalNode) SetMeshIP(ip string) {
+	n.stateMu.Lock()
+	defer n.stateMu.Unlock()
+	n.meshIP = ip
+}
+
+// GetMeshIPv6 returns the mesh IPv6 address (thread-safe).
+func (n *LocalNode) GetMeshIPv6() string {
+	n.stateMu.RLock()
+	defer n.stateMu.RUnlock()
+	return n.meshIPv6
+}
+
+// SetMeshIPv6 stores the mesh IPv6 address (thread-safe).
+func (n *LocalNode) SetMeshIPv6(ip string) {
+	n.stateMu.Lock()
+	defer n.stateMu.Unlock()
+	n.meshIPv6 = ip
+}
+
+// GetNATType returns the detected NAT type (thread-safe).
+func (n *LocalNode) GetNATType() string {
+	n.stateMu.RLock()
+	defer n.stateMu.RUnlock()
+	return n.natType
+}
+
+// SetNATType stores the detected NAT type (thread-safe).
+func (n *LocalNode) SetNATType(t string) {
+	n.stateMu.Lock()
+	defer n.stateMu.Unlock()
+	n.natType = t
+}
+
+// IsIntroducer reports whether this node is an introducer (thread-safe).
+func (n *LocalNode) IsIntroducer() bool {
+	n.stateMu.RLock()
+	defer n.stateMu.RUnlock()
+	return n.introducer
+}
+
+// SetIntroducer stores the introducer flag (thread-safe).
+func (n *LocalNode) SetIntroducer(v bool) {
+	n.stateMu.Lock()
+	defer n.stateMu.Unlock()
+	n.introducer = v
+}
+
+// Identity returns the public key and the mesh IP, the mesh IP read under
+// stateMu so a reader never sees it half-written.
+func (n *LocalNode) Identity() (pubKey, meshIP string) {
+	n.stateMu.RLock()
+	defer n.stateMu.RUnlock()
+	return n.WGPubKey, n.meshIP
 }
 
 // GetEndpoint returns the current WireGuard endpoint (thread-safe).
@@ -135,7 +221,7 @@ func endpointUnspecified(ep string) bool {
 func (n *LocalNode) GetRoutableNetworks() []string {
 	n.routesMu.RLock()
 	defer n.routesMu.RUnlock()
-	return append([]string(nil), n.RoutableNetworks...)
+	return append([]string(nil), n.routableNetworks...)
 }
 
 // SetRoutableNetworks stores a copy of the advertised networks (thread-safe).
@@ -143,11 +229,11 @@ func (n *LocalNode) SetRoutableNetworks(networks []string) {
 	networks = append([]string(nil), networks...)
 	n.routesMu.Lock()
 	defer n.routesMu.Unlock()
-	n.RoutableNetworks = networks
+	n.routableNetworks = networks
 }
 
-// LocalSnapshot is a plain copy of the local node's announced state. T8 stub:
-// the accessors below read the exported fields with no lock yet.
+// LocalSnapshot is a plain copy of the local node's announced state, what an
+// announcement builder reads once instead of eight fields one by one.
 type LocalSnapshot struct {
 	PubKey     string
 	Hostname   string
@@ -155,44 +241,21 @@ type LocalSnapshot struct {
 	MeshIPv6   string
 	NATType    string
 	Introducer bool
-	Routes     []string
+	Routes     []string // a copy
 	Endpoint   string
 }
 
-// GetMeshIP returns the mesh IPv4 address.
-func (n *LocalNode) GetMeshIP() string { return n.MeshIP }
-
-// SetMeshIP stores the mesh IPv4 address.
-func (n *LocalNode) SetMeshIP(ip string) { n.MeshIP = ip }
-
-// GetMeshIPv6 returns the mesh IPv6 address.
-func (n *LocalNode) GetMeshIPv6() string { return n.MeshIPv6 }
-
-// SetMeshIPv6 stores the mesh IPv6 address.
-func (n *LocalNode) SetMeshIPv6(ip string) { n.MeshIPv6 = ip }
-
-// GetNATType returns the detected NAT type.
-func (n *LocalNode) GetNATType() string { return n.NATType }
-
-// SetNATType stores the detected NAT type.
-func (n *LocalNode) SetNATType(t string) { n.NATType = t }
-
-// IsIntroducer reports whether this node is an introducer.
-func (n *LocalNode) IsIntroducer() bool { return n.Introducer }
-
-// SetIntroducer stores the introducer flag.
-func (n *LocalNode) SetIntroducer(v bool) { n.Introducer = v }
-
-// Identity returns the public key and the mesh IP.
-func (n *LocalNode) Identity() (pubKey, meshIP string) { return n.WGPubKey, n.MeshIP }
-
-// Snapshot returns a copy of the announced state.
+// Snapshot copies the announced state. Each group is read under its own lock,
+// in turn and never nested: a group is consistent in itself, the groups are
+// not read at one instant.
 func (n *LocalNode) Snapshot() LocalSnapshot {
-	return LocalSnapshot{
-		PubKey: n.WGPubKey, Hostname: n.Hostname,
-		MeshIP: n.MeshIP, MeshIPv6: n.MeshIPv6, NATType: n.NATType, Introducer: n.Introducer,
-		Routes: n.GetRoutableNetworks(), Endpoint: n.GetEndpoint(),
-	}
+	s := LocalSnapshot{PubKey: n.WGPubKey, Hostname: n.Hostname}
+	n.stateMu.RLock()
+	s.MeshIP, s.MeshIPv6, s.NATType, s.Introducer = n.meshIP, n.meshIPv6, n.natType, n.introducer
+	n.stateMu.RUnlock()
+	s.Routes = n.GetRoutableNetworks()
+	s.Endpoint = n.GetEndpoint()
+	return s
 }
 
 // ConfigReader is the narrow interface that pkg/discovery uses to read
