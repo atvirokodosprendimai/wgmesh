@@ -25,7 +25,7 @@ README must be regenerated.
 | T3 | Treat a restored cache entry as dialable for `PeerDeadTimeout` (#851) | done | — | five named tests in two packages plus the existing cache tests, then `-race` |
 | T4 | Detect a wake from sleep and give the peers a grace period (#829) | done | — | nine named tests, then `-race`; a human step times a real wake |
 | T5 | Make the DHT layer refresh its endpoint and announce at once on a wake (#829) | pending | — | eight named tests in two packages, then `-race` |
-| T6 | Keep a relayed peer on the interface without AllowedIPs so a direct handshake can bring it back (#852) | pending | — | twelve named tests in two packages, then `-race`; a human step runs `wg set` on a real interface |
+| T6 | Keep a relayed peer on the interface without AllowedIPs so a direct handshake can bring it back (#852) | done | — | twelve named tests in two packages, then `-race`; a human step runs `wg set` on a real interface |
 | T7 | Amend the specs, write the release notes and the backlog rows | pending | — | `go test ./pkg/node -run TestSpecNamesLiveness`, note exists, the `will add` sentences are reworded, `adr-debt` reports no unreceipted row |
 
 ## Contract Coupling

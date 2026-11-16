@@ -73,6 +73,17 @@ a=$(go test ./pkg/daemon -run '^(TestBuildDesiredKeepsRelayedPeerProbeOnly|TestP
 | 4 — it is used | from N+2 on every relayed peer; N+1 operators read the gauge first |
 
 ## Mutation Log
+- 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · probe-only entry carries the mesh IP · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · apply step skips an empty list again · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · switch read inverted · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 294464d* · mutant survived · exit 0 · `pkg/daemon/daemon.go` · signature ignores the mode · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+  ```
+  the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
+  ```
+- 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · health evaluation does not skip relay-path peers · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · reconnect does not skip relay-path peers · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/daemon/relay_probe.go` · probe-only peer sends no clear · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
+- 2026-11-16 · 294464d* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · SetPeerArgs drops the clear · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f
 
 ## Invariants
 
@@ -99,3 +110,25 @@ Stop and ask if S2 shows that an empty AllowedIPs list still lets WireGuard acce
 - A probe window instead of a permanent probe-only entry (M2, the rejected option; permanent: boundary: M chose the permanent probe-only entry).
 
 ## Verification Log
+- 2026-11-16 · 294464d* · exit 1 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:710 · test-lock-sha256:2e1ffd9983608da26a6d69b6ff4489e7ecde7c2ceb7460891a8a291f0db6f57e · test-lock-file:docs/adr/locks/2e1ffd9983608da26a6d69b6ff4489e7ecde7c2ceb7460891a8a291f0db6f57e.lock
+  ```
+  --- last 9 line(s) of stderr
+  # github.com/atvirokodosprendimai/wgmesh/pkg/daemon [github.com/atvirokodosprendimai/wgmesh/pkg/daemon.test]
+  pkg/daemon/relay_probe_test.go:53:50: undefined: wgRemovePeer
+  pkg/daemon/relay_probe_test.go:61:2: undefined: wgRemovePeer
+  pkg/daemon/relay_probe_test.go:67:40: undefined: wgRemovePeer
+  pkg/daemon/relay_probe_test.go:412:6: d.isRelayPathPeer undefined (type *Daemon has no field or method isRelayPathPeer)
+  pkg/daemon/relay_probe_test.go:430:64: d.isRelayPathPeer undefined (type *Daemon has no field or method isRelayPathPeer)
+  pkg/daemon/relay_probe_test.go:431:162: d.isRelayPathPeer undefined (type *Daemon has no field or method isRelayPathPeer)
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon [build failed]
+  FAIL
+  ```
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:17581
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:18125
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:16855
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:13711
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:15379
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:19076
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:24464
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:15151
+- 2026-11-16 · 294464d* · exit 0 · `set -o pipefail …` · acceptance-sha256:0f3e15335439298d0d29eea71db94d853fdb3bab740af4714d984008dc947f2f · ms:11388
