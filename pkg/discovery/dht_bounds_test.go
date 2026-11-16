@@ -36,7 +36,9 @@ func newBoundsDHT(t *testing.T) (*DHTDiscovery, *daemon.PeerStore, time.Time) {
 
 func TestMarkContactedSweepsEntriesOlderThanWindow(t *testing.T) {
 	d, _, base := newBoundsDHT(t)
-	old := base.Add(-ContactDedupWindow - time.Second)
+	// Literal ages: a test that derives them from ContactDedupWindow would
+	// follow the constant when it is raised.
+	old := base.Add(-61 * time.Second)
 	for i := 0; i < 300; i++ {
 		d.contactedPeers[fmt.Sprintf("10.0.%d.%d:1", i/200, i%200)] = old
 	}
@@ -47,11 +49,21 @@ func TestMarkContactedSweepsEntriesOlderThanWindow(t *testing.T) {
 	if n := len(d.contactedPeers); n != 1 {
 		t.Fatalf("map holds %d entries after the sweep, want 1", n)
 	}
+
+	// The sweep runs at most once per window: expired entries refilled at the
+	// same instant stay until the window has passed.
+	for i := 0; i < 300; i++ {
+		d.contactedPeers[fmt.Sprintf("10.1.%d.%d:1", i/200, i%200)] = old
+	}
+	d.markContacted("new:2", 20*time.Second)
+	if n := len(d.contactedPeers); n != 302 {
+		t.Fatalf("map holds %d entries after a second call at the same instant, want 302: the sweep ran twice in one window", n)
+	}
 }
 
 func TestMarkContactedKeepsEntriesInsideWindow(t *testing.T) {
 	d, _, base := newBoundsDHT(t)
-	recent := base.Add(-ContactDedupWindow + time.Second)
+	recent := base.Add(-59 * time.Second)
 	for i := 0; i < 300; i++ {
 		d.contactedPeers[fmt.Sprintf("10.0.%d.%d:1", i/200, i%200)] = recent
 	}
@@ -62,7 +74,7 @@ func TestMarkContactedKeepsEntriesInsideWindow(t *testing.T) {
 	if n := len(d.contactedPeers); n != 301 {
 		t.Fatalf("map holds %d entries, want 301: entries inside the window must survive", n)
 	}
-	if d.markContacted("10.0.0.0:1", ContactDedupWindow) {
+	if d.markContacted("10.0.0.0:1", 60*time.Second) {
 		t.Fatal("an entry inside its interval must still block a second contact")
 	}
 }
@@ -183,17 +195,24 @@ func TestEveryCallerIntervalFitsDedupWindow(t *testing.T) {
 }
 
 func TestSweepPeerKeyedDropsKeysNotInStore(t *testing.T) {
-	d, _, base := newBoundsDHT(t)
+	d, ps, base := newBoundsDHT(t)
 	d.controlPeers["gone"] = "1.2.3.4:5"
 	d.rendezvousBackoff["gone"] = backoffEntry{nextAttempt: base, duration: RendezvousMinBackoff}
+	// A peer withdrawn through the store leaves a tombstone, not a peer.
+	ps.SetPeerDirectly("withdrawn", &daemon.PeerInfo{WGPubKey: "withdrawn"})
+	ps.Withdraw("withdrawn", "goodbye")
+	d.controlPeers["withdrawn"] = "1.2.3.4:6"
+	d.rendezvousBackoff["withdrawn"] = backoffEntry{nextAttempt: base, duration: RendezvousMinBackoff}
 
 	d.sweepPeerKeyed()
 
-	if _, ok := d.controlPeers["gone"]; ok {
-		t.Error("controlPeers keeps a key the store lacks")
-	}
-	if _, ok := d.rendezvousBackoff["gone"]; ok {
-		t.Error("rendezvousBackoff keeps a key the store lacks")
+	for _, k := range []string{"gone", "withdrawn"} {
+		if _, ok := d.controlPeers[k]; ok {
+			t.Errorf("controlPeers keeps %q, which the store lacks", k)
+		}
+		if _, ok := d.rendezvousBackoff[k]; ok {
+			t.Errorf("rendezvousBackoff keeps %q, which the store lacks", k)
+		}
 	}
 }
 
