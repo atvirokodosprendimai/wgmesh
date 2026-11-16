@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"log/slog"
 	"net"
 	"strconv"
 	"sync"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/daemon"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ratelimit"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
@@ -235,9 +235,15 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 		return
 	}
 
-	// A legacy GOODBYE is ignored below, so it is not announced as valid.
-	if !(envelope.LegacyAAD && envelope.MessageType == crypto.MessageTypeGoodbye) {
-		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+	// HELLO, REPLY and ANNOUNCE are logged as valid after their payload passes
+	// validation below. A legacy GOODBYE is ignored below, so it is not
+	// announced as valid.
+	switch envelope.MessageType {
+	case crypto.MessageTypeHello, crypto.MessageTypeReply, crypto.MessageTypeAnnounce:
+	default:
+		if !(envelope.LegacyAAD && envelope.MessageType == crypto.MessageTypeGoodbye) {
+			pe.logIncomingPacket(envelope.MessageType, remoteAddr)
+		}
 	}
 
 	if envelope.LegacyAAD {
@@ -275,6 +281,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Dropping invalid HELLO from %s: %v", remoteAddr.String(), err)
 			return
 		}
+		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
 		pe.handleHello(&announcement, remoteAddr)
 	case crypto.MessageTypeReply:
 		var reply crypto.PeerAnnouncement
@@ -286,6 +293,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Dropping invalid REPLY from %s: %v", remoteAddr.String(), err)
 			return
 		}
+		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
 		pe.handleReply(&reply, remoteAddr)
 	case crypto.MessageTypeAnnounce:
 		var announcement crypto.PeerAnnouncement
@@ -297,6 +305,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Dropping invalid ANNOUNCE from %s: %v", remoteAddr.String(), err)
 			return
 		}
+		pe.logIncomingPacket(envelope.MessageType, remoteAddr)
 		pe.mu.RLock()
 		handler := pe.announceHandler
 		pe.mu.RUnlock()
@@ -345,7 +354,7 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 			log.Printf("[Exchange] Rejected GOODBYE with future timestamp from %s", remoteAddr.String())
 			return
 		}
-		pe.peerStore.Remove(bye.WGPubKey)
+		pe.peerStore.Withdraw(bye.WGPubKey, "goodbye")
 		name := bye.WGPubKey
 		if len(name) > 8 {
 			name = name[:8] + "..."
@@ -356,29 +365,10 @@ func (pe *PeerExchange) handleMessage(data []byte, remoteAddr *net.UDPAddr) {
 	}
 }
 
-// validateExchangeAnnouncement applies the same checks as crypto.OpenEnvelope
-// (used by LAN and gossip) to HELLO/REPLY/ANNOUNCE payloads, which arrive via
-// OpenEnvelopeRaw. The sender's own fields must be valid or the message is
-// rejected. Invalid KnownPeers are filtered out individually instead, so one
-// bad transitive entry relayed by an otherwise valid peer (e.g. an older node
-// that stored it before this check existed) does not hide that peer.
+// validateExchangeAnnouncement exists because a locked test calls it by this
+// name; the validation itself is crypto.FilterAnnouncement.
 func validateExchangeAnnouncement(a *crypto.PeerAnnouncement) error {
-	known := a.KnownPeers
-	if len(known) > crypto.MaxKnownPeers {
-		return fmt.Errorf("KnownPeers: too many entries (%d, max %d)", len(known), crypto.MaxKnownPeers)
-	}
-	a.KnownPeers = nil
-	if err := a.Validate(); err != nil {
-		return err
-	}
-	for _, kp := range known {
-		if err := kp.Validate(); err != nil {
-			slog.Debug("[Exchange] dropping invalid known peer", "error", err)
-			continue
-		}
-		a.KnownPeers = append(a.KnownPeers, kp)
-	}
-	return nil
+	return crypto.FilterAnnouncement(a)
 }
 
 // handleHello responds to a peer's HELLO message
@@ -389,18 +379,20 @@ func (pe *PeerExchange) handleHello(announcement *crypto.PeerAnnouncement, remot
 	}
 
 	// Update peer store with the sender's info
+	endpoint, guessed := peerEndpoint(announcement.WGEndpoint, remoteAddr, pe.config.DisableIPv6)
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         announcement.WGPubKey,
 		Hostname:         announcement.Hostname,
 		MeshIP:           announcement.MeshIP,
 		MeshIPv6:         announcement.MeshIPv6,
-		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(announcement.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
+		Endpoint:         endpoint,
+		EndpointGuessed:  guessed,
 		Introducer:       announcement.Introducer,
 		RoutableNetworks: announcement.RoutableNetworks,
 		NATType:          announcement.NATType,
 	}
 
-	pe.peerStore.Update(peerInfo, DHTMethod)
+	pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod, Hand: daemon.FirstHand})
 
 	pe.updateTransitivePeers(announcement.KnownPeers)
 
@@ -418,12 +410,14 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 	// IP:port looks like. Use the reflected IP combined with our WG port.
 	pe.applyObservedEndpoint(reply.ObservedEndpoint)
 
+	endpoint, guessed := peerEndpoint(reply.WGEndpoint, remoteAddr, pe.config.DisableIPv6)
 	peerInfo := &daemon.PeerInfo{
 		WGPubKey:         reply.WGPubKey,
 		Hostname:         reply.Hostname,
 		MeshIP:           reply.MeshIP,
 		MeshIPv6:         reply.MeshIPv6,
-		Endpoint:         filterEndpointForConfig(resolvePeerEndpoint(reply.WGEndpoint, remoteAddr), pe.config.DisableIPv6),
+		Endpoint:         endpoint,
+		EndpointGuessed:  guessed,
 		Introducer:       reply.Introducer,
 		RoutableNetworks: reply.RoutableNetworks,
 		NATType:          reply.NATType,
@@ -433,7 +427,7 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 
 	// Always update the peer store so reconcile can configure WG promptly,
 	// even when we also route this reply to a pending ExchangeWithPeer caller.
-	pe.peerStore.Update(peerInfo, DHTMethod)
+	pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod, Hand: daemon.FirstHand})
 
 	if ch, ok := pe.getPendingReplyChannel(remoteAddr.String()); ok {
 		select {
@@ -469,7 +463,7 @@ func (pe *PeerExchange) applyObservedEndpoint(observed string) {
 
 	// Ignore private/loopback — both peers are on the same LAN,
 	// so the observed address isn't useful for NAT traversal.
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+	if ip.IsUnspecified() || ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
 		return
 	}
 
@@ -489,9 +483,8 @@ func (pe *PeerExchange) applyObservedEndpoint(observed string) {
 	}
 
 	newEndpoint := net.JoinHostPort(ip.String(), wgPort)
-	if newEndpoint != currentEP {
+	if pe.localNode.ObserveEndpoint(daemon.EndpointReflection, newEndpoint) {
 		log.Printf("[Exchange] Peer reflected our address: %s (was %s)", newEndpoint, currentEP)
-		pe.localNode.SetEndpoint(newEndpoint)
 	}
 }
 
@@ -888,7 +881,7 @@ func (pe *PeerExchange) runRendezvousPunch(pairID, peerPubKey string, candidates
 		} else {
 			log.Printf("[NAT] Rendezvous punch succeeded for pair %s with %s at %s", shortKey(pairID), shortKey(peerInfo.WGPubKey), peerInfo.Endpoint)
 		}
-		pe.peerStore.Update(peerInfo, DHTMethod+"-rendezvous")
+		pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod + "-rendezvous", Hand: daemon.FirstHand})
 		return
 	}
 
@@ -1032,7 +1025,7 @@ func (pe *PeerExchange) updateTransitivePeers(knownPeers []crypto.KnownPeer) {
 			Introducer: kp.Introducer,
 			NATType:    kp.NATType,
 		}
-		pe.peerStore.Update(transitivePeer, DHTMethod+"-transitive")
+		pe.peerStore.Offer(daemon.Candidate{Info: transitivePeer, Source: DHTMethod + "-transitive", Hand: daemon.SecondHand})
 	}
 }
 
@@ -1055,24 +1048,23 @@ func (pe *PeerExchange) getPendingReplyChannel(remote string) (chan *daemon.Peer
 	return ch, ok
 }
 
-func resolvePeerEndpoint(advertised string, sender *net.UDPAddr) string {
-	if host, port, err := net.SplitHostPort(advertised); err == nil {
-		resolvedHost := host
-		if resolvedHost == "" || resolvedHost == "0.0.0.0" || resolvedHost == "::" {
-			if sender != nil && sender.IP != nil {
-				resolvedHost = sender.IP.String()
-			}
-		}
-		if resolvedHost != "" {
-			return net.JoinHostPort(resolvedHost, port)
-		}
+// resolvePeerEndpoint applies the exchange endpoint rules (node.ResolveEndpoint)
+// to a UDP sender; guessed is true when the endpoint is the sender IP with the
+// default WireGuard port and nothing advertised.
+func resolvePeerEndpoint(advertised string, sender *net.UDPAddr) (endpoint string, guessed bool) {
+	var ip net.IP
+	if sender != nil {
+		ip = sender.IP
 	}
+	return node.ResolveEndpoint(advertised, ip, daemon.DefaultWGPort, false)
+}
 
-	if sender != nil && sender.IP != nil {
-		return net.JoinHostPort(sender.IP.String(), strconv.Itoa(daemon.DefaultWGPort))
-	}
-
-	return ""
+// peerEndpoint is resolvePeerEndpoint followed by the IPv6 filter; a filtered
+// endpoint is empty and so no longer guessed.
+func peerEndpoint(advertised string, sender *net.UDPAddr, disableIPv6 bool) (endpoint string, guessed bool) {
+	endpoint, guessed = resolvePeerEndpoint(advertised, sender)
+	endpoint = filterEndpointForConfig(endpoint, disableIPv6)
+	return endpoint, guessed && endpoint != ""
 }
 
 func normalizeKnownPeerEndpoint(endpoint string) string {
@@ -1147,12 +1139,18 @@ func (pe *PeerExchange) getKnownPeers() []crypto.KnownPeer {
 		if p.WGPubKey == "" || p.WGPubKey == pe.localNode.WGPubKey {
 			continue
 		}
+		// A guessed endpoint is not announced: a wrong address is worse than
+		// none, and the peer keeps its key in the list (#839).
+		endpoint := p.Endpoint
+		if p.EndpointGuessed {
+			endpoint = ""
+		}
 		knownPeers = append(knownPeers, crypto.KnownPeer{
 			WGPubKey:   p.WGPubKey,
 			Hostname:   p.Hostname,
 			MeshIP:     p.MeshIP,
 			MeshIPv6:   p.MeshIPv6,
-			WGEndpoint: p.Endpoint,
+			WGEndpoint: endpoint,
 			Introducer: p.Introducer,
 			NATType:    p.NATType,
 		})

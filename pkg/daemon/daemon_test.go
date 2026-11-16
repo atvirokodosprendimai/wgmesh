@@ -501,3 +501,69 @@ func TestSetupWireGuardContinuesWhenIPv6Disabled(t *testing.T) {
 		t.Error("interface was not brought up")
 	}
 }
+
+func TestDaemonInstallsAdmitPolicy(t *testing.T) {
+	d, err := NewDaemon(testConfig(t))
+	if err != nil {
+		t.Fatalf("NewDaemon: %v", err)
+	}
+	p := d.peerStore.Policy()
+	if p == nil || p.Local == nil || p.Derive == nil || p.OnWarn == nil {
+		t.Fatalf("policy missing or incomplete after construction: %+v", p)
+	}
+	if key, ip := p.Local(); key != "" || ip != "" {
+		t.Errorf("Local() before the local node exists = %q, %q; want empty", key, ip)
+	}
+
+	d.localNode = &LocalNode{WGPubKey: "key-local", MeshIP: "10.42.1.2"}
+	if key, ip := p.Local(); key != "key-local" || ip != "10.42.1.2" {
+		t.Errorf("Local() = %q, %q; want key-local, 10.42.1.2", key, ip)
+	}
+	d.localNode.MeshIP = "10.42.9.9"
+	if _, ip := p.Local(); ip != "10.42.9.9" {
+		t.Errorf("Local() IP = %q after the local node moved; want 10.42.9.9", ip)
+	}
+}
+
+func TestPolicyDeriveZeroIsNaturalDerivation(t *testing.T) {
+	const key = "key-derive"
+	const secret = "test-secret-for-daemon-tests"
+	_, subnet, _ := net.ParseCIDR("192.168.100.0/24")
+
+	for _, custom := range []*net.IPNet{nil, subnet} {
+		cfg := testConfig(t)
+		cfg.Secret = secret
+		cfg.CustomSubnet = custom
+		d, err := NewDaemon(cfg)
+		if err != nil {
+			t.Fatalf("NewDaemon: %v", err)
+		}
+		p := d.peerStore.Policy()
+		if p == nil || p.Derive == nil {
+			t.Fatalf("custom=%v: no Derive in the policy", custom)
+		}
+
+		var natural, nonce1 string
+		if custom == nil {
+			natural = crypto.DeriveMeshIP(cfg.Keys.MeshSubnet, key, secret)
+			nonce1 = DeriveMeshIPWithNonce(cfg.Keys.MeshSubnet, key, secret, 1)
+		} else {
+			natural, err = crypto.DeriveMeshIPInSubnet(custom, key, secret)
+			if err == nil {
+				nonce1, err = crypto.DeriveMeshIPInSubnetWithNonce(custom, key, secret, 1)
+			}
+			if err != nil {
+				t.Fatalf("custom subnet derivation: %v", err)
+			}
+		}
+		if got := p.Derive(key, 0); got != natural {
+			t.Errorf("custom=%v: Derive(key, 0) = %q, want the natural %q", custom, got, natural)
+		}
+		if got := p.Derive(key, 1); got != nonce1 {
+			t.Errorf("custom=%v: Derive(key, 1) = %q, want the nonce-1 %q", custom, got, nonce1)
+		}
+		if natural == nonce1 {
+			t.Errorf("custom=%v: natural and nonce-1 addresses are equal", custom)
+		}
+	}
+}

@@ -95,6 +95,58 @@ func TestAADGoodbyeRemovesPeer(t *testing.T) {
 	}
 }
 
+func TestGoodbyeLeavesTombstone(t *testing.T) {
+	t.Parallel()
+	victim := aadKey(5)
+	pe, store, cfg := newAADExchange(t, "wgmesh-test-aad-goodbye-tombstone-1", aadKey(9), victim)
+
+	bound, err := crypto.SealEnvelopeAAD(crypto.MessageTypeGoodbye, goodbyeFor(victim), cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe.handleMessage(bound, aadRemote)
+	if _, ok := store.Get(victim); ok {
+		t.Fatal("the GOODBYE did not remove the peer")
+	}
+
+	pe.updateTransitivePeers([]crypto.KnownPeer{{WGPubKey: victim, MeshIP: "10.0.0.5", WGEndpoint: "203.0.113.5:51820", Introducer: true}})
+	if got, ok := store.Get(victim); ok {
+		t.Errorf("a KnownPeers mention brought the peer back after its GOODBYE: %+v", got)
+	}
+}
+
+// Stop-condition probe, not a requirement: ADR-0001 exempts HELLO from the
+// nonce cache, so a captured HELLO replayed inside the age window is a
+// first-hand offer and clears the tombstone. The test records that the peer
+// returns; a nonce-aware rule would turn it around.
+// It pins a KNOWN LIMIT accepted by M 2026-11-15 (BACKLOG row 'ADR-0002 T3
+// known limit'). When ADR-0001's per-HELLO sequence lands this assertion must
+// flip and the BACKLOG row be closed.
+func TestReplayedHelloAfterGoodbyeResurrectsPeer(t *testing.T) {
+	t.Parallel()
+	victim := aadKey(5)
+	pe, store, cfg := newAADExchange(t, "wgmesh-test-aad-goodbye-replay-1", aadKey(9), victim)
+
+	hello, err := crypto.SealEnvelopeAAD(crypto.MessageTypeHello, announcementFor(victim), cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bye, err := crypto.SealEnvelopeAAD(crypto.MessageTypeGoodbye, goodbyeFor(victim), cfg.Keys.GossipKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pe.handleMessage(hello, aadRemote)
+	pe.handleMessage(bye, aadRemote)
+	if _, ok := store.Get(victim); ok {
+		t.Fatal("the GOODBYE did not remove the peer")
+	}
+
+	pe.handleMessage(hello, aadRemote)
+	if _, ok := store.Get(victim); !ok {
+		t.Error("the replayed HELLO was refused: the known limit in docs/adr/BACKLOG.md is closed, delete this test and its row")
+	}
+}
+
 func TestSendGoodbyeIsAADBound(t *testing.T) {
 	t.Parallel()
 	const secret = "wgmesh-test-aad-send-goodbye-1"

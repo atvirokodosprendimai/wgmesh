@@ -290,6 +290,7 @@ wgmesh version
 - **SSH host keys** are verified against `~/.ssh/known_hosts` (`WGMESH_SSH_KNOWN_HOSTS` overrides the path). An unknown or changed host key stops the deploy; see [Centralized mode](docs/centralized-mode.md). `WGMESH_SSH_INSECURE_HOST_KEY=1` disables the check for lab use.
 
 - **Message type authentication** and replay handling of peer messages are rolled out in three releases; see [Envelope rollout](docs/envelope-rollout.md).
+- **Admit step** (which peer claims a node accepts: mesh IP, routes, endpoints, the 5-minute tombstone, the `--accept-routes` list) is rolled out in three releases; see [Admit step rollout](docs/admit-rollout.md).
 ## Architecture
 
 ```

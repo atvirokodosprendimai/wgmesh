@@ -48,6 +48,7 @@ type peerProbeSession struct {
 
 // Daemon manages the mesh node lifecycle
 type Daemon struct {
+	stateFile              string // local node state file, set by initLocalNode
 	config                 *Config
 	localNode              *LocalNode
 	peerStore              *PeerStore
@@ -113,6 +114,10 @@ type LocalNode struct {
 
 	endpointMu sync.RWMutex
 	wgEndpoint string
+	// pendingSTUN is the STUN value waiting for its third identical
+	// observation; both fields are guarded by endpointMu.
+	pendingSTUN      string
+	pendingSTUNCount int
 
 	routesMu sync.RWMutex // guards RoutableNetworks
 }
@@ -129,6 +134,64 @@ func (n *LocalNode) SetEndpoint(ep string) {
 	n.endpointMu.Lock()
 	defer n.endpointMu.Unlock()
 	n.wgEndpoint = ep
+}
+
+// EndpointSource names where an endpoint observation came from.
+type EndpointSource string
+
+const (
+	// EndpointInterface is a global IPv6 address read from a local interface.
+	EndpointInterface EndpointSource = "interface"
+	// EndpointReflection is the address a peer reflected back to us.
+	EndpointReflection EndpointSource = "reflection"
+	// EndpointSTUN is the answer of a STUN server.
+	EndpointSTUN EndpointSource = "stun"
+)
+
+// stunConfirmations is how many identical STUN observations in a row replace
+// a usable endpoint (#828: dual-egress networks flapped between a STUN answer
+// and a peer reflection).
+const stunConfirmations = 3
+
+// ObserveEndpoint applies an observed endpoint and reports whether the
+// announced endpoint changed. While the current endpoint is empty or
+// unspecified any source applies at once. An interface address or a peer
+// reflection applies at once and discards a pending STUN value. A STUN answer
+// that differs from the current endpoint applies only on its third identical
+// observation in a row; one equal to it discards the pending value.
+// It sets the field itself under endpointMu and does not call SetEndpoint:
+// SetEndpoint takes endpointMu too, so calling it here would deadlock.
+func (n *LocalNode) ObserveEndpoint(source EndpointSource, endpoint string) bool {
+	n.endpointMu.Lock()
+	defer n.endpointMu.Unlock()
+	if source == EndpointSTUN && endpoint != n.wgEndpoint && !endpointUnspecified(n.wgEndpoint) {
+		if endpoint == n.pendingSTUN {
+			n.pendingSTUNCount++
+		} else {
+			n.pendingSTUN, n.pendingSTUNCount = endpoint, 1
+		}
+		if n.pendingSTUNCount < stunConfirmations {
+			return false
+		}
+	}
+	n.pendingSTUN, n.pendingSTUNCount = "", 0
+	changed := n.wgEndpoint != endpoint
+	n.wgEndpoint = endpoint
+	return changed
+}
+
+// endpointUnspecified reports whether ep is empty or has an unspecified
+// host (0.0.0.0, ::).
+func endpointUnspecified(ep string) bool {
+	if ep == "" {
+		return true
+	}
+	host, _, err := net.SplitHostPort(ep)
+	if err != nil {
+		return false
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsUnspecified()
 }
 
 // GetRoutableNetworks returns a copy of the advertised networks (thread-safe).
@@ -221,7 +284,60 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		cancel:                 cancel,
 	}
 
+	d.peerStore.SetPolicy(d.admitPolicy())
+
 	return d, nil
+}
+
+// admitPolicy is what the daemon lends the peer store: the local claim, read
+// when a decision is made, the derivation of a key's mesh IP, and the warning counter.
+func (d *Daemon) admitPolicy() *Policy {
+	return &Policy{
+		Local: func() (key, ip string) {
+			if d.localNode == nil {
+				return "", ""
+			}
+			return d.localNode.WGPubKey, d.localNode.MeshIP
+		},
+		MeshNet:      d.meshNet(),
+		Derive:       d.deriveMeshIP,
+		OnWarn:       RecordAdmitWarning,
+		AcceptRoutes: d.acceptRoutes,
+	}
+}
+
+// meshNet is the mesh network: the custom subnet, or 10.<b0>.0.0/16 from the
+// first byte Keys.MeshSubnet holds (the default derivation fills the other
+// two octets of every address).
+func (d *Daemon) meshNet() *net.IPNet {
+	if s := d.config.CustomSubnet; s != nil {
+		return &net.IPNet{IP: s.IP.Mask(s.Mask), Mask: s.Mask}
+	}
+	return &net.IPNet{IP: net.IPv4(10, d.config.Keys.MeshSubnet[0], 0, 0).To4(), Mask: net.CIDRMask(16, 32)}
+}
+
+// deriveMeshIP is the address a key derives for a nonce: 0 is the natural
+// derivation, 1 and up the collision-nonce one (a different hash input, see
+// DeriveMeshIPWithNonce). It returns "" when the custom subnet is unusable.
+func (d *Daemon) deriveMeshIP(pubKey string, nonce int) string {
+	secret, subnet := d.config.Secret, d.config.CustomSubnet
+	if subnet != nil {
+		var ip string
+		var err error
+		if nonce == 0 {
+			ip, err = crypto.DeriveMeshIPInSubnet(subnet, pubKey, secret)
+		} else {
+			ip, err = crypto.DeriveMeshIPInSubnetWithNonce(subnet, pubKey, secret, nonce)
+		}
+		if err != nil {
+			return ""
+		}
+		return ip
+	}
+	if nonce == 0 {
+		return crypto.DeriveMeshIP(d.config.Keys.MeshSubnet, pubKey, secret)
+	}
+	return DeriveMeshIPWithNonce(d.config.Keys.MeshSubnet, pubKey, secret, nonce)
 }
 
 // SetDHTDiscovery sets the DHT discovery layer
@@ -377,7 +493,8 @@ func (d *Daemon) initLocalNode() error {
 	hostname = announceableHostname(hostname)
 
 	// Try to load existing key from state file
-	stateFile := filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
+	d.stateFile = filepath.Join(localNodeStateDir, d.config.InterfaceName+".json")
+	stateFile := d.stateFile
 	node, err := loadLocalNode(stateFile)
 	if err == nil && node != nil {
 		d.localNode = node
@@ -1417,9 +1534,9 @@ func (d *Daemon) evictPeerFromPool(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
 	}
-	log.Printf("[Health] Evicting unresponsive peer %s... from active pool", shortKey(peer.WGPubKey))
+	log.Printf("[Health] Evicting unresponsive peer %s... from active pool; hidden from mentions for %s unless it speaks first", shortKey(peer.WGPubKey), TombstoneTTL)
 	d.markTemporarilyOffline(peer.WGPubKey)
-	d.peerStore.Remove(peer.WGPubKey)
+	d.peerStore.Withdraw(peer.WGPubKey, "evicted")
 	if err := wireguard.RemovePeer(d.config.InterfaceName, peer.WGPubKey); err != nil {
 		log.Printf("[Health] Failed to remove evicted peer %s... from WireGuard: %v", shortKey(peer.WGPubKey), err)
 	}
@@ -1690,7 +1807,7 @@ func (d *Daemon) handleSIGHUP() {
 	opts, err := LoadReloadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes or log-level)", path)
+			log.Printf("[Reload] No reload file found at %s (create it to change advertise-routes, accept-routes or log-level)", path)
 		} else {
 			log.Printf("[Reload] Failed to load reload file %s: %v", path, err)
 		}
@@ -1706,6 +1823,20 @@ func (d *Daemon) GetAdvertiseRoutes() []string {
 	defer d.configMu.RUnlock()
 	out := make([]string, len(d.config.AdvertiseRoutes))
 	copy(out, d.config.AdvertiseRoutes)
+	return out
+}
+
+// acceptRoutes is the operator's accept list as networks (R9), read under the
+// config lock; nil means no list. The entries were validated when they were set.
+func (d *Daemon) acceptRoutes() []*net.IPNet {
+	d.configMu.RLock()
+	defer d.configMu.RUnlock()
+	var out []*net.IPNet
+	for _, s := range d.config.AcceptRoutes {
+		if _, n, err := net.ParseCIDR(s); err == nil {
+			out = append(out, n)
+		}
+	}
 	return out
 }
 
@@ -1729,6 +1860,8 @@ func (d *Daemon) GetLogLevel() string {
 // the WireGuard interface or DHT connections.  It updates:
 //   - AdvertiseRoutes (triggers immediate reconcile on next tick)
 //   - LogLevel
+//   - AcceptRoutes (judges later offers; routes already stored change when the
+//     peer next announces)
 //
 // Non-reloadable fields (Secret, InterfaceName, WGListenPort, Privacy, Gossip)
 // are silently ignored.
@@ -1747,6 +1880,13 @@ func (d *Daemon) reloadConfig(opts DaemonOpts) {
 		if d.localNode != nil {
 			d.localNode.SetRoutableNetworks(opts.AdvertiseRoutes)
 		}
+	}
+
+	// nil = the key is absent from the reload file (no change); non-nil and
+	// empty = "accept-routes=" (clear the list, open the node).
+	if opts.AcceptRoutes != nil && !routeSlicesEqual(d.config.AcceptRoutes, opts.AcceptRoutes) {
+		log.Printf("[Reload] AcceptRoutes: %v → %v", d.config.AcceptRoutes, opts.AcceptRoutes)
+		d.config.AcceptRoutes = opts.AcceptRoutes
 	}
 }
 
