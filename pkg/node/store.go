@@ -132,6 +132,11 @@ func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKin
 		info.LastDataPlane = time.Time{}
 		info.RestoredAt = time.Time{}
 		info.resumedAt = time.Time{}
+		// A restored key is dialable for PeerDeadTimeout from now (#851); it
+		// is not first-hand and its LastSeen stays the cache's time.
+		if c.Hand == Restored {
+			info.RestoredAt = now
+		}
 		if info.LastSeen.IsZero() {
 			info.LastSeen = now
 		}
