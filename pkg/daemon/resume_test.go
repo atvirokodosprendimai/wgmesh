@@ -475,3 +475,48 @@ func TestOnlyReconcileLoopCallsReconcile(t *testing.T) {
 		}
 	}
 }
+
+// TestDaemonNowIsWallClock: a time with a monotonic reading would not see the
+// time asleep, so a 30 s temporary-offline entry set before a sleep would
+// outlive its wall-clock expiry.
+func TestDaemonNowIsWallClock(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		clock func() time.Time
+	}{
+		{"real clock", nil},
+		{"injected clock", time.Now},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := &Daemon{clock: tt.clock}
+			if s := d.now().String(); strings.Contains(s, "m=") {
+				t.Errorf("d.now() = %q carries a monotonic reading", s)
+			}
+		})
+	}
+}
+
+func TestTemporaryOfflineExpiresByWallClock(t *testing.T) {
+	t.Parallel()
+	d := livenessDaemon(t)
+	t0 := time.Now()
+	var jumped atomic.Bool
+	d.clock = func() time.Time {
+		if jumped.Load() {
+			return t0.Add(time.Hour)
+		}
+		return t0
+	}
+	d.markTemporarilyOffline("peer-sleep")
+	if !d.isTemporarilyOffline("peer-sleep") {
+		t.Fatal("a peer just marked temporarily offline is not")
+	}
+
+	jumped.Store(true)
+
+	if d.isTemporarilyOffline("peer-sleep") {
+		t.Errorf("still temporarily offline an hour after a %s entry", TemporaryOfflineTTL)
+	}
+}
