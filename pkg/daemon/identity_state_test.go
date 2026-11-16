@@ -3,10 +3,12 @@ package daemon
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Words: the identity file (<iface>.json) holds the node's WireGuard key and
@@ -136,32 +138,95 @@ func TestInitLocalNodeCorruptMovesAside(t *testing.T) {
 	}
 }
 
+// sameSecond runs fn with the unix second quarantineState will use for its
+// base name and reports whether the clock stayed in that second while fn ran;
+// a test that pre-creates names for a second retries when it did not.
+func sameSecond(fn func(sec int64)) bool {
+	sec := time.Now().Unix()
+	fn(sec)
+	return time.Now().Unix() == sec
+}
+
 func TestQuarantineStateNeverTakesAnExistingName(t *testing.T) {
-	_, path := identityTestDaemon(t)
-	if err := os.WriteFile(path, []byte("garbage"), 0600); err != nil {
-		t.Fatal(err)
+	for attempt := 0; attempt < 5; attempt++ {
+		var taken, got string
+		var gotErr error
+		var path string
+		ok := sameSecond(func(sec int64) {
+			_, path = identityTestDaemon(t)
+			taken = fmt.Sprintf("%s.corrupt-%d", path, sec)
+			if err := os.WriteFile(taken, []byte("older quarantine"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte("garbage"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			got, gotErr = quarantineState(path)
+		})
+		if !ok {
+			continue
+		}
+		if gotErr != nil {
+			t.Fatalf("quarantineState: %v", gotErr)
+		}
+		if got == taken {
+			t.Fatalf("quarantine reused the taken name %s", taken)
+		}
+		if b, _ := os.ReadFile(taken); string(b) != "older quarantine" {
+			t.Errorf("the pre-existing %s now holds %q", taken, b)
+		}
+		if b, _ := os.ReadFile(got); string(b) != "garbage" {
+			t.Errorf("%s holds %q, want the quarantined bytes", got, b)
+		}
+		if _, err := os.Lstat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the old name %s still exists (%v)", path, err)
+		}
+		if fi, err := os.Stat(got); err != nil || fi.Mode().Perm() != 0600 {
+			t.Errorf("%s mode = %v (%v), want 0600: it may hold a private key", got, fi, err)
+		}
+		return
 	}
-	// Two quarantines in the same second must not share a name; each keeps its
-	// own bytes.
-	first, err := quarantineState(path)
-	if err != nil {
-		t.Fatalf("quarantineState: %v", err)
+	t.Fatal("the clock crossed a second boundary in 5 attempts")
+}
+
+func TestQuarantineStateGivesUpWithoutTouchingAnything(t *testing.T) {
+	for attempt := 0; attempt < 5; attempt++ {
+		var path string
+		var before []string
+		var gotErr error
+		ok := sameSecond(func(sec int64) {
+			_, path = identityTestDaemon(t)
+			base := fmt.Sprintf("%s.corrupt-%d", path, sec)
+			names := []string{base}
+			for i := 1; i <= 1000; i++ {
+				names = append(names, fmt.Sprintf("%s-%d", base, i))
+			}
+			for _, n := range names {
+				if err := os.WriteFile(n, []byte("taken"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.WriteFile(path, []byte("garbage"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			before = corruptCopies(t, path)
+			_, gotErr = quarantineState(path)
+		})
+		if !ok {
+			continue
+		}
+		if gotErr == nil {
+			t.Fatal("quarantineState succeeded with every name taken")
+		}
+		if b, _ := os.ReadFile(path); string(b) != "garbage" {
+			t.Errorf("the state file now holds %q, want it untouched", b)
+		}
+		if after := corruptCopies(t, path); len(after) != len(before) || len(before) != 1001 {
+			t.Errorf("corrupt copies before=%d after=%d, want 1001 unchanged", len(before), len(after))
+		}
+		return
 	}
-	if err := os.WriteFile(path, []byte("second garbage"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	second, err := quarantineState(path)
-	if err != nil {
-		t.Fatalf("quarantineState again: %v", err)
-	}
-	if first == second {
-		t.Fatalf("both quarantines used %s", first)
-	}
-	a, _ := os.ReadFile(first)
-	b, _ := os.ReadFile(second)
-	if string(a) != "garbage" || string(b) != "second garbage" {
-		t.Errorf("quarantined bytes = %q, %q", a, b)
-	}
+	t.Fatal("the clock crossed a second boundary in 5 attempts")
 }
 
 func TestInitLocalNodeRefusesWhenEnforced(t *testing.T) {

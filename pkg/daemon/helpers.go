@@ -68,25 +68,36 @@ var (
 var RefuseCorruptState = false
 
 // quarantineState moves a corrupt state file to path+".corrupt-"+unix and
-// returns the new path. The file is never deleted and never overwritten: if
-// the name is taken a numeric suffix is added. The rename stays in the same
-// directory, so it cannot cross a filesystem.
+// returns the new path. The file is never deleted and never overwritten: the
+// move is a hard link to a new name (os.Link fails with EEXIST when the name
+// is taken, so it cannot replace anything, and a plain existence check could
+// race) followed by removing the old name; on EEXIST the next numeric suffix
+// (-1 .. -1000) is tried. Link and Remove stay in one directory, so neither
+// crosses a filesystem. The file may hold a private key, so the moved copy is
+// made 0600. If Remove fails after the Link, the identity exists under both
+// names (duplicated, not lost) and the error names both. os.Rename is not
+// used: pkg/atomicfile owns every rename (TestNoPrivateRenameCopy).
 func quarantineState(path string) (string, error) {
 	base := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
 	target := base
 	for i := 1; ; i++ {
-		if _, err := os.Lstat(target); os.IsNotExist(err) {
+		err := os.Link(path, target)
+		if err == nil {
 			break
-		} else if err != nil {
-			return "", fmt.Errorf("check quarantine name %s: %w", target, err)
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return "", fmt.Errorf("move corrupt state file aside: %w", err)
 		}
 		if i > 1000 {
 			return "", fmt.Errorf("no free quarantine name for %s", path)
 		}
 		target = fmt.Sprintf("%s-%d", base, i)
 	}
-	if err := os.Rename(path, target); err != nil {
-		return "", fmt.Errorf("move corrupt state file aside: %w", err)
+	if err := os.Chmod(target, 0600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("corrupt state file %s was linked to %s but chmod 0600 failed: %w", path, target, err)
+	}
+	if err := os.Remove(path); err != nil {
+		return "", fmt.Errorf("corrupt state file was copied to %s but the old name %s could not be removed (the identity now exists under both names): %w", target, path, err)
 	}
 	return target, nil
 }
