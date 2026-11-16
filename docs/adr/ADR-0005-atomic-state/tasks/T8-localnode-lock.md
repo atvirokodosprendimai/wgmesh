@@ -74,6 +74,11 @@ n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|Tes
 - 2026-11-16 · b0e81e1* · mutant killed · exit 1 · `pkg/node/types.go` · SetMeshIP writes without stateMu: TestLocalNodeAccessorsConcurrent must go red under -race · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7
 - 2026-11-16 · b0e81e1* · mutant killed · exit 1 · `pkg/node/types.go` · GetRoutableNetworks returns the internal slice: TestRoutableNetworksAreCopied must go red · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7
 - 2026-11-16 · b0e81e1* · mutant killed · exit 1 · `pkg/node/types.go` · SetNATType writes without stateMu: the concurrent test must go red under -race · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7
+- 2026-11-16 · e4568fb* · mutant killed · exit 1 · `pkg/node/types.go` · SetMeshIP writes without stateMu: TestLocalNodeAccessorsConcurrent must go red under -race · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875
+- 2026-11-16 · e4568fb* · mutant killed · exit 1 · `pkg/node/types.go` · GetRoutableNetworks returns the internal slice: TestRoutableNetworksAreCopied must go red · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875
+- 2026-11-16 · e4568fb* · mutant killed · exit 1 · `pkg/discovery/dht.go` · a write-once field written outside the owner: TestLocalNodeFieldsNotWrittenDirectly must go red · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875
+- 2026-11-16 · e4568fb* · mutant killed · exit 1 · `pkg/node/types.go` · SetNATType writes without stateMu: the concurrent test must go red under -race · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875
+- 2026-11-16 · e4568fb* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · reconcile is no longer serialized: TestCheckAndResolveCollisionsIsSerialized must go red · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875
 
 ## Invariants
 
@@ -117,3 +122,10 @@ Stop and ask if ADR-0002 T9 changed `LocalNode` so `stateMu` cannot stand beside
 - 2026-11-16 · b0e81e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7 · ms:31873
 - 2026-11-16 · b0e81e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7 · ms:28322
 - 2026-11-16 · b0e81e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7 · ms:23800
+- 2026-11-16 · e4568fb* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:1 · test-lock-sha256:1ec9d0581b917626d4f8d510fc01779e2a6bd639b08bfa3c701020c96812ee45 · test-lock-file:docs/adr/locks/1ec9d0581b917626d4f8d510fc01779e2a6bd639b08bfa3c701020c96812ee45.lock · test-lock-kind:replace
+- 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:27609
+- 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:30280
+- 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:27073
+- 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:28382
+- 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:30325
+- 2026-11-16 · e4568fb* · exit 0 · `set -o pipefail …` · acceptance-sha256:4b6a7fa8793cf0c230c55e92bf9100876bd753de46983dfd958ae857ca037875 · ms:21685
