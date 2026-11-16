@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/netip"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
@@ -191,8 +192,10 @@ func (d *Daemon) observeAddresses(want addressDesired, obs *kernelObserved) {
 }
 
 // hostDefaultElsewhere reads the host's default routes of one family and
-// returns the first one that is not on iface (its device and gateway); the
-// device is "" if there is none.
+// returns one that is not on iface (its device, gateway, metric and onlink
+// flag): the first whose metric is the mesh default's (defaultMetric), the one
+// the mesh default replaces, else the first; the device is "" if there is
+// none. A default printed without a metric has the kernel's default metric.
 func hostDefaultElsewhere(iface string, ipv6 bool) (hostRoute, error) {
 	var out []byte
 	var err error
@@ -204,28 +207,44 @@ func hostDefaultElsewhere(iface string, ipv6 bool) (hostRoute, error) {
 	if err != nil {
 		return hostRoute{}, err
 	}
+	var first hostRoute
 	for _, line := range strings.Split(string(out), "\n") {
 		parts := strings.Fields(line)
 		if len(parts) == 0 || parts[0] != "default" {
 			continue
 		}
-		var r hostRoute
+		r := hostRoute{Metric: defaultMetric(ipv6)}
 		for i, part := range parts {
+			if part == "onlink" {
+				r.Onlink = true
+			}
 			if i+1 >= len(parts) {
-				break
+				continue
 			}
 			switch part {
 			case "dev":
 				r.Dev = parts[i+1]
 			case "via":
 				r.Via = parts[i+1]
+			case "metric":
+				m, err := strconv.Atoi(parts[i+1])
+				if err != nil {
+					return hostRoute{}, fmt.Errorf("parse default route %q: bad metric: %w", line, err)
+				}
+				r.Metric = m
 			}
 		}
-		if r.Dev != "" && r.Dev != iface {
+		if r.Dev == "" || r.Dev == iface {
+			continue
+		}
+		if r.Metric == defaultMetric(ipv6) {
 			return r, nil
 		}
+		if first.Dev == "" {
+			first = r
+		}
 	}
-	return hostRoute{}, nil
+	return first, nil
 }
 
 // ipForwardPath is the sysctl net.ipv4.ip_forward as a file.
