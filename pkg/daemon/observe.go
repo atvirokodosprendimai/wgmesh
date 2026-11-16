@@ -115,6 +115,34 @@ func (d *Daemon) observeRoutes(obs *kernelObserved) {
 	}
 }
 
+// hostDefaultElsewhere reads the host's default routes of one family and
+// returns the device of the first one that is not on iface, "" if there is
+// none.
+func hostDefaultElsewhere(iface string, ipv6 bool) (string, error) {
+	var out []byte
+	var err error
+	if ipv6 {
+		out, err = cmdExecutor.Command("ip", "-6", "route", "show", "default").Output()
+	} else {
+		out, err = cmdExecutor.Command("ip", "-4", "route", "show", "default").Output()
+	}
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		parts := strings.Fields(line)
+		if len(parts) == 0 || parts[0] != "default" {
+			continue
+		}
+		for i, part := range parts {
+			if part == "dev" && i+1 < len(parts) && parts[i+1] != iface {
+				return parts[i+1], nil
+			}
+		}
+	}
+	return "", nil
+}
+
 // ipForwardPath is the sysctl net.ipv4.ip_forward as a file.
 const ipForwardPath = "/proc/sys/net/ipv4/ip_forward"
 

@@ -270,6 +270,50 @@ func (d *Daemon) noteRouteObserve(obs kernelObserved) {
 	}
 }
 
+// hasNetwork reports whether entries hold the canonical network.
+func hasNetwork(entries []routes.Entry, canonical string) bool {
+	for _, e := range entries {
+		if routes.Canonical(e.Network, strings.Contains(e.Network, ":")) == canonical {
+			return true
+		}
+	}
+	return false
+}
+
+// noteHostDefault is the rule host-default: before a default route is added,
+// one read of the host's default route of that family; a default on a device
+// other than the mesh interface is logged once and counted, and the route is
+// still installed (a peer's 0.0.0.0/0 is a feature). A family that no longer
+// wants a default route is forgotten, so it warns again when it returns. The
+// caller holds convergeMu.
+func (d *Daemon) noteHostDefault(want []routes.Entry, plan routePlan) {
+	if d.hostDefaultWarned == nil {
+		d.hostDefaultWarned = make(map[string]struct{})
+	}
+	for _, f := range []struct {
+		name, network string
+		ipv6          bool
+	}{{"IPv4", "0.0.0.0/0", false}, {"IPv6", "::/0", true}} {
+		if !hasNetwork(want, f.network) {
+			delete(d.hostDefaultWarned, f.name)
+			continue
+		}
+		if _, warned := d.hostDefaultWarned[f.name]; warned || !hasNetwork(plan.Add, f.network) {
+			continue
+		}
+		dev, err := hostDefaultElsewhere(d.config.InterfaceName, f.ipv6)
+		if err != nil {
+			d.logf("Cannot read the host's %s default route: %v", f.name, err)
+			continue
+		}
+		if dev != "" {
+			d.logf("host-default: this host already has an %s default route on %s; the mesh's %s default route on %s is installed as well", f.name, dev, f.name, d.config.InterfaceName)
+			RecordKernelWarning("host-default")
+			d.hostDefaultWarned[f.name] = struct{}{}
+		}
+	}
+}
+
 // convergeRoutes is the route target of one tick, on Linux only: it plans the
 // difference between the observed routes and ds.Routes and applies it, one
 // route at a time. The caller holds convergeMu.
@@ -279,6 +323,7 @@ func (d *Daemon) convergeRoutes(ds *desiredState, obs kernelObserved) []itemResu
 	}
 	d.noteRouteObserve(obs)
 	plan := planRoutes(ds.Routes, obs)
+	d.noteHostDefault(ds.Routes, plan)
 	removed, results := applyRouteDiff(d.config.InterfaceName, plan.Add, plan.Remove)
 	// Removals run before adds, so restore even if an add failed. Only a
 	// removed route can be replaced by the connected route.
