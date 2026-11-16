@@ -32,7 +32,7 @@ Selection: `GetActive`, `CleanupStale` and `IsDead` call `PeerInfo.Alive`; a mut
 
 1. [S1] Add `pkg/node/liveness_test.go` with the eleven tests and compiling stubs (`Assess` returning `Alive`, empty store methods) so the first run fails on assertions, not on the build. `TestAssessThresholds` is a table with literal ages (4m59s Alive, 5m Suspect, 10m Suspect, 10m1s Dead). Run red.
 2. [S2] Implement `Assess`: `ref` is the newest non-zero of `LastSeen`, `LastDataPlane`, `RestoredAt`, `resumedAt`, each passed through `Round(0)`; `age = now.Round(0).Sub(ref)`; an all-zero `Evidence` is `Dead`. Implement `PeerInfo.LastAlive(now)` with the same `ref` rule (the zero time when all four are zero), and make `Alive` read it.
-3. [S3] Switch `GetActive`, `IsDead` and the merge from `time.Now()` to `ps.now()`. Implement `ObserveDataPlane` (a time never moves backwards; no event is sent; no claim field is touched; takes `ps.mu.Lock` like `SetLatency`, `store.go:400`), `NoteResume`, `ResumedAt`, `GetProbeable`, the per-store hook (precedent: `Policy.OnWarn`, `admit.go:83`, wired by `Daemon.admitPolicy`, `daemon.go:294-307`, to `RecordAdmitWarning`, `metrics.go:160`; here the wiring is in `NewDaemon`, T2 adds the counter); route the three readers through `Alive`; keep the legacy test and call the hook with the site name (`get-active`, `cleanup`, `is-dead`) when the legacy test drops a peer that `Assess` calls `Alive`. There is no package-level hook setter: parallel tests would race on it.
+3. [S3] Switch `GetActive`, `IsDead` and the merge from `time.Now()` to `ps.now()`. Implement `ObserveDataPlane` (a time never moves backwards; no event is sent; no claim field is touched; takes `ps.mu.Lock` like `SetLatency`, `store.go:400`), `NoteResume`, `ResumedAt`, `GetProbeable`, the per-store hook (precedent: `Policy.OnWarn`, `admit.go:83`, wired by `Daemon.admitPolicy`, `daemon.go:294-307`, to `RecordAdmitWarning`, `metrics.go:160`; here the wiring is in `NewDaemon`, T2 adds the counter); route the three readers through `Alive`; keep the legacy test and call the hook with the site name (`get-active`, `cleanup`, `is-dead`) when the legacy test drops a peer that `Assess` would keep (`Alive` for `get-active`; `Alive` or `Suspect` for `cleanup` and `is-dead`, so a peer silent 5 to 10 minutes with no other evidence is counted at `is-dead`; the counter counts per call, not per distinct peer). There is no package-level hook setter: parallel tests would race on it.
 4. [S4] Run the mutants with `adr-verify --mutant`: `Assess` ignores `LastDataPlane`; `Assess` keeps the monotonic reading; `EnforceLiveness` is read inverted; `GetProbeable` drops `Suspect`; a copy is returned without `resumedAt`. [proof: mutation]
 
 ## Acceptance
@@ -76,6 +76,12 @@ n=$(go test ./pkg/node -run '^(TestAssessThresholds|TestAssessNewestEvidenceWins
   ```
   the fence passed with the mechanism broken; it may not materialize, compile, load, or assert on the changed path
   ```
+- 2026-11-16 · 2648080* · mutant killed · exit 1 · `pkg/node/liveness.go` · newest ignores LastDataPlane · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 2648080* · mutant killed · exit 1 · `pkg/node/liveness.go` · boundary 5m must be Suspect · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 2648080* · mutant killed · exit 1 · `pkg/node/liveness.go` · switch inverted · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 2648080* · mutant killed · exit 1 · `pkg/node/liveness.go` · GetProbeable drops Suspect · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 2648080* · mutant killed · exit 1 · `pkg/node/liveness.go` · ref keeps monotonic reading · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
+- 2026-11-16 · 2648080* · mutant killed · exit 1 · `pkg/node/liveness.go` · copy returned without resumedAt · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d
 
 ## Invariants
 
@@ -120,3 +126,11 @@ Stop and ask if an existing store test needs a changed expectation with the swit
 - 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:11754
 - 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:10180
 - 2026-11-16 · 51b9fd2* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:7387
+- 2026-11-16 · 2648080* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:1 · test-lock-sha256:8b260f1481908867a57838a9ce4028ea5c007939d39d299bd37f24bf1aab8699 · test-lock-file:docs/adr/locks/8b260f1481908867a57838a9ce4028ea5c007939d39d299bd37f24bf1aab8699.lock · test-lock-kind:replace
+- 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:10024
+- 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:9418
+- 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:10303
+- 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:10752
+- 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:9807
+- 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:10350
+- 2026-11-16 · 2648080* · exit 0 · `set -o pipefail …` · acceptance-sha256:95de353ee23334299b6be242461aa137a2daef8bd51ca646082eebd76a2e4b4d · ms:6920
