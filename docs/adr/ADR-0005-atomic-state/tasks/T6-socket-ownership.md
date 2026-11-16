@@ -33,7 +33,7 @@ Selection: `main.go:971` calls `rpc.NewServer`; the first test fails if the lock
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/rpc -run '^(TestNewServerRefusesOwnedSocket|TestNewServerLeavesLiveSocketAlone|TestStopReleasesSocketLock|TestNewServerRemovesStaleUnownedSocket)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 4 ] && go test -race ./pkg/rpc -count=1
+n=$(go test ./pkg/rpc ./pkg/flock . -run '^(TestNewServerRefusesOwnedSocket|TestNewServerRefusalSaysWhatToDo|TestNewServerLeavesLiveSocketAlone|TestStopReleasesSocketLock|TestNewServerRemovesStaleUnownedSocket|TestNewServerErrorReleasesLock|TestStopIsSafeConcurrently|TestSecondStopKeepsNewOwnersSocket|TestStartFailureReleasesLock|TestStartAfterStopFails|TestStopWithoutNewServerDoesNotPanic|TestStartStopRaceFree|TestCreateRPCServerReturnsUntypedNilOnError|TestTryLockRefusesSymlink)$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 14 ] && go test -race ./pkg/rpc ./pkg/flock -count=1
 ```
 
 ## Tests
@@ -44,6 +44,16 @@ n=$(go test ./pkg/rpc -run '^(TestNewServerRefusesOwnedSocket|TestNewServerLeave
 | `TestNewServerLeavesLiveSocketAlone` | `pkg/rpc/server_ownership_test.go` | after the refused second call the first server's socket still exists and a client dial succeeds | — | S1, S2 |
 | `TestStopReleasesSocketLock` | `pkg/rpc/server_ownership_test.go` | after `Stop` (twice) a new `NewServer` on the path succeeds | — | S1, S2 |
 | `TestNewServerRemovesStaleUnownedSocket` | `pkg/rpc/server_ownership_test.go` | pin: a leftover socket file with no holder is removed and the server starts (starts green) | — | S1, S2 |
+| `TestNewServerRefusalSaysWhatToDo` | `pkg/rpc/server_ownership_test.go` | the refusal names the path and the pid once and says to use `--socket-path` or `WGMESH_SOCKET` | — | S1, S2 |
+| `TestNewServerErrorReleasesLock` | `pkg/rpc/server_ownership_test.go` | a `NewServer` that fails after taking the lock (the path is a non-empty directory) leaves the lock free | — | S1, S2 |
+| `TestStopIsSafeConcurrently` | `pkg/rpc/server_ownership_test.go` | 16 goroutines call `Stop` under `-race`; all get the same result and the socket is gone | — | S1, S2 |
+| `TestSecondStopKeepsNewOwnersSocket` | `pkg/rpc/server_ownership_test.go` | a second `Stop` of the old server does not unlink the new owner's socket (kills removing `stopOnce`) | — | S1, S2 |
+| `TestStartFailureReleasesLock` | `pkg/rpc/server_ownership_test.go` | a failed `Start` (path too long for a unix socket) releases the lock | — | S1, S2 |
+| `TestStartAfterStopFails` | `pkg/rpc/server_ownership_test.go` | a stopped `Server` cannot `Start` | — | S1, S2 |
+| `TestStopWithoutNewServerDoesNotPanic` | `pkg/rpc/server_ownership_test.go` | `(&Server{}).Stop()` is safe | — | S1, S2 |
+| `TestStartStopRaceFree` | `pkg/rpc/server_ownership_test.go` | `Start` and `Stop` run concurrently under `-race` (the listener is guarded by `mu`) | — | S1, S2 |
+| `TestCreateRPCServerReturnsUntypedNilOnError` | `main_rpc_test.go` | a refused `createRPCServer` returns an untyped nil interface | — | S1, S2 |
+| `TestTryLockRefusesSymlink` | `pkg/flock/flock_test.go` | a symlink at the lock path is not followed (`O_NOFOLLOW`) and its target is untouched | — | S1, S2 |
 
 ## Reachability
 
@@ -67,6 +77,7 @@ n=$(go test ./pkg/rpc -run '^(TestNewServerRefusesOwnedSocket|TestNewServerLeave
 - The lock file sits beside the socket (`/var/run`, `$XDG_RUNTIME_DIR` or `/tmp`) and may be left by a crash; it holds no lock then, the next start reuses it.
 - The check that `main.go` continues without RPC is code-read only (S3).
 - Test doubles: temp directory socket paths short enough for the platform's socket limit.
+- Behaviour taken on (panel 2026-11-16, not all covered by a test): protection is one-sided: an older release (no lock) on the same path still unlinks a live socket, and a new release starting after an old one still unlinks the old one's socket; the second daemon on a host runs without RPC and `wgmesh status` talks to the FIRST daemon (clients choose a socket with `WGMESH_SOCKET`; `status` has no `--socket-path` flag), the unit stays active while one interface has no RPC; the lock file stays beside the socket (`/var/run`, `$XDG_RUNTIME_DIR`, `/tmp`) and is never removed; a lock file in the world-writable `/tmp` fallback owned by another user gives EACCES, and a planted symlink is not followed (`O_NOFOLLOW`); `Start` failing releases the lock and marks the server stopped; `Stop` now always logs `RPC server stopped` and the daemon logs a failed socket removal; `pkg/rpc` now builds on unix only (T5's `pkg/flock`). The release note (T11) says all of this.
 
 ## Stop Condition
 
