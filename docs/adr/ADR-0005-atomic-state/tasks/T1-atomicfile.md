@@ -152,3 +152,5 @@ Stop and ask if the temp file cannot be created in the target's directory on a s
   PASS
   ok  	github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile	0.232s
   ```
+- 2026-11-16 · 195438a* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:0 · test-lock-sha256:b5dbb70aebcb84d301467f6e941f7da0f57a087bfec70825ae2fdeb9c575d22d · test-lock-file:docs/adr/locks/b5dbb70aebcb84d301467f6e941f7da0f57a087bfec70825ae2fdeb9c575d22d.lock · test-lock-kind:replace
+- 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:a00f1bde3bdde0ecc6a05683519a39cd7811d5578cc4d9b1207cea1ff75a0748 · ms:3749

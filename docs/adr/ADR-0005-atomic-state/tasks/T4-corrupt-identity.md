@@ -66,6 +66,11 @@ n=$(go test ./pkg/daemon -run '^(TestLoadLocalNodeDistinguishesMissingAndCorrupt
 - 2026-11-16 · 25cdb4c* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · RefuseCorruptState ignored: TestInitLocalNodeRefusesWhenEnforced must go red · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc
 - 2026-11-16 · 25cdb4c* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · a permission error is treated as absent: TestInitLocalNodeUnreadableIsNotAbsent must go red · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc
 - 2026-11-16 · 25cdb4c* · mutant killed · exit 1 · `pkg/daemon/helpers.go` · an identity without keys is valid: TestLoadLocalNodeDistinguishesMissingAndCorrupt must go red · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc
+- 2026-11-16 · 195438a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · the corrupt file is not moved aside: TestInitLocalNodeCorruptMovesAside must go red · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3
+- 2026-11-16 · 195438a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · RefuseCorruptState ignored: TestInitLocalNodeRefusesWhenEnforced must go red · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3
+- 2026-11-16 · 195438a* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · a read error is treated as absent: TestInitLocalNodeUnreadableIsNotAbsent must go red · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3
+- 2026-11-16 · 195438a* · mutant killed · exit 1 · `pkg/daemon/helpers.go` · an identity without keys is valid: TestLoadLocalNodeDistinguishesMissingAndCorrupt must go red · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3
+- 2026-11-16 · 195438a* · mutant killed · exit 1 · `pkg/daemon/helpers.go` · the decoder text is back in the error: TestCorruptStateErrorsCarryNoFileContent must go red · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3
 
 ## Invariants
 
@@ -108,3 +113,10 @@ Stop and ask if ADR-0002 T5 is not merged (the `stateFile` field is missing), or
 - 2026-11-16 · 25cdb4c* · exit 0 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:21244
 - 2026-11-16 · 25cdb4c* · exit 0 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:18637
 - 2026-11-16 · 25cdb4c* · exit 0 · `set -o pipefail …` · acceptance-sha256:be180327d1e085de5dbc8eb69b397d93b483dc19f343390982ffff314d1b65fc · ms:16801
+- 2026-11-16 · 195438a* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3 · ms:0 · test-lock-sha256:16b272f806a5b02c3ee3fc9cf933ea01ae507280f2c49f0a7ba6d091a2ddd92c · test-lock-file:docs/adr/locks/16b272f806a5b02c3ee3fc9cf933ea01ae507280f2c49f0a7ba6d091a2ddd92c.lock · test-lock-kind:replace
+- 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3 · ms:19411
+- 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3 · ms:21563
+- 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3 · ms:18891
+- 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3 · ms:15463
+- 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3 · ms:16967
+- 2026-11-16 · 195438a* · exit 0 · `set -o pipefail …` · acceptance-sha256:515eebc9c823c8c27303fae86d0b8b42fdc2b41125bd076866335f085ac57fc3 · ms:14016
