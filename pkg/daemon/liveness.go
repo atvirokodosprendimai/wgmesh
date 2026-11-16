@@ -29,3 +29,14 @@ func (d *Daemon) planPeers(handshakes map[string]int64, now time.Time) ([]*PeerI
 	desired, relayRoutes, directStable := d.buildDesiredPeerConfigsWithHandshakes(peers, handshakes)
 	return peers, desired, relayRoutes, directStable
 }
+
+// DecideByLiveness is PeerInfo.DecideByAge that counts each disagreement in
+// wgmesh_liveness_disagree_total{site}: one call, one count, however often the
+// same peer is asked.
+func DecideByLiveness(site string, p *PeerInfo, now time.Time, test func(age time.Duration) bool) bool {
+	decision, disagree := p.DecideByAge(now, test)
+	if disagree {
+		recordLivenessDisagree(site)
+	}
+	return decision
+}

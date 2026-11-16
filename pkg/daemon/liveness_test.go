@@ -294,10 +294,10 @@ func TestProbeEnforceKeepsLegacyUntilEnforced(t *testing.T) {
 			}
 			d := livenessDaemon(t)
 			now := time.Now()
-			seedLivenessPeer(d, "peer-pe", "10.250.0.2", now.Add(-7*time.Minute))
-			d.peerStore.ObserveDataPlane("peer-pe", now.Add(-10*time.Second))
+			seedLivenessPeer(d, "peer-probe-enforce", "10.250.0.2", now.Add(-7*time.Minute))
+			d.peerStore.ObserveDataPlane("peer-probe-enforce", now.Add(-10*time.Second))
 			session, pings := pipeSession(t, "pong")
-			d.probeSessions["peer-pe"] = session
+			d.probeSessions["peer-probe-enforce"] = session
 			before := disagreeCount(SiteProbeEnforce)
 
 			d.probePeersOverMesh()

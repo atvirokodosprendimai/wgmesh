@@ -77,6 +77,20 @@ func (p *PeerInfo) Alive(now time.Time) Liveness { return Assess(p.evidence(), n
 // changing callers.
 func (p *PeerInfo) LastAlive(now time.Time) time.Time { return p.evidence().newest() }
 
+// DecideByAge applies a reader's own age test (its window and operator) to the
+// peer. While EnforceLiveness is false the legacy LastSeen age decides; once
+// it is true the age of LastAlive does. disagree is true when the two ages give
+// different decisions and the legacy one is the one acting, so a caller can
+// count the case.
+func (p *PeerInfo) DecideByAge(now time.Time, test func(age time.Duration) bool) (decision, disagree bool) {
+	legacy := test(now.Sub(p.LastSeen))
+	alive := test(now.Sub(p.LastAlive(now)))
+	if EnforceLiveness.Load() {
+		return alive, false
+	}
+	return legacy, legacy != alive
+}
+
 // stamped returns a copy of peer that carries the store-wide resumedAt; the
 // caller holds ps.mu.
 func (ps *PeerStore) stamped(peer *PeerInfo) *PeerInfo {
