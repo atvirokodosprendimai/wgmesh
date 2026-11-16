@@ -46,14 +46,15 @@ func NewClient(host string, port int) (*Client, error) {
 		return nil, err
 	}
 
+	addr := fmt.Sprintf("%s:%d", host, port)
 	config := &ssh.ClientConfig{
-		User:            "root",
-		Auth:            authMethods,
-		HostKeyCallback: hostKey,
-		Timeout:         10 * time.Second,
+		User:              "root",
+		Auth:              authMethods,
+		HostKeyCallback:   hostKey,
+		HostKeyAlgorithms: defaultHostKeyAlgorithms(addr),
+		Timeout:           10 * time.Second,
 	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
 	conn, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial SSH: %w", err)
@@ -103,7 +104,7 @@ func (c *Client) WriteFile(path string, content []byte, mode os.FileMode) error 
 		return fmt.Errorf("failed to get stdin: %w", err)
 	}
 
-	if err := session.Start(fmt.Sprintf("cat > %s && chmod %o %s", path, mode, path)); err != nil {
+	if err := session.Start("cat > " + Quote(path) + " && " + Cmd("chmod", fmt.Sprintf("%o", mode), path)); err != nil {
 		return fmt.Errorf("failed to start command: %w", err)
 	}
 

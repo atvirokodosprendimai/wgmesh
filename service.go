@@ -55,7 +55,7 @@ func serviceCmd() {
 
 func serviceAddCmd() {
 	fs := flag.NewFlagSet("service add", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET)")
+	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	meshSubnet := fs.String("mesh-subnet", "", "Custom mesh subnet CIDR (e.g. 192.168.100.0/24)")
 	protocol := fs.String("protocol", "http", "Origin protocol: http or https")
 	healthPath := fs.String("health-path", "/", "Health check path")
@@ -74,7 +74,7 @@ func serviceAddCmd() {
 
 	resolvedSecret := resolveSecret(*secret)
 	if resolvedSecret == "" {
-		fmt.Fprintln(os.Stderr, "Error: --secret is required (or set WGMESH_SECRET)")
+		fmt.Fprintln(os.Stderr, "Error: --secret is required (or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 		os.Exit(1)
 	}
 
@@ -194,14 +194,14 @@ func serviceAddCmd() {
 
 func serviceListCmd() {
 	fs := flag.NewFlagSet("service list", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET)")
+	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	jsonOutput := fs.Bool("json", false, "Output as JSON")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory")
 	fs.Parse(os.Args[3:])
 
 	resolvedSecret := resolveSecret(*secret)
 	if resolvedSecret == "" {
-		fmt.Fprintln(os.Stderr, "Error: --secret is required (or set WGMESH_SECRET)")
+		fmt.Fprintln(os.Stderr, "Error: --secret is required (or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 		os.Exit(1)
 	}
 
@@ -275,13 +275,13 @@ func serviceListCmd() {
 
 func serviceRemoveCmd() {
 	fs := flag.NewFlagSet("service remove", flag.ExitOnError)
-	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET)")
+	secret := fs.String("secret", "", "Mesh secret (or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 	stateDir := fs.String("state-dir", defaultStateDir, "State directory")
 	fs.Parse(os.Args[3:])
 
 	resolvedSecret := resolveSecret(*secret)
 	if resolvedSecret == "" {
-		fmt.Fprintln(os.Stderr, "Error: --secret is required (or set WGMESH_SECRET)")
+		fmt.Fprintln(os.Stderr, "Error: --secret is required (or set WGMESH_SECRET or WGMESH_SECRET_FILE)")
 		os.Exit(1)
 	}
 
@@ -341,13 +341,16 @@ func serviceRemoveCmd() {
 	fmt.Printf("Service removed: %s\n", name)
 }
 
-// resolveSecret returns the secret from the flag or WGMESH_SECRET env var.
+// resolveSecret returns the secret from the flag, WGMESH_SECRET or the file
+// named by WGMESH_SECRET_FILE (see secretFromFlagOrEnv); an unreadable file exits 1.
 // The value is normalized to strip any wgmesh:// URI wrapper.
 func resolveSecret(flagValue string) string {
-	if flagValue != "" {
-		return normalizeSecret(flagValue)
+	secret, err := secretFromFlagOrEnv(flagValue)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error %v\n", err)
+		os.Exit(1)
 	}
-	return normalizeSecret(os.Getenv("WGMESH_SECRET"))
+	return normalizeSecret(secret)
 }
 
 // normalizeSecret strips the wgmesh:// URI prefix, optional version segment,

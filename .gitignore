@@ -24,6 +24,8 @@ mesh-state.json
 
 # Allow compat-test fixtures (intentionally checked-in golden corpus per docs/plans/2026-05-08-001-feat-feature-ledger-pim-plan.md U4-U5)
 !testdata/compat/**/*.json
+# Allow centralized-deploy saved states (well-formed placeholder keys only; ADR-0006 T3)
+!testdata/central/**/*.json
 
 # Allow Nix flake lock (pinned dependencies)
 !flake.lock

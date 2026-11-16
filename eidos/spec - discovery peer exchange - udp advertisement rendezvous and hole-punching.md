@@ -36,25 +36,25 @@ Handles both direct peer advertisement and introducer-mediated rendezvous.
 3. On reply received: return the peer info to the caller.
 
 On receiving a HELLO:
-1. Update peer store with sender info (`"dht"` source).
-2. Store transitive peers from `KnownPeers` (`"dht-transitive"`).
+1. Offer the sender (`"dht"`, first hand) to the peer store.
+2. Offer the peers from `KnownPeers` second hand (`"dht-transitive"`).
 3. Send REPLY — includes own peer info, known-peers list, and `ObservedEndpoint` (the sender's
    IP:port as seen by this node = peer-as-STUN reflector).
 
 On receiving a REPLY:
-1. Extract `ObservedEndpoint` and apply it to `localNode.WGEndpoint`
-   — only the IP portion is taken; the WireGuard listen port is used for the port component.
-   Won't overwrite an existing global IPv6 endpoint with an IPv4 reflection.
-   Won't apply private/loopback addresses.
-2. Update peer store with sender info (`"dht"`).
-3. Route to the pending reply channel if a concurrent `ExchangeWithPeer` is waiting.
+1. Extract `ObservedEndpoint` and apply it through `LocalNode.ObserveEndpoint` (source `reflection`, applies at once)
+    — only the IP portion is taken; the WireGuard listen port is used for the port component.
+    Won't overwrite an existing global IPv6 endpoint with an IPv4 reflection.
+    Won't apply private/loopback addresses.
+2. Offer the sender (`"dht"`, first hand) to the peer store.
+3. Deliver the reply to every concurrent `ExchangeWithPeer` waiting on that address: each call registers its own reply channel with `registerReply(remote)` (capacity 1, keyed by the dialled address string) and removes only its own registration; `handleReply` sends each registered caller a copy of the peer info and skips a full channel. Punch, rendezvous and transitive callers to one address may therefore share one reply (ADR-0005 M5, #855). A reply from a source port that differs from the dialled port misses the registry (BACKLOG).
 
 ### Goodbye
 
 - `SendGoodbye(addr)` sends an encrypted shutdown notification with a current timestamp, sealed with `SealEnvelopeAAD` so its message type is bound to the GCM tag.
 - A GOODBYE that opened only as a legacy envelope (`Envelope.LegacyAAD`, the type was not authenticated) is ignored and logged; nodes older than this release cannot open the bound form and evict the peer through the health check instead.
 - Receivers validate the timestamp (within ±60 seconds of now) to limit replay.
-- On valid GOODBYE: immediately remove the peer from the store.
+- On valid GOODBYE: `Withdraw` the peer (cause `goodbye`): it leaves the store and a tombstone refuses second-hand mentions of it for 5 minutes (ADR-0002).
 
 ### Replay handling (ADR-0001)
 
@@ -62,6 +62,8 @@ On receiving a REPLY:
 - The nonce is recorded only after the envelope opened successfully. The message type is part of the key because a legacy envelope does not authenticate it.
 - HELLO is exempt: the retry loop in `ExchangeWithPeer` resends one sealed buffer on purpose. A replayed HELLO is therefore still answered; that is bounded by the per-source rate limiter.
 - Legacy envelopes are counted (`LegacyEnvelopeOpens`), a measure of old traffic that is meaningful once writers seal with additional data.
+- Validation (ADR-0002): `crypto.FilterAnnouncement` is the one validation path of every reader (exchange, LAN, gossip, registry). The sender's own fields must be valid and `KnownPeers` must stay within `MaxKnownPeers`, or the message is rejected; an invalid `KnownPeers` entry is dropped on its own and the message is accepted, with one warning per message. This is receiver-side only: a node from before this release still rejects the whole message. HELLO, REPLY and ANNOUNCE are logged "Received valid" only after the payload passed validation; RENDEZVOUS, GOODBYE and unknown types are logged before their payload is parsed.
+- Endpoints (ADR-0002 R6): the endpoint of a peer comes from `node.ResolveEndpoint`: an advertised host and port are kept; an unspecified or empty advertised host takes the sender IP with the advertised port; with nothing usable advertised (an advertisement with an empty port counts as nothing) the endpoint is the sender IP and the default WireGuard port and is marked guessed. The sender's UDP source port is never used. A guessed endpoint is not announced in `KnownPeers`.
 
 ### Introducer rendezvous (for symmetric NAT traversal)
 
@@ -103,6 +105,11 @@ node (introducer) coordinates synchronized hole-punching.
 `PeerExchange.UDPConn()` exposes the UDP connection so DHT can share the same port/socket.
 DHT messages will fail decryption and are silently discarded by PeerExchange.
 
+### Start, Stop and restart (ADR-0005 T10)
+
+- `Start` binds the socket and starts one `listenLoop` that receives its own stop channel, connection and wait group as arguments, so a restart cannot change what an old loop uses. `Start` while running is an error.
+- `Stop` closes the connection and waits up to 3 seconds (`exchangeStopTimeout`) for the loop; it is safe to call twice and from several goroutines (a second caller waits for the same loop), and a loop that does not end logs a warning instead of hanging the daemon. After `Stop` returns the loop is gone and `Start` may be called again.
+
 ## Design
 
 - HELLO retransmission every 100ms is simultaneously hole-punching: both sides send to each
@@ -119,9 +126,10 @@ DHT messages will fail decryption and are silently discarded by PeerExchange.
 ## Interactions
 
 - `pkg/crypto.SealEnvelope` / `OpenEnvelopeRaw` — encrypt/decrypt all messages.
-- `pkg/daemon.PeerStore.Update` — direct (`"dht"`), transitive (`"dht-transitive"`),
+- `pkg/daemon.PeerStore.Offer` — direct (`"dht"`, `FirstHand`), transitive (`"dht-transitive"`, `SecondHand`),
   rendezvous (`"dht-rendezvous"`).
-- `pkg/daemon.PeerStore.Remove` — goodbye handling.
+- `pkg/daemon.PeerStore.Withdraw` — goodbye handling.
+- `pkg/crypto.FilterAnnouncement` — validation of every received announcement.
 - `pkg/wireguard.GetLatestHandshakes` — wait for handshake after hole-punch.
 - `MeshGossip.SetAnnounceHandler` / `gossip.HandleAnnounceFrom` — announce integration.
 - `DHTDiscovery` — shares the UDP socket and calls `ExchangeWithPeer` for transitive connects.

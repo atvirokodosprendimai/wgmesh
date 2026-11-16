@@ -73,7 +73,7 @@ The default configuration in `docker-compose.yml` includes:
 - **Capabilities**: `NET_ADMIN` and `SYS_MODULE` (for WireGuard interface management)
 - **Persistent Storage**: `./data/node1:/data` volume mount
 - **Interface**: `wg0` on port `51820`
-- **Secret**: passed to `wgmesh join` as the `WGMESH_SECRET` environment variable, not as `--secret`, so it is not shown in the `ps` argv of the container process. It is still visible in `docker inspect` and `/proc/<pid>/environ`, so protect access to the Docker socket and the host. Precedence for `join`: `--secret` flag, then `WGMESH_SECRET`, then the file named by `WGMESH_SECRET_FILE`. (`wgmesh status` still takes `--secret` only.)
+- **Secret**: passed to `wgmesh join` as the `WGMESH_SECRET` environment variable, not as `--secret`, so it is not shown in the `ps` argv of the container process. It is still visible in `docker inspect` and `/proc/<pid>/environ`, so protect access to the Docker socket and the host. Precedence for `join`: `--secret` flag, then `WGMESH_SECRET`, then the file named by `WGMESH_SECRET_FILE`. `wgmesh status`, `qr` and `install-service` read `WGMESH_SECRET` and `WGMESH_SECRET_FILE` the same way.
 
 ### Advanced Options
 

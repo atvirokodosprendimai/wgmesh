@@ -14,7 +14,7 @@ import (
 func newTestDaemon() *Daemon {
 	d := &Daemon{
 		peerStore: NewPeerStore(),
-		localNode: &LocalNode{NATType: "unknown"},
+		localNode: nodeWithNAT("", "unknown"),
 	}
 	return d
 }
@@ -137,7 +137,7 @@ func TestNATTypeGauge(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.natType, func(t *testing.T) {
 			d := newTestDaemon()
-			d.localNode.NATType = tt.natType
+			d.localNode.SetNATType(tt.natType)
 
 			UpdateMetrics(d)
 
@@ -263,4 +263,58 @@ func TestProbeRTTSummary(t *testing.T) {
 	if !found {
 		t.Error("expected summary observation for peer_key=testkey1")
 	}
+}
+
+func TestAdmitWarningCounterCounts(t *testing.T) {
+	d, err := NewDaemon(testConfig(t))
+	if err != nil {
+		t.Fatalf("NewDaemon: %v", err)
+	}
+	p := d.peerStore.Policy()
+	if p == nil || p.OnWarn == nil {
+		t.Fatal("no OnWarn in the policy")
+	}
+
+	counter := admitWarnings.WithLabelValues("winner-differs")
+	other := admitWarnings.WithLabelValues("another-rule")
+	before, beforeOther := testutil.ToFloat64(counter), testutil.ToFloat64(other)
+	p.OnWarn("another-rule")
+	if got := testutil.ToFloat64(counter) - before; got != 0 {
+		t.Errorf("winner-differs rose by %v after another rule's warning, want 0", got)
+	}
+	if got := testutil.ToFloat64(other) - beforeOther; got != 1 {
+		t.Errorf("another rule's counter rose by %v, want 1", got)
+	}
+	p.OnWarn("winner-differs")
+	if got := testutil.ToFloat64(counter) - before; got != 1 {
+		t.Errorf("wgmesh_admit_warnings_total{rule=winner-differs} rose by %v, want 1", got)
+	}
+	if got := testutil.ToFloat64(other) - beforeOther; got != 1 {
+		t.Errorf("another rule's counter rose by %v after winner-differs, want it to stay 1", got)
+	}
+}
+
+func TestAdmitWarningSeriesExistsAtZero(t *testing.T) {
+	admitWarnings.Reset() // as if no warning had been counted yet
+	reg := prometheus.NewRegistry()
+	registerMetrics(reg)
+
+	mfs, err := reg.Gather()
+	if err != nil {
+		t.Fatalf("Gather: %v", err)
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != "wgmesh_admit_warnings_total" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			if len(m.GetLabel()) == 1 && m.GetLabel()[0].GetValue() == "winner-differs" {
+				if got := m.GetCounter().GetValue(); got != 0 {
+					t.Errorf("winner-differs series = %v, want 0", got)
+				}
+				return
+			}
+		}
+	}
+	t.Error("no wgmesh_admit_warnings_total{rule=\"winner-differs\"} series before the first warning")
 }

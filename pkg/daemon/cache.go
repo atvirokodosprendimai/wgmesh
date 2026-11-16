@@ -8,6 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 const (
@@ -34,9 +37,10 @@ type PeerCache struct {
 	UpdatedAt int64            `json:"updated_at"`
 }
 
-// CacheFilePath returns the path for the peer cache file
+// CacheFilePath returns the path for the peer cache file. It lives in
+// localNodeStateDir (default /var/lib/wgmesh), so tests can redirect it.
 func CacheFilePath(interfaceName string) string {
-	return filepath.Join("/var/lib/wgmesh", fmt.Sprintf("%s-peers.json", interfaceName))
+	return filepath.Join(localNodeStateDir, fmt.Sprintf("%s-peers.json", interfaceName))
 }
 
 // LoadPeerCache loads the peer cache from disk
@@ -55,26 +59,49 @@ func LoadPeerCache(interfaceName string) (*PeerCache, error) {
 	return &cache, nil
 }
 
-// SavePeerCache saves the peer cache to disk
-func SavePeerCache(interfaceName string, peerStore *PeerStore) error {
+// buildPeerCache is the content SavePeerCache writes.
+func buildPeerCache(peerStore *PeerStore) *PeerCache {
 	peers := peerStore.GetAll()
+	now := time.Now()
 	cache := &PeerCache{
-		UpdatedAt: time.Now().Unix(),
+		UpdatedAt: now.Unix(),
 	}
 
 	for _, p := range peers {
+		// A guessed endpoint is not persisted: restored, it would rank as a
+		// cache advertisement (#839). The peer itself is kept.
+		endpoint := p.Endpoint
+		if p.EndpointGuessed {
+			endpoint = ""
+		}
+		// last_seen is the newest measured contact (LastContact), so a peer kept
+		// connected by handshakes is saved with a fresh time while a restored
+		// peer never heard from keeps its cache time and expires on schedule;
+		// the field and its type are unchanged, an older version reads it as before.
+		// A time in the future (the clock jumped back) is saved as now.
+		contact := p.LastContact()
+		if contact.After(now) {
+			contact = now
+		}
 		cache.Peers = append(cache.Peers, PeerCacheEntry{
 			WGPubKey:         p.WGPubKey,
 			Hostname:         p.Hostname,
 			MeshIP:           p.MeshIP,
 			MeshIPv6:         p.MeshIPv6,
-			Endpoint:         p.Endpoint,
+			Endpoint:         endpoint,
 			Introducer:       p.Introducer,
 			RoutableNetworks: p.RoutableNetworks,
 			NATType:          p.NATType,
-			LastSeen:         p.LastSeen.Unix(),
+			LastSeen:         contact.Unix(),
 		})
 	}
+	return cache
+}
+
+// SavePeerCache saves the peer cache to disk. The write is atomic: a crash
+// leaves the old cache or the new one, never a truncated file.
+func SavePeerCache(interfaceName string, peerStore *PeerStore) error {
+	cache := buildPeerCache(peerStore)
 
 	data, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
@@ -87,7 +114,7 @@ func SavePeerCache(interfaceName string, peerStore *PeerStore) error {
 		return fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
-	return os.WriteFile(path, data, 0600)
+	return atomicfile.WriteFile(path, data, 0600)
 }
 
 // RestoreFromCache restores peers from the cache into the peer store
@@ -100,8 +127,15 @@ func RestoreFromCache(interfaceName string, peerStore *PeerStore) int {
 		return 0
 	}
 
+	return restorePeers(cache, peerStore)
+}
+
+// restorePeers puts the entries of a loaded cache that have not expired into
+// the peer store and returns how many it restored.
+func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 	now := time.Now()
 	restored := 0
+	var keys []string
 
 	for _, entry := range cache.Peers {
 		lastSeen := time.Unix(entry.LastSeen, 0)
@@ -109,6 +143,10 @@ func RestoreFromCache(interfaceName string, peerStore *PeerStore) int {
 		// Skip expired entries
 		if now.Sub(lastSeen) > CacheExpiration {
 			continue
+		}
+		// A time in the future (the clock jumped back) counts as now.
+		if lastSeen.After(now) {
+			lastSeen = now
 		}
 
 		peer := &PeerInfo{
@@ -123,12 +161,31 @@ func RestoreFromCache(interfaceName string, peerStore *PeerStore) int {
 			LastSeen:         lastSeen,
 		}
 
-		peerStore.Update(peer, "cache")
+		// A refused key (tombstoned, or the peer cap) is not restored: it is
+		// neither counted nor logged.
+		if d := peerStore.Offer(Candidate{Info: peer, Source: "cache", Hand: Restored}); d.Verdict == node.Refuse {
+			continue
+		}
 		restored++
+		keys = append(keys, entry.WGPubKey)
 	}
 
 	if restored > 0 {
-		log.Printf("[Cache] Restored %d peers from cache", restored)
+		// The counts are Assess on the evidence, not gated by EnforceLiveness.
+		alive, suspected := 0, 0
+		for _, key := range keys {
+			p, ok := peerStore.Get(key)
+			if !ok {
+				continue
+			}
+			switch p.Alive(now) {
+			case node.Alive:
+				alive++
+			case node.Suspect:
+				suspected++
+			}
+		}
+		log.Printf("[Cache] Restored %d peers from cache (%d alive by evidence, %d only suspected)", restored, alive, suspected)
 	}
 
 	return restored

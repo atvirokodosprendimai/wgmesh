@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"strconv"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -26,7 +28,15 @@ const (
 	MessageTypeRendezvousStart = "RENDEZVOUS_START"
 )
 
-var now = time.Now
+// clock is the time source; a test replaces it. now reads it.
+var clock atomic.Pointer[func() time.Time]
+
+func now() time.Time {
+	if f := clock.Load(); f != nil {
+		return (*f)()
+	}
+	return time.Now()
+}
 
 // MaxHostnameLength is the RFC 1035 maximum hostname length
 const MaxHostnameLength = 253
@@ -93,7 +103,8 @@ func (kp *KnownPeer) Validate() error {
 }
 
 // Validate checks all fields of a PeerAnnouncement for correctness.
-// Called from OpenEnvelope after deserialization.
+// Called from FilterAnnouncement after deserialization. Its KnownPeers checks
+// serve direct callers: FilterAnnouncement sets KnownPeers aside before it calls this.
 func (pa *PeerAnnouncement) Validate() error {
 	if err := validateWGPubKey(pa.WGPubKey); err != nil {
 		return fmt.Errorf("WGPubKey: %w", err)
@@ -126,6 +137,35 @@ func (pa *PeerAnnouncement) Validate() error {
 		if err := kp.Validate(); err != nil {
 			return fmt.Errorf("KnownPeers[%d]: %w", i, err)
 		}
+	}
+	return nil
+}
+
+// FilterAnnouncement is the one validation path for a received announcement on
+// every reader (LAN, gossip, registry, exchange). The sender's own fields must
+// be valid and KnownPeers must not exceed MaxKnownPeers, or the message is
+// rejected. Invalid KnownPeers entries are dropped individually instead, so one
+// bad transitive entry relayed by an otherwise valid peer (e.g. an older node
+// that stored it before this check existed) does not hide that peer.
+func FilterAnnouncement(a *PeerAnnouncement) error {
+	known := a.KnownPeers
+	if len(known) > MaxKnownPeers {
+		return fmt.Errorf("KnownPeers: too many entries (%d, max %d)", len(known), MaxKnownPeers)
+	}
+	a.KnownPeers = nil
+	if err := a.Validate(); err != nil {
+		a.KnownPeers = known
+		return err
+	}
+	for _, kp := range known {
+		if err := kp.Validate(); err != nil {
+			slog.Debug("[crypto] dropping invalid known peer", "error", err)
+			continue
+		}
+		a.KnownPeers = append(a.KnownPeers, kp)
+	}
+	if dropped := len(known) - len(a.KnownPeers); dropped > 0 {
+		slog.Warn("[crypto] dropped invalid known peers", "dropped", dropped, "kept", len(a.KnownPeers))
 	}
 	return nil
 }
@@ -209,9 +249,11 @@ const envelopeAADVersion = 2
 // the two switches of the staged rollout in docs/adr/ADR-0001-envelope-aad, and
 // the seams the tests use; nothing in production code sets them.
 var (
-	sealWithAAD     = false
-	acceptLegacyAAD = true
+	sealWithAAD     atomic.Bool // false until release N+1
+	acceptLegacyAAD atomic.Bool // true until release N+2, set in init
 )
+
+func init() { acceptLegacyAAD.Store(true) }
 
 // envelopeAAD is the GCM additional data of an AAD-bound envelope: the
 // protocol version, a NUL byte and the message type.
@@ -223,7 +265,7 @@ func envelopeAAD(messageType string) []byte {
 // message type is bound to the tag only when sealWithAAD is set; see
 // SealEnvelopeAAD.
 func SealEnvelope(messageType string, payload interface{}, gossipKey [32]byte) ([]byte, error) {
-	return sealEnvelope(messageType, payload, gossipKey, sealWithAAD)
+	return sealEnvelope(messageType, payload, gossipKey, sealWithAAD.Load())
 }
 
 // SealEnvelopeAAD is SealEnvelope with the message type bound to the GCM tag,
@@ -297,8 +339,7 @@ func OpenEnvelope(data []byte, gossipKey [32]byte) (*Envelope, *PeerAnnouncement
 		return nil, nil, fmt.Errorf("failed to unmarshal announcement: %w", err)
 	}
 
-	// Validate announcement fields
-	if err := announcement.Validate(); err != nil {
+	if err := FilterAnnouncement(&announcement); err != nil {
 		return nil, nil, fmt.Errorf("invalid announcement: %w", err)
 	}
 
@@ -334,7 +375,7 @@ func OpenEnvelopeRaw(data []byte, gossipKey [32]byte) (*Envelope, []byte, error)
 	var aad []byte
 	switch envelope.V {
 	case 0:
-		if !acceptLegacyAAD {
+		if !acceptLegacyAAD.Load() {
 			return nil, nil, fmt.Errorf("envelope without type authentication refused: its sender must be upgraded to a release that seals the message type")
 		}
 		envelope.LegacyAAD = true

@@ -220,10 +220,7 @@ func TestControlEndpointForPeer_RejectsSelf(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey-self",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey-self", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	d, err := NewDHTDiscovery(context.Background(), cfg, localNode, daemon.NewPeerStore())
@@ -340,17 +337,19 @@ func TestDHTBootstrapDelay_Progression(t *testing.T) {
 }
 
 // TestBootstrapWithRetry_StopsOnContextCancel verifies that bootstrapWithRetry
-// exits promptly when the context is cancelled, without blocking.
+// exits promptly when the context it was given is cancelled, without blocking.
+// The DHT layer's own context stays live: the loop must use its argument, not
+// the context of whichever run is current.
 func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-bootstrap-cancel-1"})
 	if err != nil {
 		t.Fatalf("NewConfig failed: %v", err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	d, err := NewDHTDiscovery(ctx, cfg, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
+	d, err := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: "a"}, daemon.NewPeerStore())
 	if err != nil {
 		t.Fatalf("NewDHTDiscovery failed: %v", err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Cancel the context so the goroutine should exit on the first attempt check
 	cancel()
@@ -358,7 +357,7 @@ func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		d.bootstrapWithRetry()
+		d.bootstrapWithRetry(ctx)
 	}()
 
 	select {
@@ -366,5 +365,217 @@ func TestBootstrapWithRetry_StopsOnContextCancel(t *testing.T) {
 		// OK
 	case <-time.After(500 * time.Millisecond):
 		t.Error("bootstrapWithRetry did not stop within 500ms after context cancel")
+	}
+}
+
+// TestPunchReplyIsFirstHand verifies that the reply of a punch is the peer's
+// own claim: it refreshes LastSeen, may rewrite the peer's own fields and
+// stores the source it was given.
+func TestPunchReplyIsFirstHand(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-punch-first-hand-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
+	localNode.SetEndpoint("198.51.100.1:51820")
+
+	for _, source := range []daemon.Source{DHTMethod, "dht-ipv6-sync"} {
+		t.Run(string(source), func(t *testing.T) {
+			store := daemon.NewPeerStore()
+			d, err := NewDHTDiscovery(context.Background(), cfg, localNode, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			seen := time.Now().Add(-4 * time.Minute)
+			store.SetPeerDirectly("remote-pubkey", &daemon.PeerInfo{WGPubKey: "remote-pubkey", MeshIP: "10.0.0.2", LastSeen: seen})
+
+			d.admitPunchReply(&daemon.PeerInfo{WGPubKey: "remote-pubkey", MeshIP: "10.0.0.9", Endpoint: "203.0.113.42:51820"}, source)
+
+			got, ok := store.Get("remote-pubkey")
+			if !ok {
+				t.Fatal("expected remote-pubkey in peer store")
+			}
+			if got.MeshIP != "10.0.0.9" {
+				t.Errorf("MeshIP = %q, want 10.0.0.9", got.MeshIP)
+			}
+			if !got.LastSeen.After(seen) {
+				t.Errorf("LastSeen = %v, want it refreshed past %v", got.LastSeen, seen)
+			}
+			if got.EndpointMethod != string(source) {
+				t.Errorf("EndpointMethod = %q, want %q", got.EndpointMethod, source)
+			}
+		})
+	}
+}
+
+// TestExchangeWithAddressStoresCallersMethod drives the real exchangeWithAddress
+// against a real PeerExchange server on loopback and checks that the stored
+// peer carries the method the caller passed. The client's PeerExchange keeps
+// its own scratch store, so its own handling of the reply does not stand in
+// for the store under test.
+func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-exchange-with-address-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	serverKey := aadKey(2)
+	serverNode := daemon.NewLocalNode(serverKey, "", "", "10.0.0.2", "")
+	serverNode.SetEndpoint("203.0.113.42:51820")
+	server := NewPeerExchange(cfg, serverNode, daemon.NewPeerStore())
+	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.conn = serverConn
+	go server.listenLoop(server.stopCh, server.conn, oneLoopGroup())
+	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
+	serverAddr := serverConn.LocalAddr().String()
+
+	// Mutants: removing admitPunchReply from exchangeWithAddress leaves the
+	// seeded peer untouched (both subtests red); offering SecondHand keeps the
+	// seeded MeshIP and LastSeen (both red); a hardcoded DHTMethod source is
+	// caught only by the dht-ipv6-sync subtest.
+	for _, method := range []string{DHTMethod, DHTMethod + "-ipv6-sync"} {
+		t.Run(method, func(t *testing.T) {
+			clientNode := daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", "")
+			store := daemon.NewPeerStore()
+			seen := time.Now().Add(-4 * time.Minute)
+			store.SetPeerDirectly(serverKey, &daemon.PeerInfo{WGPubKey: serverKey, MeshIP: "10.0.0.99", LastSeen: seen})
+			d, err := NewDHTDiscovery(context.Background(), cfg, clientNode, store)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := NewPeerExchange(cfg, clientNode, daemon.NewPeerStore())
+			clientConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.conn = clientConn
+			go client.listenLoop(client.stopCh, client.conn, oneLoopGroup())
+			t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
+			d.exchange = client
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				d.exchangeWithAddress(serverAddr, method)
+			}()
+			select {
+			case <-done:
+			case <-time.After(2 * ExchangeTimeout):
+				t.Fatal("exchangeWithAddress did not return")
+			}
+
+			got, ok := store.Get(serverKey)
+			if !ok {
+				t.Fatal("expected the server peer in the store")
+			}
+			if got.EndpointMethod != method {
+				t.Errorf("EndpointMethod = %q, want %q", got.EndpointMethod, method)
+			}
+			if got.MeshIP != "10.0.0.2" {
+				t.Errorf("MeshIP = %q, want the first-hand 10.0.0.2", got.MeshIP)
+			}
+			if !got.LastSeen.After(seen) {
+				t.Errorf("LastSeen = %v, want it refreshed past %v", got.LastSeen, seen)
+			}
+		})
+	}
+}
+
+// TestPunchSuccessKeepsTransitiveLabel drives the real tryRendezvousForPeer
+// against a real PeerExchange server on loopback. The WG handshake is stubbed
+// (0 for the two reads before the punch, 100 after). The stored peer must keep
+// the dht-transitive label that daemon.go reads to prefer relay, while the
+// first-hand reply rewrites its MeshIP and refreshes LastSeen.
+// Mutants: label DHTMethod+"-transitive" -> DHTMethod, or FirstHand ->
+// SecondHand in admitPunchReply, turn it red.
+func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
+	oldWait := handshakeWaitTimeout.Load()
+	t.Cleanup(func() { handshakeWaitTimeout.Store(oldWait) })
+	serverKey := aadKey(2)
+	// the skip check, then the baseline, read 0; the waits read 100
+	rec := installReadWGState(t, serverKey, func(call int) int64 {
+		if call <= 2 {
+			return 0
+		}
+		return 100
+	})
+	handshakeWaitTimeout.Store(int64(2 * time.Second))
+
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-punch-transitive-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	serverNode := daemon.NewLocalNode(serverKey, "", "", "10.0.0.2", "")
+	serverNode.SetEndpoint("203.0.113.42:51820")
+	server := NewPeerExchange(cfg, serverNode, daemon.NewPeerStore())
+	serverConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	server.conn = serverConn
+	go server.listenLoop(server.stopCh, server.conn, oneLoopGroup())
+	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
+	serverAddr := serverConn.LocalAddr().String()
+
+	clientNode := daemon.NewLocalNode(aadKey(1), "", "", "10.0.0.1", "")
+	store := daemon.NewPeerStore()
+	d, err := NewDHTDiscovery(context.Background(), cfg, clientNode, store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := NewPeerExchange(cfg, clientNode, daemon.NewPeerStore())
+	clientConn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	client.conn = clientConn
+	go client.listenLoop(client.stopCh, client.conn, oneLoopGroup())
+	t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
+	d.exchange = client
+
+	seen := time.Now().Add(-4 * time.Minute)
+	seed := &daemon.PeerInfo{WGPubKey: serverKey, MeshIP: "10.0.0.99", Endpoint: "198.51.100.9:51820", LastSeen: seen}
+	store.SetPeerDirectly(serverKey, seed)
+	d.mu.Lock()
+	d.controlPeers[serverKey] = serverAddr
+	d.mu.Unlock()
+
+	d.tryRendezvousForPeer(&daemon.PeerInfo{WGPubKey: serverKey, MeshIP: "10.0.0.99", Endpoint: "198.51.100.9:51820"})
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if got, ok := store.Get(serverKey); ok && got.EndpointMethod != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	got, ok := store.Get(serverKey)
+	if !ok {
+		t.Fatal("expected the server peer in the store")
+	}
+	if got.EndpointMethod != DHTMethod+"-transitive" {
+		t.Errorf("EndpointMethod = %q, want %q", got.EndpointMethod, DHTMethod+"-transitive")
+	}
+	if !strings.Contains(strings.Join(got.DiscoveredVia, ","), DHTMethod+"-transitive") {
+		t.Errorf("DiscoveredVia = %v, want it to contain %q", got.DiscoveredVia, DHTMethod+"-transitive")
+	}
+	if got.MeshIP != "10.0.0.2" {
+		t.Errorf("MeshIP = %q, want the first-hand 10.0.0.2", got.MeshIP)
+	}
+	if !got.LastSeen.After(seen) {
+		t.Errorf("LastSeen = %v, want it refreshed past %v", got.LastSeen, seen)
+	}
+	// Skip check at ReconcileInterval, punch baseline and every wait poll fresh (0).
+	ages := rec.all()
+	if len(ages) < 3 || ages[0] != daemon.ReconcileInterval {
+		t.Fatalf("maxAges = %v, want the skip check at %v first, then at least the baseline and one poll", ages, daemon.ReconcileInterval)
+	}
+	for i, age := range ages[1:] {
+		if age != 0 {
+			t.Errorf("punch read %d used maxAge %v, want 0", i+2, age)
+		}
 	}
 }

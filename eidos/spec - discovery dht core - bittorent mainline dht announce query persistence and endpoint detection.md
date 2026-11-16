@@ -43,13 +43,19 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
 - Each returned peer address is dispatched to `contactPeer`:
   - Deduplicates: skips addresses contacted within the past 60 seconds.
   - Skips own external address.
-  - Calls `ExchangeWithPeer` (via `PeerExchange`) — on reply, peer is stored as `"dht"`.
+  - Calls `ExchangeWithPeer` (via `PeerExchange`) — on reply, peer is offered as `"dht"`.
 - Query interval slows from 30s to 60s once the peer store holds ≥3 peers.
 
 ### Goodbye broadcast
 
 - On `Stop()`: sends `GOODBYE` to all known peers' control endpoints before shutting down,
   allowing peers to remove this node immediately rather than waiting for dead timeout.
+
+### Run lifecycle (ADR-0005 T10)
+
+- `NewDHTDiscovery` keeps the daemon's context as `parentCtx`. Every `Start` goes through `beginRun`, which refuses a second `Start` while a run is live or starting, fails when `parentCtx` has ended, and derives a fresh context from `parentCtx` (a context cancelled by an earlier `Stop` is never reused). Each run builds its own LAN and gossip layers.
+- `running` is set only after the exchange, gossip, LAN and DHT server started. When a layer fails to start, `Start` returns the error and stops the layers already started (`abortRun`), so a failed `Start` leaves nothing listening and may be retried.
+- `Start` and `Stop` are serialized by one mutex, the bounded waits included: a `Stop` issued during a `Start` waits for it and then stops it. `Stop` waits up to 3 seconds (`dhtStopTimeout`) for the announce, query, persist, transitive-connect and STUN loops, and logs a warning instead of hanging when one does not end.
 
 ### External endpoint detection
 
@@ -62,14 +68,19 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
   - -5 penalty for EUI-64 addresses (bytes 11–12 are `ff:fe` — embeds MAC, less stable)
   - Deterministic tiebreak: lexicographic
   - IPv6 is preferred: implies no NAT, so `NATType = "unknown"` is set (not `cone` or `symmetric`)
-- **STUN (IPv4 fallback)**: `DetectNATType` with two servers; updates `localNode.WGEndpoint`
-  (STUN-derived external IP + WG listen port) and `localNode.NATType`.
+- **STUN (IPv4 fallback)**: `DetectNATType` with two servers; reports the STUN-derived external IP + WG listen port to `LocalNode.ObserveEndpoint` and calls `LocalNode.SetNATType`.
+- **`ObserveEndpoint(source, endpoint)`** (ADR-0002 R7, `pkg/daemon/daemon.go`) is the one place the announced endpoint changes. Sources: `interface` (global IPv6 from an interface), `reflection` (a peer's `ObservedEndpoint`), `stun`, `stun-resume` (`daemon.EndpointSTUNResume`, ADR-0004: a STUN answer fetched right after a wake, applied at once like any source other than `stun`). An `interface`, `reflection` or `stun-resume` observation applies at once and discards a pending STUN value; any source applies at once while the current endpoint is empty or unspecified; a `stun` answer that differs from a usable endpoint applies on its third identical observation in a row (about two minutes after the first differing answer at the 60 s refresh), and one equal to the current endpoint discards the pending value. Not damped: reflection against reflection (second half of #828, `docs/adr/BACKLOG.md`).
 
 ### STUN refresh loop (every 60 seconds)
 
 - Re-runs endpoint detection: tries IPv6 first, falls back to STUN.
 - Logs endpoint and NAT type changes for observability.
 - On endpoint change: next announce cycle will publish the new address.
+
+### Wake from sleep (`DHTDiscovery.OnResume`, ADR-0004)
+
+- The daemon's resume loop calls `OnResume` once per detected wake (`node.Resumer`). It clears the rendezvous back-off, then in one goroutine refreshes STUN with the `stun-resume` source (applied at once) and announces: `announce()` to the infohash and `SendAnnounce` once to every active peer (gossip on and an open exchange socket). On an IPv6 host (IPv6 not disabled and a global IPv6 address found) the refresh takes the IPv6 interface branch instead: the endpoint is observed with the `interface` source, also applied at once, and no STUN query is made. A call while that goroutine runs only clears the back-off, so bursts coalesce; before `Start` and after `Stop` it does nothing.
+- The announce lists the known peers, so one wake costs about N packets of size O(N); a packet over about 260 peers can exceed the UDP limit, as in the steady gossip loop (estimate, not measured).
 
 ## Design
 
@@ -81,15 +92,21 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
 - EUI-64 penalty avoids advertising a MAC-address-embedding endpoint when a stable privacy
   extension address is also available.
 - Query interval adaptive slow-down reduces DHT traffic in a stable mesh.
+- Bounded growth (ADR-0007 Decision 3): three maps that used to grow for the life of the process are bounded.
+  - `contactedPeers` (address dedup): entries older than `ContactDedupWindow` (60s, the longest interval any `markContacted` caller passes) are swept when the map holds more than `contactSweepThreshold` (256) entries, at most once per window. At `MaxContactedPeers` (8192) entries a new address is refused (fail closed, logged once per window); a known address is still decided by its interval. The refusal is the chosen failure mode (ADR-0007 Decision 3, maintainer 2026-11-15): an attacker flooding get_peers replies with distinct addresses can trigger it for up to one window.
+  - `controlPeers` and `rendezvousBackoff` (keyed by public key): `sweepPeerKeyed` deletes the keys the `PeerStore` no longer holds. A peer that returns starts with no backoff, like a new peer.
+    - A withdrawn (tombstoned) peer is swept like an absent one: `PeerStore.Get` ignores tombstones.
+    - It runs first in each 10-second `checkStaleHandshakes` and on each `queryLoop` tick, so a node with `DisablePunching` (no `transitiveConnectLoop`) is bounded too.
+    - Known limit: a control endpoint stored by `setControlEndpoint` before its peer is Offered to the store can be swept inside that window; it is learned again on the next exchange.
 
 ## Interactions
 
 - `github.com/anacrolix/dht/v2` — DHT server, announce, get_peers.
 - `pkg/crypto.GetCurrentAndPreviousNetworkIDs` — hourly-rotating infohash derivation.
 - `PeerExchange.ExchangeWithPeer` — contact each DHT-discovered peer address.
-- `pkg/daemon.PeerStore.Update(peer, "dht")` — store discovered peers.
+- `pkg/daemon.PeerStore.Offer(peer, "dht")` — offer discovered peers.
 - `DetectNATType`, `DiscoverExternalEndpoint` — STUN queries.
-- `pkg/daemon.LocalNode.SetEndpoint`, `.NATType` — update local state.
+- `pkg/daemon.LocalNode.ObserveEndpoint`, `.SetNATType` — update local state.
 
 ## Mapping
 

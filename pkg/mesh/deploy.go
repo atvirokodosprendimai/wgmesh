@@ -2,8 +2,11 @@ package mesh
 
 import (
 	"fmt"
+	"maps"
 	"net"
 	"os"
+	"slices"
+	"strings"
 
 	netroutes "github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
@@ -15,6 +18,12 @@ type WGInterface = wireguard.WGInterface
 type WGPeer = wireguard.WGPeer
 
 func (m *Mesh) Deploy() error {
+	// First, before any connection: refuse a state a shell or a wg-quick file
+	// would give a meaning to (ADR-0006, decision 2). Not under m.mu.
+	if err := m.validateForDeploy(os.Stdout); err != nil {
+		return err
+	}
+
 	// Validate groups and policies if access control is enabled
 	if m.IsAccessControlEnabled() {
 		fmt.Println("Validating access control configuration...")
@@ -36,74 +45,135 @@ func (m *Mesh) Deploy() error {
 		fmt.Println("Access control configuration valid.")
 	}
 
-	if err := m.detectEndpoints(); err != nil {
-		return fmt.Errorf("failed to detect endpoints: %w", err)
-	}
+	// A node that cannot be reached is recorded, not dialled again below.
+	detectFailures := m.detectEndpoints()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for hostname, node := range m.Nodes {
+	results := make([]NodeResult, 0, len(m.Nodes))
+	for _, hostname := range slices.Sorted(maps.Keys(m.Nodes)) {
 		fmt.Printf("Deploying to %s...\n", hostname)
 
-		client, err := ssh.NewClient(node.SSHHost, node.SSHPort)
-		if err != nil {
-			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
+		result := NodeResult{Hostname: hostname, Phase: PhaseDetect, Err: detectFailures[hostname]}
+		if result.Err == nil {
+			result = m.deployNode(hostname, m.Nodes[hostname])
 		}
-
-		if err := ssh.EnsureWireGuardInstalled(client); err != nil {
-			client.Close()
-			return fmt.Errorf("failed to ensure WireGuard on %s: %w", hostname, err)
+		results = append(results, result)
+		if result.Err != nil {
+			fmt.Printf("  ✗ Failed in %s: %v\n\n", result.Phase, result.Err)
+			continue
 		}
-
-		config := m.generateConfigForNode(node)
-		desiredRoutes := m.collectAllRoutesForNode(node)
-
-		currentConfig, err := wireguard.GetCurrentConfig(client, m.InterfaceName)
-		if err != nil {
-			fmt.Printf("  No existing config, applying fresh persistent configuration\n")
-			if err := wireguard.ApplyPersistentConfig(client, m.InterfaceName, config, desiredRoutes); err != nil {
-				client.Close()
-				return fmt.Errorf("failed to apply config to %s: %w", hostname, err)
-			}
-		} else {
-			diff := wireguard.CalculateDiff(currentConfig, wireguard.FullConfigToConfig(config))
-			if diff.HasChanges() {
-				fmt.Printf("  Applying changes with persistent configuration\n")
-				if err := wireguard.UpdatePersistentConfig(client, m.InterfaceName, config, desiredRoutes, diff); err != nil {
-					client.Close()
-					return fmt.Errorf("failed to update config on %s: %w", hostname, err)
-				}
-			} else {
-				fmt.Printf("  No WireGuard peer changes needed\n")
-			}
-
-			// Always check and sync routes
-			if err := m.syncRoutesForNode(client, node, desiredRoutes); err != nil {
-				client.Close()
-				return fmt.Errorf("failed to sync routes on %s: %w", hostname, err)
-			}
-
-			// Always ensure config file is up to date
-			configContent := wireguard.GenerateWgQuickConfig(config, desiredRoutes)
-			configPath := fmt.Sprintf("/etc/wireguard/%s.conf", m.InterfaceName)
-			if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {
-				fmt.Printf("  Warning: failed to update config file: %v\n", err)
-			}
-		}
-
-		client.Close()
 		fmt.Printf("  ✓ Deployed successfully\n\n")
 	}
 
-	return nil
+	var warned []string
+	for _, r := range results {
+		for _, w := range r.Warnings {
+			warned = append(warned, fmt.Sprintf("  %s: %s", r.Hostname, w))
+		}
+	}
+	if len(warned) > 0 {
+		fmt.Printf("Warnings:\n%s\n", strings.Join(warned, "\n"))
+	}
+
+	return deployResult(results)
 }
 
-func (m *Mesh) detectEndpoints() error {
+// deployNode configures one node and reports how it went. It requires the
+// caller to hold m.mu and calls only helpers that require it held. The wg-quick
+// text is rendered before the first connection, so a node whose config cannot
+// be rendered is left untouched.
+func (m *Mesh) deployNode(hostname string, node *Node) NodeResult {
+	result := NodeResult{Hostname: hostname}
+	fail := func(phase Phase, err error) NodeResult {
+		result.Phase, result.Err = phase, err
+		return result
+	}
+
+	config := m.generateConfigForNode(node)
+	desiredRoutes := m.collectAllRoutesForNode(node)
+	configContent, err := wireguard.GenerateWgQuickConfig(config, desiredRoutes)
+	if err != nil {
+		return fail(PhasePersist, fmt.Errorf("failed to render config: %w", err))
+	}
+
+	client, err := ssh.NewClient(node.SSHHost, node.SSHPort)
+	if err != nil {
+		return fail(PhaseConnect, err)
+	}
+	defer client.Close()
+
+	if err := ssh.EnsureWireGuardInstalled(client); err != nil {
+		return fail(PhaseInstall, err)
+	}
+
+	currentConfig, err := wireguard.GetCurrentConfig(client, m.InterfaceName)
+	if err != nil {
+		fmt.Printf("  No existing config, applying fresh persistent configuration\n")
+		if err := wireguard.ApplyPersistentConfig(client, m.InterfaceName, config, desiredRoutes); err != nil {
+			return fail(PhaseApply, err)
+		}
+		return result
+	}
+
+	diff := wireguard.CalculateDiff(currentConfig, wireguard.FullConfigToConfig(config))
+	if diff.HasChanges() {
+		fmt.Printf("  Applying changes with persistent configuration\n")
+		if err := wireguard.UpdatePersistentConfig(client, m.InterfaceName, config, desiredRoutes, diff); err != nil {
+			return fail(PhaseApply, err)
+		}
+	} else {
+		fmt.Printf("  No WireGuard peer changes needed\n")
+	}
+
+	// Always check and sync routes
+	if err := m.syncRoutesForNode(client, node, desiredRoutes); err != nil {
+		return fail(PhaseRoutes, err)
+	}
+
+	// Always ensure config file is up to date
+	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", m.InterfaceName)
+	if err := client.WriteFile(configPath, []byte(configContent), 0600); err != nil {
+		if PersistFailureFatal {
+			return fail(PhasePersist, fmt.Errorf("failed to update config file %s: %w", configPath, err))
+		}
+		fmt.Printf("  Warning: failed to update config file %s: %v\n", configPath, err)
+		result.Warnings = append(result.Warnings, fmt.Sprintf("failed to update config file %s: %v", configPath, err))
+	}
+
+	return result
+}
+
+// probeResult is what one remote node answered to the public-IP probe.
+type probeResult struct {
+	publicIP string
+	probed   bool
+}
+
+// detectEndpoints probes every node that is not local and returns the nodes it
+// could not connect to, by hostname. The nodes are visited in sorted order.
+// A node whose SSH host is a private IP address is not asked for its public
+// IP: it can only differ. Once every node was visited, resolveEndpoint decides
+// each reachable node's endpoint; the result stays in memory.
+func (m *Mesh) detectEndpoints() map[string]error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	for hostname, node := range m.Nodes {
+	// An endpoint this process wrote is not the operator's: take it back, so
+	// only a value the operator set is read as sticky below.
+	for hostname, endpoint := range m.autoEndpoints {
+		if node, ok := m.Nodes[hostname]; ok && node.PublicEndpoint == endpoint {
+			node.PublicEndpoint = ""
+		}
+	}
+	m.autoEndpoints = map[string]string{}
+
+	failures := map[string]error{}
+	probes := map[string]probeResult{}
+	hostnames := slices.Sorted(maps.Keys(m.Nodes))
+	for _, hostname := range hostnames {
+		node := m.Nodes[hostname]
 		if node.IsLocal {
 			// For local node, get hostname directly
 			if node.ActualHostname == "" {
@@ -116,7 +186,8 @@ func (m *Mesh) detectEndpoints() error {
 
 		client, err := ssh.NewClient(node.SSHHost, node.SSHPort)
 		if err != nil {
-			return fmt.Errorf("failed to connect to %s: %w", hostname, err)
+			failures[hostname] = err
+			continue
 		}
 
 		// Collect hostname and FQDN
@@ -131,25 +202,49 @@ func (m *Mesh) detectEndpoints() error {
 			node.FQDN = fqdn
 		}
 
-		publicIP, err := ssh.DetectPublicIP(client)
-		client.Close()
-
-		if err != nil {
-			fmt.Printf("Warning: failed to detect public IP for %s: %v\n", hostname, err)
-			node.BehindNAT = true
+		if hostIsPrivate(node.SSHHost) {
+			client.Close()
 			continue
 		}
+		publicIP, err := ssh.DetectPublicIP(client)
+		client.Close()
+		if err != nil {
+			fmt.Printf("Warning: failed to detect public IP for %s: %v\n", hostname, err)
+		}
+		probes[hostname] = probeResult{publicIP: publicIP, probed: true}
+	}
 
-		if publicIP != "" && publicIP != node.SSHHost {
-			node.BehindNAT = true
-			fmt.Printf("Detected %s is behind NAT (public IP: %s)\n", hostname, publicIP)
-		} else {
-			node.PublicEndpoint = fmt.Sprintf("%s:%d", node.SSHHost, node.ListenPort)
-			fmt.Printf("Detected %s has public endpoint: %s\n", hostname, node.PublicEndpoint)
+	// Classification needs no connection: every node counts, a node that could
+	// not be dialled and the local node included.
+	allPrivate := true
+	for _, hostname := range hostnames {
+		if !hostIsPrivate(m.Nodes[hostname].SSHHost) {
+			allPrivate = false
+		}
+	}
+	for _, hostname := range hostnames {
+		if _, failed := failures[hostname]; failed {
+			continue
+		}
+		node := m.Nodes[hostname]
+		probe := probes[hostname]
+		d := resolveEndpoint(node, allPrivate, probe.publicIP, probe.probed)
+		if d.Endpoint != "" && node.PublicEndpoint == "" {
+			node.PublicEndpoint = d.Endpoint
+			m.autoEndpoints[hostname] = d.Endpoint
+		}
+		if !node.IsLocal {
+			node.BehindNAT = d.BehindNAT
+		}
+		switch {
+		case d.Endpoint != "":
+			fmt.Printf("Detected %s has endpoint %s (%s)\n", hostname, d.Endpoint, d.Reason)
+		case !node.IsLocal:
+			fmt.Printf("Detected %s has no endpoint (%s)\n", hostname, d.Reason)
 		}
 	}
 
-	return nil
+	return failures
 }
 
 func (m *Mesh) collectRoutesForNode(node *Node) []ssh.RouteEntry {
@@ -220,15 +315,8 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 		fmt.Printf("  Warning: could not get current routes, will try to add all: %v\n", err)
 		// If we can't get current routes, just try to add desired ones
 		for _, route := range desiredRoutes {
-			var cmd string
-			if route.Gateway != "" {
-				cmd = fmt.Sprintf("ip route add %s via %s dev %s || ip route replace %s via %s dev %s",
-					route.Network, route.Gateway, m.InterfaceName, route.Network, route.Gateway, m.InterfaceName)
-			} else {
-				cmd = fmt.Sprintf("ip route add %s dev %s || ip route replace %s dev %s",
-					route.Network, m.InterfaceName, route.Network, m.InterfaceName)
-			}
-			client.RunQuiet(cmd)
+			client.RunQuiet(ssh.Cmd("ip", ssh.RouteArgs("add", route.Network, route.Gateway, m.InterfaceName)...) +
+				" || " + ssh.Cmd("ip", ssh.RouteArgs("replace", route.Network, route.Gateway, m.InterfaceName)...))
 		}
 		return nil
 	}
@@ -238,10 +326,24 @@ func (m *Mesh) syncRoutesForNode(client *ssh.Client, node *Node, desiredRoutes [
 	toRemove = append(toRemove, stale...)
 	err = ssh.ApplyRouteDiff(client, m.InterfaceName, toAdd, toRemove)
 	// Removals run before adds, so restore even if an add failed.
-	for _, route := range stale {
+	restoreOwnConnectedRoutes(client, toRemove, node.RoutableNetworks)
+	return err
+}
+
+// restoreOwnConnectedRoutes restores the connected route once for every
+// distinct network of removed that is one of the node's own networks, whatever
+// the route's gateway: before PR #879 an HA node also carried
+// `<own network> via <other node> dev <mesh interface>`, which replaced the
+// connected route and is gone once removed.
+func restoreOwnConnectedRoutes(client *ssh.Client, removed []ssh.RouteEntry, ownNetworks []string) {
+	seen := make(map[string]bool, len(removed))
+	for _, route := range removed {
+		if seen[route.Network] || len(netroutes.ExcludeOwn([]string{route.Network}, ownNetworks)) != 0 {
+			continue
+		}
+		seen[route.Network] = true
 		ssh.RestoreConnectedRoute(client, route.Network)
 	}
-	return err
 }
 
 // ownNetworkRoutes returns the gateway-less mesh-interface routes to a node's

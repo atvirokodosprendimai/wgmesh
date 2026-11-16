@@ -17,7 +17,7 @@ func TestServerConfig(t *testing.T) {
 	}
 
 	config := ServerConfig{
-		SocketPath: "/tmp/test-wgmesh.sock",
+		SocketPath: shortSocketPath(t),
 		Version:    "test",
 		GetPeers: func() []*PeerData {
 			return mockPeers
@@ -47,6 +47,7 @@ func TestServerConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
+	t.Cleanup(func() { _ = server.Stop() })
 
 	if server == nil {
 		t.Fatal("server is nil")

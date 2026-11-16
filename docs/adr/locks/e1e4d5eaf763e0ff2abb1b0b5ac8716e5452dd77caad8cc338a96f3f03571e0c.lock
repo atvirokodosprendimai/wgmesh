@@ -1,0 +1,5 @@
+check@2	absent
+unproven	testdata/script/cli-bare-usage.txtar	TestScript/cli-bare-usage
+unproven	testdata/script/cli-legacy-flag.txtar	TestScript/cli-legacy-flag
+unproven	testdata/script/cli-unknown-command.txtar	TestScript/cli-unknown-command
+unproven	testdata/script/cli-version-position.txtar	TestScript/cli-version-position

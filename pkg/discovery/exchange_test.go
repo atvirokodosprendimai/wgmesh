@@ -79,10 +79,7 @@ func TestHandleReply_UpdatesLocalEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -99,9 +96,8 @@ func TestHandleReply_UpdatesLocalEndpoint(t *testing.T) {
 	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: int(cfg.Keys.GossipPort)}
 
 	// Register a pending reply so handleReply doesn't log "unsolicited"
-	pe.pendingMu.Lock()
-	pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
-	pe.pendingMu.Unlock()
+	_, unregister := pe.registerReply(remoteAddr.String())
+	defer unregister()
 
 	pe.handleReply(reply, remoteAddr)
 
@@ -122,10 +118,7 @@ func TestHandleReply_IgnoresEmptyObservedEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -140,9 +133,8 @@ func TestHandleReply_IgnoresEmptyObservedEndpoint(t *testing.T) {
 
 	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: int(cfg.Keys.GossipPort)}
 
-	pe.pendingMu.Lock()
-	pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
-	pe.pendingMu.Unlock()
+	_, unregister := pe.registerReply(remoteAddr.String())
+	defer unregister()
 
 	pe.handleReply(reply, remoteAddr)
 
@@ -161,10 +153,7 @@ func TestHandleReply_SkipsSelfReflection(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -192,9 +181,8 @@ func TestHandleReply_SkipsSelfReflection(t *testing.T) {
 			}
 			remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
 
-			pe.pendingMu.Lock()
-			pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
-			pe.pendingMu.Unlock()
+			_, unregister := pe.registerReply(remoteAddr.String())
+			defer unregister()
 
 			pe.handleReply(reply, remoteAddr)
 
@@ -214,10 +202,7 @@ func TestSendReply_PopulatesObservedEndpoint(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("1.2.3.4:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -278,10 +263,7 @@ func TestHandleReply_DoesNotDowngradePublicIPv6ToIPv4Observed(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("[2a01:4f9:c012:2c15::1]:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -295,9 +277,8 @@ func TestHandleReply_DoesNotDowngradePublicIPv6ToIPv4Observed(t *testing.T) {
 	}
 	remoteAddr := &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: 51821}
 
-	pe.pendingMu.Lock()
-	pe.pendingReplies[remoteAddr.String()] = make(chan *daemon.PeerInfo, 1)
-	pe.pendingMu.Unlock()
+	_, unregister := pe.registerReply(remoteAddr.String())
+	defer unregister()
 
 	pe.handleReply(reply, remoteAddr)
 
@@ -309,24 +290,85 @@ func TestHandleReply_DoesNotDowngradePublicIPv6ToIPv4Observed(t *testing.T) {
 // TestResolvePeerEndpoint tests existing resolution logic (regression guard).
 func TestResolvePeerEndpoint(t *testing.T) {
 	tests := []struct {
-		name       string
-		advertised string
-		sender     *net.UDPAddr
-		want       string
+		name        string
+		advertised  string
+		sender      *net.UDPAddr
+		want        string
+		wantGuessed bool
 	}{
-		{"explicit_endpoint", "1.2.3.4:51820", nil, "1.2.3.4:51820"},
-		{"wildcard_with_sender", "0.0.0.0:51820", &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: 41234}, "203.0.113.1:51820"},
-		{"empty_host_with_sender", ":51820", &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: 41234}, "203.0.113.1:51820"},
-		{"ipv6_wildcard", ":::51820", &net.UDPAddr{IP: net.ParseIP("2001:db8::1"), Port: 41234}, "[2001:db8::1]:51820"},
-		{"no_sender_no_host", "0.0.0.0:51820", nil, "0.0.0.0:51820"},
+		{"explicit_endpoint", "1.2.3.4:51820", nil, "1.2.3.4:51820", false},
+		{"wildcard_with_sender", "0.0.0.0:51820", &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: 41234}, "203.0.113.1:51820", false},
+		{"empty_host_with_sender", ":51820", &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: 41234}, "203.0.113.1:51820", false},
+		{"ipv6_wildcard", "[::]:51820", &net.UDPAddr{IP: net.ParseIP("2001:db8::1"), Port: 41234}, "[2001:db8::1]:51820", false},
+		{"malformed_advertisement", ":::51820", &net.UDPAddr{IP: net.ParseIP("2001:db8::1"), Port: 41234}, "[2001:db8::1]:51820", true},
+		// remoteAddr is never nil in production; this pins the function's behaviour.
+		{"no_sender_no_host", "0.0.0.0:51820", nil, "0.0.0.0:51820", false},
+		{"empty_advertisement_with_sender", "", &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: 41234}, "203.0.113.1:51820", true},
+		{"empty_port_with_sender", "198.51.100.7:", &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: 41234}, "203.0.113.1:51820", true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := resolvePeerEndpoint(tt.advertised, tt.sender)
-			if got != tt.want {
-				t.Errorf("resolvePeerEndpoint(%q, %v) = %q, want %q", tt.advertised, tt.sender, got, tt.want)
+			got, guessed := resolvePeerEndpoint(tt.advertised, tt.sender)
+			if got != tt.want || guessed != tt.wantGuessed {
+				t.Errorf("resolvePeerEndpoint(%q, %v) = %q, %v, want %q, %v", tt.advertised, tt.sender, got, guessed, tt.want, tt.wantGuessed)
 			}
 		})
+	}
+}
+
+// The sender's UDP source port is never the endpoint port: it is the
+// advertised port or the default WireGuard port.
+func TestResolvePeerEndpointNeverUsesSenderPort(t *testing.T) {
+	tests := []struct {
+		advertised string
+		wantPort   string
+	}{
+		{"", "51820"},
+		{"garbage", "51820"},
+		{"198.51.100.7:", "51820"},
+		{":51821", "51821"},
+		{"0.0.0.0:51821", "51821"},
+		{"198.51.100.7:51821", "51821"},
+	}
+	for _, senderPort := range []int{52654, 1} {
+		sender := &net.UDPAddr{IP: net.ParseIP("203.0.113.1"), Port: senderPort}
+		for _, tt := range tests {
+			got, _ := resolvePeerEndpoint(tt.advertised, sender)
+			if _, port, err := net.SplitHostPort(got); err != nil || port != tt.wantPort {
+				t.Errorf("sender port %d, advertised %q: endpoint %q (err %v), want port %s", senderPort, tt.advertised, got, err, tt.wantPort)
+			}
+		}
+	}
+}
+
+// A HELLO that advertises no endpoint stores the peer with the sender IP and
+// the default port, marked guessed, so it ranks below any advertisement.
+func TestHandleHelloEmptyEndpointStoresGuess(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-hello-guessed-endpoint-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+	pe := NewPeerExchange(cfg, daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", ""), peerStore)
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
+	if err != nil {
+		t.Skipf("no loopback UDP: %v", err)
+	}
+	defer conn.Close()
+	pe.conn = conn // handleHello replies on it
+
+	pe.handleHello(&crypto.PeerAnnouncement{
+		Protocol: crypto.ProtocolVersion,
+		WGPubKey: "remote-pubkey",
+		MeshIP:   "10.0.0.2",
+	}, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 52654})
+
+	got, ok := peerStore.Get("remote-pubkey")
+	if !ok {
+		t.Fatal("expected remote-pubkey in peer store")
+	}
+	if got.Endpoint != "127.0.0.1:51820" || !got.EndpointGuessed {
+		t.Errorf("stored endpoint %q guessed=%v, want 127.0.0.1:51820 guessed=true", got.Endpoint, got.EndpointGuessed)
 	}
 }
 
@@ -359,10 +401,7 @@ func TestHandleGoodbye_RejectsStaleMessage(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	_ = NewPeerExchange(cfg, localNode, peerStore)
@@ -426,10 +465,7 @@ func TestHandleGoodbye_AcceptsFreshMessage(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	_ = NewPeerExchange(cfg, localNode, peerStore)
@@ -490,10 +526,7 @@ func TestHandleGoodbye_RejectsFutureTimestamp(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("0.0.0.0:51820")
 
 	_ = NewPeerExchange(cfg, localNode, peerStore)
@@ -593,10 +626,7 @@ func TestExchangeWithPeer_LogsWarningForOwnIP(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -626,10 +656,7 @@ func TestExchangeWithPeer_AllowsDifferentIP(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
 	localNode.SetEndpoint("198.51.100.1:51820")
 
 	pe := NewPeerExchange(cfg, localNode, peerStore)
@@ -658,10 +685,7 @@ func TestGetKnownPeers_ExcludesSelfAndEmpty(t *testing.T) {
 	}
 	peerStore := daemon.NewPeerStore()
 
-	localNode := &daemon.LocalNode{
-		WGPubKey: "local-pubkey-abc",
-		MeshIP:   "10.0.0.1",
-	}
+	localNode := daemon.NewLocalNode("local-pubkey-abc", "", "", "10.0.0.1", "")
 
 	// Add local node, an empty-key entry, and a remote peer to the peer store
 	peerStore.Update(&daemon.PeerInfo{
@@ -749,7 +773,7 @@ func TestHandleMessage_ValidatesAnnouncements(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			peerStore := daemon.NewPeerStore()
-			localNode := &daemon.LocalNode{WGPubKey: validKey(9), MeshIP: "10.0.0.1"}
+			localNode := daemon.NewLocalNode(validKey(9), "", "", "10.0.0.1", "")
 			pe := NewPeerExchange(cfg, localNode, peerStore)
 			conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1")})
 			if err != nil {
@@ -792,5 +816,80 @@ func TestValidateExchangeAnnouncementKnownPeersLimit(t *testing.T) {
 	}
 	if err := validateExchangeAnnouncement(a); err == nil {
 		t.Fatal("expected error for too many KnownPeers")
+	}
+}
+
+// TestHandleReplyOffersFirstHand verifies that a REPLY is its sender's own
+// claim (a new mesh IP replaces the stored one), while a KnownPeers entry for
+// the same key in another member's REPLY is second-hand (it does not).
+func TestHandleReplyOffersFirstHand(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-reply-first-hand-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+	localNode := daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", "")
+	localNode.SetEndpoint("0.0.0.0:51820")
+	pe := NewPeerExchange(cfg, localNode, peerStore)
+
+	peerStore.Offer(daemon.Candidate{
+		Info:   &daemon.PeerInfo{WGPubKey: "remote-pubkey", MeshIP: "10.0.0.2", Endpoint: "198.51.100.1:51820"},
+		Source: DHTMethod,
+		Hand:   daemon.FirstHand,
+	})
+	meshIP := func() string {
+		t.Helper()
+		peer, ok := peerStore.Get("remote-pubkey")
+		if !ok {
+			t.Fatal("expected remote-pubkey in peer store")
+		}
+		return peer.MeshIP
+	}
+	reply := func(from, ip string, known ...crypto.KnownPeer) {
+		pe.handleReply(&crypto.PeerAnnouncement{
+			Protocol:   crypto.ProtocolVersion,
+			WGPubKey:   from,
+			MeshIP:     ip,
+			WGEndpoint: "198.51.100.1:51820",
+			KnownPeers: known,
+		}, &net.UDPAddr{IP: net.ParseIP("198.51.100.1"), Port: int(cfg.Keys.GossipPort)})
+	}
+
+	reply("remote-pubkey", "10.0.0.9")
+	if got := meshIP(); got != "10.0.0.9" {
+		t.Errorf("after its own REPLY, MeshIP = %q, want 10.0.0.9", got)
+	}
+	reply("other-pubkey", "10.0.0.3", crypto.KnownPeer{WGPubKey: "remote-pubkey", MeshIP: "10.0.0.66", WGEndpoint: "198.51.100.1:51820"})
+	if got := meshIP(); got != "10.0.0.9" {
+		t.Errorf("after a mention in another REPLY, MeshIP = %q, want 10.0.0.9", got)
+	}
+}
+
+// A peer known only by a guessed endpoint is listed with its key and no
+// endpoint: a wrong address is worse than none (#839).
+func TestGuessedEndpointNotAnnounced(t *testing.T) {
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-guessed-endpoint-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	peerStore := daemon.NewPeerStore()
+	peerStore.Offer(daemon.Candidate{Info: &daemon.PeerInfo{
+		WGPubKey: "guessed-pubkey", MeshIP: "10.0.0.2", Endpoint: "203.0.113.1:51820", EndpointGuessed: true,
+	}, Source: DHTMethod, Hand: daemon.FirstHand})
+	peerStore.Offer(daemon.Candidate{Info: &daemon.PeerInfo{
+		WGPubKey: "advertised-pubkey", MeshIP: "10.0.0.3", Endpoint: "198.51.100.7:51821",
+	}, Source: DHTMethod, Hand: daemon.FirstHand})
+
+	pe := NewPeerExchange(cfg, daemon.NewLocalNode("local-pubkey", "", "", "10.0.0.1", ""), peerStore)
+
+	got := map[string]string{}
+	for _, kp := range pe.getKnownPeers() {
+		got[kp.WGPubKey] = kp.WGEndpoint
+	}
+	if ep, ok := got["guessed-pubkey"]; !ok || ep != "" {
+		t.Errorf("guessed peer listed = %v with endpoint %q; want listed with an empty endpoint", ok, ep)
+	}
+	if got["advertised-pubkey"] != "198.51.100.7:51821" {
+		t.Errorf("advertised peer endpoint = %q, want 198.51.100.7:51821", got["advertised-pubkey"])
 	}
 }

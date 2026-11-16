@@ -1,8 +1,10 @@
 package crypto
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"time"
@@ -359,5 +361,207 @@ func TestOpenEnvelopeValidation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "MeshIP") {
 		t.Errorf("error %q should mention MeshIP", err.Error())
+	}
+}
+
+// One invalid KnownPeers entry must not hide the message: the sender is intact
+// and only the bad entry is gone (#875 item 2).
+func TestOpenEnvelopeDropsInvalidKnownPeerKeepsMessage(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-for-filter")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	ann := &PeerAnnouncement{
+		Protocol:  ProtocolVersion,
+		WGPubKey:  goodKey,
+		MeshIP:    "10.0.0.2",
+		Timestamp: time.Now().Unix(),
+		KnownPeers: []KnownPeer{
+			{WGPubKey: "not-a-key", MeshIP: "10.0.0.3"},
+			{WGPubKey: goodKey, MeshIP: "10.0.0.4", WGEndpoint: "203.0.113.4:51820"},
+		},
+	}
+	sealed, err := SealEnvelope(MessageTypeAnnounce, ann, keys.GossipKey)
+	if err != nil {
+		t.Fatalf("SealEnvelope: %v", err)
+	}
+	_, got, err := OpenEnvelope(sealed, keys.GossipKey)
+	if err != nil {
+		t.Fatalf("OpenEnvelope rejected the whole message for one bad known peer: %v", err)
+	}
+	if got.WGPubKey != goodKey || got.MeshIP != "10.0.0.2" {
+		t.Errorf("sender changed: %q %q", got.WGPubKey, got.MeshIP)
+	}
+	if len(got.KnownPeers) != 1 || got.KnownPeers[0].MeshIP != "10.0.0.4" {
+		t.Errorf("KnownPeers = %+v, want only the valid entry", got.KnownPeers)
+	}
+}
+
+// The sender's own fields stay strict: an invalid mesh IP or key fails to open.
+func TestOpenEnvelopeRejectsInvalidSender(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-for-filter")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	tests := []struct {
+		name string
+		ann  PeerAnnouncement
+	}{
+		{"bad mesh ip", PeerAnnouncement{WGPubKey: goodKey, MeshIP: "10.0.0.2/16"}},
+		{"bad key", PeerAnnouncement{WGPubKey: "garbage", MeshIP: "10.0.0.2"}},
+		{"too many known peers", PeerAnnouncement{WGPubKey: goodKey, MeshIP: "10.0.0.2", KnownPeers: make([]KnownPeer, MaxKnownPeers+1)}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ann := tt.ann
+			ann.Protocol = ProtocolVersion
+			ann.Timestamp = time.Now().Unix()
+			sealed, err := SealEnvelope(MessageTypeAnnounce, &ann, keys.GossipKey)
+			if err != nil {
+				t.Fatalf("SealEnvelope: %v", err)
+			}
+			if _, _, err := OpenEnvelope(sealed, keys.GossipKey); err == nil {
+				t.Fatal("expected OpenEnvelope to reject the message")
+			}
+		})
+	}
+}
+
+// A failed call must leave the caller's announcement as it was received.
+func TestFilterAnnouncementErrorKeepsKnownPeers(t *testing.T) {
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	ann := &PeerAnnouncement{
+		WGPubKey: goodKey,
+		MeshIP:   "not-an-ip",
+		KnownPeers: []KnownPeer{
+			{WGPubKey: goodKey, MeshIP: "10.0.0.3"},
+			{WGPubKey: goodKey, MeshIP: "10.0.0.4"},
+		},
+	}
+	if err := FilterAnnouncement(ann); err == nil {
+		t.Fatal("expected an error for the invalid mesh IP")
+	}
+	if len(ann.KnownPeers) != 2 {
+		t.Errorf("len(KnownPeers) = %d after a failed call, want 2", len(ann.KnownPeers))
+	}
+}
+
+// slogCapture collects the records of the default logger for one test.
+type slogCapture struct{ records []slog.Record }
+
+func (c *slogCapture) Enabled(context.Context, slog.Level) bool { return true }
+func (c *slogCapture) Handle(_ context.Context, r slog.Record) error {
+	c.records = append(c.records, r)
+	return nil
+}
+func (c *slogCapture) WithAttrs([]slog.Attr) slog.Handler { return c }
+func (c *slogCapture) WithGroup(string) slog.Handler      { return c }
+
+// A message that lost entries says so once at Warn, with counts and no keys.
+// Not parallel: it swaps the default logger.
+func TestFilterAnnouncementWarnsOncePerMessage(t *testing.T) {
+	capture := &slogCapture{}
+	prev := slog.Default()
+	slog.SetDefault(slog.New(capture))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	ann := &PeerAnnouncement{
+		WGPubKey: goodKey,
+		MeshIP:   "10.0.0.2",
+		KnownPeers: []KnownPeer{
+			{WGPubKey: "bad-1", MeshIP: "10.0.0.3"},
+			{WGPubKey: goodKey, MeshIP: "10.0.0.4"},
+			{WGPubKey: "bad-2", MeshIP: "10.0.0.5"},
+		},
+	}
+	if err := FilterAnnouncement(ann); err != nil {
+		t.Fatalf("FilterAnnouncement: %v", err)
+	}
+	var warns []slog.Record
+	for _, r := range capture.records {
+		if r.Level == slog.LevelWarn {
+			warns = append(warns, r)
+		}
+	}
+	if len(warns) != 1 {
+		t.Fatalf("%d Warn records, want exactly 1", len(warns))
+	}
+	if warns[0].Message != "[crypto] dropped invalid known peers" {
+		t.Errorf("Warn message = %q", warns[0].Message)
+	}
+	got := map[string]int64{}
+	warns[0].Attrs(func(a slog.Attr) bool {
+		if a.Value.Kind() == slog.KindInt64 {
+			got[a.Key] = a.Value.Int64()
+		}
+		return true
+	})
+	if got["dropped"] != 2 || got["kept"] != 1 {
+		t.Errorf("Warn attrs = %v, want dropped=2 kept=1", got)
+	}
+
+	// A clean message produces no Warn.
+	capture.records = nil
+	clean := &PeerAnnouncement{WGPubKey: goodKey, MeshIP: "10.0.0.2", KnownPeers: []KnownPeer{{WGPubKey: goodKey, MeshIP: "10.0.0.4"}}}
+	if err := FilterAnnouncement(clean); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range capture.records {
+		if r.Level == slog.LevelWarn {
+			t.Errorf("Warn for a message that dropped nothing: %q", r.Message)
+		}
+	}
+}
+
+// The bound is "more than MaxKnownPeers": exactly MaxKnownPeers opens.
+func TestOpenEnvelopeAcceptsExactlyMaxKnownPeers(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-for-bound")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	known := make([]KnownPeer, MaxKnownPeers)
+	for i := range known {
+		known[i] = KnownPeer{WGPubKey: goodKey, MeshIP: "10.0.0.4"}
+	}
+	ann := &PeerAnnouncement{Protocol: ProtocolVersion, WGPubKey: goodKey, MeshIP: "10.0.0.2", Timestamp: time.Now().Unix(), KnownPeers: known}
+	sealed, err := SealEnvelope(MessageTypeAnnounce, ann, keys.GossipKey)
+	if err != nil {
+		t.Fatalf("SealEnvelope: %v", err)
+	}
+	_, got, err := OpenEnvelope(sealed, keys.GossipKey)
+	if err != nil {
+		t.Fatalf("OpenEnvelope rejected exactly MaxKnownPeers entries: %v", err)
+	}
+	if len(got.KnownPeers) != MaxKnownPeers {
+		t.Errorf("len(KnownPeers) = %d, want %d", len(got.KnownPeers), MaxKnownPeers)
+	}
+}
+
+// An announcement with no known peers is the common case and must open.
+func TestOpenEnvelopeAcceptsNoKnownPeers(t *testing.T) {
+	keys, err := DeriveKeys("test-secret-for-empty")
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	goodKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	for name, known := range map[string][]KnownPeer{"nil": nil, "empty": {}} {
+		t.Run(name, func(t *testing.T) {
+			ann := &PeerAnnouncement{Protocol: ProtocolVersion, WGPubKey: goodKey, MeshIP: "10.0.0.2", Timestamp: time.Now().Unix(), KnownPeers: known}
+			sealed, err := SealEnvelope(MessageTypeAnnounce, ann, keys.GossipKey)
+			if err != nil {
+				t.Fatalf("SealEnvelope: %v", err)
+			}
+			_, got, err := OpenEnvelope(sealed, keys.GossipKey)
+			if err != nil {
+				t.Fatalf("OpenEnvelope: %v", err)
+			}
+			if len(got.KnownPeers) != 0 {
+				t.Errorf("len(KnownPeers) = %d, want 0", len(got.KnownPeers))
+			}
+		})
 	}
 }

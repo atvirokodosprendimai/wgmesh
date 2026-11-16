@@ -1,0 +1,2 @@
+check@2	absent
+body	pkg/atomicfile/spec_test.go	TestSpecNamesAtomicState	ee01cecf0d372f3c8ecf3db4ded618d5a2ac30e90de248da3c7d756b4295add9

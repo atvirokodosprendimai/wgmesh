@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile"
 )
 
 // AccountConfig stores Lighthouse API credentials for service operations.
@@ -49,14 +51,8 @@ func SaveAccount(path string, cfg AccountConfig) error {
 		return fmt.Errorf("create directory %s: %w", dir, err)
 	}
 
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return fmt.Errorf("write temp file: %w", err)
-	}
-
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return fmt.Errorf("rename temp file: %w", err)
+	if err := atomicfile.WriteFile(path, data, 0600); err != nil {
+		return fmt.Errorf("write account file: %w", err)
 	}
 
 	return nil

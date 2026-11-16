@@ -4,13 +4,17 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/flock"
 )
 
 // PeerData represents peer information for RPC
@@ -46,7 +50,7 @@ type ServerConfig struct {
 // Server implements an RPC server using Unix domain sockets
 type Server struct {
 	socketPath      string
-	listener        net.Listener
+	listener        net.Listener // guarded by mu: Start writes it, Stop reads it
 	version         string
 	ctx             context.Context
 	cancel          context.CancelFunc
@@ -54,9 +58,31 @@ type Server struct {
 	getPeerFn       func(pubKey string) (*PeerData, bool)
 	getPeerCountsFn func() (active, total, dead int)
 	getStatusFn     func() *StatusData
+
+	// mu guards listener and stopped (Start and Stop run on different
+	// goroutines); stopped is set once Stop or a failed Start began.
+	mu      sync.Mutex
+	stopped bool
+
+	// releaseLock frees <socketPath>.lock; set once in NewServer, never
+	// written again, so concurrent Stop calls only read it. Nil on a Server
+	// not made by NewServer.
+	releaseLock func()
+	// stopOnce: a second Stop, after a new owner took the path, would unlink
+	// that owner's socket.
+	stopOnce sync.Once
+	stopErr  error // written inside stopOnce.Do, read after it returns
 }
 
-// NewServer creates a new RPC server
+// NewServer creates a new RPC server.
+//
+// Words: it takes the lock <SocketPath>.lock before it removes a stale
+// socket, and fails (naming the socket path and the holder pid) when the
+// lock is held; Stop releases the lock after the socket file is removed.
+// Why: the default socket path has no interface in it, so a second daemon
+// unlinked the first daemon's live socket (#860, ADR-0005 M3).
+// Invariants: with no other holder the behaviour is as before (stale socket
+// removed, directory created); a failed NewServer releases what it took.
 func NewServer(config ServerConfig) (*Server, error) {
 	// Validate required fields
 	if config.SocketPath == "" {
@@ -66,8 +92,29 @@ func NewServer(config ServerConfig) (*Server, error) {
 		return nil, fmt.Errorf("all callback functions are required")
 	}
 
+	// Ensure directory exists (the lock file lives beside the socket)
+	dir := filepath.Dir(config.SocketPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create socket directory: %w", err)
+	}
+
+	// Own the path before anything is removed.
+	releaseLock, holder, err := flock.TryLock(config.SocketPath + ".lock")
+	if err != nil {
+		if errors.Is(err, flock.ErrHeld) {
+			if holder == "" {
+				holder = "unknown"
+			}
+			// %w wraps the sentinel, not the HeldError: the pid is already in
+			// the text (not printed twice) and errors.Is(ErrHeld) holds.
+			return nil, fmt.Errorf("RPC socket %s is in use by another daemon (pid %s): run the second daemon with --socket-path (or WGMESH_SOCKET) pointing at a different file (%w)", config.SocketPath, holder, flock.ErrHeld)
+		}
+		return nil, fmt.Errorf("lock RPC socket %s: %w", config.SocketPath, err)
+	}
+
 	// Remove existing socket if it exists (handles race condition by ignoring ENOENT)
 	if err := os.Remove(config.SocketPath); err != nil && !os.IsNotExist(err) {
+		releaseLock()
 		// If removal fails for reasons other than "file doesn't exist", verify it's a socket
 		if info, statErr := os.Stat(config.SocketPath); statErr == nil {
 			if info.Mode()&os.ModeSocket == 0 {
@@ -75,12 +122,6 @@ func NewServer(config ServerConfig) (*Server, error) {
 			}
 		}
 		return nil, fmt.Errorf("failed to remove existing socket: %w", err)
-	}
-
-	// Ensure directory exists
-	dir := filepath.Dir(config.SocketPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create socket directory: %w", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -94,37 +135,52 @@ func NewServer(config ServerConfig) (*Server, error) {
 		getPeerFn:       config.GetPeer,
 		getPeerCountsFn: config.GetPeerCounts,
 		getStatusFn:     config.GetStatus,
+		releaseLock:     releaseLock,
 	}
 
 	return s, nil
 }
 
-// Start starts the RPC server
+// Start starts the RPC server.
+//
+// Words: it binds the socket; when it fails (listen or chmod) it shuts the
+// server down the way Stop does, so the lock is released and a later Stop
+// does nothing.
+// Why: the caller defers Stop only after a successful Start, so a failed
+// Start left <socketPath>.lock held for the life of the process.
 func (s *Server) Start() error {
+	s.mu.Lock()
+	if s.stopped {
+		s.mu.Unlock()
+		return errors.New("RPC server is stopped")
+	}
 	listener, err := net.Listen("unix", s.socketPath)
 	if err != nil {
+		s.mu.Unlock()
+		_ = s.stop(false) // no socket of ours exists
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}
 	s.listener = listener
+	s.mu.Unlock()
 
 	// Set socket permissions to 0600 (owner only)
 	if err := os.Chmod(s.socketPath, 0600); err != nil {
-		s.listener.Close()
+		_ = s.stop(true) // closes the listener and removes the socket file
 		return fmt.Errorf("failed to set socket permissions: %w", err)
 	}
 
 	log.Printf("RPC server listening on %s", s.socketPath)
 
 	// Accept connections
-	go s.acceptLoop()
+	go s.acceptLoop(listener)
 
 	return nil
 }
 
 // acceptLoop accepts incoming connections
-func (s *Server) acceptLoop() {
+func (s *Server) acceptLoop(listener net.Listener) {
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			select {
 			case <-s.ctx.Done():
@@ -352,21 +408,41 @@ func (s *Server) handleDaemonPing(params map[string]interface{}) (*DaemonPingRes
 	}, nil
 }
 
-// Stop stops the RPC server
+// Stop stops the RPC server and releases the socket lock after the socket
+// file is removed. It is safe to call twice and from several goroutines.
 func (s *Server) Stop() error {
-	s.cancel()
+	return s.stop(true)
+}
 
-	if s.listener != nil {
-		s.listener.Close()
-	}
+// stop is the one shutdown path of Stop and of a failed Start. It marks the
+// server stopped first, so a later Start cannot bind a socket without the lock.
+func (s *Server) stop(removeSocket bool) error {
+	s.stopOnce.Do(func() {
+		s.mu.Lock()
+		s.stopped = true
+		listener := s.listener
+		s.mu.Unlock()
 
-	// Remove socket file
-	if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove socket: %w", err)
-	}
+		if s.cancel != nil {
+			s.cancel()
+		}
+		if listener != nil {
+			listener.Close()
+		}
 
-	log.Printf("RPC server stopped")
-	return nil
+		// Remove socket file, then free the path for the next owner
+		if removeSocket {
+			if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+				s.stopErr = fmt.Errorf("failed to remove socket: %w", err)
+			}
+		}
+		if s.releaseLock != nil {
+			s.releaseLock()
+		}
+
+		log.Printf("RPC server stopped")
+	})
+	return s.stopErr
 }
 
 // GetSocketPath determines the appropriate socket path

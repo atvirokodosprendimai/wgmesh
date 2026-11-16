@@ -11,6 +11,30 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
 
+// routeResults runs the route target of one tick for peers, without the peer
+// and forwarding targets, and returns the result of every route command. It is
+// a test wrapper: converge runs the route target with the desired state it
+// holds, and only converge stores the warn-once set, so repeated calls warn
+// again.
+func (d *Daemon) routeResults(peers []*PeerInfo) []itemResult {
+	d.convergeMu.Lock()
+	defer d.convergeMu.Unlock()
+	var obs kernelObserved
+	d.observeRoutes(&obs)
+	return d.convergeRoutes(d.desire(peers, nil, map[string]string{}), obs)
+}
+
+// syncPeerRoutes is routeResults with the error of the first failed add, as
+// the apply of routes returned it before.
+func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
+	for _, r := range d.routeResults(peers) {
+		if r.Err != nil && r.Op == "replace" {
+			return r.Err
+		}
+	}
+	return nil
+}
+
 // TestCalculateRouteDiff verifies add/remove logic without any exec calls.
 func TestCalculateRouteDiff(t *testing.T) {
 	t.Parallel()
@@ -125,10 +149,10 @@ func TestNormalizeNetwork(t *testing.T) {
 	}
 }
 
-// TestGetCurrentRoutes uses a mock executor so no real "ip" binary is required.
-func TestGetCurrentRoutes(t *testing.T) {
+// TestReadRoutes uses a mock executor so no real "ip" binary is required.
+func TestReadRoutes(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("getCurrentRoutes is Linux-only")
+		t.Skip("readRoutes is Linux-only")
 	}
 
 	ipOutput := strings.Join([]string{
@@ -149,7 +173,7 @@ func TestGetCurrentRoutes(t *testing.T) {
 	}
 
 	withMockExecutor(t, mock, func() {
-		routes, err := getCurrentRoutes("wg0")
+		routes, err := readRoutes("wg0", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -165,10 +189,10 @@ func TestGetCurrentRoutes(t *testing.T) {
 	})
 }
 
-// TestGetCurrentRoutesSkipsNoGateway verifies that routes without "via" are ignored.
-func TestGetCurrentRoutesSkipsNoGateway(t *testing.T) {
+// TestReadRoutesSkipsNoGateway verifies that routes without "via" are ignored.
+func TestReadRoutesSkipsNoGateway(t *testing.T) {
 	if runtime.GOOS != "linux" {
-		t.Skip("getCurrentRoutes is Linux-only")
+		t.Skip("readRoutes is Linux-only")
 	}
 
 	// "local" route lines have no "via" — must be skipped
@@ -183,7 +207,7 @@ func TestGetCurrentRoutesSkipsNoGateway(t *testing.T) {
 	}
 
 	withMockExecutor(t, mock, func() {
-		routes, err := getCurrentRoutes("wg0")
+		routes, err := readRoutes("wg0", false)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -211,8 +235,14 @@ func TestApplyRouteDiff_AddAndRemove(t *testing.T) {
 	toRemove := []routes.Entry{{Network: "10.0.2.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
-		if _, err := applyRouteDiff("wg0", toAdd, toRemove); err != nil {
-			t.Fatalf("applyRouteDiff failed: %v", err)
+		_, results := applyRouteDiff("wg0", toAdd, toRemove)
+		if len(results) != 2 {
+			t.Fatalf("applyRouteDiff returned %d results for 2 routes: %+v", len(results), results)
+		}
+		for _, r := range results {
+			if r.Err != nil {
+				t.Fatalf("applyRouteDiff failed: %+v", r)
+			}
 		}
 	})
 
@@ -231,8 +261,32 @@ func TestApplyRouteDiff_AddAndRemove(t *testing.T) {
 	if !found("route replace 10.0.1.0/24") {
 		t.Errorf("expected 'route replace' command, got: %v", cmds)
 	}
-	if !found("sysctl") {
-		t.Errorf("expected sysctl ip_forward command, got: %v", cmds)
+}
+
+// TestApplyRouteDiffIssuesNoForwardingCommands: forwarding belongs to the
+// forwarding target of converge; applying routes runs neither sysctl nor
+// iptables, however many routes it adds and removes.
+func TestApplyRouteDiffIssuesNoForwardingCommands(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("applyRouteDiff is Linux-only")
+	}
+	var cmds []string
+	mock := &MockCommandExecutor{
+		commandFunc: func(name string, args ...string) Command {
+			cmds = append(cmds, name+" "+strings.Join(args, " "))
+			return &MockCommand{}
+		},
+	}
+	toAdd := []routes.Entry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}, {Network: "fd00:5::/64", Gateway: "fd99::2"}}
+	toRemove := []routes.Entry{{Network: "10.0.2.0/24", Gateway: "10.0.0.1"}}
+	withMockExecutor(t, mock, func() { applyRouteDiff("wg0", toAdd, toRemove) })
+	if len(cmds) != 3 {
+		t.Errorf("applyRouteDiff ran %d commands for 3 routes, want 3: %q", len(cmds), cmds)
+	}
+	for _, c := range cmds {
+		if strings.HasPrefix(c, "sysctl") || strings.HasPrefix(c, "iptables") {
+			t.Errorf("applyRouteDiff ran a forwarding command: %q", c)
+		}
 	}
 }
 
@@ -258,12 +312,12 @@ func TestApplyRouteDiff_AddFailure(t *testing.T) {
 	toAdd := []routes.Entry{{Network: "10.0.1.0/24", Gateway: "10.0.0.1"}}
 
 	withMockExecutor(t, mock, func() {
-		_, err := applyRouteDiff("wg0", toAdd, nil)
-		if err == nil {
-			t.Fatal("expected error from failed route replace, got nil")
+		_, results := applyRouteDiff("wg0", toAdd, nil)
+		if len(results) != 1 || results[0].Err == nil {
+			t.Fatalf("expected one failed result from failed route replace, got %+v", results)
 		}
-		if !strings.Contains(err.Error(), "failed to add route") {
-			t.Errorf("unexpected error message: %v", err)
+		if !strings.Contains(results[0].Err.Error(), "failed to add route") {
+			t.Errorf("unexpected error message: %v", results[0].Err)
 		}
 	})
 }
@@ -275,11 +329,8 @@ func TestApplyRouteDiff_AddFailure(t *testing.T) {
 // config.DisableIPv6 — all zero-valued to match the default (no-force) scenario.
 func makeRelayTestDaemon() *Daemon {
 	return &Daemon{
-		config: &Config{},
-		localNode: &LocalNode{
-			WGPubKey: "local1",
-			NATType:  "symmetric",
-		},
+		config:             &Config{},
+		localNode:          nodeWithNAT("local1", "symmetric"),
 		relayRoutes:        make(map[string]string),
 		directStableCycles: make(map[string]int),
 		temporaryOffline:   make(map[string]time.Time),
@@ -431,6 +482,37 @@ func TestSyncPeerRoutes_GatewayFlap(t *testing.T) {
 		// the hysteresis threshold — peer must always remain relayed.
 		if _, relayed := newRelay["peer1"]; !relayed {
 			t.Errorf("cycle %d: relay dropped unexpectedly during gateway flap", cycle)
+		}
+	}
+}
+
+// TestHAExitNodesDropEachOthersDefault: a node that advertises 0.0.0.0/0 does
+// not install a peer's 0.0.0.0/0 (routes.ExcludeOwn, applied after admit), and
+// a node that does not advertise it installs the peer's.
+func TestHAExitNodesDropEachOthersDefault(t *testing.T) {
+	t.Parallel()
+
+	peer := &PeerInfo{WGPubKey: "exit2", MeshIP: "10.0.0.30", RoutableNetworks: []string{"0.0.0.0/0", "192.168.5.0/24"}}
+	for _, tc := range []struct {
+		name  string
+		own   []string
+		wantD bool
+	}{
+		{"local is an exit node too", []string{"0.0.0.0/0"}, false},
+		{"local is not an exit node", nil, true},
+	} {
+		d := makeRelayTestDaemon()
+		d.localNode.SetRoutableNetworks(tc.own)
+		desired, _, _ := d.buildDesiredPeerConfigsWithHandshakes([]*PeerInfo{peer}, nil)
+		cfg := desired["exit2"]
+		if cfg == nil {
+			t.Fatalf("%s: peer has no desired config", tc.name)
+		}
+		if _, got := cfg.allowed["0.0.0.0/0"]; got != tc.wantD {
+			t.Errorf("%s: default route installed = %v, want %v", tc.name, got, tc.wantD)
+		}
+		if _, ok := cfg.allowed["192.168.5.0/24"]; !ok {
+			t.Errorf("%s: the peer's other network is missing", tc.name)
 		}
 	}
 }

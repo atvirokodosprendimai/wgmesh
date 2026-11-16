@@ -1,0 +1,3 @@
+check@2	absent
+body	pkg/daemon/spec_converge_test.go	TestSpecChecksCanFail	45f112e60a5dfdf88ba86e25d0dc0b466bd5efdb3e8b1e5eae5de7008c553f4f
+body	pkg/daemon/spec_converge_test.go	TestSpecNamesConverge	df24b33ec00cdf0d26f3054c5c915f2b31b863e7702f0d3e5e9e30621c5647e3

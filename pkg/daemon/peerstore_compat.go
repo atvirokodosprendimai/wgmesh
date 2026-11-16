@@ -8,12 +8,22 @@ type PeerInfo = node.PeerInfo
 type PeerStore = node.PeerStore
 type PeerEvent = node.PeerEvent
 type PeerEventKind = node.PeerEventKind
+type Candidate = node.Candidate
+type Hand = node.Hand
+type Source = node.Source
+type Decision = node.Decision
+type Policy = node.Policy
+type LocalNode = node.LocalNode
+type EndpointSource = node.EndpointSource
+type Liveness = node.Liveness
+type Evidence = node.Evidence
 
 const (
 	PeerDeadTimeout   = node.PeerDeadTimeout
 	PeerRemoveTimeout = node.PeerRemoveTimeout
 	PeerEventBufSize  = node.PeerEventBufSize
 	DefaultMaxPeers   = node.DefaultMaxPeers
+	TombstoneTTL      = node.TombstoneTTL
 	PeerEventNew      = node.PeerEventNew
 	PeerEventUpdated  = node.PeerEventUpdated
 
@@ -21,4 +31,20 @@ const (
 	RendezvousMethod = node.RendezvousMethod
 )
 
+const (
+	FirstHand  = node.FirstHand
+	SecondHand = node.SecondHand
+	Restored   = node.Restored
+)
+
+const (
+	EndpointInterface  = node.EndpointInterface
+	EndpointReflection = node.EndpointReflection
+	EndpointSTUN       = node.EndpointSTUN
+	EndpointSTUNResume = node.EndpointSTUNResume
+)
+
 func NewPeerStore() *PeerStore { return node.NewPeerStore() }
+func NewLocalNode(pubKey, privKey, hostname, meshIP, meshIPv6 string) *LocalNode {
+	return node.NewLocalNode(pubKey, privKey, hostname, meshIP, meshIPv6)
+}

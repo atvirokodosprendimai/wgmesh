@@ -1,7 +1,6 @@
 package node
 
 import (
-	"log"
 	"net"
 	"strings"
 	"sync"
@@ -11,6 +10,7 @@ import (
 const (
 	PeerDeadTimeout   = 5 * time.Minute
 	PeerRemoveTimeout = 10 * time.Minute
+	TombstoneTTL      = 5 * time.Minute
 	PeerEventBufSize  = 16
 	DefaultMaxPeers   = 1000
 
@@ -30,17 +30,46 @@ type PeerEvent struct {
 	Kind   PeerEventKind
 }
 
+// tombstone records when and why a key was withdrawn. logged throttles the
+// refusal log to one line per tombstone, so a flood of mentions cannot flood
+// the log.
+type tombstone struct {
+	at     time.Time
+	cause  string
+	logged bool
+}
+
+// expired reports whether the tombstone is TombstoneTTL old or older at now.
+func (t tombstone) expired(now time.Time) bool {
+	return now.Sub(t.at) >= TombstoneTTL
+}
+
 // PeerStore is a thread-safe store for discovered peers.
 type PeerStore struct {
 	mu          sync.RWMutex
 	peers       map[string]*PeerInfo
 	subscribers []chan PeerEvent
+	policy      *Policy
+	offers      uint64
+	tombstones  map[string]tombstone
+	// ipHeldLogged holds the keys whose refusal for a held address was logged;
+	// it is emptied when it reaches DefaultMaxPeers, so it stays bounded.
+	ipHeldLogged map[string]struct{}
+	now          func() time.Time
+	// resumedAt is when the node last woke (ADR-0004); it is stamped into every
+	// copy the store returns. livenessDisagree is the per-store hook that hears
+	// each case the legacy age test drops a peer Assess would keep. Both are
+	// guarded by mu.
+	resumedAt        time.Time
+	livenessDisagree func(site string)
 }
 
 // NewPeerStore creates a new peer store.
 func NewPeerStore() *PeerStore {
 	return &PeerStore{
-		peers: make(map[string]*PeerInfo),
+		peers:      make(map[string]*PeerInfo),
+		tombstones: make(map[string]tombstone),
+		now:        time.Now,
 	}
 }
 
@@ -83,112 +112,114 @@ func (ps *PeerStore) notify(pubKey string, kind PeerEventKind) {
 	}
 }
 
-// Update adds or updates a peer in the store.
-// Merge logic: newest timestamp wins for mutable fields (endpoint, routable_networks)
+// Update adds or updates a peer in the store. It is for tests and fixtures
+// only and reads the hand from the method string; production code calls
+// Offer with an explicit Source and Hand.
 func (ps *PeerStore) Update(info *PeerInfo, discoveryMethod string) {
-	var eventKey string
-	var eventKind PeerEventKind
-
-	func() {
-		ps.mu.Lock()
-		defer ps.mu.Unlock()
-		now := time.Now()
-
-		existing, exists := ps.peers[info.WGPubKey]
-		if !exists {
-			if len(ps.peers) >= DefaultMaxPeers {
-				log.Printf("[PeerStore] peer cap reached (%d); dropping new peer %s... via %s",
-					DefaultMaxPeers, shortKey(info.WGPubKey), discoveryMethod)
-				return
-			}
-			if info.LastSeen.IsZero() {
-				info.LastSeen = now
-			}
-			info.DiscoveredVia = []string{discoveryMethod}
-			if info.Endpoint != "" {
-				info.EndpointMethod = discoveryMethod
-			}
-			ps.peers[info.WGPubKey] = info
-			eventKey = info.WGPubKey
-			eventKind = PeerEventNew
-			return
-		}
-
-		if info.Endpoint != "" && shouldUpdateEndpoint(existing, info.Endpoint, discoveryMethod) {
-			existing.Endpoint = info.Endpoint
-			existing.EndpointMethod = discoveryMethod
-		}
-		// A transitive mention is second-hand (another member says it knows this
-		// peer), so it may fill a field the peer never announced itself but must
-		// not rewrite one it did: otherwise any member can move another member's
-		// mesh IP or routes, or flip its introducer flag, by naming it in
-		// KnownPeers. Only the peer's own announcements replace these fields.
-		transitive := isTransitiveMethod(discoveryMethod)
-		// An empty list from the peer's own announcement withdraws its routes;
-		// a cache entry or a transitive mention with no routes says nothing.
-		withdraw := len(info.RoutableNetworks) == 0 && shouldRefreshLastSeen(discoveryMethod)
-		if withdraw || (len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0)) {
-			existing.RoutableNetworks = info.RoutableNetworks
-		}
-		if info.MeshIP != "" && (!transitive || existing.MeshIP == "") {
-			existing.MeshIP = info.MeshIP
-		}
-		if info.MeshIPv6 != "" && (!transitive || existing.MeshIPv6 == "") {
-			existing.MeshIPv6 = info.MeshIPv6
-		}
-		if info.Hostname != "" {
-			existing.Hostname = info.Hostname
-		}
-		if !transitive {
-			existing.Introducer = info.Introducer
-		}
-		if info.NATType != "" {
-			existing.NATType = info.NATType
-		}
-
-		if shouldRefreshLastSeen(discoveryMethod) {
-			existing.LastSeen = now
-		} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
-			existing.LastSeen = info.LastSeen
-		}
-
-		found := false
-		for _, method := range existing.DiscoveredVia {
-			if method == discoveryMethod {
-				found = true
-				break
-			}
-		}
-		if !found {
-			existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
-		}
-
-		eventKey = info.WGPubKey
-		eventKind = PeerEventUpdated
-	}()
-
-	if eventKey != "" {
-		ps.notify(eventKey, eventKind)
-	}
+	ps.Offer(legacyCandidate(info, discoveryMethod))
 }
 
-func shouldRefreshLastSeen(discoveryMethod string) bool {
-	if discoveryMethod == "cache" {
-		return false
+// merge applies an admitted candidate to the store; the caller holds ps.mu.
+// Merge logic: newest timestamp wins for mutable fields (endpoint, routable_networks)
+func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKind) {
+	info, discoveryMethod := c.Info, c.Method()
+	now := ps.now()
+
+	existing, exists := ps.peers[info.WGPubKey]
+	if !exists {
+		// The store owns what it holds: the caller keeps its pointer (handleReply
+		// hands it to the waiting exchange) and the stored entry is changed by
+		// later offers, SetLatency and SetEndpointMethod under ps.mu.
+		stored := *info
+		info = &stored
+		// Evidence is measured here, never taken from a caller's claim: the
+		// stored copy starts without data-plane, restore or resume times.
+		info.LastDataPlane = time.Time{}
+		info.RestoredAt = time.Time{}
+		info.resumedAt = time.Time{}
+		// A restored key is dialable for PeerDeadTimeout from now (#851); it
+		// is not first-hand and its LastSeen stays the cache's time.
+		if c.Hand == Restored {
+			info.RestoredAt = now
+		}
+		if info.LastSeen.IsZero() {
+			info.LastSeen = now
+		}
+		info.DiscoveredVia = []string{discoveryMethod}
+		if info.Endpoint != "" {
+			info.EndpointMethod = discoveryMethod
+		}
+		info.heardFirstHand = c.Hand == FirstHand
+		ps.peers[info.WGPubKey] = info
+		return info.WGPubKey, PeerEventNew
 	}
-	if isTransitiveMethod(discoveryMethod) {
-		return false
+
+	if info.Endpoint != "" && shouldUpdateEndpoint(existing, info.Endpoint, info.EndpointGuessed, discoveryMethod) {
+		existing.Endpoint = info.Endpoint
+		existing.EndpointGuessed = info.EndpointGuessed
+		existing.EndpointMethod = discoveryMethod
 	}
-	return true
+	// A transitive mention is second-hand (another member says it knows this
+	// peer), so it may fill a field the peer never announced itself but must
+	// not rewrite one it did: otherwise any member can move another member's
+	// mesh IP or routes, or flip its introducer flag, by naming it in
+	// KnownPeers. Only the peer's own announcements replace these fields.
+	transitive := c.Hand == SecondHand
+	// An empty list from the peer's own announcement withdraws its routes;
+	// a cache entry or a transitive mention with no routes says nothing.
+	withdraw := len(info.RoutableNetworks) == 0 && c.Hand == FirstHand
+	if withdraw || (len(info.RoutableNetworks) > 0 && (!transitive || len(existing.RoutableNetworks) == 0)) {
+		existing.RoutableNetworks = info.RoutableNetworks
+	}
+	if info.MeshIP != "" && (!transitive || existing.MeshIP == "") {
+		existing.MeshIP = info.MeshIP
+	}
+	if info.MeshIPv6 != "" && (!transitive || existing.MeshIPv6 == "") {
+		existing.MeshIPv6 = info.MeshIPv6
+	}
+	if info.Hostname != "" {
+		existing.Hostname = info.Hostname
+	}
+	if !transitive {
+		existing.Introducer = info.Introducer
+	}
+	if info.NATType != "" {
+		existing.NATType = info.NATType
+	}
+
+	if c.Hand == FirstHand {
+		existing.LastSeen = now
+		existing.heardFirstHand = true
+	} else if !info.LastSeen.IsZero() && info.LastSeen.After(existing.LastSeen) {
+		existing.LastSeen = info.LastSeen
+	}
+
+	found := false
+	for _, method := range existing.DiscoveredVia {
+		if method == discoveryMethod {
+			found = true
+			break
+		}
+	}
+	if !found {
+		existing.DiscoveredVia = append(existing.DiscoveredVia, discoveryMethod)
+	}
+
+	return info.WGPubKey, PeerEventUpdated
 }
 
 func isTransitiveMethod(discoveryMethod string) bool {
 	return strings.Contains(discoveryMethod, "transitive")
 }
 
-// endpointMethodRank returns a priority rank for endpoint discovery methods.
+// endpointMethodRank returns a priority rank for an endpoint: its discovery
+// method, or the lowest rank (10, below cache) when the endpoint is guessed
+// from the sender's address (ADR-0002 R6, #839).
 // Higher rank means higher priority.
-func endpointMethodRank(method string) int {
+func endpointMethodRank(method string, guessed bool) int {
+	if guessed {
+		return 10
+	}
 	if method == "" {
 		return 0
 	}
@@ -216,13 +247,13 @@ func endpointMethodRank(method string) int {
 	return 30
 }
 
-func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint, discoveryMethod string) bool {
+func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint string, newGuessed bool, discoveryMethod string) bool {
 	if existing.Endpoint == "" {
 		return true
 	}
 
-	newRank := endpointMethodRank(discoveryMethod)
-	oldRank := endpointMethodRank(existing.EndpointMethod)
+	newRank := endpointMethodRank(discoveryMethod, newGuessed)
+	oldRank := endpointMethodRank(existing.EndpointMethod, existing.EndpointGuessed)
 
 	if newRank > oldRank {
 		return true
@@ -240,7 +271,7 @@ func shouldUpdateEndpoint(existing *PeerInfo, newEndpoint, discoveryMethod strin
 		return false
 	}
 
-	if oldRank == endpointMethodRank(LANMethod) {
+	if oldRank == endpointMethodRank(LANMethod, false) {
 		return discoveryMethod == LANMethod
 	}
 	return true
@@ -268,8 +299,7 @@ func (ps *PeerStore) Get(pubKey string) (*PeerInfo, bool) {
 		return nil, false
 	}
 
-	peerCopy := *peer
-	return &peerCopy, true
+	return ps.stamped(peer), true
 }
 
 // GetAll returns all peers.
@@ -279,8 +309,7 @@ func (ps *PeerStore) GetAll() []*PeerInfo {
 
 	result := make([]*PeerInfo, 0, len(ps.peers))
 	for _, peer := range ps.peers {
-		peerCopy := *peer
-		result = append(result, &peerCopy)
+		result = append(result, ps.stamped(peer))
 	}
 	return result
 }
@@ -290,19 +319,27 @@ func (ps *PeerStore) List() []*PeerInfo {
 	return ps.GetAll()
 }
 
-// GetActive returns all peers that have been seen recently (not dead).
+// GetActive returns the peers that are Alive. While EnforceLiveness is false
+// the legacy LastSeen age test decides and each peer it drops that Assess
+// would keep is reported through the disagree hook (site "get-active").
 func (ps *PeerStore) GetActive() []*PeerInfo {
 	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-
 	result := make([]*PeerInfo, 0, len(ps.peers))
-	now := time.Now()
+	now := ps.now()
+	hook := ps.livenessDisagree
+	disagreed := 0
 	for _, peer := range ps.peers {
-		if now.Sub(peer.LastSeen) < PeerDeadTimeout {
-			peerCopy := *peer
-			result = append(result, &peerCopy)
+		drop, disagree := judge(now.Sub(peer.LastSeen) >= PeerDeadTimeout, ps.assess(peer, now) != Alive)
+		if disagree {
+			disagreed++
+		}
+		if !drop {
+			result = append(result, ps.stamped(peer))
 		}
 	}
+	// No defer: the disagree hook runs outside ps.mu.
+	ps.mu.RUnlock()
+	reportDisagreement(hook, "get-active", disagreed)
 	return result
 }
 
@@ -313,19 +350,79 @@ func (ps *PeerStore) Remove(pubKey string) {
 	delete(ps.peers, pubKey)
 }
 
-// CleanupStale removes peers that haven't been seen for too long.
-func (ps *PeerStore) CleanupStale() []string {
+// Withdraw removes a peer and, for TombstoneTTL, refuses second-hand and
+// restored claims for its key; the peer's own first-hand claim clears that.
+// A key that is not in the store leaves no tombstone. cause says why (goodbye,
+// evicted, stale) and is kept for the refusal log.
+func (ps *PeerStore) Withdraw(pubKey, cause string) {
 	ps.mu.Lock()
 	defer ps.mu.Unlock()
+	if _, ok := ps.peers[pubKey]; !ok {
+		return
+	}
+	delete(ps.peers, pubKey)
+	ps.tombstone(pubKey, cause)
+}
+
+// tombstone records a withdrawn key; the caller holds ps.mu. The set never
+// holds more than DefaultMaxPeers keys: at the cap it drops the expired
+// entries, then the oldest.
+func (ps *PeerStore) tombstone(pubKey, cause string) {
+	now := ps.now()
+	if _, ok := ps.tombstones[pubKey]; !ok && len(ps.tombstones) >= DefaultMaxPeers {
+		var oldest string
+		found := false
+		for key, t := range ps.tombstones {
+			if t.expired(now) {
+				delete(ps.tombstones, key)
+			} else if !found || t.at.Before(ps.tombstones[oldest].at) {
+				oldest, found = key, true
+			}
+		}
+		if len(ps.tombstones) >= DefaultMaxPeers {
+			delete(ps.tombstones, oldest)
+		}
+	}
+	ps.tombstones[pubKey] = tombstone{at: now, cause: cause}
+}
+
+// isTombstoned reports whether pubKey was withdrawn less than TombstoneTTL
+// ago and drops an expired entry; the caller holds ps.mu.
+func (ps *PeerStore) isTombstoned(pubKey string) bool {
+	t, ok := ps.tombstones[pubKey]
+	if ok && t.expired(ps.now()) {
+		delete(ps.tombstones, pubKey)
+		return false
+	}
+	return ok
+}
+
+// CleanupStale removes peers whose liveness is Dead. While EnforceLiveness is
+// false the legacy LastSeen age test decides and each removal Assess would
+// not make is reported through the disagree hook (site "cleanup").
+func (ps *PeerStore) CleanupStale() []string {
+	ps.mu.Lock()
 
 	var removed []string
-	now := time.Now()
+	now := ps.now()
+	hook := ps.livenessDisagree
+	disagreed := 0
 	for pubKey, peer := range ps.peers {
-		if now.Sub(peer.LastSeen) > PeerRemoveTimeout {
+		drop, disagree := judge(now.Sub(peer.LastSeen) > PeerRemoveTimeout, ps.assess(peer, now) == Dead)
+		if disagree {
+			disagreed++
+		}
+		if drop {
 			delete(ps.peers, pubKey)
+			if peer.heardFirstHand {
+				ps.tombstone(pubKey, "stale")
+			}
 			removed = append(removed, pubKey)
 		}
 	}
+	// No defer: the disagree hook runs outside ps.mu.
+	ps.mu.Unlock()
+	reportDisagreement(hook, "cleanup", disagreed)
 	return removed
 }
 
@@ -348,16 +445,25 @@ func (ps *PeerStore) SetLatency(pubKey string, rtt time.Duration) {
 	peer.Latency = &rtt
 }
 
-// IsDead checks if a peer is considered dead.
+// IsDead reports whether a peer is Dead or unknown. While EnforceLiveness is
+// false the legacy LastSeen age test decides and a peer it calls dead that
+// Assess would keep is reported through the disagree hook (site "is-dead").
 func (ps *PeerStore) IsDead(pubKey string) bool {
 	ps.mu.RLock()
-	defer ps.mu.RUnlock()
-
 	peer, exists := ps.peers[pubKey]
 	if !exists {
+		ps.mu.RUnlock()
 		return true
 	}
-	return time.Since(peer.LastSeen) > PeerDeadTimeout
+	now := ps.now()
+	hook := ps.livenessDisagree
+	dead, disagree := judge(now.Sub(peer.LastSeen) > PeerDeadTimeout, ps.assess(peer, now) == Dead)
+	// No defer: the disagree hook runs outside ps.mu.
+	ps.mu.RUnlock()
+	if disagree {
+		reportDisagreement(hook, "is-dead", 1)
+	}
+	return dead
 }
 
 // shortKey safely truncates a key for logging.

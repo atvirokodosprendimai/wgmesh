@@ -4,8 +4,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 // --- LoadReloadFile tests ---
@@ -38,9 +41,22 @@ func TestLoadReloadFile_AdvertiseRoutesNormalized(t *testing.T) {
 
 func TestLoadReloadFile_InvalidRouteRejected(t *testing.T) {
 	t.Parallel()
-	f := writeTempReload(t, "log-level=debug\nadvertise-routes=10.0.0.0/8,192.168.1.0\n")
+	f := writeTempReload(t, "log-level=debug\nadvertise-routes=10.0.0.0/8,bogus\n")
 	if _, err := LoadReloadFile(f); err == nil {
-		t.Fatal("expected error for bare IP in advertise-routes")
+		t.Fatal("expected error for garbage in advertise-routes")
+	}
+}
+
+func TestLoadReloadFile_BareIPIsHostRoute(t *testing.T) {
+	t.Parallel()
+	f := writeTempReload(t, "advertise-routes=10.0.0.0/8,192.168.1.5\n")
+	opts, err := LoadReloadFile(f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"10.0.0.0/8", "192.168.1.5/32"}
+	if !reflect.DeepEqual(opts.AdvertiseRoutes, want) {
+		t.Errorf("AdvertiseRoutes = %v, want %v", opts.AdvertiseRoutes, want)
 	}
 }
 
@@ -132,7 +148,7 @@ func TestRouteSlicesEqual(t *testing.T) {
 func TestReloadConfig_UpdatesLogLevel(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 
 	d.reloadConfig(DaemonOpts{LogLevel: "debug", AdvertiseRoutes: []string{}})
 
@@ -145,7 +161,7 @@ func TestReloadConfig_UpdatesAdvertiseRoutes(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
 	d.config.AdvertiseRoutes = []string{"10.0.0.0/8"}
-	d.localNode = &LocalNode{RoutableNetworks: []string{"10.0.0.0/8"}}
+	d.localNode = nodeWithRoutes([]string{"10.0.0.0/8"})
 
 	newRoutes := []string{"192.168.1.0/24", "172.16.0.0/12"}
 	d.reloadConfig(DaemonOpts{LogLevel: "info", AdvertiseRoutes: newRoutes})
@@ -154,17 +170,17 @@ func TestReloadConfig_UpdatesAdvertiseRoutes(t *testing.T) {
 	if !reflect.DeepEqual(got, newRoutes) {
 		t.Errorf("AdvertiseRoutes = %v, want %v", got, newRoutes)
 	}
-	if !reflect.DeepEqual(d.localNode.RoutableNetworks, newRoutes) {
-		t.Errorf("localNode.RoutableNetworks = %v, want %v", d.localNode.RoutableNetworks, newRoutes)
+	if !reflect.DeepEqual(d.localNode.GetRoutableNetworks(), newRoutes) {
+		t.Errorf("localNode.RoutableNetworks = %v, want %v", d.localNode.GetRoutableNetworks(), newRoutes)
 	}
 }
 
 func TestReloadConfig_NoChangeIsNoop(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 	d.config.AdvertiseRoutes = []string{"10.0.0.0/8"}
-	d.localNode = &LocalNode{RoutableNetworks: []string{"10.0.0.0/8"}}
+	d.localNode = nodeWithRoutes([]string{"10.0.0.0/8"})
 
 	// Reload with same values — should not panic or error
 	d.reloadConfig(DaemonOpts{LogLevel: "info", AdvertiseRoutes: []string{"10.0.0.0/8"}})
@@ -177,7 +193,7 @@ func TestReloadConfig_NoChangeIsNoop(t *testing.T) {
 func TestReloadConfig_EmptyLogLevelPreservesExisting(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "warn"
+	d.config.SetLogLevel("warn")
 
 	// Empty LogLevel in opts should not overwrite
 	d.reloadConfig(DaemonOpts{LogLevel: "", AdvertiseRoutes: nil})
@@ -217,7 +233,7 @@ func TestHandleSIGHUP_MissingFileIsNoop(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
 	d.config.InterfaceName = "wg-test-nonexistent"
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 
 	// Should not panic; missing reload file is a no-op
 	d.handleSIGHUP()
@@ -229,9 +245,9 @@ func TestHandleSIGHUP_MissingFileIsNoop(t *testing.T) {
 
 func TestHandleSIGHUP_LoadsReloadFile(t *testing.T) {
 	d := newMinimalDaemon(t) // no t.Parallel() — uses global cmdExecutor via reconcile path
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 	d.config.AdvertiseRoutes = []string{}
-	d.localNode = &LocalNode{RoutableNetworks: []string{}}
+	d.localNode = nodeWithRoutes([]string{})
 
 	// Write reload file to /tmp so we don't need /var/lib/wgmesh
 	dir := t.TempDir()
@@ -285,11 +301,65 @@ func newMinimalDaemon(t *testing.T) *Daemon {
 		t.Fatalf("NewConfig: %v", err)
 	}
 	d := &Daemon{
-		config:                 cfg,
-		peerStore:              NewPeerStore(),
-		relayRoutes:            make(map[string]string),
-		temporaryOffline:       make(map[string]time.Time),
-		lastAppliedPeerConfigs: make(map[string]string),
+		config:           cfg,
+		peerStore:        NewPeerStore(),
+		relayRoutes:      make(map[string]string),
+		temporaryOffline: make(map[string]time.Time),
 	}
 	return d
+}
+
+// TestAcceptRoutesReloadApplies: the reload file sets accept-routes and a later
+// offer is judged by the new list; an empty value opens the node again.
+func TestAcceptRoutesReloadApplies(t *testing.T) {
+	old := node.EnforceRouteBinding.Load()
+	node.EnforceRouteBinding.Store(true)
+	t.Cleanup(func() { node.EnforceRouteBinding.Store(old) })
+
+	d := newMinimalDaemon(t)
+	d.peerStore.SetPolicy(d.admitPolicy())
+	offer := func(key string) Decision {
+		return d.peerStore.Offer(Candidate{
+			Info:   &PeerInfo{WGPubKey: key, MeshIP: "10.99.1.1", RoutableNetworks: []string{"192.168.5.0/24", "172.16.0.0/12"}},
+			Source: "dht",
+			Hand:   FirstHand,
+		})
+	}
+	reload := func(content string) {
+		opts, err := LoadReloadFile(writeTempReload(t, content))
+		if err != nil {
+			t.Fatalf("LoadReloadFile: %v", err)
+		}
+		d.reloadConfig(opts)
+	}
+
+	if dec := offer("before"); dec.Verdict != node.Admit || len(dec.Dropped) != 0 {
+		t.Fatalf("with no list: decision = %+v, want a plain Admit", dec)
+	}
+	reload("accept-routes=192.168.0.0/16\n")
+	if dec := offer("during"); dec.Verdict != node.AdmitPartial || !reflect.DeepEqual(dec.Dropped, []string{"172.16.0.0/12"}) {
+		t.Fatalf("with the list: decision = %+v, want 172.16.0.0/12 dropped", dec)
+	}
+	reload("accept-routes=\n")
+	if dec := offer("after"); dec.Verdict != node.Admit || len(dec.Dropped) != 0 {
+		t.Fatalf("after clearing the list: decision = %+v, want a plain Admit", dec)
+	}
+}
+
+func TestLoadReloadFile_AcceptRoutes(t *testing.T) {
+	t.Parallel()
+	for _, bad := range []string{"accept-routes=10.0.0.5/8,bogus\n", "accept-routes=,\n", "accept-routes= ,  \n"} {
+		if _, err := LoadReloadFile(writeTempReload(t, bad)); err == nil || !strings.Contains(err.Error(), "invalid accept-routes") {
+			t.Errorf("LoadReloadFile(%q) err = %v, want an invalid accept-routes error", bad, err)
+		}
+	}
+	// an empty value clears the list: non-nil and empty, unlike an absent key
+	opts, err := LoadReloadFile(writeTempReload(t, "accept-routes=\n"))
+	if err != nil || opts.AcceptRoutes == nil || len(opts.AcceptRoutes) != 0 {
+		t.Errorf("accept-routes= : AcceptRoutes = %#v, err = %v, want non-nil empty", opts.AcceptRoutes, err)
+	}
+	opts, err = LoadReloadFile(writeTempReload(t, "log-level=debug\n"))
+	if err != nil || opts.AcceptRoutes != nil {
+		t.Errorf("absent key: AcceptRoutes = %#v, err = %v, want nil", opts.AcceptRoutes, err)
+	}
 }

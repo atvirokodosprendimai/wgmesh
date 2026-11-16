@@ -91,7 +91,11 @@ func TestDeploymentConfigUnderLock(t *testing.T) {
 			if len(routes) != len(wantRoutes) || (len(wantRoutes) > 0 && !reflect.DeepEqual(routes, wantRoutes)) {
 				t.Errorf("routes = %v, want %v", routes, wantRoutes)
 			}
-			if conf := wireguard.GenerateWgQuickConfig(config, routes); strings.Contains(conf, "via  dev") {
+			conf, err := wireguard.GenerateWgQuickConfig(config, routes)
+			if err != nil {
+				t.Fatalf("GenerateWgQuickConfig: %v", err)
+			}
+			if strings.Contains(conf, "via  dev") {
 				t.Errorf("wg-quick config has a gateway-less route:\n%s", conf)
 			}
 		})
