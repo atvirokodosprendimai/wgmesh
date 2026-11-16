@@ -826,7 +826,7 @@ func (d *DHTDiscovery) persistNodes(server *dht.Server) {
 // announceLoop periodically announces our presence to the DHT
 func (d *DHTDiscovery) announceLoop(ctx context.Context) {
 	// Initial announce
-	d.announce()
+	d.announce(ctx)
 
 	ticker := time.NewTicker(DHTAnnounceInterval)
 	defer ticker.Stop()
@@ -836,13 +836,13 @@ func (d *DHTDiscovery) announceLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.announce()
+			d.announce(ctx)
 		}
 	}
 }
 
 // announce publishes our presence to the DHT under the network ID
-func (d *DHTDiscovery) announce() {
+func (d *DHTDiscovery) announce(ctx context.Context) {
 	// Get current and previous network IDs (for hourly rotation)
 	current, previous, err := crypto.GetCurrentAndPreviousNetworkIDs(d.config.Secret)
 	if err != nil {
@@ -855,17 +855,17 @@ func (d *DHTDiscovery) announce() {
 	log.Printf("[DHT] Announcing to network ID %x on exchange port %d (DHT port %d)", current[:8], port, d.dhtPortNow())
 
 	// Announce to current network ID
-	d.announceToInfohash(current, port)
+	d.announceToInfohash(ctx, current, port)
 
 	// Also announce to previous hour's ID during transition
 	if current != previous {
 		log.Printf("[DHT] Also announcing to previous network ID %x", previous[:8])
-		d.announceToInfohash(previous, port)
+		d.announceToInfohash(ctx, previous, port)
 	}
 }
 
 // announceToInfohash announces our port to a specific infohash
-func (d *DHTDiscovery) announceToInfohash(infohash [20]byte, port int) {
+func (d *DHTDiscovery) announceToInfohash(callCtx context.Context, infohash [20]byte, port int) {
 	server := d.dhtServer()
 	if server == nil {
 		return
@@ -900,7 +900,7 @@ func (d *DHTDiscovery) announceToInfohash(infohash [20]byte, port int) {
 // queryLoop periodically queries the DHT for peers
 func (d *DHTDiscovery) queryLoop(ctx context.Context) {
 	// Initial query
-	d.queryPeers()
+	d.queryPeers(ctx)
 
 	// Start with faster queries, slow down once mesh is stable
 	interval := DHTQueryInterval
@@ -913,7 +913,7 @@ func (d *DHTDiscovery) queryLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.queryPeers()
+			d.queryPeers(ctx)
 
 			// Slow down queries once we have enough peers
 			if d.peerStore.Count() >= 3 && interval == DHTQueryInterval {
@@ -926,7 +926,7 @@ func (d *DHTDiscovery) queryLoop(ctx context.Context) {
 }
 
 // queryPeers queries the DHT for other peers in our mesh
-func (d *DHTDiscovery) queryPeers() {
+func (d *DHTDiscovery) queryPeers(ctx context.Context) {
 	// Get current and previous network IDs
 	current, previous, err := crypto.GetCurrentAndPreviousNetworkIDs(d.config.Secret)
 	if err != nil {
@@ -940,16 +940,16 @@ func (d *DHTDiscovery) queryPeers() {
 	log.Printf("[DHT] Querying network ID %x (DHT has %d nodes)", current[:8], d.dhtServer().NumNodes())
 
 	// Query current network ID
-	d.queryInfohash(current)
+	d.queryInfohash(ctx, current)
 
 	// Also query previous hour's ID during transition
 	if current != previous {
-		d.queryInfohash(previous)
+		d.queryInfohash(ctx, previous)
 	}
 }
 
 // queryInfohash queries a specific infohash for peers
-func (d *DHTDiscovery) queryInfohash(infohash [20]byte) {
+func (d *DHTDiscovery) queryInfohash(callCtx context.Context, infohash [20]byte) {
 	server := d.dhtServer()
 	if server == nil {
 		return

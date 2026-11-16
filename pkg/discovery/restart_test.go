@@ -388,3 +388,49 @@ func TestDHTStopThenStartRace(t *testing.T) {
 		}
 	}
 }
+
+// TestDHTHelpersEndWithTheirCallersContext: announceToInfohash and
+// queryInfohash take the context of the loop that calls them, not the current
+// run's. Why: a call of an old run, still in flight after a restart, read the
+// new run's context and outlived its own run by up to 30 s. Invariant: a call
+// given a cancelled context returns at once, whatever run is live. The stale
+// context is the one of the first run, kept across Stop and Start.
+func TestDHTHelpersEndWithTheirCallersContext(t *testing.T) {
+	hermeticDHT(t)
+	d := newRestartDHT(t, context.Background(), "wgmesh-test-restart-helperctx-1",
+		daemon.DaemonOpts{Gossip: true, DisableIPv6: true})
+	t.Cleanup(func() { _ = d.Stop() })
+
+	if err := d.Start(); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	old := d.runCtx()
+	if err := d.Stop(); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if old.Err() == nil {
+		t.Fatal("the context of a stopped run is not cancelled")
+	}
+	if err := d.Start(); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	var hash [20]byte
+	hash[0] = 7
+
+	calls := map[string]func(){
+		"announceToInfohash": func() { d.announceToInfohash(old, hash, 1234) },
+		"queryInfohash":      func() { d.queryInfohash(old, hash) },
+	}
+	for name, call := range calls {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			call()
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Errorf("%s did not end with its caller's cancelled context", name)
+		}
+	}
+}
