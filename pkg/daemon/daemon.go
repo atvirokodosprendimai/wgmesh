@@ -1902,7 +1902,7 @@ func (d *Daemon) ownRoutableNetworks() []string {
 func (d *Daemon) GetLogLevel() string {
 	d.configMu.RLock()
 	defer d.configMu.RUnlock()
-	return d.config.LogLevel
+	return d.config.GetLogLevel()
 }
 
 // reloadConfig applies a new set of reloadable options without restarting
@@ -1918,9 +1918,9 @@ func (d *Daemon) reloadConfig(opts DaemonOpts) {
 	d.configMu.Lock()
 	defer d.configMu.Unlock()
 
-	if d.config.LogLevel != opts.LogLevel && opts.LogLevel != "" {
-		log.Printf("[Reload] LogLevel: %q → %q", d.config.LogLevel, opts.LogLevel)
-		d.config.LogLevel = opts.LogLevel
+	if cur := d.config.GetLogLevel(); cur != opts.LogLevel && opts.LogLevel != "" {
+		log.Printf("[Reload] LogLevel: %q → %q", cur, opts.LogLevel)
+		d.config.SetLogLevel(opts.LogLevel)
 	}
 
 	if opts.AdvertiseRoutes != nil && !routeSlicesEqual(d.config.AdvertiseRoutes, opts.AdvertiseRoutes) {
