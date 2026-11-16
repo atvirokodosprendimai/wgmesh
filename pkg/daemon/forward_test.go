@@ -26,6 +26,7 @@ type fakeHost struct {
 	lookPathErr     error // what LookPath fails with, whatever the binary
 	readErr         error // what reading ip_forward fails with
 	procValue       *string
+	reads           int // reads of ip_forward
 }
 
 // exitError is a command that ended with an exit status, as exec.ExitError.
@@ -37,6 +38,7 @@ func (e exitError) ExitCode() int { return e.code }
 func (h *fakeHost) readFile(path string) ([]byte, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.reads++
 	if path != "/proc/sys/net/ipv4/ip_forward" {
 		return nil, fmt.Errorf("fake host: unexpected read of %s", path)
 	}
@@ -317,6 +319,9 @@ func TestForwardScopeEnforcedStopsForcing(t *testing.T) {
 	before := testutil.ToFloat64(kernelWarnings.WithLabelValues("forward-scope"))
 
 	tick(t, d, 5)
+	if h.reads != 0 || h.count("iptables") != 0 {
+		t.Errorf("a node that is not wanted was read: %d reads of ip_forward, commands %q", h.reads, h.cmds)
+	}
 	if got := h.writes(); len(got) != 0 {
 		t.Errorf("EnforceForwardScope on, node not needed, yet writes = %q", got)
 	}
