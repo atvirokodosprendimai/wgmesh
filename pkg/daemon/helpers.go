@@ -2,6 +2,7 @@ package daemon
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -50,6 +51,25 @@ type localNodeState struct {
 	WGPrivateKey string `json:"wg_private_key"`
 	MeshIP       string `json:"mesh_ip,omitempty"`
 	MeshIPv6     string `json:"mesh_ipv6,omitempty"`
+}
+
+// ErrStateMissing: the identity file does not exist (wraps os.ErrNotExist).
+// ErrStateCorrupt: it exists but cannot be used (not JSON, empty, `{}`, an
+// empty public or private key). Words: ADR-0005 Decision 2, #870.
+var (
+	ErrStateMissing = errors.New("local node state file is missing")
+	ErrStateCorrupt = errors.New("local node state file is corrupt")
+)
+
+// RefuseCorruptState: false at release N (a corrupt identity file is moved
+// aside and a new identity is created); true at N+1 (initLocalNode refuses to
+// start and leaves the file untouched). Read once at start by one goroutine
+// and set only by non-parallel tests, so it is a plain bool.
+var RefuseCorruptState = false
+
+// quarantineState renames a corrupt state file aside. STUB (red commit).
+func quarantineState(path string) (string, error) {
+	return "", errors.New("quarantineState: not implemented")
 }
 
 // loadLocalNode loads the local node state from a file
