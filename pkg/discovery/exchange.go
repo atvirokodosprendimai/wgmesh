@@ -431,14 +431,17 @@ func (pe *PeerExchange) handleReply(reply *crypto.PeerAnnouncement, remoteAddr *
 
 	// Always update the peer store so reconcile can configure WG promptly,
 	// even when we also route this reply to a pending ExchangeWithPeer caller.
-	pe.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: DHTMethod, Hand: daemon.FirstHand})
+	// The store keeps the pointer it is offered and rewrites it on later
+	// merges, so it gets its own copy.
+	pe.peerStore.Offer(daemon.Candidate{Info: clonePeerInfo(peerInfo), Source: DHTMethod, Hand: daemon.FirstHand})
 
 	if chans := pe.pendingReplyChannels(remoteAddr.String()); len(chans) > 0 {
-		// Every caller exchanging with this address gets the reply; a full
-		// channel is skipped, never waited on.
+		// Every caller exchanging with this address gets the reply, each its
+		// own copy (a caller may write it); a full channel is skipped, never
+		// waited on.
 		for _, ch := range chans {
 			select {
-			case ch <- peerInfo:
+			case ch <- clonePeerInfo(peerInfo):
 			default:
 			}
 		}
@@ -1060,6 +1063,20 @@ func (pe *PeerExchange) registerReply(remote string) (chan *daemon.PeerInfo, fun
 		}
 	}
 	return ch, unregister
+}
+
+// clonePeerInfo returns a copy of p that shares no memory with it: the struct
+// is copied, and so are the two slices and the Latency pointer it holds, so a
+// receiver may write any field without racing another receiver or the store.
+func clonePeerInfo(p *daemon.PeerInfo) *daemon.PeerInfo {
+	c := *p
+	c.RoutableNetworks = append([]string(nil), p.RoutableNetworks...)
+	c.DiscoveredVia = append([]string(nil), p.DiscoveredVia...)
+	if p.Latency != nil {
+		l := *p.Latency
+		c.Latency = &l
+	}
+	return &c
 }
 
 // pendingReplyChannels returns a copy of the channels registered for remote,

@@ -206,7 +206,7 @@ func TestRegisterReplyConcurrentCallersUnderRace(t *testing.T) {
 		t.Fatalf("entry=%v, map size=%d after all callers returned, want none", entry, total)
 	}
 }
- 
+
 // Words: handleReply gives every registered caller its own copy of the
 // received PeerInfo, slices and pointer fields included.
 // Why: one shared *PeerInfo sent to several goroutines turns any later write
