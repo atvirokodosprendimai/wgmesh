@@ -168,6 +168,7 @@ func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 	}
 
 	if restored > 0 {
+		// The counts are Assess on the evidence, not gated by EnforceLiveness.
 		alive, suspected := 0, 0
 		for _, key := range keys {
 			p, ok := peerStore.Get(key)
@@ -181,7 +182,7 @@ func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 				suspected++
 			}
 		}
-		log.Printf("[Cache] Restored %d peers from cache (%d alive, %d only suspected)", restored, alive, suspected)
+		log.Printf("[Cache] Restored %d peers from cache (%d alive by evidence, %d only suspected)", restored, alive, suspected)
 	}
 
 	return restored
