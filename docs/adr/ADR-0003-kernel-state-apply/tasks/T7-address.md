@@ -61,6 +61,9 @@ n=$(go test ./pkg/daemon -run '^(TestObserveAddresses|TestMissingAddressReadded|
 | 4 — it is used | every tick |
 
 ## Mutation Log
+- 2026-11-16 · c02ccf6* · mutant killed · exit 1 · `pkg/daemon/converge.go` · flush before add: TestStaleMeshAddressRemovedOtherAddressKept must go red · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7
+- 2026-11-16 · c02ccf6* · mutant killed · exit 1 · `pkg/daemon/converge.go` · operator address outside the mesh removed: TestStaleMeshAddressRemovedOtherAddressKept must go red · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7
+- 2026-11-16 · c02ccf6* · mutant killed · exit 1 · `pkg/daemon/converge.go` · prefix length ignored: an address held with another prefix length is taken as present; the address tests must go red · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7
 
 ## Invariants
 
@@ -84,3 +87,21 @@ Stop and ask if ADR-0002's persist-IP task has not landed, or if the interface c
 - IPv6 address management when IPv6 is disabled (permanent: boundary: `setupWireGuard` already falls back to IPv4-only, `daemon.go:486-492`).
 
 ## Verification Log
+- 2026-11-16 · c02ccf6* · exit 1 · `set -o pipefail …` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:1956 · test-lock-sha256:bda1704bc8e8d685695c5bb196c1719d9ec413a47a46339f8ad042fdf732b29c · test-lock-file:docs/adr/locks/bda1704bc8e8d685695c5bb196c1719d9ec413a47a46339f8ad042fdf732b29c.lock
+  ```
+  --- last 10 line(s) of stderr (of 23 after folding 23 raw)
+  --- FAIL: TestStaleMeshAddressRemovedOtherAddressKept (0.00s)
+  === RUN   TestAddressSteadyStateQuiet
+  --- PASS: TestAddressSteadyStateQuiet (0.00s)
+  === RUN   TestAddressConvergesAfterCollisionIPChange
+      address_test.go:266: address commands [], want ["ip addr add 10.99.4.4/16 dev wg0" "ip addr del 10.99.0.1/16 dev wg0"] (the new address first, then the old one)
+      address_test.go:269: interface holds ["10.99.0.1/16"]
+  --- FAIL: TestAddressConvergesAfterCollisionIPChange (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon	0.006s
+  FAIL
+  ```
+- 2026-11-16 · c02ccf6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:10123
+- 2026-11-16 · c02ccf6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:10853
+- 2026-11-16 · c02ccf6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:7095
+- 2026-11-16 · c02ccf6* · exit 0 · `set -o pipefail …` · acceptance-sha256:8ca663c2c3ca84e335fb1a00e752a394d77fe661d3aaedd7c65a4c9c6614b3f7 · ms:11696
