@@ -53,9 +53,9 @@ var boundTable = []boundRow{
 	{"Daemon.relayRoutes", "daemon.go", "replaced-per-tick", "reconcile assigns a fresh map every tick; evictPeerFromPool deletes one key", "d.relayMu"},
 	{"Daemon.directStableCycles", "daemon.go", "replaced-per-tick", "reconcile assigns a fresh map every tick; evictPeerFromPool deletes one key", "d.relayMu"},
 	{"Daemon.peerHealthFailures", "daemon.go", "swept-vs-active-set", "checkPeerHealth deletes keys outside the active set at the end of every pass", "d.healthMu"},
-	{"Daemon.lastPeerTransferTotal", "daemon.go", "swept-vs-active-set", "checkPeerHealth deletes keys outside the active set at the end of every pass", "d.healthMu"},
+	{"Daemon.lastPeerTransferTotal", "daemon.go", "swept-vs-active-set", "checkPeerHealth sets it together with peerHealthFailures and deletes both for keys outside the active set at the end of every pass; evictPeerFromPool deletes one key", "d.healthMu"},
 	{"Daemon.probeSessions", "daemon.go", "swept-vs-active-set", "cleanupProbeSessions (probePeersOverMesh, every second) closes and deletes sessions outside the active set", "d.probeMu"},
-	{"Daemon.probeFailures", "daemon.go", "swept-vs-active-set", "cleanupProbeSessions deletes keys outside the active set", "d.probeMu"},
+	{"Daemon.probeFailures", "daemon.go", "swept-vs-active-set", "cleanupProbeSessions deletes keys outside the active set, with or without a session (a pass with an old peers snapshot can write a key after evictPeerFromPool deleted it)", "d.probeMu"},
 	{"Daemon.temporaryOffline", "daemon.go", "deadline-sweep", "sweepTemporaryOffline, called by staleCleanupTick every minute, deletes entries past their deadline", "d.offlineMu"},
 	{"desiredPeerConfig.allowed", "daemon.go", "session-local", "built and read inside one reconcile call, then dropped with the desired map", "none: never shared between goroutines"},
 	{"DHTDiscovery.contactedPeers", "../discovery/dht.go", "age-sweep-cap", "markContacted sweeps entries older than ContactDedupWindow above contactSweepThreshold and refuses new addresses at MaxContactedPeers", "d.mu"},
@@ -70,7 +70,7 @@ var boundTable = []boundRow{
 	{"PeerExchange.lastPacketLog", "../discovery/exchange.go", "age-sweep-cap", "allowLog sweeps stale entries once per cooldown and stops remembering at maxLogThrottleEntries", "pe.logMu"},
 	{"PeerStore.peers", "../node/store.go", "hard-cap", "Decide refuses a new key at DefaultMaxPeers (ReasonPeerCap); CleanupStale, Remove and Withdraw delete", "ps.mu"},
 	{"PeerStore.tombstones", "../node/store.go", "age-sweep-cap", "tombstone drops expired entries, then the oldest, at DefaultMaxPeers; isTombstoned drops an expired one", "ps.mu"},
-	{"PeerStore.ipHeldLogged", "../node/store.go", "hard-cap", "Offer replaces the map with an empty one when it reaches DefaultMaxPeers", "ps.mu"},
+	{"PeerStore.ipHeldLogged", "../node/store.go", "hard-cap", "Offer (admit.go), on a ReasonIPHeld refusal, replaces the map with an empty one when it reaches DefaultMaxPeers; no other code deletes from it", "ps.mu"},
 	{"nonceCache.seen", "../discovery/replay_cache.go", "age-sweep-cap", "Seen drops entries older than ttl, then the oldest at capacity (drop)", "c.mu"},
 }
 

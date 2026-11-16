@@ -1356,13 +1356,17 @@ func (d *Daemon) cleanupProbeSessions(activeSet map[string]struct{}) {
 			keys = append(keys, pubKey)
 		}
 	}
+	// A failure count can outlive its peer without a session: a pass that took
+	// its snapshot before removePeer writes the count after removePeer deleted it.
+	for pubKey := range d.probeFailures {
+		if _, ok := activeSet[pubKey]; !ok {
+			delete(d.probeFailures, pubKey)
+		}
+	}
 	d.probeMu.Unlock()
 
 	for _, pubKey := range keys {
 		d.closeProbeSession(pubKey)
-		d.probeMu.Lock()
-		delete(d.probeFailures, pubKey)
-		d.probeMu.Unlock()
 	}
 }
 
