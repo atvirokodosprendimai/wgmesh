@@ -73,7 +73,7 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
 
 ### Wake from sleep (`DHTDiscovery.OnResume`, ADR-0004)
 
-- The daemon's resume loop calls `OnResume` once per detected wake (`node.Resumer`). It clears the rendezvous back-off, then in one goroutine refreshes STUN with the `stun-resume` source (applied at once) and announces: `announce()` to the infohash and `SendAnnounce` once to every active peer (gossip on and an open exchange socket). A call while that goroutine runs only clears the back-off, so bursts coalesce; before `Start` and after `Stop` it does nothing.
+- The daemon's resume loop calls `OnResume` once per detected wake (`node.Resumer`). It clears the rendezvous back-off, then in one goroutine refreshes STUN with the `stun-resume` source (applied at once) and announces: `announce()` to the infohash and `SendAnnounce` once to every active peer (gossip on and an open exchange socket). On an IPv6 host (IPv6 not disabled and a global IPv6 address found) the refresh takes the IPv6 interface branch instead: the endpoint is observed with the `interface` source, also applied at once, and no STUN query is made. A call while that goroutine runs only clears the back-off, so bursts coalesce; before `Start` and after `Stop` it does nothing.
 - The announce lists the known peers, so one wake costs about N packets of size O(N); a packet over about 260 peers can exceed the UDP limit, as in the steady gossip loop (estimate, not measured).
 
 ## Design
