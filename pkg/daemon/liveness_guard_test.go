@@ -14,7 +14,8 @@ import (
 // lastSeenAges returns "position what" for every age computed from a LastSeen
 // selector in the non-test Go files under root, leaving out skipDir, .git and
 // vendor: time.Since(x.LastSeen), a.Sub(x.LastSeen) and x.LastSeen.Sub(a).
-func lastSeenAges(root, skipDir string) ([]string, error) {
+func lastSeenAges(root, skipDir string) ([]string, int, error) {
+	visited := 0
 	var found []string
 	fset := token.NewFileSet()
 	err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
@@ -34,6 +35,7 @@ func lastSeenAges(root, skipDir string) ([]string, error) {
 		if err != nil {
 			return err
 		}
+		visited++
 		ast.Inspect(file, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
 			if !ok {
@@ -53,7 +55,7 @@ func lastSeenAges(root, skipDir string) ([]string, error) {
 		})
 		return nil
 	})
-	return found, err
+	return found, visited, err
 }
 
 // isLastSeen reports whether x is a selector named LastSeen: p.LastSeen,
@@ -72,9 +74,12 @@ func isLastSeen(x ast.Expr) bool {
 // is not seen.
 func TestNoDirectLastSeenAge(t *testing.T) {
 	root := filepath.Join("..", "..")
-	found, err := lastSeenAges(root, filepath.Join(root, "pkg", "node"))
+	found, visited, err := lastSeenAges(root, filepath.Join(root, "pkg", "node"))
 	if err != nil {
 		t.Fatal(err)
+	}
+	if visited == 0 {
+		t.Fatal("the real-tree scan parsed no files")
 	}
 	for _, f := range found {
 		t.Errorf("direct LastSeen age, ask Alive or LastAlive: %s", f)
@@ -94,6 +99,13 @@ func TestNoDirectLastSeenAge(t *testing.T) {
 		{"sub_alive", `now.Sub(p.LastAlive(now))`, false},
 		{"copy_for_display", `use(p.LastSeen)`, false},
 		{"other_since", `time.Since(p.Started)`, false},
+		{"before_receiver", `p.LastSeen.Before(now)`, true},
+		{"after_receiver", `p.LastSeen.After(now)`, true},
+		{"after_arg", `now.After(p.LastSeen)`, true},
+		{"before_arg", `now.Before(p.LastSeen)`, true},
+		{"compare_arg", `now.Compare(p.LastSeen)`, true},
+		{"compare_receiver", `p.LastSeen.Compare(now)`, true},
+		{"before_alive", `p.LastAlive(now).Before(now)`, false},
 	}
 	dir := t.TempDir()
 	skip := filepath.Join(dir, "skipped")
@@ -112,9 +124,12 @@ func TestNoDirectLastSeenAge(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "bait_test.go"), []byte("package bait\n\nfunc g() {\n\t_ = time.Since(p.LastSeen)\n}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	baitFound, err := lastSeenAges(dir, skip)
+	baitFound, baitVisited, err := lastSeenAges(dir, skip)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if want := len(cases) + 0; baitVisited != want {
+		t.Errorf("the bait scan parsed %d files, want %d: the counter must count only the files outside the skipped directory and not the test file", baitVisited, want)
 	}
 	for _, c := range cases {
 		var got []string
