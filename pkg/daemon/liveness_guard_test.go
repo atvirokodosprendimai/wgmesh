@@ -1,6 +1,10 @@
 package daemon
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,9 +13,54 @@ import (
 
 // lastSeenAges returns "position what" for every age computed from a LastSeen
 // selector in the non-test Go files under root, leaving out skipDir, .git and
-// vendor. Stub: S5 fills it in.
+// vendor: time.Since(x.LastSeen), a.Sub(x.LastSeen) and x.LastSeen.Sub(a).
 func lastSeenAges(root, skipDir string) ([]string, error) {
-	return nil, nil
+	var found []string
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, e fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if e.IsDir() {
+			if path == skipDir || e.Name() == ".git" || e.Name() == "vendor" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+		if err != nil {
+			return err
+		}
+		ast.Inspect(file, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (sel.Sel.Name != "Since" && sel.Sel.Name != "Sub") {
+				return true
+			}
+			if sel.Sel.Name == "Sub" && isLastSeen(sel.X) {
+				found = append(found, fset.Position(call.Pos()).String()+" LastSeen.Sub")
+			}
+			if len(call.Args) == 1 && isLastSeen(call.Args[0]) {
+				found = append(found, fset.Position(call.Pos()).String()+" "+sel.Sel.Name+"(LastSeen)")
+			}
+			return true
+		})
+		return nil
+	})
+	return found, err
+}
+
+// isLastSeen reports whether x is a selector named LastSeen: p.LastSeen,
+// d.peer.LastSeen.
+func isLastSeen(x ast.Expr) bool {
+	sel, ok := x.(*ast.SelectorExpr)
+	return ok && sel.Sel.Name == "LastSeen"
 }
 
 // TestNoDirectLastSeenAge fails when a production file outside pkg/node
