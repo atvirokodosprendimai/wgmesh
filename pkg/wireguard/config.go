@@ -2,6 +2,7 @@ package wireguard
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/ssh"
@@ -47,7 +48,7 @@ type ConfigDiff struct {
 // GetCurrentConfig retrieves the live WireGuard configuration of the given
 // interface by running `wg show <iface> dump` over the SSH client.
 func GetCurrentConfig(client *ssh.Client, iface string) (*Config, error) {
-	output, err := client.Run(fmt.Sprintf("wg show %s dump 2>/dev/null || true", iface))
+	output, err := client.Run(ssh.Cmd("wg", "show", iface, "dump") + " 2>/dev/null || true")
 	if err != nil {
 		return nil, err
 	}
@@ -193,8 +194,7 @@ func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
 	}
 
 	for _, pubKey := range diff.RemovedPeers {
-		cmd := fmt.Sprintf("wg set %s peer %s remove", iface, pubKey)
-		if _, err := client.Run(cmd); err != nil {
+		if _, err := client.Run(ssh.Cmd("wg", "set", iface, "peer", pubKey, "remove")); err != nil {
 			return fmt.Errorf("failed to remove peer: %w", err)
 		}
 		fmt.Printf("    Removed peer: %s\n", shortKey(pubKey))
@@ -218,34 +218,34 @@ func ApplyDiff(client *ssh.Client, iface string, diff *ConfigDiff) error {
 }
 
 func addOrUpdatePeer(client *ssh.Client, iface string, pubKey string, peer Peer) error {
-	cmd := fmt.Sprintf("wg set %s peer %s", iface, pubKey)
+	args := []string{"set", iface, "peer", pubKey}
 
 	// Handle PSK if present
 	var stdinContent string
 	if peer.PresharedKey != "" && peer.PresharedKey != "(none)" {
-		cmd += " preshared-key /dev/stdin"
+		args = append(args, "preshared-key", "/dev/stdin")
 		stdinContent = peer.PresharedKey + "\n"
 	}
 
 	if peer.Endpoint != "" && peer.Endpoint != "(none)" {
-		cmd += fmt.Sprintf(" endpoint %s", peer.Endpoint)
+		args = append(args, "endpoint", peer.Endpoint)
 	}
 
 	if len(peer.AllowedIPs) > 0 {
-		cmd += fmt.Sprintf(" allowed-ips %s", strings.Join(peer.AllowedIPs, ","))
+		args = append(args, "allowed-ips", strings.Join(peer.AllowedIPs, ","))
 	}
 
 	if peer.PersistentKeepalive > 0 {
-		cmd += fmt.Sprintf(" persistent-keepalive %d", peer.PersistentKeepalive)
+		args = append(args, "persistent-keepalive", strconv.Itoa(peer.PersistentKeepalive))
 	}
 
 	// Execute command with PSK via stdin if needed
 	if stdinContent != "" {
-		if _, err := client.RunWithStdin(cmd, stdinContent); err != nil {
+		if _, err := client.RunWithStdin(ssh.Cmd("wg", args...), stdinContent); err != nil {
 			return fmt.Errorf("failed to configure peer: %w", err)
 		}
 	} else {
-		if _, err := client.Run(cmd); err != nil {
+		if _, err := client.Run(ssh.Cmd("wg", args...)); err != nil {
 			return fmt.Errorf("failed to configure peer: %w", err)
 		}
 	}

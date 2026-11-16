@@ -13,16 +13,20 @@ func EnsureWireGuardInstalled(client *Client) error {
 
 	fmt.Println("  Installing WireGuard...")
 
-	commands := []string{
-		"apt update -qq",
-		"DEBIAN_FRONTEND=noninteractive apt install -y -qq wireguard wireguard-tools",
-		"modprobe wireguard || true",
-	}
+	const (
+		aptUpdate  = "apt update -qq"
+		aptInstall = "DEBIAN_FRONTEND=noninteractive apt install -y -qq wireguard wireguard-tools"
+		modprobe   = "modprobe wireguard || true"
+	)
 
-	for _, cmd := range commands {
-		if _, err := client.Run(cmd); err != nil {
-			return fmt.Errorf("failed to run %q: %w", cmd, err)
-		}
+	if _, err := client.Run(aptUpdate); err != nil {
+		return fmt.Errorf("failed to run %q: %w", aptUpdate, err)
+	}
+	if _, err := client.Run(aptInstall); err != nil {
+		return fmt.Errorf("failed to run %q: %w", aptInstall, err)
+	}
+	if _, err := client.Run(modprobe); err != nil {
+		return fmt.Errorf("failed to run %q: %w", modprobe, err)
 	}
 
 	return nil
@@ -77,15 +81,14 @@ func UpdateRoutingTable(client *Client, iface string, networks []string) error {
 	fmt.Printf("  Updating routing table...\n")
 
 	for _, network := range networks {
-		cmd := fmt.Sprintf("ip route add %s dev %s || ip route replace %s dev %s",
-			network, iface, network, iface)
-		if err := client.RunQuiet(cmd); err != nil {
+		if err := client.RunQuiet(Cmd("ip", RouteArgs("add", network, "", iface)...) +
+			" || " + Cmd("ip", RouteArgs("replace", network, "", iface)...)); err != nil {
 			return fmt.Errorf("failed to add route for %s: %w", network, err)
 		}
 		fmt.Printf("    Added route: %s\n", network)
 	}
 
-	cmd := "sysctl -w net.ipv4.ip_forward=1 > /dev/null"
+	const cmd = "sysctl -w net.ipv4.ip_forward=1 > /dev/null"
 	if err := client.RunQuiet(cmd); err != nil {
 		return fmt.Errorf("failed to enable IP forwarding: %w", err)
 	}
@@ -97,15 +100,14 @@ func UpdateRoutingTableWithGateways(client *Client, iface string, routes []Route
 	fmt.Printf("  Updating routing table with gateways...\n")
 
 	for _, route := range routes {
-		cmd := fmt.Sprintf("ip route add %s via %s dev %s || ip route replace %s via %s dev %s",
-			route.Network, route.Gateway, iface, route.Network, route.Gateway, iface)
-		if err := client.RunQuiet(cmd); err != nil {
+		if err := client.RunQuiet(Cmd("ip", RouteArgs("add", route.Network, route.Gateway, iface)...) +
+			" || " + Cmd("ip", RouteArgs("replace", route.Network, route.Gateway, iface)...)); err != nil {
 			return fmt.Errorf("failed to add route for %s via %s: %w", route.Network, route.Gateway, err)
 		}
 		fmt.Printf("    Added route: %s via %s\n", route.Network, route.Gateway)
 	}
 
-	cmd := "sysctl -w net.ipv4.ip_forward=1 > /dev/null"
+	const cmd = "sysctl -w net.ipv4.ip_forward=1 > /dev/null"
 	if err := client.RunQuiet(cmd); err != nil {
 		return fmt.Errorf("failed to enable IP forwarding: %w", err)
 	}

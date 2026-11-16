@@ -1,0 +1,21 @@
+{
+  "interface_name": "wg0",
+  "network": "10.99.0.0/16",
+  "listen_port": 51820,
+  "local_hostname": "control-node",
+  "nodes": {
+    "node1": {
+      "hostname": "node1",
+      "mesh_ip": "10.99.0.1",
+      "public_key": "YWxwaGEta2V5LTEwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+      "private_key": "ZG9jcy1wcml2LTQwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+      "ssh_host": "192.168.1.10",
+      "ssh_port": 22,
+      "listen_port": 51820,
+      "public_endpoint": "192.168.1.10:51820",
+      "behind_nat": false,
+      "routable_networks": [],
+      "is_local": true
+    }
+  }
+}

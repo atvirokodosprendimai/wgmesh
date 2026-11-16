@@ -63,20 +63,28 @@ func Validate(name string) error {
 			)
 		}
 	default: // Linux and other Unix
-		if len(name) > MaxLen {
-			return fmt.Errorf(
-				"interface name %q is %d characters; maximum is %d (kernel IFNAMSIZ limit)",
-				name, len(name), MaxLen,
-			)
-		}
-		if !linuxRegex.MatchString(name) {
-			return fmt.Errorf(
-				"interface name %q is invalid; must start with a letter and contain only "+
-					"letters, digits, underscores, or hyphens (e.g. wg0, cloudroof0, mesh-1)",
-				name,
-			)
-		}
+		return ValidateLinux(name)
 	}
 
+	return nil
+}
+
+// ValidateLinux checks name against the Linux grammar whatever runtime.GOOS
+// is: at most MaxLen characters, a letter first, then letters, digits,
+// underscores or hyphens. Unlike Validate, the empty string is an error.
+func ValidateLinux(name string) error {
+	if len(name) > MaxLen {
+		return fmt.Errorf(
+			"interface name %q is %d characters; maximum is %d (kernel IFNAMSIZ limit)",
+			name, len(name), MaxLen,
+		)
+	}
+	if !linuxRegex.MatchString(name) {
+		return fmt.Errorf(
+			"interface name %q is invalid; must start with a letter and contain only "+
+				"letters, digits, underscores, or hyphens (e.g. wg0, cloudroof0, mesh-1)",
+			name,
+		)
+	}
 	return nil
 }

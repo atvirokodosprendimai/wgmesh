@@ -1,0 +1,2 @@
+check@2	absent
+body	pkg/mesh/spec_central_test.go	TestSpecNamesCentralized	ccd3b9d75c4a371cfd550fceed42cde1eeeb58e3afa44e55276ef8b46d592430
