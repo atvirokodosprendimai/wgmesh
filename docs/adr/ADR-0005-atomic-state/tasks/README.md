@@ -27,7 +27,7 @@ README must be regenerated.
 | T5 | Take an exclusive per-interface lock before `join` touches the socket or the interface (#860) | done | — | six named tests in two packages, then `-race` |
 | T6 | `rpc.NewServer` owns its socket path before it removes anything (#860) | done | — | four named tests, then `-race` |
 | T7 | One `LocalNode` type, so a method added to it reaches the node the daemon runs | done | — | one named test, build, vet, then `-race` on three packages |
-| T8 | Put the local node's mutable fields under one lock | pending | — | four named tests under `-race`, build, vet, then `-race` on three packages |
+| T8 | Put the local node's mutable fields under one lock | done | — | four named tests under `-race`, build, vet, then `-race` on three packages |
 | T9 | Register every exchange caller's reply channel separately (#855) | pending | — | four named tests, then `-race` |
 | T10 | Make `PeerExchange` and `DHTDiscovery` restart after `Stop` (#863, the part PR #884 left) | pending | — | four named tests, then `-race` |
 | T11 | Amend the specs, write the release note and the backlog rows | pending | — | `go test ./pkg/atomicfile -run TestSpecNamesAtomicState`, note exists, `adr-debt` reports no unreceipted row |

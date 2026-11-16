@@ -66,6 +66,9 @@ n=$(go test ./pkg/node ./pkg/daemon -run '^(TestLocalNodeAccessorsConcurrent|Tes
 | 4 — it is used | every announcement, probe, reconcile and STUN refresh |
 
 ## Mutation Log
+- 2026-11-16 · b0e81e1* · mutant killed · exit 1 · `pkg/node/types.go` · SetMeshIP writes without stateMu: TestLocalNodeAccessorsConcurrent must go red under -race · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7
+- 2026-11-16 · b0e81e1* · mutant killed · exit 1 · `pkg/node/types.go` · GetRoutableNetworks returns the internal slice: TestRoutableNetworksAreCopied must go red · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7
+- 2026-11-16 · b0e81e1* · mutant killed · exit 1 · `pkg/node/types.go` · SetNATType writes without stateMu: the concurrent test must go red under -race · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7
 
 ## Invariants
 
@@ -91,3 +94,21 @@ Stop and ask if ADR-0002 T9 changed `LocalNode` so `stateMu` cannot stand beside
 - The `PeerStore`, which already has its own lock (permanent: boundary: owned by ADR-0002 and `pkg/node/store.go`).
 
 ## Verification Log
+- 2026-11-16 · b0e81e1* · exit 1 · `set -o pipefail …` · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7 · ms:2303 · test-lock-sha256:5d78a1e4ef8a42bfbadd4cdc99f999b54fd66615366bc95e9194c54788426e68 · test-lock-file:docs/adr/locks/5d78a1e4ef8a42bfbadd4cdc99f999b54fd66615366bc95e9194c54788426e68.lock
+  ```
+  --- last 10 line(s) of stderr (of 449 after folding 461 raw)
+      testing.go:1867: race detected during execution of test
+  --- FAIL: TestLocalNodeAccessorsConcurrent (0.63s)
+  === RUN   TestRoutableNetworksAreCopied
+  --- PASS: TestRoutableNetworksAreCopied (0.00s)
+  === RUN   TestSnapshotMatchesAccessors
+  --- PASS: TestSnapshotMatchesAccessors (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/node	0.647s
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/daemon [build failed]
+  FAIL
+  ```
+- 2026-11-16 · b0e81e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7 · ms:33334
+- 2026-11-16 · b0e81e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7 · ms:31873
+- 2026-11-16 · b0e81e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7 · ms:28322
+- 2026-11-16 · b0e81e1* · exit 0 · `set -o pipefail …` · acceptance-sha256:5c8726f7489ef64d0d8e9f74b51885e4d8f47fca7c59886853fc0821fd1adac7 · ms:23800
