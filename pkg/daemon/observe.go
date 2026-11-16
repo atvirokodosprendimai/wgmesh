@@ -126,12 +126,15 @@ func (d *Daemon) observeRoutes(obs *kernelObserved) {
 // parseAddresses reads the output of `ip -o addr show dev <if>`: one
 // netip.Prefix per inet and inet6 line. The family word is the third field
 // (`5: wg0    inet 10.99.0.1/16 scope global wg0\ ...`); a point-to-point
-// address printed without a prefix length is a host address.
+// address (`inet A peer B/N`) is not read: it is neither held nor removable.
 func parseAddresses(out []byte) ([]netip.Prefix, error) {
 	var addrs []netip.Prefix
 	for _, line := range strings.Split(string(out), "\n") {
 		fields := strings.Fields(line)
 		if len(fields) < 3 || (fields[2] != "inet" && fields[2] != "inet6") {
+			continue
+		}
+		if len(fields) >= 5 && fields[4] == "peer" {
 			continue
 		}
 		if len(fields) < 4 {

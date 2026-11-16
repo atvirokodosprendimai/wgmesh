@@ -177,10 +177,11 @@ func TestObserveAddresses(t *testing.T) {
 		t.Errorf("an unwanted target was read: %q", obs.Addrs)
 	}
 
-	// The kernel's printed forms: a peer address without a prefix, a line without an address.
-	parsed, err := parseAddresses([]byte("5: wg0    inet 10.99.0.1 peer 10.99.0.2/32 scope global wg0\\       valid_lft forever\n\n6: wg0    inet6 fd99::2/64 scope global \\       valid_lft forever\n"))
-	if err != nil || len(parsed) != 2 || parsed[0] != netip.MustParsePrefix("10.99.0.1/32") || parsed[1] != netip.MustParsePrefix("fd99::2/64") {
-		t.Errorf("parseAddresses = %v, %v", parsed, err)
+	// The kernel's printed forms: a point-to-point address (`inet A peer B/N`) is
+	// not read at all, a blank line is skipped.
+	parsed, err := parseAddresses([]byte("5: wg0    inet 10.99.0.1 peer 10.99.0.2/32 scope global wg0\\       valid_lft forever\n\n6: wg0    inet6 fd99::2/64 scope global \\       valid_lft forever\n7: wg0    inet6 fd99::3 peer fd99::4/128 scope global \\       valid_lft forever\n"))
+	if err != nil || len(parsed) != 1 || parsed[0] != netip.MustParsePrefix("fd99::2/64") {
+		t.Errorf("parseAddresses = %v, %v, want only fd99::2/64", parsed, err)
 	}
 	if _, err := parseAddresses([]byte("5: wg0    inet not-an-address scope global wg0\n")); err == nil {
 		t.Error("an unparsable address line was read as no address")
@@ -350,6 +351,20 @@ func TestMeshIPv6PrefixLengthIsShared(t *testing.T) {
 	want := d.desireAddresses()
 	if len(want.Addrs) != 2 || want.Addrs[1] != netip.PrefixFrom(netip.MustParseAddr("fd99::1"), meshPrefixLenV6) || meshPrefixLenV6 != 64 {
 		t.Errorf("desired %v, want the IPv6 address with /%d (64)", want.Addrs, meshPrefixLenV6)
+	}
+}
+
+// A point-to-point address inside the mesh network is neither held nor
+// removable: it is left alone even with the removal enforced.
+func TestPointToPointAddressLeftAlone(t *testing.T) {
+	enforceAddressRemoval(t, true)
+	d, rh, _ := newAddrDaemon(t, "10.99.0.1/16", "10.99.7.7 peer 10.99.9.9/32")
+	tick(t, d, 3)
+	if w := rh.addrCmds(); len(w) != 0 {
+		t.Errorf("a point-to-point address was written: %q", w)
+	}
+	if got, want := rh.held(), sorted("10.99.0.1/16", "10.99.7.7 peer 10.99.9.9/32"); !sameLines(got, want) {
+		t.Errorf("interface holds %q, want %q", got, want)
 	}
 }
 
