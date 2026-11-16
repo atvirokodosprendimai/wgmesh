@@ -699,3 +699,17 @@ func TestRestoredPeerIsNotFirstHandAndLeavesNoTombstone(t *testing.T) {
 		t.Fatalf("a restore after the removal was refused: %v", d.Reason)
 	}
 }
+
+func TestRestoredOfferForTombstonedKeyIsRefused(t *testing.T) {
+	ps := clockStore()
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k1", MeshIP: "10.0.0.2"}, Source: "dht", Hand: FirstHand})
+	ps.Withdraw("k1", "stale")
+
+	d := ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k1", MeshIP: "10.0.0.2"}, Source: "cache", Hand: Restored})
+	if d.Verdict != Refuse || d.Reason != ReasonTombstoned {
+		t.Fatalf("Offer of a Restored claim for a tombstoned key = %+v, want Refuse/ReasonTombstoned", d)
+	}
+	if ps.Count() != 0 {
+		t.Fatalf("Count = %d, want the refused key absent", ps.Count())
+	}
+}

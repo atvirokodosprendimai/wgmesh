@@ -282,3 +282,19 @@ func TestSaveDoesNotWriteFutureTime(t *testing.T) {
 		t.Fatalf("cache peers = %+v, want last_seen not after %d", cache.Peers, after)
 	}
 }
+
+// restorePeers counts only the keys the store admitted: a tombstoned key is
+// refused and is neither restored nor counted.
+func TestRestoreSkipsRefusedKeys(t *testing.T) {
+	ps := NewPeerStore()
+	ps.Offer(Candidate{Info: &PeerInfo{WGPubKey: "k", MeshIP: "10.0.0.2"}, Source: "dht", Hand: FirstHand})
+	ps.Withdraw("k", "stale")
+	cache := &PeerCache{Peers: []PeerCacheEntry{{WGPubKey: "k", MeshIP: "10.0.0.2", LastSeen: time.Now().Add(-time.Hour).Unix()}}}
+
+	if n := restorePeers(cache, ps); n != 0 {
+		t.Fatalf("restorePeers = %d, want 0 for a tombstoned key", n)
+	}
+	if ps.Count() != 0 {
+		t.Fatalf("Count = %d, want 0", ps.Count())
+	}
+}
