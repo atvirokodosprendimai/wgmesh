@@ -59,6 +59,12 @@ type DaemonOpts struct {
 	MeshSubnet          string // Custom mesh subnet CIDR (e.g. "192.168.100.0/24")
 }
 
+// GetLogLevel returns the log level. STUB (red commit): plain field read.
+func (c *Config) GetLogLevel() string { return c.LogLevel }
+
+// SetLogLevel sets the log level. STUB (red commit): plain field write.
+func (c *Config) SetLogLevel(level string) { c.LogLevel = level }
+
 // NewConfig creates a new daemon configuration from options
 func NewConfig(opts DaemonOpts) (*Config, error) {
 	// Parse secret from URI format if needed
