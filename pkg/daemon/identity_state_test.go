@@ -7,11 +7,21 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 )
+
+// requireWG skips a test that generates a key with the wg binary when the host
+// has none (the CI image does not install wireguard-tools).
+func requireWG(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("wg"); err != nil {
+		t.Skip("wg binary not installed: cannot generate a key")
+	}
+}
 
 // Invariants (the rule text lives in helpers.go and ADR-0005): a file that is
 // MISSING gets a new identity; one that is CORRUPT is moved aside, never
@@ -157,6 +167,7 @@ func TestCorruptStateErrorsCarryNoFileContent(t *testing.T) {
 }
 
 func TestInitLocalNodeCorruptMovesAside(t *testing.T) {
+	requireWG(t)
 	setRefuseCorruptState(t, false)
 	for _, s := range corruptSamples {
 		bad := s.content
@@ -313,6 +324,7 @@ func TestInitLocalNodeRefusesWhenEnforced(t *testing.T) {
 }
 
 func TestInitLocalNodeMissingGeneratesKey(t *testing.T) {
+	requireWG(t)
 	setRefuseCorruptState(t, true) // missing is not corrupt: the flag must not matter
 	d, path := identityTestDaemon(t)
 	if err := d.initLocalNode(); err != nil {
