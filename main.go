@@ -805,11 +805,15 @@ func installServiceCmd() {
 	// Save account API key if provided
 	handleAccountFlag(*stateDir, *account)
 
+	// Same normalisation the daemon applies at startup, so a bad route fails
+	// here instead of crash-looping the installed unit.
 	var routes []string
 	if *advertiseRoutes != "" {
-		routes = strings.Split(*advertiseRoutes, ",")
-		for i, r := range routes {
-			routes[i] = strings.TrimSpace(r)
+		var err error
+		routes, err = daemon.NormalizeRoutes(strings.Split(*advertiseRoutes, ","))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid --advertise-routes: %v\n", err)
+			os.Exit(1)
 		}
 	}
 

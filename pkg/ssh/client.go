@@ -46,14 +46,15 @@ func NewClient(host string, port int) (*Client, error) {
 		return nil, err
 	}
 
+	addr := fmt.Sprintf("%s:%d", host, port)
 	config := &ssh.ClientConfig{
-		User:            "root",
-		Auth:            authMethods,
-		HostKeyCallback: hostKey,
-		Timeout:         10 * time.Second,
+		User:              "root",
+		Auth:              authMethods,
+		HostKeyCallback:   hostKey,
+		HostKeyAlgorithms: defaultHostKeyAlgorithms(addr),
+		Timeout:           10 * time.Second,
 	}
 
-	addr := fmt.Sprintf("%s:%d", host, port)
 	conn, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to dial SSH: %w", err)

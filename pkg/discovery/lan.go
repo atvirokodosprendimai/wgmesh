@@ -161,7 +161,7 @@ func (l *LANDiscovery) announce() {
 		l.localNode.MeshIP,
 		l.localNode.GetEndpoint(),
 		l.localNode.Introducer,
-		l.localNode.RoutableNetworks,
+		l.localNode.GetRoutableNetworks(),
 		nil, // No known peers in LAN announce (keep small)
 		l.localNode.Hostname,
 		l.localNode.MeshIPv6,

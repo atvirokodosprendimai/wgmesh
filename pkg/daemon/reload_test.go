@@ -38,9 +38,22 @@ func TestLoadReloadFile_AdvertiseRoutesNormalized(t *testing.T) {
 
 func TestLoadReloadFile_InvalidRouteRejected(t *testing.T) {
 	t.Parallel()
-	f := writeTempReload(t, "log-level=debug\nadvertise-routes=10.0.0.0/8,192.168.1.0\n")
+	f := writeTempReload(t, "log-level=debug\nadvertise-routes=10.0.0.0/8,bogus\n")
 	if _, err := LoadReloadFile(f); err == nil {
-		t.Fatal("expected error for bare IP in advertise-routes")
+		t.Fatal("expected error for garbage in advertise-routes")
+	}
+}
+
+func TestLoadReloadFile_BareIPIsHostRoute(t *testing.T) {
+	t.Parallel()
+	f := writeTempReload(t, "advertise-routes=10.0.0.0/8,192.168.1.5\n")
+	opts, err := LoadReloadFile(f)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := []string{"10.0.0.0/8", "192.168.1.5/32"}
+	if !reflect.DeepEqual(opts.AdvertiseRoutes, want) {
+		t.Errorf("AdvertiseRoutes = %v, want %v", opts.AdvertiseRoutes, want)
 	}
 }
 
