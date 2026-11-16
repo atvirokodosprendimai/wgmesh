@@ -114,3 +114,7 @@ N is additive on the read side: readers accept both modes. The one write change 
 
 - [ ] N+1: switch `SealEnvelope` to AAD, with a release note (deferred: docs/adr/BACKLOG.md)
 - [ ] N+2: refuse legacy envelopes, capability version 3, `v1` fixture becomes an expected refusal (deferred: docs/adr/BACKLOG.md)
+
+## Amendment 2026-11-16: only known message types are handled
+
+`handleMessage` drops a message type that the dispatch has no case for right after the envelope opens, before the incoming-packet log, the legacy counter and the nonce cache (`isExchangeMessageType`, guarded by a test that reads the switch). The order in Decision 3 becomes: open, drop unknown type, count legacy, nonce cache, dispatch. Unrecognized input then costs no logging or cache work. No wire or additional-data change; known types behave as before. `LegacyEnvelopeOpens` now counts the six known message types only.
