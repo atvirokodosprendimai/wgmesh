@@ -135,7 +135,7 @@ func TestOnResumeAnnouncesNow(t *testing.T) {
 				if err != nil {
 					t.Fatalf("NewMeshGossipWithExchange: %v", err)
 				}
-				d.gossip = g
+				d.gossip.Store(g)
 			}
 			if tt.conn {
 				conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
@@ -433,7 +433,7 @@ func TestAnnounceNowLogsOneSummaryLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewMeshGossipWithExchange: %v", err)
 	}
-	d.gossip = g
+	d.gossip.Store(g)
 	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1)})
 	if err != nil {
 		t.Fatal(err)

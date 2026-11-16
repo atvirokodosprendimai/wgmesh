@@ -1,0 +1,20 @@
+[Interface]
+Address = 10.99.0.2/16
+ListenPort = 51820
+PrivateKey = PRIVATEKEYPRIVATEKEYPRIVATEKEYPRIVATEKEY0=
+PostUp = ip route add 192.168.10.0/24 via 10.99.0.1 dev %i || true
+PostUp = ip route add fd00:20::/64 via fd00::3 dev %i || true
+PreDown = ip route del 192.168.10.0/24 via 10.99.0.1 dev %i || true
+PreDown = ip route del fd00:20::/64 via fd00::3 dev %i || true
+PostUp = sysctl -w net.ipv4.ip_forward=1
+
+[Peer]
+PublicKey = PEERONEPEERONEPEERONEPEERONEPEERONEPEER00=
+Endpoint = 198.51.100.1:51820
+AllowedIPs = 10.99.0.1/32, 192.168.10.0/24
+PersistentKeepalive = 5
+
+[Peer]
+PublicKey = PEERTWOPEERTWOPEERTWOPEERTWOPEERTWOPEER00=
+AllowedIPs = 10.99.0.3/32
+

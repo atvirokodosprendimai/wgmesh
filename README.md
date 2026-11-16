@@ -105,7 +105,7 @@ node3 <----> node4
 
 ### NAT Traversal
 
-Nodes with public IPs are configured as endpoints for other nodes. Nodes behind NAT use persistent keepalive to maintain connections. NAT status is detected automatically by comparing the SSH host with the detected public IP.
+Nodes with public IPs are configured as endpoints for other nodes. Nodes behind NAT use persistent keepalive to maintain connections. In centralized mode an endpoint you wrote (`public_endpoint`) wins; when every node's SSH host is a private IP address each node gets `<ssh host>:<listen port>`; otherwise a node whose detected public IP equals its SSH host is an endpoint and any other node is treated as behind NAT. See [centralized-mode.md](docs/centralized-mode.md) and the [rollout note](docs/centralized-rollout.md).
 
 ### Online Updates
 

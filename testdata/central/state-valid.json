@@ -1,0 +1,44 @@
+{
+  "interface_name": "wg0",
+  "network": "10.99.0.0/16",
+  "listen_port": 51820,
+  "local_hostname": "control-node",
+  "nodes": {
+    "hub": {
+      "hostname": "hub",
+      "mesh_ip": "10.99.0.1",
+      "public_key": "YWxwaGEta2V5LTEwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+      "private_key": "ZG9jcy1wcml2LTQwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+      "ssh_host": "hub.example.net",
+      "ssh_port": 22,
+      "listen_port": 51820,
+      "public_endpoint": "hub.example.net:51820",
+      "behind_nat": false,
+      "routable_networks": ["0.0.0.0/0", "192.168.10.0/24", "172.16.0.0/12"],
+      "is_local": false
+    },
+    "edge": {
+      "hostname": "edge",
+      "mesh_ip": "10.99.0.2",
+      "public_key": "YnJhdm8ta2V5LTIwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+      "private_key": "ZG9jcy1wcml2LTQwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+      "ssh_host": "fd00::2",
+      "ssh_port": 2222,
+      "listen_port": 51820,
+      "public_endpoint": "[fd00::2]:51820",
+      "behind_nat": false,
+      "is_local": false
+    },
+    "lan": {
+      "hostname": "lan",
+      "mesh_ip": "10.99.0.3",
+      "public_key": "ZG9jcy1rZXktMzAwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+      "private_key": "ZG9jcy1wcml2LTQwMDAwMDAwMDAwMDAwMDAwMDAwMDA=",
+      "ssh_host": "10.0.0.7",
+      "ssh_port": 22,
+      "listen_port": 51820,
+      "behind_nat": true,
+      "is_local": true
+    }
+  }
+}

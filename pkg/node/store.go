@@ -127,6 +127,11 @@ func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKin
 
 	existing, exists := ps.peers[info.WGPubKey]
 	if !exists {
+		// The store owns what it holds: the caller keeps its pointer (handleReply
+		// hands it to the waiting exchange) and the stored entry is changed by
+		// later offers, SetLatency and SetEndpointMethod under ps.mu.
+		stored := *info
+		info = &stored
 		// Evidence is measured here, never taken from a caller's claim: the
 		// stored copy starts without data-plane, restore or resume times.
 		info.LastDataPlane = time.Time{}

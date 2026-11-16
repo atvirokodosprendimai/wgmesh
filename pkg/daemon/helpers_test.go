@@ -93,10 +93,9 @@ func (m *MockCommand) SetStderr(stderr io.Writer) {
 // Helper to save and restore cmdExecutor
 func withMockExecutor(t *testing.T, mock *MockCommandExecutor, fn func()) {
 	t.Helper()
-	oldExecutor := cmdExecutor
-	cmdExecutor = mock
+	oldExecutor := cmdExecutor.swap(mock)
 	defer func() {
-		cmdExecutor = oldExecutor
+		cmdExecutor.swap(oldExecutor)
 	}()
 	fn()
 }

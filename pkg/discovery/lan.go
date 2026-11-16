@@ -159,14 +159,14 @@ func (l *LANDiscovery) announce() {
 	// Create announcement
 	announcement := crypto.CreateAnnouncement(
 		l.localNode.WGPubKey,
-		l.localNode.MeshIP,
+		l.localNode.GetMeshIP(),
 		l.localNode.GetEndpoint(),
 		l.localNode.Introducer,
 		l.localNode.GetRoutableNetworks(),
 		nil, // No known peers in LAN announce (keep small)
 		l.localNode.Hostname,
-		l.localNode.MeshIPv6,
-		l.localNode.GetNATType(),
+		l.localNode.GetMeshIPv6(),
+		string(l.localNode.GetNATType()),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, l.gossipKey)
