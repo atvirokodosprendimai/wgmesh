@@ -68,6 +68,11 @@ var (
 		Help: "Wakes from sleep the resume loop detected: the wall clock advanced by more than ResumeGapThreshold between two checks",
 	})
 
+	relayRouteAge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: "wgmesh_relay_route_age_seconds",
+		Help: "Seconds since a peer entered the relay routes (it is reached through an introducer, not directly); one series per relayed peer, set on every reconcile pass and deleted when the peer leaves the relay routes",
+	}, []string{"peer"})
+
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 )

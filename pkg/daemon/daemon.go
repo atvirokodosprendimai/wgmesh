@@ -70,6 +70,14 @@ type Daemon struct {
 	offlineMu              sync.Mutex
 	temporaryOffline       map[string]time.Time
 
+	// probeOnlyPeers holds the keys of the relayed peers that are configured
+	// with their endpoint and no AllowedIPs (T6), and relayRouteSince the time
+	// each peer entered relayRoutes. Both are guarded by relayMu, created on
+	// the first write (a &Daemon{...} literal has them nil) and written only
+	// through storeRelayPlan and evictPeerFromPool.
+	probeOnlyPeers  map[string]struct{}
+	relayRouteSince map[string]time.Time
+
 	// clock is the daemon's time source; nil means time.Now (see now). It is
 	// set before the loops start and never written after, so every goroutine
 	// may read it.
@@ -691,10 +699,7 @@ func (d *Daemon) reconcile() {
 	// the desired set are built. The probe loop reads its own handshakes.
 	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
 	peers, desired, relayRoutes, directStable := d.planPeers(handshakes, start)
-	d.relayMu.Lock()
-	d.relayRoutes = relayRoutes
-	d.directStableCycles = directStable
-	d.relayMu.Unlock()
+	d.storeRelayPlan(relayRoutes, directStable, desired, d.now())
 	if err := d.applyDesiredPeerConfigs(desired); err != nil {
 		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
 	}
@@ -714,8 +719,9 @@ func (d *Daemon) reconcile() {
 }
 
 type desiredPeerConfig struct {
-	peer    *PeerInfo
-	allowed map[string]struct{}
+	peer      *PeerInfo
+	allowed   map[string]struct{}
+	probeOnly bool // configured with its endpoint and no AllowedIPs: a relayed peer (#852)
 }
 
 func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handshakes map[string]int64) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {

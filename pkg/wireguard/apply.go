@@ -128,6 +128,11 @@ func ApplyFullConfiguration(client *ssh.Client, iface string, config *FullConfig
 	return nil
 }
 
+// SetPeerArgs builds the arguments of the wg set call SetPeer runs. STUB (T6 S1).
+func SetPeerArgs(iface, pubKey string, hasPSK bool, endpoint, allowedIPs string) []string {
+	return nil
+}
+
 // SetPeer adds or updates a peer on the local WireGuard interface
 func SetPeer(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error {
 	// Build wg set command
