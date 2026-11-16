@@ -291,6 +291,7 @@ wgmesh version
 
 - **Message type authentication** and replay handling of peer messages are rolled out in three releases; see [Envelope rollout](docs/envelope-rollout.md).
 - **Admit step** (which peer claims a node accepts: mesh IP, routes, endpoints, the 5-minute tombstone, the `--accept-routes` list) is rolled out in three releases; see [Admit step rollout](docs/admit-rollout.md).
+- **Liveness** (how a node judges a peer alive: handshakes and probes as evidence, wake from sleep, relayed peers kept probe-only) is rolled out in three releases; see [Liveness rollout](docs/liveness-rollout.md).
 ## Architecture
 
 ```

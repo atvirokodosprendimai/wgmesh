@@ -4,6 +4,8 @@ Decision record: [ADR-0001](adr/ADR-0001-envelope-aad/ADR-0001-envelope-aad.md).
 
 The staged rollout of the admit step (mesh IP binding, route rules, `accept-routes`) is described in [Admit step rollout](admit-rollout.md).
 
+The staged rollout of the liveness verdict (evidence from handshakes and probes, wake from sleep, relayed peers kept probe-only) is described in [Liveness rollout](liveness-rollout.md).
+
 ## What changes and in which release
 
 | Release | Readers | Writers | What it closes |

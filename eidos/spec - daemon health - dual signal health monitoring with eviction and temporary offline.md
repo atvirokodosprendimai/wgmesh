@@ -25,6 +25,9 @@ Two independent signals run on separate intervals:
   - Transfer growth means the WireGuard data plane is moving bytes even without a new handshake — not stale.
 - On first stale detection: attempt reconnect (re-issue `wg set` with current endpoint to trigger key re-exchange). Clears the optimistic signature cache so the next reconcile will re-apply the peer.
 - On second consecutive stale detection: evict the peer.
+- `checkPeerHealth` reads the handshakes and transfers from WireGuard and passes them to `evaluatePeerHealth`, which takes the decisions of one cycle.
+- A relay-routed peer is not judged: it has no handshake of its own, a reconnect would give it its mesh IP and take the address from the relay, and an eviction would drop a peer the relay serves. Its failure counters are cleared; `attemptPeerReconnect` skips it too. This holds whatever `daemon.EnforceRelayProbe` is.
+- Inside `ResumeGrace` (60 s) after a wake the handshake age includes the time asleep: the peer is not treated as stale, so neither the reconnect nor the eviction happens. The grace blocks only while `node.EnforceLiveness` is set; otherwise the case is counted as `resume-grace`.
 
 ### Signal 2 — TCP mesh probe (every 1s)
 
@@ -34,6 +37,7 @@ Two independent signals run on separate intervals:
 - A probe is not enforced for brand-new peers (< 45s old) unless they are relay-routed or WireGuard has handshake data for them.
 - 8 consecutive probe failures → evict the peer.
 - If WireGuard reports a recent handshake, probe failures are cleared and the probe session is closed (no need to probe a working peer).
+- The probe loop visits `GetProbeable()` (Alive and Suspect peers); a Suspect peer is visited only while it is configured on the interface or relay-routed. A successful probe is recorded as `LastDataPlane` (`ObserveDataPlane`). The 8-failure eviction is skipped inside the wake grace (failures restart from 0) when `EnforceLiveness` is set.
 
 ### Eviction
 
@@ -57,7 +61,7 @@ After 30 seconds the temporary-offline entry expires and the peer can be re-disc
 - `wireguard.GetLatestHandshakes`, `wireguard.GetPeerTransfers` — WG health signal data.
 - `wireguard.SetPeer`, `wireguard.RemovePeer` — reconnect and eviction.
 - `PeerStore.GetActive`, `PeerStore.Remove` — read active set, remove evicted peers.
-- Reconciliation loop — respects `isTemporarilyOffline` in `buildDesiredPeerConfigs` and `syncPeerRoutes`.
+- Reconciliation loop — respects `isTemporarilyOffline` in `planPeers` (which records the handshakes as `LastDataPlane`, takes `GetActive` and builds the desired set in `buildDesiredPeerConfigsWithHandshakes`) and `syncPeerRoutes`.
 
 ## Mapping
 
