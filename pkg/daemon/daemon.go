@@ -21,7 +21,6 @@ import (
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/privacy"
-	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 	"github.com/atvirokodosprendimai/wgmesh/pkg/wireguard"
 )
 
@@ -58,16 +57,21 @@ type Daemon struct {
 	relayMu                sync.RWMutex
 	directStableCycles     map[string]int // pubkey -> consecutive cycles with working direct path (relay hysteresis)
 	localSubnetsFn         func() []*net.IPNet
-	peerHealthFailures     map[string]int
-	lastPeerTransferTotal  map[string]uint64
-	healthMu               sync.Mutex
-	healthProbePort        int
-	probeMu                sync.Mutex
-	probeSessions          map[string]*peerProbeSession
-	probeFailures          map[string]int
-	probeListeners         []net.Listener
-	offlineMu              sync.Mutex
-	temporaryOffline       map[string]time.Time
+	// reconcileMu serialises reconcile: the ticker and handleSIGHUP call it.
+	reconcileMu sync.Mutex
+	// sharedLogMu guards sharedLogged, the last logged owner of each shared network.
+	sharedLogMu           sync.Mutex
+	sharedLogged          map[string]string
+	peerHealthFailures    map[string]int
+	lastPeerTransferTotal map[string]uint64
+	healthMu              sync.Mutex
+	healthProbePort       int
+	probeMu               sync.Mutex
+	probeSessions         map[string]*peerProbeSession
+	probeFailures         map[string]int
+	probeListeners        []net.Listener
+	offlineMu             sync.Mutex
+	temporaryOffline      map[string]time.Time
 
 	// configMu guards the hot-reloadable fields in config and localNode.
 	// Callers that read AdvertiseRoutes or LogLevel at runtime must hold at
@@ -668,19 +672,22 @@ func (d *Daemon) reconcileLoop() {
 
 // reconcile updates WireGuard configuration based on discovered peers
 func (d *Daemon) reconcile() {
+	d.reconcileMu.Lock()
+	defer d.reconcileMu.Unlock()
 	start := time.Now()
 
 	peers := d.peerStore.GetActive()
-	desired, relayRoutes, directStable := d.buildDesiredPeerConfigs(peers)
+	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	ds := d.desire(peers, handshakes, map[string]string{})
 	d.relayMu.Lock()
-	d.relayRoutes = relayRoutes
-	d.directStableCycles = directStable
+	d.relayRoutes = ds.relayRoutes
+	d.directStableCycles = ds.directStable
 	d.relayMu.Unlock()
-	if err := d.applyDesiredPeerConfigs(desired); err != nil {
+	if err := d.applyDesiredPeerConfigs(ds.Peers); err != nil {
 		log.Printf("Failed to apply WireGuard peer configuration: %v", err)
 	}
 
-	if err := d.syncPeerRoutes(peers); err != nil {
+	if err := d.applyRoutes(ds.Routes); err != nil {
 		log.Printf("Failed to sync peer routes: %v", err)
 	}
 
@@ -699,89 +706,9 @@ type desiredPeerConfig struct {
 	allowed map[string]struct{}
 }
 
-func (d *Daemon) buildDesiredPeerConfigs(peers []*PeerInfo) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
-	return d.buildDesiredPeerConfigsWithHandshakes(peers, handshakes)
-}
-
 func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handshakes map[string]int64) (map[string]*desiredPeerConfig, map[string]string, map[string]int) {
-	desired := make(map[string]*desiredPeerConfig)
-	relayRoutes := make(map[string]string)
-	newDirectStable := make(map[string]int)
-	relayCandidates := make([]*PeerInfo, 0)
-	now := time.Now()
-	localSubnets := d.getLocalSubnets()
-
-	for _, p := range peers {
-		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" {
-			continue
-		}
-		if d.isTemporarilyOffline(p.WGPubKey) {
-			continue
-		}
-		if p.Introducer && p.Endpoint != "" && now.Sub(p.LastSeen) <= RelayCandidateMaxAge {
-			relayCandidates = append(relayCandidates, p)
-		}
-	}
-
-	prevRelayRoutes := d.currentRelayRoutesSnapshot()
-	prevDirectStable := d.directStableCyclesSnapshot()
-	ownNetworks := d.ownRoutableNetworks()
-
-	for _, p := range peers {
-		if p.WGPubKey == d.localNode.WGPubKey || p.WGPubKey == "" || p.MeshIP == "" {
-			continue
-		}
-		if d.isTemporarilyOffline(p.WGPubKey) {
-			continue
-		}
-
-		shouldRelay := d.shouldRelayPeerWithSubnets(p, relayCandidates, handshakes, localSubnets)
-
-		// Hysteresis: don't switch relay→direct without N consecutive stable cycles.
-		// This prevents route flapping when NAT punching intermittently succeeds.
-		_, wasRelayed := prevRelayRoutes[p.WGPubKey]
-		if wasRelayed && !shouldRelay {
-			n := prevDirectStable[p.WGPubKey] + 1
-			if n < RelayHysteresisThreshold {
-				// Hold relay route; direct path not yet stable enough to trust
-				shouldRelay = true
-				newDirectStable[p.WGPubKey] = n
-			}
-			// else: hysteresis satisfied — allow transition to direct
-		}
-
-		if shouldRelay {
-			relay := d.selectRelayForPeer(p, relayCandidates)
-			if relay != nil {
-				relayRoutes[p.WGPubKey] = relay.WGPubKey
-				d.addAllowedIP(desired, relay, p.MeshIP+"/32")
-				if p.MeshIPv6 != "" {
-					d.addAllowedIP(desired, relay, p.MeshIPv6+"/128")
-				}
-				for _, network := range routes.ExcludeOwn(p.RoutableNetworks, ownNetworks) {
-					network = strings.TrimSpace(network)
-					if network != "" {
-						d.addAllowedIP(desired, relay, network)
-					}
-				}
-				continue
-			}
-		}
-
-		d.addAllowedIP(desired, p, p.MeshIP+"/32")
-		if p.MeshIPv6 != "" {
-			d.addAllowedIP(desired, p, p.MeshIPv6+"/128")
-		}
-		for _, network := range routes.ExcludeOwn(p.RoutableNetworks, ownNetworks) {
-			network = strings.TrimSpace(network)
-			if network != "" {
-				d.addAllowedIP(desired, p, network)
-			}
-		}
-	}
-
-	return desired, relayRoutes, newDirectStable
+	ds := d.desire(peers, handshakes, map[string]string{})
+	return ds.Peers, ds.relayRoutes, ds.directStable
 }
 
 // shouldRelayPeer decides whether traffic to a peer should be routed via
@@ -1489,20 +1416,18 @@ func shouldTreatPeerAsStale(handshakeTS int64, prevTransferTotal, currentTransfe
 }
 
 // reconnectAllowedCSV builds the allowed-ips list for a forced reconnect of
-// peer, leaving out the local node's own networks.
+// peer: its entry in the desired state of peers. A relayed peer has none (its
+// networks sit under the relay), so it gets its mesh addresses only.
 func (d *Daemon) reconnectAllowedCSV(peer *PeerInfo, peers []*PeerInfo, handshakes map[string]int64) string {
-	ownNetworks := d.ownRoutableNetworks()
 	allowed := make(map[string]struct{})
-	if peer.MeshIP != "" {
-		allowed[peer.MeshIP+"/32"] = struct{}{}
-	}
-	if peer.MeshIPv6 != "" {
-		allowed[peer.MeshIPv6+"/128"] = struct{}{}
-	}
-	for _, route := range routes.ExcludeOwn(peer.RoutableNetworks, ownNetworks) {
-		r := strings.TrimSpace(route)
-		if r != "" {
-			allowed[r] = struct{}{}
+	if cfg, ok := d.desire(peers, handshakes, map[string]string{}).Peers[peer.WGPubKey]; ok {
+		allowed = cfg.allowed
+	} else {
+		if peer.MeshIP != "" {
+			allowed[peer.MeshIP+"/32"] = struct{}{}
+		}
+		if peer.MeshIPv6 != "" {
+			allowed[peer.MeshIPv6+"/128"] = struct{}{}
 		}
 	}
 	return strings.Join(mapKeysSorted(allowed), ",")

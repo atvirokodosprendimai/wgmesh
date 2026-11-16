@@ -10,40 +10,17 @@ import (
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
 
+// syncPeerRoutes derives the desired routes of peers and applies them.
+// reconcile does not use it: it applies the routes of the desired state it
+// already holds.
 func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
+	return d.applyRoutes(d.desire(peers, nil, map[string]string{}).Routes)
+}
+
+// applyRoutes brings the kernel routes of the mesh interface to desired.
+func (d *Daemon) applyRoutes(desired []routes.Entry) error {
 	if runtime.GOOS != "linux" {
 		return nil
-	}
-
-	desired := make([]routes.Entry, 0)
-	relayRoutes := d.currentRelayRoutesSnapshot()
-	ownNetworks := d.ownRoutableNetworks()
-	meshIPByPubKey := make(map[string]string, len(peers))
-	for _, p := range peers {
-		if p != nil && p.WGPubKey != "" && p.MeshIP != "" {
-			meshIPByPubKey[p.WGPubKey] = p.MeshIP
-		}
-	}
-	for _, peer := range peers {
-		if peer.WGPubKey == d.localNode.WGPubKey || peer.MeshIP == "" {
-			continue
-		}
-		if d.isTemporarilyOffline(peer.WGPubKey) {
-			continue
-		}
-		gateway := peer.MeshIP
-		if relayPubKey, ok := relayRoutes[peer.WGPubKey]; ok {
-			if relayIP := meshIPByPubKey[relayPubKey]; relayIP != "" {
-				gateway = relayIP
-			}
-		}
-		for _, network := range routes.ExcludeOwn(peer.RoutableNetworks, ownNetworks) {
-			network = strings.TrimSpace(network)
-			if network == "" {
-				continue
-			}
-			desired = append(desired, routes.Entry{Network: network, Gateway: gateway})
-		}
 	}
 
 	current, err := getCurrentRoutes(d.config.InterfaceName)
@@ -56,7 +33,7 @@ func (d *Daemon) syncPeerRoutes(peers []*PeerInfo) error {
 	// Removals run before adds, so restore even if an add failed. Only a
 	// removed route can be replaced by the connected route.
 	for _, r := range removed {
-		if len(routes.ExcludeOwn([]string{r.Network}, ownNetworks)) == 0 {
+		if d.isOwnNetwork(r.Network) {
 			restoreConnectedRoute(r.Network)
 		}
 	}
