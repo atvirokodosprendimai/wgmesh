@@ -171,7 +171,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 			if !d.losesBoundFirst(local.Key, collision.MeshIP, derive) {
 				if !repeat {
-					log.Printf("[Collision] Keeping mesh IP %s: the other claim on it (%s) is not ahead of this node's claim, which its key derives; no move", collision.MeshIP, safeKeyPrefix(winner.WGPubKey))
+					log.Printf("[Collision] Keeping mesh IP %s: the other claim on it (%s) is not ahead of this node's claim, which its key derives; no move. If both members are meant to stay, one of them must use its own derived address or a new key", collision.MeshIP, safeKeyPrefix(winner.WGPubKey))
 				}
 				continue // the bound-first order decides: an unbound claim does not move a node on an address its key derives
 			}
