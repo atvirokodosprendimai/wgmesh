@@ -80,6 +80,10 @@ a=$(go test ./pkg/daemon -run '^(TestDesireRoutesAndAllowedIPsFromOneOwner|TestD
 - 2026-11-16 · a8cf1f7* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · reconcileMu lock removed: TestReconcileRunsSerialised must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
 - 2026-11-16 · a8cf1f7* · mutant killed · exit 1 · `pkg/daemon/desired.go` · no owner check: TestDesireRoutesAndAllowedIPsFromOneOwner must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
 - 2026-11-16 · a8cf1f7* · mutant killed · exit 1 · `pkg/daemon/desired.go` · own-network rule dropped: TestDesireHAExitNodeDropsPeerDefault must go red · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f
+- 2026-11-16 · 9d34ffe* · mutant killed · exit 1 · `pkg/daemon/desired.go` · no owner check: TestDesireRoutesAndAllowedIPsFromOneOwner must go red · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e
+- 2026-11-16 · 9d34ffe* · mutant killed · exit 1 · `pkg/daemon/desired.go` · gateway is the peer, not the relay: TestDesireRelayedOwnerGoesToRelay must go red · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e
+- 2026-11-16 · 9d34ffe* · mutant killed · exit 1 · `pkg/daemon/desired.go` · own-network rule dropped: TestDesireHAExitNodeDropsPeerDefault must go red · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e
+- 2026-11-16 · 9d34ffe* · mutant killed · exit 1 · `pkg/daemon/daemon.go` · reconcileMu lock removed: TestReconcileRunsSerialised must go red · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e
 
 ## Invariants
 
@@ -125,3 +129,9 @@ Stop and ask if a pinned test needs a changed expectation, or if `desire` cannot
 - 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:8037
 - 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:7840
 - 2026-11-16 · a8cf1f7* · exit 0 · `set -o pipefail …` · acceptance-sha256:cdd1c0ab39e02025dfcca9cacb0e422374ca8ea49bc89aed9fc246b5856eb58f · ms:5241
+- 2026-11-16 · 9d34ffe* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:1 · test-lock-sha256:8214b21c0c9b241f5339a6af43c7a9e4e0f52cd4c980330667d529eb7fcc3b03 · test-lock-file:docs/adr/locks/8214b21c0c9b241f5339a6af43c7a9e4e0f52cd4c980330667d529eb7fcc3b03.lock · test-lock-kind:replace
+- 2026-11-16 · 9d34ffe* · exit 0 · `set -o pipefail …` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:14951
+- 2026-11-16 · 9d34ffe* · exit 0 · `set -o pipefail …` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:14009
+- 2026-11-16 · 9d34ffe* · exit 0 · `set -o pipefail …` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:13685
+- 2026-11-16 · 9d34ffe* · exit 0 · `set -o pipefail …` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:12426
+- 2026-11-16 · 9d34ffe* · exit 0 · `set -o pipefail …` · acceptance-sha256:46eb7afd302021140ae11f5960a9146b65aba0e1b768efedd258262a79aa229e · ms:8776
