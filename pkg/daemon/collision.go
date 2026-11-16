@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync/atomic"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 	node "github.com/atvirokodosprendimai/wgmesh/pkg/node"
@@ -18,9 +19,15 @@ type CollisionInfo struct {
 	Peer2  *node.PeerInfo
 }
 
-// applyInterfaceAddress is setInterfaceAddress behind a variable so the
-// collision tests can record what the daemon would set.
-var applyInterfaceAddress = setInterfaceAddress
+// applyInterfaceAddress is setInterfaceAddress behind an atomic pointer so the
+// collision tests can record what the daemon would set while a collision pass
+// of an earlier test may still run.
+var applyInterfaceAddress atomic.Pointer[func(name, address string) error]
+
+func init() {
+	f := setInterfaceAddress
+	applyInterfaceAddress.Store(&f)
+}
 
 // DetectCollisions lists the mesh IPs claimed by more than one member: the
 // peers in the store and the local node (local). The order of the claims
@@ -139,7 +146,7 @@ func (d *Daemon) CheckAndResolveCollisions() {
 			}
 
 			// Reconfigure WireGuard with new IP using correct prefix length
-			if err := applyInterfaceAddress(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, d.config.PrefixLen())); err != nil {
+			if err := (*applyInterfaceAddress.Load())(d.config.InterfaceName, fmt.Sprintf("%s/%d", newIP, d.config.PrefixLen())); err != nil {
 				log.Printf("[Collision] Failed to update interface address: %v", err)
 			}
 		} else {

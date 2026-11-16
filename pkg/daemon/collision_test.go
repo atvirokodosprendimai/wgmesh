@@ -220,12 +220,13 @@ func enforceIPBinding(t *testing.T, on bool) {
 func recordAddresses(t *testing.T) *[]string {
 	t.Helper()
 	var set []string
-	old := applyInterfaceAddress
-	applyInterfaceAddress = func(name, address string) error {
+	old := applyInterfaceAddress.Load()
+	rec := func(name, address string) error {
 		set = append(set, address)
 		return nil
 	}
-	t.Cleanup(func() { applyInterfaceAddress = old })
+	applyInterfaceAddress.Store(&rec)
+	t.Cleanup(func() { applyInterfaceAddress.Store(old) })
 	return &set
 }
 

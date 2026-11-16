@@ -14,8 +14,8 @@ import (
 )
 
 // cmdExecutor is the command executor used by helper functions.
-// It can be replaced with a mock for testing.
-var cmdExecutor CommandExecutor = &RealCommandExecutor{}
+// It can be replaced with a mock for testing (cmdExecutor.swap).
+var cmdExecutor = newSwitchableExecutor(&RealCommandExecutor{})
 
 // wgBinPath is the absolute path to the wg binary, resolved once at package init.
 // Falls back to "wg" (PATH lookup at exec time) if LookPath fails.
