@@ -541,8 +541,12 @@ type addressPlan struct {
 // planAddresses is pure: a desired address the interface does not hold (same
 // address and same prefix length) is added; a held address that is not
 // desired and lies inside a mesh network (the masked prefix of a desired
-// address, same family) is removed; every other address is left alone. A
-// target whose observe failed, or that is not wanted, plans nothing.
+// address, same family) is removed; every other address is left alone. An
+// IPv6 address held with ANOTHER prefix length is not added while enforce is
+// off: the kernel refuses it ("ipv6: address already assigned"), so the add
+// would fail every tick, and the held one is only warned about; with enforce
+// on the plan removes the held one and adds the wanted one. A target whose
+// observe failed, or that is not wanted, plans nothing.
 func planAddresses(want addressDesired, k kernelObserved, enforce bool) addressPlan {
 	var plan addressPlan
 	if k.Errs[targetAddress] != nil {
@@ -561,9 +565,10 @@ func planAddresses(want addressDesired, k kernelObserved, enforce bool) addressP
 		held[a] = true
 	}
 	for _, a := range want.Addrs {
-		if !held[a] {
-			plan.Add = append(plan.Add, a)
+		if held[a] || (!enforce && a.Addr().Is6() && heldOtherLength(k.Addrs, a)) {
+			continue
 		}
+		plan.Add = append(plan.Add, a)
 	}
 	for a := range held {
 		if wanted[a] {
@@ -580,10 +585,21 @@ func planAddresses(want addressDesired, k kernelObserved, enforce bool) addressP
 	return plan
 }
 
+// heldOtherLength reports whether held has the address of a with another
+// prefix length.
+func heldOtherLength(held []netip.Prefix, a netip.Prefix) bool {
+	for _, h := range held {
+		if h.Addr() == a.Addr() && h != a {
+			return true
+		}
+	}
+	return false
+}
+
 // applyAddresses writes the address plan, one item at a time: the removals
 // first, then the adds. The order is the kernel's: IPv6 holds an address once,
 // whatever its prefix length, so the add of fd99::1/64 over a held fd99::1/128
-// is "File exists" and the later removal would leave the node without it; and
+// is refused ("address already assigned") and the later removal would leave the node without it; and
 // deleting the primary IPv4 address deletes the secondaries of its subnet, the
 // new address among them. A failure of one is a result, never an abort (a
 // failed removal still tries the adds); "File exists" on an add is success.
@@ -611,7 +627,7 @@ func (d *Daemon) applyAddresses(plan addressPlan) []itemResult {
 	for _, p := range plan.Add {
 		out, err := cmdExecutor.Command("ip", "addr", "add", p.String(), "dev", iface).CombinedOutput()
 		switch {
-		case err != nil && strings.Contains(string(out), "File exists"):
+		case err != nil && (strings.Contains(string(out), "File exists") || strings.Contains(string(out), "address already assigned")):
 			err = nil
 		case err != nil:
 			err = commandFailure(out, err)
