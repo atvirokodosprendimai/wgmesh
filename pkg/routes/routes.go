@@ -191,17 +191,12 @@ func Resolve(adv []Advertiser, own []string, current map[string]string) map[stri
 	}
 	byNetwork := make(map[string][]candidate)
 	for _, a := range adv {
-		seen := make(map[string]struct{})
 		for _, n := range ExcludeOwn(a.Networks, own) {
 			if strings.TrimSpace(n) == "" {
 				continue
 			}
 			v6 := familyOf(n)
 			network := Canonical(n, v6)
-			if _, dup := seen[network]; dup {
-				continue
-			}
-			seen[network] = struct{}{}
 			ip := a.MeshIP
 			if v6 && strings.TrimSpace(a.MeshIPv6) != "" {
 				ip = a.MeshIPv6
