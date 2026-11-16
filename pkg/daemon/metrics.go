@@ -95,6 +95,10 @@ func registerMetrics(reg prometheus.Registerer) {
 	reg.MustRegister(natTraversalSuccesses)
 	reg.MustRegister(admitWarnings)
 	admitWarnings.WithLabelValues("winner-differs")
+	reg.MustRegister(livenessDisagree)
+	for _, site := range []string{"get-active", "cleanup", "is-dead"} {
+		livenessDisagree.WithLabelValues(site)
+	}
 	reg.MustRegister(goCollector)
 	reg.MustRegister(processCollector)
 }
@@ -166,5 +170,8 @@ func RecordAdmitWarning(rule string) {
 	admitWarnings.WithLabelValues(rule).Inc()
 }
 
-// recordLivenessDisagree is a stub: the hook body lands in S6.
-func recordLivenessDisagree(site string) {}
+// recordLivenessDisagree counts one case where the legacy age test drops a
+// peer that the liveness verdict keeps; it is the body of the store's hook.
+func recordLivenessDisagree(site string) {
+	livenessDisagree.WithLabelValues(site).Inc()
+}

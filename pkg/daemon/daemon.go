@@ -286,6 +286,7 @@ func NewDaemon(config *Config) (*Daemon, error) {
 	}
 
 	d.peerStore.SetPolicy(d.admitPolicy())
+	d.peerStore.SetLivenessDisagreeHook(recordLivenessDisagree)
 
 	return d, nil
 }
