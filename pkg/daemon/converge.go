@@ -7,6 +7,7 @@ import (
 	"os"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -175,14 +176,23 @@ const (
 	ownerOurs                        // first seen absent (or 0) and this run's write succeeded
 )
 
-// revertKernel undoes at a graceful exit what this run did to forwarding: the
-// FORWARD rule it appended (the rule first) and ip_forward it changed from 0 to
-// 1, nothing else. With EnforceRevertOnExit off it logs once what it will undo
-// from the next release and issues no command. Run calls it after the
-// goroutines have stopped; it takes convergeMu like every kernel write.
+// revertKernel undoes at a graceful exit what this run did to the host: it
+// puts back a host default route the mesh default replaced (not gated by
+// EnforceRevertOnExit), then reverts forwarding: the FORWARD rule it appended
+// (the rule first) and ip_forward it changed from 0 to 1, nothing else. With
+// EnforceRevertOnExit off the forwarding part logs once what it will undo from
+// the next release and issues no command. Run calls it after the goroutines
+// have stopped and before the deferred teardownWireGuard deletes the
+// interface; it takes convergeMu like every kernel write.
 func (d *Daemon) revertKernel() {
 	d.convergeMu.Lock()
 	defer d.convergeMu.Unlock()
+	// The kernel drops the mesh default route with the interface, and the
+	// host's default it replaced is gone already: without this the host has no
+	// default route after the exit. Restore while the mesh default is still
+	// installed: `ip route replace` swaps it for the host's (same route key),
+	// so there is no moment without a default route.
+	d.logResults(d.restoreHostDefaults(exitDefaults, "at exit, before "+d.config.InterfaceName+" is deleted"))
 	rule, ip := d.ruleOwner == ownerOurs, d.ipForwardOwner == ownerOurs
 	if !rule && !ip {
 		return
@@ -404,9 +414,27 @@ func hasNetwork(entries []routes.Entry, canonical string) bool {
 	return false
 }
 
-// hostRoute is a host default route: the device it leaves by and its
-// gateway ("" for a route without one).
-type hostRoute struct{ Dev, Via string }
+// hostRoute is a host default route: the device it leaves by, its gateway
+// ("" for a route without one), its metric (part of the route key) and
+// whether its gateway is onlink (without the flag the restore of a gateway
+// outside the device's subnets fails). Other attributes (proto, src, expires)
+// are not kept: the restore is a plain static route, and a src that is gone by
+// then would make it fail.
+type hostRoute struct {
+	Dev, Via string
+	Metric   int64
+	Onlink   bool
+}
+
+// defaultMetric is the metric the kernel gives a route added without one, as
+// the mesh routes are: 0 for IPv4, 1024 for IPv6. Only a host default of
+// that metric has the mesh default's route key and is replaced by it.
+func defaultMetric(ipv6 bool) int {
+	if ipv6 {
+		return 1024
+	}
+	return 0
+}
 
 // defaultFamilies are the two default routes the host-default rule watches.
 var defaultFamilies = []struct {
@@ -414,8 +442,14 @@ var defaultFamilies = []struct {
 	ipv6          bool
 }{{"IPv4", "0.0.0.0/0", false}, {"IPv6", "::/0", true}}
 
+// exitDefaults are the mesh default routes of both families, as removed at a
+// graceful exit (teardownWireGuard deletes the interface and the kernel drops
+// them with it).
+var exitDefaults = []routes.Entry{{Network: "0.0.0.0/0"}, {Network: "::/0"}}
+
 // restoreHostDefault puts the host default route back with `ip [-6] route
-// replace default [via gw] dev dev`; a success is counted as a route change.
+// replace default [via gw] dev dev [onlink] metric m`; a success is counted as
+// a route change.
 func restoreHostDefault(r hostRoute, ipv6 bool) itemResult {
 	var args []string
 	if ipv6 {
@@ -426,6 +460,10 @@ func restoreHostDefault(r hostRoute, ipv6 bool) itemResult {
 		args = append(args, "via", r.Via)
 	}
 	args = append(args, "dev", r.Dev)
+	if r.Onlink {
+		args = append(args, "onlink")
+	}
+	args = append(args, "metric", strconv.FormatInt(r.Metric, 10))
 	out, err := cmdExecutor.Command("ip", args...).CombinedOutput()
 	if err != nil {
 		err = fmt.Errorf("failed to restore the host default route dev %s: %w", r.Dev, commandFailure(out, err))
@@ -438,11 +476,14 @@ func restoreHostDefault(r hostRoute, ipv6 bool) itemResult {
 // noteHostDefault is the rule host-default: before a default route is added
 // (and while the mesh default route of that family is not installed), one
 // read of the host's default route of that family; a default on a device
-// other than the mesh interface is logged once and counted, remembered (device
-// and gateway) so restoreHostDefaults can put it back, and the mesh route is
-// still installed (a peer's 0.0.0.0/0 is a feature; `ip route replace` swaps a
-// default route of the same destination and metric, so it replaces the
-// host's). A read that shows no host default forgets the record. A family
+// other than the mesh interface is logged once and counted, and the mesh route
+// is still installed (a peer's 0.0.0.0/0 is a feature). `ip route replace`
+// swaps a default route of the same destination and metric, so a host default
+// of the mesh default's metric (defaultMetric) is replaced: it is remembered
+// (hostRoute) so restoreHostDefaults can put it back. A host default of
+// another metric stays next to the mesh one (the lower metric wins) and is
+// not remembered: there is nothing to put back. A read that shows no
+// replaceable host default forgets the record. A family
 // that no longer wants a default route is forgotten for the warning, so it
 // warns again when it returns; its record stays until the mesh default is
 // removed. The caller holds convergeMu.
@@ -487,18 +528,24 @@ func (d *Daemon) noteHostDefault(want []routes.Entry, plan routePlan, obs kernel
 			delete(d.hostDefaults, f.name)
 			continue
 		}
-		d.logf("host-default: this host already has an %s default route on %s; the mesh's %s default route on %s replaces it (same route key) and the daemon puts it back when the mesh default route is removed", f.name, host.Dev, f.name, d.config.InterfaceName)
 		RecordKernelWarning("host-default")
 		d.hostDefaultWarned[f.name] = struct{}{}
+		if mesh := defaultMetric(f.ipv6); host.Metric != int64(mesh) {
+			delete(d.hostDefaults, f.name)
+			d.logf("host-default: this host already has an %s default route on %s (metric %d); the mesh's %s default route on %s (metric %d) is added next to it, the lower metric wins, and the host's stays", f.name, host.Dev, host.Metric, f.name, d.config.InterfaceName, mesh)
+			continue
+		}
+		d.logf("host-default: this host already has an %s default route on %s; the mesh's %s default route on %s replaces it (same route key) and the daemon puts it back when the mesh default route is removed or the daemon exits", f.name, host.Dev, f.name, d.config.InterfaceName)
 		d.hostDefaults[f.name] = host
 	}
 }
 
 // restoreHostDefaults puts back, once, the host default route of each family
-// whose mesh default route was just removed, from the record noteHostDefault
-// took; the record is forgotten whatever the outcome, a failure is a result.
-// The caller holds convergeMu.
-func (d *Daemon) restoreHostDefaults(removed []routes.Entry) []itemResult {
+// whose mesh default route was just removed (or is about to go with the
+// interface at exit: when says which), from the record noteHostDefault took;
+// the record is forgotten whatever the outcome, a failure is a result. The
+// caller holds convergeMu.
+func (d *Daemon) restoreHostDefaults(removed []routes.Entry, when string) []itemResult {
 	var results []itemResult
 	for _, f := range defaultFamilies {
 		host, ok := d.hostDefaults[f.name]
@@ -506,9 +553,16 @@ func (d *Daemon) restoreHostDefaults(removed []routes.Entry) []itemResult {
 			continue
 		}
 		delete(d.hostDefaults, f.name)
+		// The host may have a default of that metric again (an IPv6 router
+		// advertisement re-adds its own; DHCP renewed): replacing it with the
+		// old record would swap a live route for a stale static copy.
+		if now, err := hostDefaultElsewhere(d.config.InterfaceName, f.ipv6); err == nil && now.Dev != "" && now.Metric == host.Metric {
+			d.logf("host-default: the host has its %s default route again (dev %s metric %d), nothing to restore %s", f.name, now.Dev, now.Metric, when)
+			continue
+		}
 		res := restoreHostDefault(host, f.ipv6)
 		if res.Err == nil {
-			d.logf("host-default: restored the host's %s default route via %q dev %s after the mesh default route was removed", f.name, host.Via, host.Dev)
+			d.logf("host-default: restored the host's %s default route via %q dev %s metric %d %s", f.name, host.Via, host.Dev, host.Metric, when)
 		}
 		results = append(results, res)
 	}
@@ -628,7 +682,7 @@ func (d *Daemon) convergeRoutesLinux(ds *desiredState, obs kernelObserved) []ite
 	}
 	// The mesh default replaced the host's (same route key): when the mesh
 	// default is removed, the host's goes back, once.
-	return append(results, d.restoreHostDefaults(removed)...)
+	return append(results, d.restoreHostDefaults(removed, "after the mesh default route was removed")...)
 }
 
 // applyRouteDiff removes and adds the routes, one at a time with one result

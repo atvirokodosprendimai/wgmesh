@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/netip"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -16,14 +17,24 @@ import (
 )
 
 // kernelRoute is one route of the fake table: a canonical network, its
-// gateway and the device it leaves by.
-type kernelRoute struct{ net, gw, dev string }
+// gateway, the device it leaves by and its metric.
+type kernelRoute struct {
+	net, gw, dev string
+	metric       int
+}
+
+// familyMetric is the metric the kernel gives a route of network added without
+// one (defaultMetric).
+func familyMetric(network string) int {
+	return defaultMetric(strings.Contains(network, ":"))
+}
 
 // routeHost is the routing table and the command line of one Linux node,
 // reached through MockCommandExecutor: `ip route show`, `replace` and `del`
-// change or read the table the way iproute2 prints and takes them; every other
-// command goes to the fakeHost (sysctl, iptables). The table keeps one entry
-// per (network, device).
+// change or read the table the way iproute2 prints and takes them; `ip link
+// del dev <if>` drops the routes of that device, as the kernel does; every
+// other command goes to the fakeHost (sysctl, iptables). The table keeps one
+// entry per (network, device, metric).
 type routeHost struct {
 	host       *fakeHost
 	mu         sync.Mutex
@@ -76,28 +87,40 @@ func printGateway(gw string) string {
 	return gw
 }
 
-// add puts a route in the table.
+// add puts a route of the family's default metric in the table.
 func (r *routeHost) add(network, gw, dev string) {
+	canon := canonRoute(network, gw)
+	r.addMetric(canon, gw, dev, familyMetric(canon))
+}
+
+// addMetric puts a route of the given metric in the table.
+func (r *routeHost) addMetric(network, gw, dev string, metric int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.put(kernelRoute{canonRoute(network, gw), gw, dev})
+	r.put(kernelRoute{canonRoute(network, gw), gw, dev, metric})
 }
 
 func (r *routeHost) put(rt kernelRoute) {
 	var keep []kernelRoute
 	for _, x := range r.table {
-		if x.net != rt.net || x.dev != rt.dev {
+		if x.net != rt.net || x.dev != rt.dev || x.metric != rt.metric {
 			keep = append(keep, x)
 		}
 	}
 	r.table = append(keep, rt)
 }
 
+// has reports whether the table holds the route with the family's default metric.
 func (r *routeHost) has(network, gw, dev string) bool {
+	canon := canonRoute(network, gw)
+	return r.hasMetric(canon, gw, dev, familyMetric(canon))
+}
+
+func (r *routeHost) hasMetric(network, gw, dev string, metric int) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for _, x := range r.table {
-		if x == (kernelRoute{canonRoute(network, gw), gw, dev}) {
+		if x == (kernelRoute{canonRoute(network, gw), gw, dev, metric}) {
 			return true
 		}
 	}
@@ -130,6 +153,21 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 	if ok, out, err := r.addrExec(line, args); ok {
 		return out, err
 	}
+	if dev, ok := strings.CutPrefix(line, "ip link del dev "); ok {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		var keep []kernelRoute
+		for _, x := range r.table {
+			if x.dev != dev {
+				keep = append(keep, x)
+			}
+		}
+		r.table = keep
+		return nil, nil
+	}
+	if strings.HasPrefix(line, "ip link set dev ") {
+		return nil, nil
+	}
 	family := 4
 	a := args
 	if len(a) > 0 && (a[0] == "-4" || a[0] == "-6") {
@@ -156,11 +194,15 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 			case a[2] == "dev" && x.dev == a[3]:
 				fmt.Fprintf(&out, "%s via %s dev %s proto static\n", printRoute(x.net), x.gw, x.dev)
 			case a[2] == "default" && printRoute(x.net) == "default":
-				if x.gw == "" {
-					fmt.Fprintf(&out, "default dev %s\n", x.dev)
-				} else {
-					fmt.Fprintf(&out, "default via %s dev %s\n", x.gw, x.dev)
+				out.WriteString("default")
+				if x.gw != "" {
+					fmt.Fprintf(&out, " via %s", x.gw)
 				}
+				fmt.Fprintf(&out, " dev %s", x.dev)
+				if v6 || x.metric != 0 { // IPv4 does not print metric 0, IPv6 prints every metric
+					fmt.Fprintf(&out, " metric %d", x.metric)
+				}
+				out.WriteString("\n")
 			}
 		}
 		if a[2] == "dev" {
@@ -169,32 +211,48 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 			}
 		}
 		return []byte(out.String()), nil
-	case "replace": // ip route replace <net> [via <gw>] dev <dev>
-		// The route key is the destination (and metric), not the device: the
-		// kernel replaces a route of the same destination that leaves by
-		// another device (a host default route on eth0 is gone after the
-		// mesh default replaced it on wg0).
-		gw, dev := "", ""
-		switch {
-		case len(a) == 7 && a[3] == "via" && a[5] == "dev":
-			gw, dev = a[4], a[6]
-		case len(a) == 5 && a[3] == "dev":
-			dev = a[4]
-		default:
+	case "replace": // ip route replace <net> [via <gw>] dev <dev> [onlink] [metric <m>]
+		// The route key is the destination and metric, not the device: the
+		// kernel replaces a route of the same destination and metric that
+		// leaves by another device (a host default route on eth0 is gone
+		// after the mesh default replaced it on wg0); a route of another
+		// metric stays.
+		gw, dev, metric, metricSet := "", "", 0, false
+		for i := 3; i < len(a); i++ {
+			switch {
+			case a[i] == "onlink":
+			case i+1 < len(a) && a[i] == "via":
+				gw, i = a[i+1], i+1
+			case i+1 < len(a) && a[i] == "dev":
+				dev, i = a[i+1], i+1
+			case i+1 < len(a) && a[i] == "metric":
+				m, err := strconv.Atoi(a[i+1])
+				if err != nil {
+					return nil, fmt.Errorf("fake host: bad metric in %q", line)
+				}
+				metric, metricSet, i = m, true, i+1
+			default:
+				return nil, fmt.Errorf("fake host: unexpected command %q", line)
+			}
+		}
+		if dev == "" {
 			return nil, fmt.Errorf("fake host: unexpected command %q", line)
 		}
 		canon := routes.Canonical(a[2], v6 || strings.Contains(a[2], ":") || strings.Contains(gw, ":"))
+		if !metricSet {
+			metric = familyMetric(canon)
+		}
 		if err := r.replaceErr[canon]; err != nil {
 			return []byte("RTNETLINK answers: Operation not permitted"), err
 		}
 		var keep []kernelRoute
 		for _, x := range r.table {
-			if x.net != canon {
+			if x.net != canon || x.metric != metric {
 				keep = append(keep, x)
 			}
 		}
 		r.table = keep
-		r.put(kernelRoute{canon, printGateway(gw), dev})
+		r.put(kernelRoute{canon, printGateway(gw), dev, metric})
 		return nil, nil
 	case "add": // ip route add <net> dev <dev> ...: the restore of a connected route; not kept
 		return nil, nil
@@ -205,9 +263,10 @@ func (r *routeHost) exec(name string, args ...string) ([]byte, error) {
 		if err := r.delErr[canonRoute(a[2], a[4])]; err != nil {
 			return []byte("RTNETLINK answers: Operation not permitted"), err
 		}
-		want := kernelRoute{canonRoute(a[2], a[4]), printGateway(a[4]), a[6]}
+		// Without a metric the kernel deletes the first route that matches.
+		want := kernelRoute{canonRoute(a[2], a[4]), printGateway(a[4]), a[6], 0}
 		for i, x := range r.table {
-			if x == want {
+			if x.net == want.net && x.gw == want.gw && x.dev == want.dev {
 				r.table = append(r.table[:i], r.table[i+1:]...)
 				return nil, nil
 			}
@@ -756,11 +815,11 @@ func TestMeshDefaultRemovalRestoresHostDefault(t *testing.T) {
 		del, restore string
 	}{
 		{"IPv4 with a gateway", "192.168.1.1", "eth0", "0.0.0.0/0", "10.99.0.2", "",
-			"ip route del 0.0.0.0/0 via 10.99.0.2 dev wg0", "ip route replace default via 192.168.1.1 dev eth0"},
+			"ip route del 0.0.0.0/0 via 10.99.0.2 dev wg0", "ip route replace default via 192.168.1.1 dev eth0 metric 0"},
 		{"IPv4 without a gateway", "", "ppp0", "0.0.0.0/0", "10.99.0.2", "",
-			"ip route del 0.0.0.0/0 via 10.99.0.2 dev wg0", "ip route replace default dev ppp0"},
+			"ip route del 0.0.0.0/0 via 10.99.0.2 dev wg0", "ip route replace default dev ppp0 metric 0"},
 		{"IPv6", "fe80::1", "eth0", "::/0", "fd99::2", "fd99::2",
-			"ip route del ::/0 via fd99::2 dev wg0", "ip -6 route replace default via fe80::1 dev eth0"},
+			"ip route del ::/0 via fd99::2 dev wg0", "ip -6 route replace default via fe80::1 dev eth0 metric 1024"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

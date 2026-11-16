@@ -99,7 +99,7 @@ type Daemon struct {
 	darwinWarned       map[string]struct{}  // macOS: kind|family|text of the cases warned about that still hold
 	darwinInstalled    map[string]struct{}  // macOS: canonical networks this daemon run installed on the mesh interface
 	hostDefaultReadErr map[string]string    // family -> last error text of reading the host default route
-	hostDefaults       map[string]hostRoute // family -> the host default route seen before the mesh one replaced it (restored when the mesh default is removed)
+	hostDefaults       map[string]hostRoute // family -> the host default route the mesh one replaced (restored when the mesh default is removed or at exit)
 	// Seams of the kernel and the log, set at construction; nil means the
 	// real wireguard functions and log.Printf (see converge.go).
 	setPeerFn    func(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error
