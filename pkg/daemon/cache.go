@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 const (
@@ -58,8 +60,9 @@ func LoadPeerCache(interfaceName string) (*PeerCache, error) {
 // buildPeerCache is the content SavePeerCache writes.
 func buildPeerCache(peerStore *PeerStore) *PeerCache {
 	peers := peerStore.GetAll()
+	now := time.Now()
 	cache := &PeerCache{
-		UpdatedAt: time.Now().Unix(),
+		UpdatedAt: now.Unix(),
 	}
 
 	for _, p := range peers {
@@ -69,6 +72,9 @@ func buildPeerCache(peerStore *PeerStore) *PeerCache {
 		if p.EndpointGuessed {
 			endpoint = ""
 		}
+		// last_seen is the newest evidence (LastAlive), so a peer kept
+		// connected by handshakes is saved with a fresh time; the field and its
+		// type are unchanged, an older version reads it as before.
 		cache.Peers = append(cache.Peers, PeerCacheEntry{
 			WGPubKey:         p.WGPubKey,
 			Hostname:         p.Hostname,
@@ -78,7 +84,7 @@ func buildPeerCache(peerStore *PeerStore) *PeerCache {
 			Introducer:       p.Introducer,
 			RoutableNetworks: p.RoutableNetworks,
 			NATType:          p.NATType,
-			LastSeen:         p.LastSeen.Unix(),
+			LastSeen:         p.LastAlive(now).Unix(),
 		})
 	}
 	return cache
@@ -120,6 +126,7 @@ func RestoreFromCache(interfaceName string, peerStore *PeerStore) int {
 func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 	now := time.Now()
 	restored := 0
+	var keys []string
 
 	for _, entry := range cache.Peers {
 		lastSeen := time.Unix(entry.LastSeen, 0)
@@ -143,10 +150,24 @@ func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 
 		peerStore.Offer(Candidate{Info: peer, Source: "cache", Hand: Restored})
 		restored++
+		keys = append(keys, entry.WGPubKey)
 	}
 
 	if restored > 0 {
-		log.Printf("[Cache] Restored %d peers from cache", restored)
+		alive, suspected := 0, 0
+		for _, key := range keys {
+			p, ok := peerStore.Get(key)
+			if !ok {
+				continue
+			}
+			switch p.Alive(now) {
+			case node.Alive:
+				alive++
+			case node.Suspect:
+				suspected++
+			}
+		}
+		log.Printf("[Cache] Restored %d peers from cache (%d alive, %d only suspected)", restored, alive, suspected)
 	}
 
 	return restored
