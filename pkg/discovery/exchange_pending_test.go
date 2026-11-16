@@ -206,3 +206,51 @@ func TestRegisterReplyConcurrentCallersUnderRace(t *testing.T) {
 		t.Fatalf("entry=%v, map size=%d after all callers returned, want none", entry, total)
 	}
 }
+ 
+// Words: handleReply gives every registered caller its own copy of the
+// received PeerInfo, slices and pointer fields included.
+// Why: one shared *PeerInfo sent to several goroutines turns any later write
+// by one caller (Endpoint, RoutableNetworks) into a race with the others.
+// Invariant: no two receivers, and not the receiver and the PeerStore, share
+// a PeerInfo or the backing array of one of its slices.
+func TestHandleReplyGivesEveryCallerItsOwnCopy(t *testing.T) {
+	pe, addr := newPendingTestExchange(t)
+	chA, unA := pe.registerReply(addr.String())
+	defer unA()
+	chB, unB := pe.registerReply(addr.String())
+	defer unB()
+
+	reply := pendingTestReply()
+	reply.RoutableNetworks = []string{"192.168.50.0/24", "192.168.51.0/24"}
+	pe.handleReply(reply, addr)
+
+	a, b := <-chA, <-chB
+	if a == b {
+		t.Fatal("two callers received the same *PeerInfo")
+	}
+	if &a.RoutableNetworks[0] == &b.RoutableNetworks[0] {
+		t.Fatal("two callers share the RoutableNetworks backing array")
+	}
+
+	// Run with -race: A writes its copy while B reads its own.
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			a.Endpoint = "203.0.113.1:1"
+			a.RoutableNetworks[0] = "10.9.9.0/24"
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 1000; i++ {
+			_ = b.Endpoint
+			_ = b.RoutableNetworks[0]
+		}
+	}()
+	wg.Wait()
+	if b.RoutableNetworks[0] != "192.168.50.0/24" {
+		t.Fatalf("caller B's RoutableNetworks changed to %q by caller A's write", b.RoutableNetworks[0])
+	}
+}
