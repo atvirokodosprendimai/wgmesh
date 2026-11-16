@@ -456,6 +456,62 @@ func TestInstallSystemdService_ExecCommands(t *testing.T) {
 	}
 }
 
+// TestWriteSecretEnvEnforcesMode: a secret.env left by an earlier install with
+// a looser mode ends up 0600, and its content is replaced.
+func TestWriteSecretEnvEnforcesMode(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret.env")
+	if err := os.WriteFile(path, []byte("WGMESH_SECRET=\"old\"\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	// os.WriteFile applies the umask on create only; make the mode exact.
+	if err := os.Chmod(path, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := writeSecretEnv(path, `a"b\c`); err != nil {
+		t.Fatalf("writeSecretEnv: %v", err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Errorf("secret.env mode = %o, want 600", got)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "WGMESH_SECRET=\"a\\\"b\\\\c\"\n"; string(data) != want {
+		t.Errorf("secret.env = %q, want %q", data, want)
+	}
+}
+
+// TestWriteSecretEnvCreatesMode0600: a new file is created 0600 and no temp
+// file is left beside it.
+func TestWriteSecretEnvCreatesMode0600(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secret.env")
+	if err := writeSecretEnv(path, "s"); err != nil {
+		t.Fatalf("writeSecretEnv: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Errorf("secret.env mode = %o, want 600", got)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Errorf("directory holds %d entries, want only secret.env", len(entries))
+	}
+}
+
 // TestUninstallSystemdService_ExecCommands verifies that UninstallSystemdService issues
 // the expected systemctl commands via cmdExecutor.
 func TestUninstallSystemdService_ExecCommands(t *testing.T) {
