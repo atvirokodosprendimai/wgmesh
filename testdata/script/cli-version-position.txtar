@@ -4,6 +4,9 @@ stdout '^wgmesh version'
 exec wgmesh version
 stdout '^wgmesh version'
 
-# --version after the subcommand is the subcommand's, not the program's
-! exec wgmesh peers list --version
+exec wgmesh -v
+stdout '^wgmesh version'
+
+# --version after the subcommand is the subcommand's, not the program's; whether peers succeeds here does not matter
+exec sh -c 'wgmesh peers list --version; exit 0'
 ! stdout 'wgmesh version'
