@@ -564,10 +564,15 @@ func TestSecretFromFlagOrEnvPrecedence(t *testing.T) {
 	if got, err := secretFromFlagOrEnv(""); err != nil || got != "file-value" {
 		t.Errorf("file: got %q, %v", got, err)
 	}
+	t.Setenv("WGMESH_SECRET", "   ")
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "file-value" {
+		t.Errorf("blank env falls through to file: got %q, %v", got, err)
+	}
 	t.Setenv("WGMESH_SECRET_FILE", "")
 	if got, err := secretFromFlagOrEnv(""); err != nil || got != "" {
-		t.Errorf("nothing set: got %q, %v", got, err)
+		t.Errorf("blank env alone: got %q, %v", got, err)
 	}
+	t.Setenv("WGMESH_SECRET", "")
 }
 
 func TestSecretFromFlagOrEnvFileTrimmed(t *testing.T) {
@@ -579,6 +584,14 @@ func TestSecretFromFlagOrEnvFileTrimmed(t *testing.T) {
 	t.Setenv("WGMESH_SECRET_FILE", path)
 	if got, err := secretFromFlagOrEnv(""); err != nil || got != "file-value" {
 		t.Errorf("got %q, %v", got, err)
+	}
+	blank := filepath.Join(t.TempDir(), "blank")
+	if err := os.WriteFile(blank, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WGMESH_SECRET_FILE", blank)
+	if _, err := secretFromFlagOrEnv(""); err == nil || !strings.Contains(err.Error(), blank) {
+		t.Errorf("empty file: want an error naming %s, got %v", blank, err)
 	}
 }
 
@@ -639,6 +652,14 @@ func TestCommandsFindSecretFromEnvAndFile(t *testing.T) {
 			}
 		})
 	}
+	// install-service reaches the helper: with the variable set it gets past the
+	// secret check and stops at the route check, before touching the host.
+	t.Run("install-service WGMESH_SECRET", func(t *testing.T) {
+		_, stderr, code := runWgmesh(t, bin, []string{"WGMESH_SECRET=" + secret}, "install-service", "--advertise-routes", "bogus")
+		if code != 1 || strings.Contains(stderr, "--secret is required") || !strings.Contains(stderr, "invalid --advertise-routes") {
+			t.Errorf("exit %d, stderr: %s", code, stderr)
+		}
+	})
 }
 
 // TestJoinUnreadableSecretFileExitsOne: join keeps its message and exit code for a secret file it cannot read
