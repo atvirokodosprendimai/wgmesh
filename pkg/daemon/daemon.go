@@ -70,6 +70,14 @@ type Daemon struct {
 	offlineMu              sync.Mutex
 	temporaryOffline       map[string]time.Time
 
+	// clock is the daemon's time source; nil means time.Now (see now). It is
+	// set before the loops start and never written after, so every goroutine
+	// may read it.
+	clock func() time.Time
+	// resumeCh carries the resume loop's request for a reconcile to
+	// reconcileLoop (capacity 1, non-blocking send); nil is never ready.
+	resumeCh chan struct{}
+
 	// configMu guards the hot-reloadable fields in config and localNode.
 	// Callers that read AdvertiseRoutes or LogLevel at runtime must hold at
 	// least a read lock; SIGHUP reload holds the write lock.
@@ -281,6 +289,7 @@ func NewDaemon(config *Config) (*Daemon, error) {
 		probeSessions:          make(map[string]*peerProbeSession),
 		probeFailures:          make(map[string]int),
 		temporaryOffline:       make(map[string]time.Time),
+		resumeCh:               make(chan struct{}, 1),
 		ctx:                    ctx,
 		cancel:                 cancel,
 	}

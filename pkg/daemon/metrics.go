@@ -63,6 +63,11 @@ var (
 		Help: "Cases where the decision a reader site takes from LastSeen differs from the decision by the liveness evidence; counted on every call, not once per distinct peer, so a standing case counts again on each pass",
 	}, []string{"site"})
 
+	resumeDetected = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "wgmesh_resume_detected_total",
+		Help: "Wakes from sleep the resume loop detected: the wall clock advanced by more than ResumeGapThreshold between two checks",
+	})
+
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 )
@@ -99,6 +104,7 @@ func registerMetrics(reg prometheus.Registerer) {
 	for _, site := range LivenessDisagreeSites {
 		livenessDisagree.WithLabelValues(site)
 	}
+	reg.MustRegister(resumeDetected)
 	reg.MustRegister(goCollector)
 	reg.MustRegister(processCollector)
 }
@@ -177,17 +183,20 @@ func recordLivenessDisagree(site string) {
 }
 
 // The sites of wgmesh_liveness_disagree_total: the three store readers (named
-// in pkg/node) and the four readers outside it.
+// in pkg/node), the four readers outside it and the wake grace.
 const (
 	SiteRelayCandidate      = "relay-candidate"
 	SiteProbeEnforce        = "probe-enforce"
 	SiteRendezvousSkip      = "rendezvous-skip"
 	SiteIntroducerCandidate = "introducer-candidate"
+	// SiteResumeGrace counts an eviction or a stale-handshake relay choice the
+	// wake grace would have blocked while EnforceLiveness is false.
+	SiteResumeGrace = "resume-grace"
 )
 
 // LivenessDisagreeSites lists every site label of the counter; registerMetrics
 // pre-seeds each at 0 and the tests walk the same list.
-var LivenessDisagreeSites = []string{"get-active", "cleanup", "is-dead", SiteRelayCandidate, SiteProbeEnforce, SiteRendezvousSkip, SiteIntroducerCandidate}
+var LivenessDisagreeSites = []string{"get-active", "cleanup", "is-dead", SiteRelayCandidate, SiteProbeEnforce, SiteRendezvousSkip, SiteIntroducerCandidate, SiteResumeGrace}
 
 // LivenessDisagreeCounter returns the counter series of site, for tests of
 // readers in other packages.

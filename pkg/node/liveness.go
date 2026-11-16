@@ -203,3 +203,11 @@ func (ps *PeerStore) SetLivenessDisagreeHook(fn func(site string)) {
 	defer ps.mu.Unlock()
 	ps.livenessDisagree = fn
 }
+
+// Resumer is implemented by a discovery layer that has actions to take when
+// the node wakes from sleep; the daemon calls OnResume once per detected wake,
+// from the resume goroutine, so an implementation must be safe to call
+// beside its own loops.
+type Resumer interface {
+	OnResume()
+}
