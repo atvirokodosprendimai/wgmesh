@@ -776,7 +776,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 			relay := d.selectRelayForPeer(p, relayCandidates)
 			if relay != nil {
 				relayRoutes[p.WGPubKey] = relay.WGPubKey
-				if probeRelayed {
+				if probeRelayed && d.hasUsableEndpoint(p) {
 					// Kept on the interface with its endpoint and no AllowedIPs: WireGuard
 					// drops its direct data packets, and its handshake attempts keep
 					// running, so a fresh handshake can bring it back (#852).
@@ -960,10 +960,7 @@ func (d *Daemon) applyDesiredPeerConfigs(desired map[string]*desiredPeerConfig) 
 	// One failing peer must not block the rest: keep going, report the first error.
 	var firstErr error
 	for pubKey, cfg := range desired {
-		if cfg.peer.Endpoint == "" {
-			continue
-		}
-		if d.config.DisableIPv6 && isIPv6Endpoint(cfg.peer.Endpoint) {
+		if !d.hasUsableEndpoint(cfg.peer) {
 			continue
 		}
 		if len(cfg.allowed) == 0 && !cfg.probeOnly {
@@ -1014,6 +1011,17 @@ func hasDiscoveryMethod(methods []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// hasUsableEndpoint reports whether the apply step can send p to WireGuard: it
+// has an endpoint, and not an IPv6 one while IPv6 is disabled. The desired set
+// holds a probe-only entry only for such a peer, since the apply step skips
+// the others and a skipped entry would never be removed.
+func (d *Daemon) hasUsableEndpoint(p *PeerInfo) bool {
+	if p.Endpoint == "" {
+		return false
+	}
+	return !(d.config.DisableIPv6 && isIPv6Endpoint(p.Endpoint))
 }
 
 func isIPv6Endpoint(endpoint string) bool {
