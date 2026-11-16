@@ -697,7 +697,7 @@ func secretFromFlagOrEnv(flagValue string) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil
 	}
-	if envSecret := os.Getenv("WGMESH_SECRET"); envSecret != "" {
+	if envSecret := strings.TrimSpace(os.Getenv("WGMESH_SECRET")); envSecret != "" {
 		return envSecret, nil
 	}
 	if secretFile := os.Getenv("WGMESH_SECRET_FILE"); secretFile != "" {
