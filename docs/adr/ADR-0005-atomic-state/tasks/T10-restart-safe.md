@@ -70,6 +70,12 @@ n=$(go test ./pkg/discovery -run '^(TestPeerExchangeRestartKeepsOneLoop|TestPeer
 | 4 — it is used | no code restarts them today; #829 would (another group) |
 
 ## Mutation Log
+- 2026-11-16 · b3cf9df* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · the loop reads the struct field again: TestListenLoopUsesItsArguments must go red · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5
+- 2026-11-16 · b3cf9df* · mutant killed · exit 1 · `pkg/discovery/dht.go` · the restarted run keeps the cancelled context: TestDHTBeginRunGivesLiveContext must go red · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5
+- 2026-11-16 · b3cf9df* · mutant killed · exit 1 · `pkg/discovery/dht.go` · the run no longer follows its parent: TestDHTRestartContextFollowsParent must go red · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5
+- 2026-11-16 · b3cf9df* · mutant killed · exit 1 · `pkg/discovery/exchange.go` · Stop returns before the loop ended: TestPeerExchangeStopWaitsForLoop must go red · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5
+- 2026-11-16 · b3cf9df* · mutant killed · exit 1 · `pkg/discovery/dht.go` · DHT Stop returns before its loops ended: TestDHTStopWaitsForLoops must go red · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5
+- 2026-11-16 · b3cf9df* · mutant killed · exit 1 · `pkg/discovery/dht.go` · Start after the parent ended returns nil: TestDHTStartAfterParentCancelled must go red · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5
 
 ## Invariants
 
@@ -94,3 +100,24 @@ Stop and ask if `DHTDiscovery.Start` is changed by ADR-0002 T9 so that the conte
 - `EpochManager.Stop` and `rpc.Server.Stop` restart behaviour (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-16 · b3cf9df* · exit 1 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:507 · test-lock-sha256:1ede5ff6d0b39524b231dbefaa36a8424cd60041ef8d7edda03be6da06071138 · test-lock-file:docs/adr/locks/1ede5ff6d0b39524b231dbefaa36a8424cd60041ef8d7edda03be6da06071138.lock
+  ```
+  --- last 10 line(s) of stderr (of 26 after folding 26 raw)
+  pkg/discovery/exchange_pending_test.go:276:17: too many arguments in call to pe.listenLoop
+  	have (chan struct{}, *net.UDPConn, *"sync".WaitGroup)
+  	want ()
+  pkg/discovery/restart_test.go:269:15: d.loops undefined (type *DHTDiscovery has no field or method loops)
+  pkg/discovery/restart_test.go:275:15: d.loops undefined (type *DHTDiscovery has no field or method loops)
+  pkg/discovery/restart_test.go:327:2: undefined: startHook
+  pkg/discovery/restart_test.go:331:21: undefined: startHook
+  pkg/discovery/restart_test.go:331:21: too many errors
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/discovery [build failed]
+  FAIL
+  ```
+- 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:12437
+- 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:11299
+- 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:11974
+- 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:12077
+- 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:14432
+- 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:13378
+- 2026-11-16 · b3cf9df* · exit 0 · `set -o pipefail …` · acceptance-sha256:176671ea1b612351a82b02102710fe030075578195faad7817fe51e14631cba5 · ms:9316
