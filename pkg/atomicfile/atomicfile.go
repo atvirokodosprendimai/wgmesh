@@ -24,13 +24,21 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 )
 
 // Test seams: tests replace these to observe the order of the commit steps.
+// They are atomic because WriteFile runs from several goroutines (cache saver,
+// state writers) while a test replaces them.
 var (
-	syncFile = func(f *os.File) error { return f.Sync() }
-	syncDir  = func(dir string) error {
+	syncFile atomic.Pointer[func(*os.File) error]
+	syncDir  atomic.Pointer[func(string) error]
+)
+
+func init() {
+	sf := func(f *os.File) error { return f.Sync() }
+	sd := func(dir string) error {
 		d, err := os.Open(dir)
 		if err != nil {
 			return err
@@ -41,7 +49,9 @@ var (
 		}
 		return err
 	}
-)
+	syncFile.Store(&sf)
+	syncDir.Store(&sd)
+}
 
 // WriteFile replaces path with data, whole or not at all.
 //
@@ -76,7 +86,7 @@ func WriteFile(path string, data []byte, perm os.FileMode) (err error) {
 	if _, err = tmp.Write(data); err != nil {
 		return fmt.Errorf("atomicfile: write %s: %w", tmpName, err)
 	}
-	if err = syncFile(tmp); err != nil {
+	if err = (*syncFile.Load())(tmp); err != nil {
 		return fmt.Errorf("atomicfile: sync %s: %w", tmpName, err)
 	}
 	closed = true
@@ -88,7 +98,7 @@ func WriteFile(path string, data []byte, perm os.FileMode) (err error) {
 	}
 	// The rename is done: path holds the new content, so a failed directory
 	// sync is reported but the temp file is already gone.
-	if serr := syncDir(dir); serr != nil &&
+	if serr := (*syncDir.Load())(dir); serr != nil &&
 		!errors.Is(serr, syscall.EINVAL) && !errors.Is(serr, syscall.ENOTSUP) {
 		return fmt.Errorf("atomicfile: sync directory %s: %w", dir, serr)
 	}

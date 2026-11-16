@@ -101,11 +101,11 @@ func TestWriteFileSyncsFileThenDirectory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	origFile, origDir := syncFile, syncDir
-	t.Cleanup(func() { syncFile, syncDir = origFile, origDir })
+	origFile, origDir := *syncFile.Load(), *syncDir.Load()
+	t.Cleanup(func() { syncFile.Store(&origFile); syncDir.Store(&origDir) })
 
 	var events []string
-	syncFile = func(f *os.File) error {
+	setFile(func(f *os.File) error {
 		events = append(events, "file")
 		if f.Name() == path {
 			t.Error("syncFile got the target, want the temp file")
@@ -117,8 +117,8 @@ func TestWriteFileSyncsFileThenDirectory(t *testing.T) {
 			t.Errorf("target at file sync = %q, want old (rename not yet done)", got)
 		}
 		return origFile(f)
-	}
-	syncDir = func(d string) error {
+	})
+	setDir(func(d string) error {
 		events = append(events, "dir")
 		if d != dir {
 			t.Errorf("syncDir dir = %q, want %q", d, dir)
@@ -127,7 +127,7 @@ func TestWriteFileSyncsFileThenDirectory(t *testing.T) {
 			t.Errorf("target at dir sync = %q, want new (rename already done)", got)
 		}
 		return origDir(d)
-	}
+	})
 
 	if err := WriteFile(path, []byte("new"), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -139,8 +139,8 @@ func TestWriteFileSyncsFileThenDirectory(t *testing.T) {
 
 func replaceSeams(t *testing.T) {
 	t.Helper()
-	origFile, origDir := syncFile, syncDir
-	t.Cleanup(func() { syncFile, syncDir = origFile, origDir })
+	origFile, origDir := *syncFile.Load(), *syncDir.Load()
+	t.Cleanup(func() { syncFile.Store(&origFile); syncDir.Store(&origDir) })
 }
 
 func TestWriteFileKeepsOldFileWhenSyncFails(t *testing.T) {
@@ -150,7 +150,7 @@ func TestWriteFileKeepsOldFileWhenSyncFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	replaceSeams(t)
-	syncFile = func(*os.File) error { return syscall.EIO }
+	setFile(func(*os.File) error { return syscall.EIO })
 
 	err := WriteFile(path, []byte("new"), 0o600)
 	if !errors.Is(err, syscall.EIO) {
@@ -170,7 +170,7 @@ func TestWriteFileIgnoresUnsupportedDirSync(t *testing.T) {
 			dir := t.TempDir()
 			path := filepath.Join(dir, "target")
 			replaceSeams(t)
-			syncDir = func(string) error { return errno }
+			setDir(func(string) error { return errno })
 
 			if err := WriteFile(path, []byte("new"), 0o600); err != nil {
 				t.Fatalf("WriteFile: %v, want nil when the directory sync is unsupported", err)
@@ -189,7 +189,7 @@ func TestWriteFileReportsDirSyncFailureAfterRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	replaceSeams(t)
-	syncDir = func(string) error { return syscall.EIO }
+	setDir(func(string) error { return syscall.EIO })
 
 	err := WriteFile(path, []byte("new"), 0o600)
 	if !errors.Is(err, syscall.EIO) {
