@@ -70,7 +70,7 @@ var (
 
 	relayRouteAge = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "wgmesh_relay_route_age_seconds",
-		Help: "Seconds since a peer entered the relay routes (it is reached through an introducer, not directly); one series per relayed peer, set on every reconcile pass and deleted when the peer leaves the relay routes",
+		Help: "Seconds since this daemon first saw the peer relayed; restarts at 0 after a daemon restart; one series per relayed peer, labelled with the first 8 characters of its key",
 	}, []string{"peer"})
 
 	goCollector      = collectors.NewGoCollector()
@@ -151,6 +151,15 @@ func ObserveReconcileDuration(start time.Time) {
 // RecordDiscoveryEvent increments the discovery event counter for the given layer.
 func RecordDiscoveryEvent(layer string) {
 	discoveryEvents.WithLabelValues(layer).Inc()
+}
+
+// peerLabel is the value of a per-peer metric label: the first 8 characters of
+// the WireGuard public key, as the probe metrics use.
+func peerLabel(key string) string {
+	if len(key) > 8 {
+		return key[:8]
+	}
+	return key
 }
 
 // ObserveProbeRTT records the round-trip time for a mesh probe to the given peer.

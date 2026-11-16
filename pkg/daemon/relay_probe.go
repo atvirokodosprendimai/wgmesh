@@ -51,11 +51,11 @@ func (d *Daemon) storeRelayPlan(relayRoutes map[string]string, directStable map[
 		if age < 0 {
 			age = 0 // the clock stepped back
 		}
-		relayRouteAge.WithLabelValues(key).Set(age)
+		relayRouteAge.WithLabelValues(peerLabel(key)).Set(age)
 	}
 	for key := range d.relayRouteSince {
 		if _, ok := relayRoutes[key]; !ok {
-			relayRouteAge.DeleteLabelValues(key)
+			relayRouteAge.DeleteLabelValues(peerLabel(key))
 		}
 	}
 	d.relayRoutes = relayRoutes
