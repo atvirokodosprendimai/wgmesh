@@ -261,3 +261,27 @@ func TestDHTStopWaitsForLoops(t *testing.T) {
 		}
 	}
 }
+
+// TestPeerExchangeWithPeerDuringRestart runs ExchangeWithPeer while the
+// exchange is stopped and started again. Words: port is written by Start under
+// pe.mu, so every read (also the log lines of ExchangeWithPeer) goes through
+// pe.Port. It is a -race test; without -race it only checks nothing hangs.
+func TestPeerExchangeWithPeerDuringRestart(t *testing.T) {
+	pe := newRestartExchange(t, "wgmesh-test-restart-port-race-1")
+	t.Cleanup(pe.Stop)
+	if err := pe.Start(); err != nil {
+		t.Fatalf("first Start: %v", err)
+	}
+	pe.Stop()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = pe.ExchangeWithPeer("127.0.0.1:1") // ends fast on the closed connection, or at ExchangeTimeout
+	}()
+	if err := pe.Start(); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+	pe.Stop()
+	<-done
+}
