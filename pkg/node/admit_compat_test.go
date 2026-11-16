@@ -120,7 +120,7 @@ func TestAdmitCompatFixtures(t *testing.T) {
 				ps, warned := compatStore(t, f, c)
 				d, got := playCompat(t, c, ps, warned)
 				if ph.then {
-					EnforceRouteBinding = true
+					EnforceRouteBinding.Store(true)
 					d, got = playCompat(t, c, ps, warned)
 				}
 

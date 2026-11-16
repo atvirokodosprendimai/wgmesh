@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/anacrolix/dht/v2"
@@ -253,7 +254,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
 			log.Printf("[STUN] IPv6 endpoint discovered: %s (no NAT)", ipv6Endpoint)
 			d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint)
-			d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
+			d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
 			return
 		}
 	}
@@ -269,7 +270,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 		endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 		log.Printf("[STUN] External endpoint discovered: %s (NAT type unknown — need 2 servers)", endpoint)
 		d.localNode.ObserveEndpoint(daemon.EndpointSTUN, endpoint)
-		d.localNode.NATType = string(NATUnknown)
+		d.localNode.SetNATType(string(NATUnknown))
 		return
 	}
 
@@ -282,7 +283,7 @@ func (d *DHTDiscovery) discoverExternalEndpoint() {
 	endpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 	log.Printf("[STUN] External endpoint: %s, NAT type: %s", endpoint, natType)
 	d.localNode.ObserveEndpoint(daemon.EndpointSTUN, endpoint)
-	d.localNode.NATType = string(natType)
+	d.localNode.SetNATType(string(natType))
 }
 
 func (d *DHTDiscovery) discoverIPv6Endpoint() string {
@@ -418,7 +419,7 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 					if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
 						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
 					}
-					d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
+					d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
 					continue
 				}
 			}
@@ -433,14 +434,14 @@ func (d *DHTDiscovery) stunRefreshLoop() {
 				}
 				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
 				currentEP := d.localNode.GetEndpoint()
-				oldNAT := d.localNode.NATType
+				oldNAT := d.localNode.GetNATType()
 				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
 					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
 				}
 				if string(natType) != oldNAT {
 					log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
 				}
-				d.localNode.NATType = string(natType)
+				d.localNode.SetNATType(string(natType))
 			} else {
 				// Fallback: single-server IP-only refresh
 				ip, _, err := DiscoverExternalEndpoint(0)
@@ -1050,7 +1051,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			return
 		}
 		if peerInfo != nil {
-			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, handshakeWaitTimeout)
+			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, time.Duration(handshakeWaitTimeout.Load()))
 			if newHandshake <= baseline {
 				log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(target.WGPubKey), endpoint)
 				d.recordRendezvousAttempt(target.WGPubKey, false)
@@ -1133,18 +1134,25 @@ func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.
 	d.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: source, Hand: daemon.FirstHand})
 }
 
-// peerHandshakes and handshakeWaitTimeout are test seams: production values are
-// wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
+// peerHandshakes and handshakeWaitTimeout (nanoseconds) are test seams, atomic
+// because the punch goroutines read them while a test replaces them: production
+// values are wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
 var (
-	peerHandshakes       = wireguard.GetLatestHandshakes
-	handshakeWaitTimeout = HandshakeWaitTimeout
+	peerHandshakes       atomic.Pointer[func(string) (map[string]int64, error)]
+	handshakeWaitTimeout atomic.Int64
 )
+
+func init() {
+	f := wireguard.GetLatestHandshakes
+	peerHandshakes.Store(&f)
+	handshakeWaitTimeout.Store(int64(HandshakeWaitTimeout))
+}
 
 func getPeerHandshakeTS(iface, peerPubKey string) int64 {
 	if iface == "" || peerPubKey == "" {
 		return 0
 	}
-	hs, err := peerHandshakes(iface)
+	hs, err := (*peerHandshakes.Load())(iface)
 	if err != nil {
 		return 0
 	}
@@ -1445,7 +1453,7 @@ func shortKey(key string) string {
 }
 
 func (d *DHTDiscovery) debugf(format string, args ...interface{}) {
-	if strings.EqualFold(d.config.LogLevel, "debug") {
+	if strings.EqualFold(d.config.GetLogLevel(), "debug") {
 		log.Printf(format, args...)
 	}
 }

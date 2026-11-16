@@ -430,7 +430,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.conn = serverConn
-	go server.listenLoop()
+	go server.listenLoop(server.stopCh, serverConn)
 	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
 	serverAddr := serverConn.LocalAddr().String()
 
@@ -454,7 +454,7 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 				t.Fatal(err)
 			}
 			client.conn = clientConn
-			go client.listenLoop()
+			go client.listenLoop(client.stopCh, clientConn)
 			t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
 			d.exchange = client
 
@@ -494,17 +494,18 @@ func TestExchangeWithAddressStoresCallersMethod(t *testing.T) {
 // Mutants: label DHTMethod+"-transitive" -> DHTMethod, or FirstHand ->
 // SecondHand in admitPunchReply, turn it red.
 func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
-	oldHS, oldWait := peerHandshakes, handshakeWaitTimeout
-	t.Cleanup(func() { peerHandshakes, handshakeWaitTimeout = oldHS, oldWait })
+	oldHS, oldWait := peerHandshakes.Load(), handshakeWaitTimeout.Load()
+	t.Cleanup(func() { peerHandshakes.Store(oldHS); handshakeWaitTimeout.Store(oldWait) })
 	var calls atomic.Int32
 	serverKey := aadKey(2)
-	peerHandshakes = func(string) (map[string]int64, error) {
+	hsFn := func(string) (map[string]int64, error) {
 		if calls.Add(1) <= 2 { // the skip check, then the baseline
 			return map[string]int64{serverKey: 0}, nil
 		}
 		return map[string]int64{serverKey: 100}, nil
 	}
-	handshakeWaitTimeout = 2 * time.Second
+	peerHandshakes.Store(&hsFn)
+	handshakeWaitTimeout.Store(int64(2 * time.Second))
 
 	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-punch-transitive-1"})
 	if err != nil {
@@ -518,7 +519,7 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	server.conn = serverConn
-	go server.listenLoop()
+	go server.listenLoop(server.stopCh, serverConn)
 	t.Cleanup(func() { close(server.stopCh); serverConn.Close() })
 	serverAddr := serverConn.LocalAddr().String()
 
@@ -534,7 +535,7 @@ func TestPunchSuccessKeepsTransitiveLabel(t *testing.T) {
 		t.Fatal(err)
 	}
 	client.conn = clientConn
-	go client.listenLoop()
+	go client.listenLoop(client.stopCh, clientConn)
 	t.Cleanup(func() { close(client.stopCh); clientConn.Close() })
 	d.exchange = client
 
