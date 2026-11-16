@@ -244,7 +244,7 @@ func TestParseNetstatDarwin(t *testing.T) {
 			[]string{"::/0", "fd00:5::/48", "fd00:7::9/128", "fd99::/64"}},
 		{"inet on en0 is not the mesh interface", "netstat-inet.handwritten.txt", false, "utun9", nil},
 		{"inet on en0", "netstat-inet.handwritten.txt", false, "en0",
-			[]string{"169.254.0.0/16", "172.20.1.0/24", "192.168.1.0/24", "192.168.1.1/32", "255.255.255.255/32"}},
+			[]string{"172.20.1.0/24", "192.168.1.0/24", "192.168.1.1/32", "255.255.255.255/32"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

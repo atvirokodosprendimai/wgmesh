@@ -1,20 +1,213 @@
 package daemon
 
 import (
+	"fmt"
 	"net/netip"
+	"sort"
+	"strconv"
+	"strings"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
 )
 
-// Stubs of ADR-0003 T6: they compile and do nothing, so the tests fail on
-// their assertions.
+// darwin_routes.go is the macOS side of the route target (ADR-0003 decision
+// 7): the observe (`netstat`), the parser and the pure plan. The writes
+// (`route -n add|change|delete`) are converge.go's, like every kernel write.
+// The file is not named *_darwin.go: that suffix is a build constraint and
+// the code would not compile or test on Linux.
+//
+// A macOS route has no gateway: it leaves by the mesh interface and
+// WireGuard picks the peer by AllowedIPs, so the Entry of a Darwin route
+// carries only its canonical Network.
 
-// parseNetstatDarwin is a stub.
-func parseNetstatDarwin(out []byte, iface string, ipv6 bool) ([]routes.Entry, error) {
-	return nil, nil
+// readRoutesDarwin reads the routes of iface for one family with
+// `netstat -rn -f inet` or `-f inet6`.
+func readRoutesDarwin(iface string, ipv6 bool) ([]routes.Entry, error) {
+	family := "inet"
+	if ipv6 {
+		family = "inet6"
+	}
+	out, err := cmdExecutor.Command("netstat", "-rn", "-f", family).Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read routes: %w", commandFailure(out, err))
+	}
+	return parseNetstatDarwin(out, iface, ipv6)
 }
 
-// planRoutesDarwin is a stub.
+// observeRoutesDarwin reads the routes of the mesh interface, both families.
+// A family whose read or parse fails is an entry in obs.Errs for that family
+// only; it is never read as "no routes".
+func (d *Daemon) observeRoutesDarwin(obs *kernelObserved) {
+	iface := d.config.InterfaceName
+	if entries, err := readRoutesDarwin(iface, false); err != nil {
+		obs.fail(targetRoutes4, err)
+	} else {
+		obs.Routes4 = entries
+	}
+	if entries, err := readRoutesDarwin(iface, true); err != nil {
+		obs.fail(targetRoutes6, err)
+	} else {
+		obs.Routes6 = entries
+	}
+}
+
+// parseNetstatDarwin reads the output of `netstat -rn -f inet` (ipv6 false) or
+// `-f inet6`: the columns are Destination, Gateway, Flags, Netif, Expire. It
+// returns the routes that leave by iface and that this daemon can install
+// with `-interface`: a link-level gateway (`link#N`) and none of the flags
+// m (multicast), b (broadcast), L (link-layer entry) or W (cloned), not a
+// multicast or link-local destination, not a scoped one (`fe80::%utun4`). A
+// row of another interface is not read at all; a row of iface whose
+// destination does not parse is an error. Destinations are expanded to the
+// canonical form of the family queried: `default` is 0.0.0.0/0 or ::/0,
+// `192.168.5/24` is 192.168.5.0/24, a bare `127` is 127.0.0.0/8, a bare host
+// is /32 or /128.
+func parseNetstatDarwin(out []byte, iface string, ipv6 bool) ([]routes.Entry, error) {
+	result := make([]routes.Entry, 0)
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 4 || fields[3] != iface {
+			continue
+		}
+		dest, gateway, flags := fields[0], fields[1], fields[2]
+		if !strings.HasPrefix(gateway, "link#") || strings.ContainsAny(flags, "mbLW") || strings.Contains(dest, "%") {
+			continue
+		}
+		canonical, err := canonicalNetstatDest(dest, ipv6)
+		if err != nil {
+			return nil, fmt.Errorf("parse netstat row %q: %w", strings.TrimSpace(line), err)
+		}
+		if p := netip.MustParsePrefix(canonical); p.Addr().IsMulticast() || p.Addr().IsLinkLocalUnicast() {
+			continue
+		}
+		result = append(result, routes.Entry{Network: canonical})
+	}
+	return result, nil
+}
+
+// canonicalNetstatDest expands a destination as netstat prints it. An
+// IPv4 destination without a prefix length takes the mask of its octets (one
+// octet is /8, three are /24, four are a host); one with a prefix length is
+// padded with zero octets.
+func canonicalNetstatDest(dest string, ipv6 bool) (string, error) {
+	if dest == "default" {
+		return routes.Canonical("default", ipv6), nil
+	}
+	name, bits, hasBits := strings.Cut(dest, "/")
+	if ipv6 {
+		addr, err := netip.ParseAddr(name)
+		if err != nil || !addr.Is6() {
+			return "", fmt.Errorf("%q is not an IPv6 destination", dest)
+		}
+		length := addr.BitLen()
+		if hasBits {
+			if length, err = strconv.Atoi(bits); err != nil || length < 0 || length > 128 {
+				return "", fmt.Errorf("%q has no valid prefix length", dest)
+			}
+		}
+		return netip.PrefixFrom(addr, length).Masked().String(), nil
+	}
+	octets := strings.Split(name, ".")
+	if len(octets) > 4 {
+		return "", fmt.Errorf("%q is not an IPv4 destination", dest)
+	}
+	length := 8 * len(octets)
+	for len(octets) < 4 {
+		octets = append(octets, "0")
+	}
+	addr, err := netip.ParseAddr(strings.Join(octets, "."))
+	if err != nil {
+		return "", fmt.Errorf("%q is not an IPv4 destination", dest)
+	}
+	if hasBits {
+		if length, err = strconv.Atoi(bits); err != nil || length < 0 || length > 32 {
+			return "", fmt.Errorf("%q has no valid prefix length", dest)
+		}
+	}
+	return netip.PrefixFrom(addr, length).Masked().String(), nil
+}
+
+// meshPrefixes are the connected routes of the mesh interface that
+// setInterfaceAddress installs: the mesh subnet and the mesh IPv6 /64.
+func (d *Daemon) meshPrefixes() []netip.Prefix {
+	var keep []netip.Prefix
+	if p, ok := prefixOf(d.meshNet()); ok {
+		keep = append(keep, p)
+	}
+	if p := d.meshPrefixV6(); p.IsValid() {
+		keep = append(keep, p)
+	}
+	return keep
+}
+
+// planRoutesDarwin is pure: per family, a wanted network the interface does
+// not hold is added, and a held network that is not wanted is removed, except
+// the prefixes in keep (the mesh connected routes). The gateway of a wanted
+// entry is ignored. A family whose observe failed plans nothing, so it
+// removes nothing. Adds and removals are sorted, IPv4 first.
 func planRoutesDarwin(want []routes.Entry, k kernelObserved, keep []netip.Prefix) routePlan {
-	return routePlan{}
+	var plan routePlan
+	for _, f := range []struct {
+		target  string
+		ipv6    bool
+		current []routes.Entry
+	}{{targetRoutes4, false, k.Routes4}, {targetRoutes6, true, k.Routes6}} {
+		if k.Errs[f.target] != nil {
+			continue
+		}
+		wanted := make(map[string]struct{})
+		for _, e := range want {
+			if strings.Contains(e.Network, ":") == f.ipv6 {
+				wanted[routes.Canonical(e.Network, f.ipv6)] = struct{}{}
+			}
+		}
+		held := make(map[string]struct{})
+		var remove []string
+		for _, e := range f.current {
+			network := routes.Canonical(e.Network, f.ipv6)
+			held[network] = struct{}{}
+			if _, ok := wanted[network]; !ok && !keptPrefix(network, keep) {
+				remove = append(remove, network)
+			}
+		}
+		var add []string
+		for network := range wanted {
+			if _, ok := held[network]; !ok {
+				add = append(add, network)
+			}
+		}
+		sort.Strings(add)
+		sort.Strings(remove)
+		for _, n := range add {
+			plan.Add = append(plan.Add, routes.Entry{Network: n})
+		}
+		for _, n := range remove {
+			plan.Remove = append(plan.Remove, routes.Entry{Network: n})
+		}
+	}
+	return plan
+}
+
+// keptPrefix reports whether the canonical network is one of keep.
+func keptPrefix(network string, keep []netip.Prefix) bool {
+	p, err := netip.ParsePrefix(network)
+	if err != nil {
+		return false
+	}
+	for _, k := range keep {
+		if k == p {
+			return true
+		}
+	}
+	return false
+}
+
+// darwinRouteTail is the argument tail of `route -n add|change|delete` for a
+// canonical network: `[-inet6] -net <cidr> -interface <iface>`, no gateway.
+func darwinRouteTail(network, iface string) []string {
+	var tail []string
+	if strings.Contains(network, ":") {
+		tail = append(tail, "-inet6")
+	}
+	return append(tail, "-net", network, "-interface", iface)
 }
