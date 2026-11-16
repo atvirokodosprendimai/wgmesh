@@ -128,17 +128,72 @@ type forwardPlan struct {
 	NoIptables bool // forwarding is wanted but there is no iptables binary
 }
 
-// planForward is pure (stub).
+// planForward is pure: the sysctl is written only when it reads 0, the rule
+// appended only when -C found it absent, and a wanted node without iptables
+// is an outcome. A target whose observe failed, or that is not wanted, plans
+// nothing.
 func planForward(want forwardDesired, k kernelObserved) forwardPlan {
-	return forwardPlan{}
+	var plan forwardPlan
+	if !want.Wanted || k.Errs[targetForward] != nil {
+		return plan
+	}
+	plan.Sysctl = !k.Forward.IPForward
+	plan.NoIptables = !k.Forward.IptablesPresent
+	plan.Rule = k.Forward.IptablesPresent && !k.Forward.RuleInstalled
+	return plan
 }
 
-// applyForward writes the forwarding plan (stub).
+// applyForward writes the forwarding plan, one item at a time; a failure of
+// one is a result, never an abort. A missing iptables is logged once, not
+// every tick, and is not a result. The caller holds convergeMu.
 func (d *Daemon) applyForward(plan forwardPlan) []itemResult {
-	return nil
+	if plan.NoIptables != d.forwardNoIptables {
+		d.forwardNoIptables = plan.NoIptables
+		if plan.NoIptables {
+			d.logf("iptables not found: the FORWARD rule for %s is not managed on this node", d.config.InterfaceName)
+		}
+	}
+	iface := d.config.InterfaceName
+	var results []itemResult
+	if plan.Sysctl {
+		out, err := cmdExecutor.Command("sysctl", "-w", "net.ipv4.ip_forward=1").CombinedOutput()
+		results = append(results, d.forwardResult("set", "ip_forward", out, err))
+	}
+	if plan.Rule {
+		out, err := cmdExecutor.Command("iptables", "-A", "FORWARD", "-i", iface, "-o", iface, "-j", "ACCEPT").CombinedOutput()
+		results = append(results, d.forwardResult("append", "FORWARD", out, err))
+	}
+	return results
 }
 
-// noteForwardScope counts the rule forward-scope on a transition (stub).
+// forwardResult is the result of one forwarding write; a success is counted
+// as a kernel change.
+func (d *Daemon) forwardResult(op, key string, out []byte, err error) itemResult {
+	if err != nil {
+		err = fmt.Errorf("%s: %w", strings.TrimSpace(string(out)), err)
+	} else {
+		RecordKernelChange(targetForward)
+	}
+	return itemResult{Target: targetForward, Op: op, Key: key, Err: err}
+}
+
+// noteForwardObserve logs a failed forwarding read once, and the recovery
+// once. The caller holds convergeMu.
+func (d *Daemon) noteForwardObserve(err error) {
+	if err == nil {
+		if d.forwardObserveErr != "" {
+			d.logf("Reading the forwarding state works again")
+			d.forwardObserveErr = ""
+		}
+		return
+	}
+	if msg := err.Error(); msg != d.forwardObserveErr {
+		d.logf("Cannot read the forwarding state, skipping it this tick: %v", err)
+		d.forwardObserveErr = msg
+	}
+}
+
+// noteForwardScope is a stub.
 func (d *Daemon) noteForwardScope(f forwardDesired) {}
 
 // converge runs one tick against the kernel and returns the desired state it
@@ -158,6 +213,7 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	ds := d.desire(peers, obs.handshakes(), obs.owners())
 	d.noteForwardScope(ds.Forward)
 	d.observeForward(ds.Forward, &obs)
+	d.noteForwardObserve(obs.Errs[targetForward])
 	plan := planKernel(ds.Peers, obs, d.pushedLocked(), d.config.DisableIPv6)
 	results := d.applyKernel(plan)
 	results = append(results, d.applyForward(planForward(ds.Forward, obs))...)
