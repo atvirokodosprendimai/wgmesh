@@ -134,3 +134,4 @@ Stop and ask if the observe cannot tell a route we installed from a foreign rout
 - 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:10465
 - 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:9969
 - 2026-11-16 · 8e9f14f* · exit 0 · `set -o pipefail …` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:7951
+- 2026-11-16 · f110717* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:d0eba92d48ff9039d74abbc4373b7a0c2e455799e77f2c2a30a41d3d180a0f90 · ms:0 · test-lock-sha256:1ba504914924ab1f3465d6e2c50456dde95478bf5fde169aebcf0638c04da199 · test-lock-file:docs/adr/locks/1ba504914924ab1f3465d6e2c50456dde95478bf5fde169aebcf0638c04da199.lock · test-lock-kind:replace
