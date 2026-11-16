@@ -1532,9 +1532,9 @@ func hasAnyDHTReachability(methods []string) bool {
 }
 
 func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) bool {
-	now := d.clock()
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	now := d.clock()
 
 	// Sweep entries a caller can no longer need (ADR-0007 Decision 3), at most
 	// once per window. lastContactSweep and lastCapLog are read and written
