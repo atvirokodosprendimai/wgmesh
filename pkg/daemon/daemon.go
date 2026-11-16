@@ -71,10 +71,10 @@ type Daemon struct {
 	temporaryOffline       map[string]time.Time
 
 	// configMu guards the hot-reloadable fields in config (AdvertiseRoutes,
-	// AcceptRoutes, LogLevel). The local node guards itself: stateMu,
-	// endpointMu and routesMu inside pkg/node. Callers that read
-	// AdvertiseRoutes or LogLevel at runtime must hold at least a read lock;
-	// SIGHUP reload holds the write lock.
+	// AcceptRoutes). The local node guards itself: stateMu, endpointMu and
+	// routesMu inside pkg/node. Callers that read AdvertiseRoutes at runtime
+	// must hold at least a read lock; SIGHUP reload holds the write lock.
+	// LogLevel is not under configMu: Config guards it itself (GetLogLevel).
 	configMu sync.RWMutex
 
 	// reconcileMu serializes reconcile(), which runs from reconcileLoop and
@@ -1782,9 +1782,7 @@ func (d *Daemon) ownRoutableNetworks() []string {
 
 // GetLogLevel returns the current log level (thread-safe).
 func (d *Daemon) GetLogLevel() string {
-	d.configMu.RLock()
-	defer d.configMu.RUnlock()
-	return d.config.LogLevel
+	return d.config.GetLogLevel()
 }
 
 // reloadConfig applies a new set of reloadable options without restarting
@@ -1800,9 +1798,9 @@ func (d *Daemon) reloadConfig(opts DaemonOpts) {
 	d.configMu.Lock()
 	defer d.configMu.Unlock()
 
-	if d.config.LogLevel != opts.LogLevel && opts.LogLevel != "" {
-		log.Printf("[Reload] LogLevel: %q → %q", d.config.LogLevel, opts.LogLevel)
-		d.config.LogLevel = opts.LogLevel
+	if cur := d.config.GetLogLevel(); cur != opts.LogLevel && opts.LogLevel != "" {
+		log.Printf("[Reload] LogLevel: %q → %q", cur, opts.LogLevel)
+		d.config.SetLogLevel(opts.LogLevel)
 	}
 
 	if opts.AdvertiseRoutes != nil && !routeSlicesEqual(d.config.AdvertiseRoutes, opts.AdvertiseRoutes) {

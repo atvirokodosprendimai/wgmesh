@@ -148,7 +148,7 @@ func TestRouteSlicesEqual(t *testing.T) {
 func TestReloadConfig_UpdatesLogLevel(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 
 	d.reloadConfig(DaemonOpts{LogLevel: "debug", AdvertiseRoutes: []string{}})
 
@@ -178,7 +178,7 @@ func TestReloadConfig_UpdatesAdvertiseRoutes(t *testing.T) {
 func TestReloadConfig_NoChangeIsNoop(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 	d.config.AdvertiseRoutes = []string{"10.0.0.0/8"}
 	d.localNode = nodeWithRoutes([]string{"10.0.0.0/8"})
 
@@ -193,7 +193,7 @@ func TestReloadConfig_NoChangeIsNoop(t *testing.T) {
 func TestReloadConfig_EmptyLogLevelPreservesExisting(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
-	d.config.LogLevel = "warn"
+	d.config.SetLogLevel("warn")
 
 	// Empty LogLevel in opts should not overwrite
 	d.reloadConfig(DaemonOpts{LogLevel: "", AdvertiseRoutes: nil})
@@ -233,7 +233,7 @@ func TestHandleSIGHUP_MissingFileIsNoop(t *testing.T) {
 	t.Parallel()
 	d := newMinimalDaemon(t)
 	d.config.InterfaceName = "wg-test-nonexistent"
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 
 	// Should not panic; missing reload file is a no-op
 	d.handleSIGHUP()
@@ -245,7 +245,7 @@ func TestHandleSIGHUP_MissingFileIsNoop(t *testing.T) {
 
 func TestHandleSIGHUP_LoadsReloadFile(t *testing.T) {
 	d := newMinimalDaemon(t) // no t.Parallel() — uses global cmdExecutor via reconcile path
-	d.config.LogLevel = "info"
+	d.config.SetLogLevel("info")
 	d.config.AdvertiseRoutes = []string{}
 	d.localNode = nodeWithRoutes([]string{})
 

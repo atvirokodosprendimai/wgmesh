@@ -10,6 +10,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/atvirokodosprendimai/wgmesh/pkg/crypto"
 )
@@ -30,7 +31,6 @@ type Config struct {
 	WGListenPort    int
 	AdvertiseRoutes []string
 	AcceptRoutes    []string
-	LogLevel        string
 	Privacy         bool
 	Gossip          bool
 	LANDiscovery    bool
@@ -39,6 +39,13 @@ type Config struct {
 	ForceRelay      bool
 	DisablePunching bool
 	CustomSubnet    *net.IPNet // User-specified mesh subnet (nil = use derived)
+
+	// logLevel is written by the SIGHUP reload goroutine and read by the DHT
+	// goroutines (debugf), so it is never a bare field: every access goes
+	// through GetLogLevel and SetLogLevel, guarded by logMu. NewConfig sets
+	// the initial value.
+	logMu    sync.RWMutex
+	logLevel string
 }
 
 // DaemonOpts holds options for the daemon
@@ -59,11 +66,19 @@ type DaemonOpts struct {
 	MeshSubnet          string // Custom mesh subnet CIDR (e.g. "192.168.100.0/24")
 }
 
-// GetLogLevel returns the log level. STUB (red commit): plain field read.
-func (c *Config) GetLogLevel() string { return c.LogLevel }
+// GetLogLevel returns the current log level (safe from any goroutine).
+func (c *Config) GetLogLevel() string {
+	c.logMu.RLock()
+	defer c.logMu.RUnlock()
+	return c.logLevel
+}
 
-// SetLogLevel sets the log level. STUB (red commit): plain field write.
-func (c *Config) SetLogLevel(level string) { c.LogLevel = level }
+// SetLogLevel sets the log level (safe from any goroutine).
+func (c *Config) SetLogLevel(level string) {
+	c.logMu.Lock()
+	defer c.logMu.Unlock()
+	c.logLevel = level
+}
 
 // NewConfig creates a new daemon configuration from options
 func NewConfig(opts DaemonOpts) (*Config, error) {
@@ -142,7 +157,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		WGListenPort:    listenPort,
 		AdvertiseRoutes: advertiseRoutes,
 		AcceptRoutes:    acceptRoutes,
-		LogLevel:        logLevel,
+		logLevel:        logLevel,
 		Privacy:         opts.Privacy,
 		Gossip:          opts.Gossip,
 		LANDiscovery:    !opts.DisableLANDiscovery,

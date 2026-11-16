@@ -1445,7 +1445,7 @@ func shortKey(key string) string {
 }
 
 func (d *DHTDiscovery) debugf(format string, args ...interface{}) {
-	if strings.EqualFold(d.config.LogLevel, "debug") {
+	if strings.EqualFold(d.config.GetLogLevel(), "debug") {
 		log.Printf(format, args...)
 	}
 }

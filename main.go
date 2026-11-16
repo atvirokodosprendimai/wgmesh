@@ -447,7 +447,7 @@ func joinCmd() {
 
 	// Configure logging before creating the daemon (must be done in main,
 	// not inside library code like NewDaemon).
-	daemon.ConfigureLogging(cfg.LogLevel)
+	daemon.ConfigureLogging(cfg.GetLogLevel())
 
 	// One join per interface: take the lock before NewDaemon and before the RPC
 	// server, which unlinks the socket. Held until the process exits.
