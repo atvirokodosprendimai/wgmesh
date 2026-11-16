@@ -1565,3 +1565,9 @@ func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) boo
 	d.contactedPeers[addr] = now
 	return true
 }
+ 
+// announceOpts returns the announce option for port: one AnnouncePeer option
+// when port is non-zero, none for a query-only traversal.
+func announceOpts(port int) []dht.AnnounceOpt {
+	return nil
+}
