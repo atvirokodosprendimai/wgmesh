@@ -16,7 +16,7 @@ import (
 )
 
 // These tests read and write the process-wide EnforceRelayProbe and the
-// setPeer/getPeers/wgRemovePeer seams, so none of them calls t.Parallel.
+// setPeer/wgRemovePeer seams, so none of them calls t.Parallel.
 
 const probeIntroKey = "intro-pubkey"
 

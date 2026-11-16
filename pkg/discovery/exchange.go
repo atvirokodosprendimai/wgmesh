@@ -901,11 +901,12 @@ func (pe *PeerExchange) getLatestHandshake(peerPubKey string) int64 {
 	if peerPubKey == "" {
 		return 0
 	}
-	hs, err := wireguard.GetLatestHandshakes(pe.config.InterfaceName)
+	// Punch wait: fresh read (maxAge 0), a new handshake must show within one HandshakePollInterval.
+	st, err := wireguard.ReadState(pe.config.InterfaceName, 0)
 	if err != nil {
 		return 0
 	}
-	return hs[peerPubKey]
+	return st.Handshakes()[peerPubKey]
 }
 
 func (pe *PeerExchange) waitForHandshake(peerPubKey string, baseline int64, timeout time.Duration) int64 {

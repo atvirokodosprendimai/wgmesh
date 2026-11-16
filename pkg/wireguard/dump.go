@@ -3,9 +3,10 @@ package wireguard
 import (
 	"errors"
 	"fmt"
-	"os/exec"
+	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // DumpPeer is one peer line of `wg show <iface> dump`.
@@ -73,11 +74,32 @@ func ParseDump(output string) (DumpPeers, error) {
 	return peers, nil
 }
 
-// Dump reads the kernel's view of the interface with one `wg show <iface> dump`.
+// Dump reads the kernel's view of the interface with one `wg show <iface>
+// dump`, strictly parsed. It runs through runWG (ADR-0007 Decision 6: a
+// deadline) and stores the result as the interface's snapshot, so a ReadState
+// that follows within its maxAge shares the fork instead of starting another.
 func Dump(iface string) (DumpPeers, error) {
-	out, err := exec.Command(wgPath, "show", iface, "dump").Output()
+	s := slotFor(iface)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	started := time.Now()
+	stdout, stderr, err := runWG(nil, "show", iface, "dump")
 	if err != nil {
-		return nil, fmt.Errorf("wg show dump failed: %w", err)
+		if msg := strings.TrimSpace(string(stderr)); msg != "" {
+			return nil, fmt.Errorf("wg show %s dump failed: %s: %w", iface, msg, err)
+		}
+		return nil, fmt.Errorf("wg show %s dump failed: %w", iface, err)
 	}
-	return ParseDump(string(out))
+	peers, err := ParseDump(string(stdout))
+	if err != nil {
+		return nil, err
+	}
+	st := State{Peers: make([]StatePeer, 0, len(peers))}
+	for _, p := range peers {
+		st.Peers = append(st.Peers, StatePeer{PublicKey: p.PublicKey, Endpoint: p.Endpoint, LatestHandshake: p.LatestHandshake, RxBytes: p.RxBytes, TxBytes: p.TxBytes})
+	}
+	sort.Slice(st.Peers, func(i, j int) bool { return st.Peers[i].PublicKey < st.Peers[j].PublicKey })
+	s.state, s.at, s.ok = st, started, true
+	return peers, nil
 }

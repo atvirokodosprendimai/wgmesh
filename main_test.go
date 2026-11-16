@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -489,4 +491,183 @@ func buildTestBinary(t *testing.T) string {
 		t.Fatalf("Failed to build test binary: %v", err)
 	}
 	return bin
+}
+
+// TestCLIFirstWordExitCodes pins what the first argument decides: help, version, a typo, the legacy flags
+func TestCLIFirstWordExitCodes(t *testing.T) {
+	bin := buildTestBinary(t)
+	usage := "wgmesh - WireGuard mesh network builder"
+	missing := filepath.Join(t.TempDir(), "missing-state.json")
+
+	tests := []struct {
+		args   []string
+		code   int
+		stream string
+		wants  []string
+	}{
+		{nil, 2, "stderr", []string{usage}},
+		{[]string{"statu"}, 2, "stderr", []string{`wgmesh: unknown command "statu" (run 'wgmesh help' for usage)`, usage}},
+		{[]string{""}, 2, "stderr", []string{`wgmesh: unknown command "" (run 'wgmesh help' for usage)`, usage}},
+		{[]string{"help"}, 0, "stdout", []string{usage}},
+		{[]string{"-h"}, 0, "stdout", []string{usage}},
+		{[]string{"--help"}, 0, "stdout", []string{usage}},
+		{[]string{"--version"}, 0, "stdout", []string{"wgmesh version"}},
+		{[]string{"-v"}, 0, "stdout", []string{"wgmesh version"}},
+		{[]string{"version"}, 0, "stdout", []string{"wgmesh version"}},
+		{[]string{"-list", "-state", missing}, 1, "stderr", []string{"Failed to load mesh state"}},
+		{[]string{"-list", "--version"}, 2, "stderr", []string{"flag provided but not defined: -version"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(fmt.Sprintf("%q", tt.args), func(t *testing.T) {
+			var stdout, stderr bytes.Buffer
+			cmd := exec.Command(bin, tt.args...)
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			code := 0
+			if err := cmd.Run(); err != nil {
+				ee, ok := err.(*exec.ExitError)
+				if !ok {
+					t.Fatalf("run: %v", err)
+				}
+				code = ee.ExitCode()
+			}
+			if code != tt.code {
+				t.Errorf("exit code %d, want %d\nstdout: %s\nstderr: %s", code, tt.code, stdout.String(), stderr.String())
+			}
+			got := stdout.String()
+			if tt.stream == "stderr" {
+				got = stderr.String()
+			}
+			for _, w := range tt.wants {
+				if !strings.Contains(got, w) {
+					t.Errorf("%s lacks %q:\n%s", tt.stream, w, got)
+				}
+			}
+		})
+	}
+}
+
+func TestSecretFromFlagOrEnvPrecedence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte("file-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WGMESH_SECRET", "env-value")
+	t.Setenv("WGMESH_SECRET_FILE", path)
+	if got, err := secretFromFlagOrEnv("flag-value"); err != nil || got != "flag-value" {
+		t.Errorf("flag: got %q, %v", got, err)
+	}
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "env-value" {
+		t.Errorf("env over file: got %q, %v", got, err)
+	}
+	t.Setenv("WGMESH_SECRET", "")
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "file-value" {
+		t.Errorf("file: got %q, %v", got, err)
+	}
+	t.Setenv("WGMESH_SECRET", "   ")
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "file-value" {
+		t.Errorf("blank env falls through to file: got %q, %v", got, err)
+	}
+	t.Setenv("WGMESH_SECRET_FILE", "")
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "" {
+		t.Errorf("blank env alone: got %q, %v", got, err)
+	}
+	t.Setenv("WGMESH_SECRET", "")
+}
+
+func TestSecretFromFlagOrEnvFileTrimmed(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte("  file-value \n\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WGMESH_SECRET", "")
+	t.Setenv("WGMESH_SECRET_FILE", path)
+	if got, err := secretFromFlagOrEnv(""); err != nil || got != "file-value" {
+		t.Errorf("got %q, %v", got, err)
+	}
+	blank := filepath.Join(t.TempDir(), "blank")
+	if err := os.WriteFile(blank, []byte("\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("WGMESH_SECRET_FILE", blank)
+	if _, err := secretFromFlagOrEnv(""); err == nil || !strings.Contains(err.Error(), blank) {
+		t.Errorf("empty file: want an error naming %s, got %v", blank, err)
+	}
+}
+
+func TestSecretFromFlagOrEnvUnreadableFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "missing")
+	t.Setenv("WGMESH_SECRET", "")
+	t.Setenv("WGMESH_SECRET_FILE", path)
+	_, err := secretFromFlagOrEnv("")
+	if err == nil || !strings.Contains(err.Error(), path) {
+		t.Errorf("want an error naming %s, got %v", path, err)
+	}
+}
+
+// runWgmesh runs the built binary with only the given environment (plus HOME) and returns stdout, stderr and the exit code.
+func runWgmesh(t *testing.T, bin string, env []string, args ...string) (string, string, int) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(bin, args...)
+	cmd.Env = append([]string{"HOME=" + t.TempDir()}, env...)
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	code := 0
+	if err := cmd.Run(); err != nil {
+		ee, ok := err.(*exec.ExitError)
+		if !ok {
+			t.Fatalf("run: %v", err)
+		}
+		code = ee.ExitCode()
+	}
+	return stdout.String(), stderr.String(), code
+}
+
+// TestCommandsFindSecretFromEnvAndFile: status and qr find the secret with no --secret flag
+func TestCommandsFindSecretFromEnvAndFile(t *testing.T) {
+	bin := buildTestBinary(t)
+	secret := "wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u"
+	path := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(path, []byte(secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want, stderr, code := runWgmesh(t, bin, nil, "status", "--json", "--secret", secret)
+	if code != 0 || !strings.Contains(want, "\"network_id\"") {
+		t.Fatalf("status with --secret: exit %d\nstdout: %s\nstderr: %s", code, want, stderr)
+	}
+	for name, env := range map[string][]string{
+		"WGMESH_SECRET":      {"WGMESH_SECRET=" + secret},
+		"WGMESH_SECRET_FILE": {"WGMESH_SECRET_FILE=" + path},
+	} {
+		t.Run("status "+name, func(t *testing.T) {
+			got, stderr, code := runWgmesh(t, bin, env, "status", "--json")
+			if code != 0 || got != want {
+				t.Errorf("exit %d, stdout differs from the --secret run\nstdout: %s\nstderr: %s", code, got, stderr)
+			}
+		})
+		t.Run("qr "+name, func(t *testing.T) {
+			got, stderr, code := runWgmesh(t, bin, env, "qr")
+			if code != 0 || !strings.Contains(got, "Mesh Secret QR Code") {
+				t.Errorf("exit %d\nstdout: %s\nstderr: %s", code, got, stderr)
+			}
+		})
+	}
+	// install-service reaches the helper: with the variable set it gets past the
+	// secret check and stops at the route check, before touching the host.
+	t.Run("install-service WGMESH_SECRET", func(t *testing.T) {
+		_, stderr, code := runWgmesh(t, bin, []string{"WGMESH_SECRET=" + secret}, "install-service", "--advertise-routes", "bogus")
+		if code != 1 || strings.Contains(stderr, "--secret is required") || !strings.Contains(stderr, "invalid --advertise-routes") {
+			t.Errorf("exit %d, stderr: %s", code, stderr)
+		}
+	})
+}
+
+// TestJoinUnreadableSecretFileExitsOne: join keeps its message and exit code for a secret file it cannot read
+func TestJoinUnreadableSecretFileExitsOne(t *testing.T) {
+	bin := buildTestBinary(t)
+	path := filepath.Join(t.TempDir(), "missing")
+	_, stderr, code := runWgmesh(t, bin, []string{"WGMESH_SECRET_FILE=" + path}, "join")
+	if code != 1 || !strings.Contains(stderr, "Error reading secret file "+path) {
+		t.Errorf("exit %d, stderr: %s", code, stderr)
+	}
 }

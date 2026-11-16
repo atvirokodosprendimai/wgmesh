@@ -1,0 +1,10 @@
+check@2	absent
+unproven	pkg/wireguard/apply_test.go	TestRemovePeerArgs
+unproven	pkg/wireguard/apply_test.go	TestSetPeerArgsOrder
+unproven	pkg/wireguard/apply_test.go	TestSetPeerPassesPresharedKeyOnStdinNotArgv
+unproven	pkg/wireguard/apply_test.go	TestShellQuoteEscapesSingleQuote
+unproven	pkg/wireguard/keys_test.go	TestGenerateKeyPairParsesGenkeyAndPubkey
+unproven	pkg/wireguard/keys_test.go	TestGenerateKeyPairReportsFailure
+unproven	pkg/wireguard/keys_test.go	TestGenerateKeyPairReportsGenkeyFailure
+unproven	pkg/wireguard/persist_test.go	TestGenerateWgQuickConfigPeerWithoutOptionalFields
+unproven	pkg/wireguard/persist_test.go	TestGenerateWgQuickConfigRoutes

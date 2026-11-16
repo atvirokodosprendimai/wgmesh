@@ -86,6 +86,12 @@ persistence of DHT routing table nodes, STUN refresh, and IPv6 endpoint selectio
 - EUI-64 penalty avoids advertising a MAC-address-embedding endpoint when a stable privacy
   extension address is also available.
 - Query interval adaptive slow-down reduces DHT traffic in a stable mesh.
+- Bounded growth (ADR-0007 Decision 3): three maps that used to grow for the life of the process are bounded.
+  - `contactedPeers` (address dedup): entries older than `ContactDedupWindow` (60s, the longest interval any `markContacted` caller passes) are swept when the map holds more than `contactSweepThreshold` (256) entries, at most once per window. At `MaxContactedPeers` (8192) entries a new address is refused (fail closed, logged once per window); a known address is still decided by its interval. The refusal is the chosen failure mode (ADR-0007 Decision 3, maintainer 2026-11-15): an attacker flooding get_peers replies with distinct addresses can trigger it for up to one window.
+  - `controlPeers` and `rendezvousBackoff` (keyed by public key): `sweepPeerKeyed` deletes the keys the `PeerStore` no longer holds. A peer that returns starts with no backoff, like a new peer.
+    - A withdrawn (tombstoned) peer is swept like an absent one: `PeerStore.Get` ignores tombstones.
+    - It runs first in each 10-second `checkStaleHandshakes` and on each `queryLoop` tick, so a node with `DisablePunching` (no `transitiveConnectLoop`) is bounded too.
+    - Known limit: a control endpoint stored by `setControlEndpoint` before its peer is Offered to the store can be swept inside that window; it is learned again on the next exchange.
 
 ## Interactions
 

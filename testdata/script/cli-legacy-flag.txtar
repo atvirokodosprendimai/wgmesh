@@ -1,0 +1,4 @@
+# a first argument starting with - keeps the legacy centralized mode
+! exec wgmesh -list -state $WORK/missing-state.json
+stderr 'Failed to load mesh state'
+! stderr 'SUBCOMMANDS'

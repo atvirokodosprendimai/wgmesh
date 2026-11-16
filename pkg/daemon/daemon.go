@@ -492,8 +492,7 @@ func (d *Daemon) rpcLayer() RPCServer {
 
 // Run starts the daemon and blocks until stopped
 func (d *Daemon) Run() error {
-	now := time.Now()
-	d.startTime.Store(&now)
+	d.markStarted()
 	log.Printf("Starting wgmesh daemon...")
 
 	// Load or create local node
@@ -1101,17 +1100,24 @@ func (d *Daemon) staleCleanupLoop() {
 		case <-d.ctx.Done():
 			return
 		case <-ticker.C:
-			removed := d.peerStore.CleanupStale()
-			for _, pubKey := range removed {
-				if err := d.removePeerFromKernel(pubKey); err != nil {
-					log.Printf("[Peers] Failed to remove stale peer %s: %v", shortKey(pubKey), err)
-				}
-			}
-			if len(removed) > 0 {
-				log.Printf("[Peers] Removed %d stale peers", len(removed))
-			}
+			d.staleCleanupTick()
 		}
 	}
+}
+
+// staleCleanupTick removes stale peers from the store and from WireGuard, then
+// drops the temporaryOffline entries past their deadline.
+func (d *Daemon) staleCleanupTick() {
+	removed := d.peerStore.CleanupStale()
+	for _, pubKey := range removed {
+		if err := d.removePeerFromKernel(pubKey); err != nil {
+			log.Printf("[Peers] Failed to remove stale peer %s: %v", shortKey(pubKey), err)
+		}
+	}
+	if len(removed) > 0 {
+		log.Printf("[Peers] Removed %d stale peers", len(removed))
+	}
+	d.sweepTemporaryOffline()
 }
 
 func (d *Daemon) healthMonitorLoop() {
@@ -1230,7 +1236,9 @@ func (d *Daemon) probePeersOverMesh() {
 	peers := d.peerStore.GetProbeable()
 	now := d.now()
 	activeSet := make(map[string]struct{}, len(peers))
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	// Up to ReconcileInterval (5 s) old: ts is compared with HandshakeStaleAfter (150 s) below.
+	st, _ := wireguard.ReadState(d.config.InterfaceName, ReconcileInterval)
+	handshakes := st.Handshakes()
 
 	for _, p := range peers {
 		if p == nil || p.WGPubKey == "" || p.WGPubKey == d.localNode.WGPubKey || p.MeshIP == "" {
@@ -1390,13 +1398,17 @@ func (d *Daemon) cleanupProbeSessions(activeSet map[string]struct{}) {
 			keys = append(keys, pubKey)
 		}
 	}
+	// A failure count can outlive its peer without a session: a pass that took
+	// its snapshot before removePeer writes the count after removePeer deleted it.
+	for pubKey := range d.probeFailures {
+		if _, ok := activeSet[pubKey]; !ok {
+			delete(d.probeFailures, pubKey)
+		}
+	}
 	d.probeMu.Unlock()
 
 	for _, pubKey := range keys {
 		d.closeProbeSession(pubKey)
-		d.probeMu.Lock()
-		delete(d.probeFailures, pubKey)
-		d.probeMu.Unlock()
 	}
 }
 
@@ -1461,15 +1473,17 @@ func (d *Daemon) probeLocalAddrForRemote(remote string) net.Addr {
 }
 
 func (d *Daemon) checkPeerHealth() {
-	handshakes, err := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	// Up to ReconcileInterval (5 s) old: the handshake is compared with HandshakeStaleAfter (150 s) in shouldTreatPeerAsStale.
+	st, err := wireguard.ReadState(d.config.InterfaceName, ReconcileInterval)
 	if err != nil {
 		return
 	}
-	transfers, err := wireguard.GetPeerTransfers(d.config.InterfaceName)
-	if err != nil {
-		return
+	handshakes := make(map[string]int64, len(st.Peers))
+	transfers := make(map[string]wireguard.PeerTransfer, len(st.Peers))
+	for _, sp := range st.Peers {
+		handshakes[sp.PublicKey] = sp.LatestHandshake
+		transfers[sp.PublicKey] = wireguard.PeerTransfer{RxBytes: sp.RxBytes, TxBytes: sp.TxBytes}
 	}
-
 	d.evaluatePeerHealth(handshakes, transfers)
 }
 
@@ -1632,6 +1646,19 @@ func (d *Daemon) isTemporarilyOffline(pubKey string) bool {
 	}
 	d.offlineMu.Unlock()
 	return true
+}
+
+// sweepTemporaryOffline deletes the entries past their deadline without a
+// lookup, so a key never asked about again does not stay (ADR-0007 Decision 4).
+func (d *Daemon) sweepTemporaryOffline() {
+	now := d.now() // the daemon clock, as markTemporarilyOffline and isTemporarilyOffline read it
+	d.offlineMu.Lock()
+	defer d.offlineMu.Unlock()
+	for k, until := range d.temporaryOffline {
+		if now.After(until) {
+			delete(d.temporaryOffline, k)
+		}
+	}
 }
 
 func (d *Daemon) isRelayRoutedPeer(pubKey string) bool {
@@ -2006,6 +2033,12 @@ func (d *Daemon) SetRPCServer(server RPCServer) {
 	d.layersMu.Lock()
 	defer d.layersMu.Unlock()
 	d.rpcServer = server
+}
+
+// markStarted records the start time that GetUptime reports from.
+func (d *Daemon) markStarted() {
+	now := time.Now()
+	d.startTime.Store(&now)
 }
 
 // GetUptime returns the daemon uptime
