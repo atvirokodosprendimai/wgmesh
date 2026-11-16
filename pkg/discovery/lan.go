@@ -166,7 +166,7 @@ func (l *LANDiscovery) announce() {
 		nil, // No known peers in LAN announce (keep small)
 		l.localNode.Hostname,
 		l.localNode.MeshIPv6,
-		string(l.localNode.NATType),
+		l.localNode.GetNATType(),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, l.gossipKey)

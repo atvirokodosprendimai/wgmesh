@@ -124,7 +124,7 @@ type LocalNode struct {
 	MeshIPv6         string
 	RoutableNetworks []string
 	Introducer       bool
-	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"
+	NATType          string // Detected NAT type: "cone", "symmetric", or "unknown"; once the node is shared use GetNATType/SetNATType (guarded by endpointMu)
 	Hostname         string
 
 	endpointMu sync.RWMutex
@@ -153,11 +153,15 @@ func (n *LocalNode) SetEndpoint(ep string) {
 
 // GetNATType returns the detected NAT type.
 func (n *LocalNode) GetNATType() string {
+	n.endpointMu.RLock()
+	defer n.endpointMu.RUnlock()
 	return n.NATType
 }
 
 // SetNATType records the detected NAT type.
 func (n *LocalNode) SetNATType(t string) {
+	n.endpointMu.Lock()
+	defer n.endpointMu.Unlock()
 	n.NATType = t
 }
 
@@ -893,7 +897,7 @@ func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*P
 	}
 
 	// Both sides symmetric → hole-punch is unreliable, relay
-	if d.localNode.NATType == "symmetric" && peer.NATType == "symmetric" {
+	if d.localNode.GetNATType() == "symmetric" && peer.NATType == "symmetric" {
 		return true
 	}
 

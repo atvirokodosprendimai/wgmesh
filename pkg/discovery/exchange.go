@@ -504,7 +504,7 @@ func (pe *PeerExchange) sendReply(remoteAddr *net.UDPAddr) error {
 		knownPeers,
 		pe.localNode.Hostname,
 		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetNATType(),
 	)
 	announcement.ObservedEndpoint = remoteAddr.String()
 
@@ -557,7 +557,7 @@ func (pe *PeerExchange) ExchangeWithPeer(addrStr string) (*daemon.PeerInfo, erro
 		knownPeers,
 		pe.localNode.Hostname,
 		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetNATType(),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeHello, announcement, pe.config.Keys.GossipKey)
@@ -1172,7 +1172,7 @@ func (pe *PeerExchange) SendAnnounce(remoteAddr *net.UDPAddr) error {
 		knownPeers,
 		pe.localNode.Hostname,
 		pe.localNode.MeshIPv6,
-		string(pe.localNode.NATType),
+		pe.localNode.GetNATType(),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, pe.config.Keys.GossipKey)

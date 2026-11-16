@@ -237,7 +237,7 @@ func (g *MeshGossip) exchangeWithRandomPeer(conn *net.UDPConn) {
 		knownPeers,
 		g.localNode.Hostname,
 		g.localNode.MeshIPv6,
-		string(g.localNode.NATType),
+		g.localNode.GetNATType(),
 	)
 
 	data, err := crypto.SealEnvelope(crypto.MessageTypeAnnounce, announcement, g.gossipKey)
