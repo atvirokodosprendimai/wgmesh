@@ -50,8 +50,8 @@ func MakeKey(network, gateway string) string {
 // Rules:
 //   - If a desired route already exists exactly (same network + gateway) it
 //     is skipped.
-//   - If a desired network exists with a *different* gateway, the old route is
-//     queued for removal before the new one is added.
+//   - If a desired network exists with a *different* gateway, every old
+//     gateway route of that network is removed and the new one is added.
 //   - If a current network is no longer in the desired set at all, and it has
 //     a non-empty gateway (i.e. it is a managed mesh route), it is removed.
 //   - Directly-connected routes (empty gateway) are never removed.
@@ -65,15 +65,10 @@ func MakeKey(network, gateway string) string {
 func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 	currentMap := make(map[string]Entry)       // "canonical network|gateway" -> entry
 	desiredMap := make(map[string]Entry)       // "canonical network|gateway" -> entry
-	currentByNetwork := make(map[string]Entry) // canonical network -> entry
 	desiredByNetwork := make(map[string]Entry) // canonical network -> entry
 
 	for _, r := range current {
-		network := entryNetwork(r)
-		currentMap[MakeKey(network, r.Gateway)] = r
-		if prev, ok := currentByNetwork[network]; !ok || addrLess(r.Gateway, prev.Gateway) {
-			currentByNetwork[network] = r
-		}
+		currentMap[MakeKey(entryNetwork(r), r.Gateway)] = r
 	}
 
 	for _, r := range desired {
@@ -86,33 +81,19 @@ func CalculateDiff(current, desired []Entry) (toAdd, toRemove []Entry) {
 		desiredMap[MakeKey(network, r.Gateway)] = r
 	}
 
-	// Determine routes to add (and any prerequisite removals for gateway changes).
+	// Routes to add: desired routes that do not exist yet.
 	for key, route := range desiredMap {
 		if _, exists := currentMap[key]; !exists {
-			// Route with this exact network+gateway doesn't exist yet.
-			if currentRoute, networkExists := currentByNetwork[entryNetwork(route)]; networkExists {
-				if currentRoute.Gateway != route.Gateway && currentRoute.Gateway != "" {
-					// Gateway changed — must remove old route first.
-					toRemove = append(toRemove, currentRoute)
-				}
-			}
 			toAdd = append(toAdd, route)
 		}
-		// else: exact route already present — no action needed.
 	}
 
-	// Determine routes to remove (network no longer in desired state at all).
+	// Routes to remove: managed (gateway-routed) current routes that are not
+	// desired exactly, whether their network is gone from the desired state or
+	// is still desired through another gateway.
 	for key, route := range currentMap {
-		if _, exactMatch := desiredMap[key]; !exactMatch {
-			if _, stillNeeded := desiredByNetwork[entryNetwork(route)]; !stillNeeded {
-				// Network completely absent from desired state.
-				// Only remove managed (gateway-routed) routes.
-				if route.Gateway != "" {
-					toRemove = append(toRemove, route)
-				}
-			}
-			// else: network still needed with a different gateway — already
-			// handled in the loop above.
+		if _, exactMatch := desiredMap[key]; !exactMatch && route.Gateway != "" {
+			toRemove = append(toRemove, route)
 		}
 	}
 

@@ -503,3 +503,34 @@ func TestResolveKeepsObservedIPv6Default(t *testing.T) {
 		t.Errorf("Resolve = %v, want B (kernel prints the IPv6 default as the word default)", got)
 	}
 }
+
+func TestCalculateDiffRemovesEveryStaleGatewayOfDesiredNetwork(t *testing.T) {
+	t.Parallel()
+	const n = "192.168.50.0/24"
+	table := map[string]Entry{}
+	for _, e := range []Entry{{n, "10.99.0.1"}, {n, "10.99.0.3"}} {
+		table[MakeKey(e.Network, e.Gateway)] = e
+	}
+	desired := []Entry{{Network: n, Gateway: "10.99.0.2"}}
+	snapshot := func() []Entry {
+		var out []Entry
+		for _, e := range table {
+			out = append(out, e)
+		}
+		return out
+	}
+	add, remove := CalculateDiff(snapshot(), desired)
+	for _, e := range remove {
+		delete(table, MakeKey(e.Network, e.Gateway))
+	}
+	for _, e := range add {
+		table[MakeKey(e.Network, e.Gateway)] = e
+	}
+	add2, remove2 := CalculateDiff(snapshot(), desired)
+	if len(add2) != 0 || len(remove2) != 0 {
+		t.Errorf("cycle 2 add=%v remove=%v, want empty", add2, remove2)
+	}
+	if _, ok := table[MakeKey(n, "10.99.0.2")]; len(table) != 1 || !ok {
+		t.Errorf("table = %v, want exactly the desired route", table)
+	}
+}
