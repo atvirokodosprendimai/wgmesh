@@ -187,3 +187,22 @@ func TestStopIsSafeConcurrently(t *testing.T) {
 		t.Fatal("socket lock still held after Stop")
 	}
 }
+
+// Start fails when the socket path is too long for sun_path (about 108 bytes
+// on linux, 104 on macOS) while the lock file beside it is fine, so NewServer
+// succeeds and Start fails after the lock was taken. The lock must then be
+// free: the caller defers Stop only on a successful Start.
+func TestStartFailureReleasesLock(t *testing.T) {
+	path := filepath.Join(filepath.Dir(shortSocketPath(t)), strings.Repeat("a", 120)+".sock")
+	s, err := NewServer(ownershipConfig(path))
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	if err := s.Start(); err == nil {
+		_ = s.Stop()
+		t.Fatal("Start on an over-long socket path succeeded")
+	}
+	if !lockIsFree(t, path) {
+		t.Fatal("failed Start left the socket lock held")
+	}
+}
