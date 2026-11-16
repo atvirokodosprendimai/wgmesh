@@ -131,17 +131,24 @@ func NewServer(config ServerConfig) (*Server, error) {
 	return s, nil
 }
 
-// Start starts the RPC server
+// Start starts the RPC server.
+//
+// Words: it binds the socket; when it fails (listen or chmod) it shuts the
+// server down the way Stop does, so the lock is released and a later Stop
+// does nothing.
+// Why: the caller defers Stop only after a successful Start, so a failed
+// Start left <socketPath>.lock held for the life of the process.
 func (s *Server) Start() error {
 	listener, err := net.Listen("unix", s.socketPath)
 	if err != nil {
+		_ = s.stop(false) // no socket of ours exists
 		return fmt.Errorf("failed to listen on socket: %w", err)
 	}
 	s.listener = listener
 
 	// Set socket permissions to 0600 (owner only)
 	if err := os.Chmod(s.socketPath, 0600); err != nil {
-		s.listener.Close()
+		_ = s.stop(true) // closes the listener and removes the socket file
 		return fmt.Errorf("failed to set socket permissions: %w", err)
 	}
 
@@ -387,6 +394,14 @@ func (s *Server) handleDaemonPing(params map[string]interface{}) (*DaemonPingRes
 // Stop stops the RPC server and releases the socket lock after the socket
 // file is removed. It is safe to call twice and from several goroutines.
 func (s *Server) Stop() error {
+	return s.stop(true)
+}
+
+// stop is the one shutdown path of Stop and of a failed Start.
+//
+// stopOnce: a second Stop, after a new owner took the path, would unlink
+// that owner's socket.
+func (s *Server) stop(removeSocket bool) error {
 	s.stopOnce.Do(func() {
 		s.cancel()
 
@@ -395,8 +410,10 @@ func (s *Server) Stop() error {
 		}
 
 		// Remove socket file, then free the path for the next owner
-		if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
-			s.stopErr = fmt.Errorf("failed to remove socket: %w", err)
+		if removeSocket {
+			if err := os.Remove(s.socketPath); err != nil && !os.IsNotExist(err) {
+				s.stopErr = fmt.Errorf("failed to remove socket: %w", err)
+			}
 		}
 		s.releaseLock()
 
