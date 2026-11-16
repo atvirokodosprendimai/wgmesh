@@ -1567,9 +1567,11 @@ func (d *DHTDiscovery) markContacted(addr string, minInterval time.Duration) boo
 }
 
 // announceOpts returns the announce option for port: one AnnouncePeer option
-// when port is non-zero, none for a query-only traversal.
+// when port is non-zero (exactly the old Announce: announced iff port != 0,
+// ImpliedPort false), none for a query-only traversal. The port comes from the
+// uint16 GossipPort.
 func announceOpts(port int) []dht.AnnounceOpt {
-	if port > 0 {
+	if port != 0 {
 		return []dht.AnnounceOpt{dht.AnnouncePeer(dht.AnnouncePeerOpts{Port: port})}
 	}
 	return nil
