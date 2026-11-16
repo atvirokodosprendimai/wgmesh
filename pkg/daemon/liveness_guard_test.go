@@ -11,9 +11,11 @@ import (
 	"testing"
 )
 
-// lastSeenAges returns "position what" for every age computed from a LastSeen
-// selector in the non-test Go files under root, leaving out skipDir, .git and
-// vendor: time.Since(x.LastSeen), a.Sub(x.LastSeen) and x.LastSeen.Sub(a).
+// lastSeenAges returns "position what" for every age or order taken from a
+// LastSeen selector in the non-test Go files under root, leaving out skipDir,
+// .git and vendor: time.Since(x.LastSeen), and Sub, Before, After or Compare
+// called on x.LastSeen or with it as an argument. visited is the number of
+// files parsed.
 func lastSeenAges(root, skipDir string) ([]string, int, error) {
 	visited := 0
 	var found []string
@@ -42,14 +44,21 @@ func lastSeenAges(root, skipDir string) ([]string, int, error) {
 				return true
 			}
 			sel, ok := call.Fun.(*ast.SelectorExpr)
-			if !ok || (sel.Sel.Name != "Since" && sel.Sel.Name != "Sub") {
+			if !ok {
 				return true
 			}
-			if sel.Sel.Name == "Sub" && isLastSeen(sel.X) {
-				found = append(found, fset.Position(call.Pos()).String()+" LastSeen.Sub")
+			switch sel.Sel.Name {
+			case "Since", "Sub", "Before", "After", "Compare":
+			default:
+				return true
 			}
-			if len(call.Args) == 1 && isLastSeen(call.Args[0]) {
-				found = append(found, fset.Position(call.Pos()).String()+" "+sel.Sel.Name+"(LastSeen)")
+			if sel.Sel.Name != "Since" && isLastSeen(sel.X) {
+				found = append(found, fset.Position(call.Pos()).String()+" LastSeen."+sel.Sel.Name)
+			}
+			for _, arg := range call.Args {
+				if isLastSeen(arg) {
+					found = append(found, fset.Position(call.Pos()).String()+" "+sel.Sel.Name+"(LastSeen)")
+				}
 			}
 			return true
 		})
@@ -66,9 +75,11 @@ func isLastSeen(x ast.Expr) bool {
 }
 
 // TestNoDirectLastSeenAge fails when a production file outside pkg/node
-// computes the age of a PeerInfo.LastSeen itself, with time.Since(x.LastSeen),
-// a.Sub(x.LastSeen) or x.LastSeen.Sub(a): a liveness reader asks
-// PeerInfo.Alive or PeerInfo.LastAlive instead. pkg/node is not scanned.
+// computes the age or the order of a PeerInfo.LastSeen itself, with
+// time.Since(x.LastSeen), or Sub, Before, After or Compare called on
+// x.LastSeen or with it as an argument: a liveness reader asks
+// PeerInfo.Alive, PeerInfo.LastAlive or PeerInfo.DecideByAge instead. pkg/node
+// is not scanned.
 //
 // Limit: an age computed through a local variable (t := p.LastSeen; now.Sub(t))
 // is not seen.
