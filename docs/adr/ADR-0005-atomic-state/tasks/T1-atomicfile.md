@@ -17,7 +17,7 @@ One function replaces a file whole or not at all: a crash, a full disk or a fail
 
 | File | Change | Why |
 |------|--------|-----|
-| `pkg/atomicfile/atomicfile.go` | add | `WriteFile`: `os.CreateTemp` in the target directory, `Chmod(perm)` before the data, write, `Sync`, close, `os.Rename`, directory `Sync` (`EINVAL` and `ENOTSUP` ignored, other errors returned), temp removed on every failure path; package-level unexported `syncFile` and `syncDir` function variables are the test seam |
+| `pkg/atomicfile/atomicfile.go` | add | `WriteFile`: `os.CreateTemp` in the target directory, `Chmod(perm)` before the data, write, `Sync`, close, `os.Rename`, directory `Sync` (`EINVAL` and `ENOTSUP` ignored, other errors returned), temp removed on every failure path; package-level unexported `syncFile` and `syncDir` are the test seam, held as `atomic.Pointer` to a function (2026-11-16: WriteFile runs from several goroutines while a test replaces them) |
 | `pkg/atomicfile/atomicfile_test.go` | add | tests below |
 
 Selection: nothing selects it until T2 and T3 call it; reachability is shown there. The exported name is the only entry.
