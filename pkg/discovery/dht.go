@@ -428,57 +428,55 @@ func isPublicIPv6(ip net.IP) bool {
 // up-to-date, falling back to single-server DiscoverExternalEndpoint when
 // fewer than two servers are available.
 func (d *DHTDiscovery) stunRefreshLoop() {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(d.stunInterval)
 	defer ticker.Stop()
 	for {
 		select {
 		case <-ticker.C:
-			if !d.config.DisableIPv6 {
-				// Prefer IPv6 if available
-				if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
-					if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
-						log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
-					}
-					d.localNode.NATType = string(NATUnknown) // IPv6 has no NAT
-					continue
-				}
-			}
-
-			servers := DefaultSTUNServers
-			if len(servers) >= 2 {
-				// Full NAT type re-detection with two servers
-				natType, ip, _, err := DetectNATType(servers[0], servers[1], 0, 3000)
-				if err != nil {
-					log.Printf("[STUN] Refresh failed: %v", err)
-					continue
-				}
-				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
-				currentEP := d.localNode.GetEndpoint()
-				oldNAT := d.localNode.NATType
-				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
-					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
-				}
-				if string(natType) != oldNAT {
-					log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
-				}
-				d.localNode.NATType = string(natType)
-			} else {
-				// Fallback: single-server IP-only refresh
-				ip, _, err := DiscoverExternalEndpoint(0)
-				if err != nil {
-					log.Printf("[STUN] Refresh failed: %v", err)
-					continue
-				}
-				newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
-				currentEP := d.localNode.GetEndpoint()
-				if d.localNode.ObserveEndpoint(daemon.EndpointSTUN, newEndpoint) {
-					log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
-				}
-			}
+			d.refreshSTUNOnce(daemon.EndpointSTUN)
 		case <-d.ctx.Done():
 			return
 		}
 	}
+}
+
+// refreshSTUNOnce is one pass of the STUN refresh: the ticker calls it with
+// EndpointSTUN (a changed answer waits for three observations, ADR-0002 R7),
+// OnResume with EndpointSTUNResume (applied at once). stunMu keeps the two
+// callers from running it together.
+func (d *DHTDiscovery) refreshSTUNOnce(src daemon.EndpointSource) {
+	d.stunMu.Lock()
+	defer d.stunMu.Unlock()
+
+	if !d.config.DisableIPv6 {
+		// Prefer IPv6 if available
+		if ipv6Endpoint := d.discoverIPv6Endpoint(); ipv6Endpoint != "" {
+			if d.localNode.ObserveEndpoint(daemon.EndpointInterface, ipv6Endpoint) {
+				log.Printf("[STUN] IPv6 endpoint available: %s", ipv6Endpoint)
+			}
+			d.localNode.SetNATType(string(NATUnknown)) // IPv6 has no NAT
+			return
+		}
+	}
+
+	natType, ip, err := d.stunFn()
+	if err != nil {
+		log.Printf("[STUN] Refresh failed: %v", err)
+		return
+	}
+	newEndpoint := net.JoinHostPort(ip.String(), strconv.Itoa(d.config.WGListenPort))
+	currentEP := d.localNode.GetEndpoint()
+	if d.localNode.ObserveEndpoint(src, newEndpoint) {
+		log.Printf("[STUN] External endpoint changed: %s -> %s", currentEP, newEndpoint)
+	}
+	if natType == "" {
+		return // one server only: the NAT type is not re-classified
+	}
+	oldNAT := d.localNode.GetNATType()
+	if string(natType) != oldNAT {
+		log.Printf("[STUN] NAT type changed: %s -> %s", oldNAT, natType)
+	}
+	d.localNode.SetNATType(string(natType))
 }
 
 // queryStun is the default stunFn: the STUN servers' view of our external
@@ -493,9 +491,6 @@ func (d *DHTDiscovery) queryStun() (NATType, net.IP, error) {
 	ip, _, err := DiscoverExternalEndpoint(0)
 	return "", ip, err
 }
-
-// refreshSTUNOnce is one pass of the STUN refresh (stub).
-func (d *DHTDiscovery) refreshSTUNOnce(src daemon.EndpointSource) {}
 
 // announceNow announces to the infohash and to every active peer (stub).
 func (d *DHTDiscovery) announceNow() {}
