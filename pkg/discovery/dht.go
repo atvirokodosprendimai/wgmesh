@@ -63,12 +63,16 @@ type DHTDiscovery struct {
 	localNode *daemon.LocalNode
 	peerStore *daemon.PeerStore
 	exchange  *PeerExchange
-	gossip    *MeshGossip
-	lan       *LANDiscovery
-	server    *dht.Server
-	dhtPort   int
 
+	// mu guards every field below, reads included (ADR-0005 T10): Start writes
+	// server, dhtPort, lan and gossip, while the loops of a stopped run, Stop
+	// and the next Start read them. Read server and dhtPort through dhtServer
+	// and dhtPortNow, lan and gossip under mu.
 	mu                sync.RWMutex
+	gossip            *MeshGossip
+	lan               *LANDiscovery
+	server            *dht.Server
+	dhtPort           int
 	running           bool
 	starting          bool // beginRun done, sub-layers not all started yet (guarded by mu like running)
 	parentCtx         context.Context
@@ -135,15 +139,16 @@ func (d *DHTDiscovery) abortRun() {
 	d.mu.Lock()
 	d.starting = false
 	cancel := d.cancel
+	lan, gossip := d.lan, d.gossip
+	d.lan = nil
 	d.mu.Unlock()
 	cancel()
 
-	if d.lan != nil {
-		d.lan.Stop()
-		d.lan = nil
+	if lan != nil {
+		lan.Stop()
 	}
-	if d.gossip != nil {
-		d.gossip.Stop()
+	if gossip != nil {
+		gossip.Stop()
 	}
 	d.exchange.Stop()
 }
@@ -153,6 +158,21 @@ func (d *DHTDiscovery) runCtx() context.Context {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.ctx
+}
+
+// dhtServer returns the DHT server of the current run (nil before the first
+// Start), under d.mu.
+func (d *DHTDiscovery) dhtServer() *dht.Server {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.server
+}
+
+// dhtPortNow returns the bound DHT port of the current run, under d.mu.
+func (d *DHTDiscovery) dhtPortNow() int {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.dhtPort
 }
 
 // Start begins DHT discovery. It is restart-safe: after Stop it may be called
@@ -178,13 +198,17 @@ func (d *DHTDiscovery) Start() error {
 
 	// Create in-mesh gossip and wire announce handler BEFORE starting exchange
 	// to avoid a race between the exchange listener goroutine and handler setup.
+	var gossip *MeshGossip
 	if d.config.Gossip {
-		gossip, err := NewMeshGossipWithExchange(d.config, d.localNode, d.peerStore, d.exchange)
+		g, err := NewMeshGossipWithExchange(d.config, d.localNode, d.peerStore, d.exchange)
 		if err != nil {
 			return fmt.Errorf("failed to create gossip: %w", err)
 		}
+		gossip = g
+		d.mu.Lock()
 		d.gossip = gossip
-		d.exchange.SetAnnounceHandler(d.gossip.HandleAnnounceFrom)
+		d.mu.Unlock()
+		d.exchange.SetAnnounceHandler(gossip.HandleAnnounceFrom)
 	}
 
 	// Start the peer exchange server (listens for incoming connections)
@@ -197,10 +221,14 @@ func (d *DHTDiscovery) Start() error {
 		if err != nil {
 			log.Printf("[LAN] Failed to initialize LAN discovery: %v", err)
 		} else {
+			d.mu.Lock()
 			d.lan = lan
-			if err := d.lan.Start(); err != nil {
+			d.mu.Unlock()
+			if err := lan.Start(); err != nil {
 				log.Printf("[LAN] Failed to start LAN discovery: %v", err)
+				d.mu.Lock()
 				d.lan = nil
+				d.mu.Unlock()
 			}
 		}
 	} else {
@@ -208,8 +236,8 @@ func (d *DHTDiscovery) Start() error {
 	}
 
 	// Start gossip loop after exchange is listening
-	if d.gossip != nil {
-		if err := d.gossip.Start(); err != nil {
+	if gossip != nil {
+		if err := gossip.Start(); err != nil {
 			return fmt.Errorf("failed to start gossip: %w", err)
 		}
 	}
@@ -246,23 +274,24 @@ func (d *DHTDiscovery) Stop() error {
 	}
 	d.running = false
 	cancel := d.cancel
+	server, lan, gossip := d.server, d.lan, d.gossip
 	d.mu.Unlock()
 
 	d.broadcastGoodbye()
 
 	cancel()
 
-	if d.server != nil {
-		d.persistNodes()
-		d.server.Close()
+	if server != nil {
+		d.persistNodes(server)
+		server.Close()
 	}
 
-	if d.lan != nil {
-		d.lan.Stop()
+	if lan != nil {
+		lan.Stop()
 	}
 
-	if d.gossip != nil {
-		d.gossip.Stop()
+	if gossip != nil {
+		gossip.Stop()
 	}
 
 	if d.exchange != nil {
@@ -534,7 +563,7 @@ func (d *DHTDiscovery) initDHTServer() error {
 			return fmt.Errorf("failed to bind DHT port: %w", err)
 		}
 	}
-	d.dhtPort = dhtConn.LocalAddr().(*net.UDPAddr).Port
+	boundPort := dhtConn.LocalAddr().(*net.UDPAddr).Port
 
 	// Configure DHT server
 	cfg := dht.NewDefaultServerConfig()
@@ -567,10 +596,13 @@ func (d *DHTDiscovery) initDHTServer() error {
 		return fmt.Errorf("failed to create DHT server: %w", err)
 	}
 
+	d.mu.Lock()
 	d.server = server
-	d.loadPersistedNodes()
+	d.dhtPort = boundPort
+	d.mu.Unlock()
+	d.loadPersistedNodes(server)
 
-	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", d.dhtPort)
+	log.Printf("[DHT] Bootstrapping into DHT network on port %d...", boundPort)
 	go d.bootstrapWithRetry()
 	return nil
 }
@@ -597,7 +629,11 @@ func (d *DHTDiscovery) attemptBootstrapLookup() bool {
 	var randomID [20]byte
 	copy(randomID[:], d.config.Keys.NetworkID[:])
 
-	a, err := d.server.Announce(randomID, 0, false)
+	server := d.dhtServer()
+	if server == nil {
+		return false
+	}
+	a, err := server.Announce(randomID, 0, false)
 	if err != nil {
 		log.Printf("[DHT] Bootstrap lookup failed: %v", err)
 		return false
@@ -607,10 +643,10 @@ func (d *DHTDiscovery) attemptBootstrapLookup() bool {
 	for {
 		select {
 		case <-ctx.Done():
-			return d.server.NumNodes() > 0
+			return server.NumNodes() > 0
 		case _, ok := <-a.Peers:
 			if !ok {
-				return d.server.NumNodes() > 0
+				return server.NumNodes() > 0
 			}
 		}
 	}
@@ -641,7 +677,7 @@ func (d *DHTDiscovery) bootstrapWithRetry() {
 		}
 
 		if d.attemptBootstrapLookup() {
-			nodes := d.server.NumNodes()
+			nodes := d.dhtServer().NumNodes()
 			if attempt > 0 {
 				log.Printf("[DHT] Bootstrap succeeded after %d retries, DHT has %d nodes", attempt, nodes)
 			} else {
@@ -667,7 +703,7 @@ func (d *DHTDiscovery) persistLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			d.persistNodes()
+			d.persistNodes(d.dhtServer())
 		}
 	}
 }
@@ -677,13 +713,13 @@ func (d *DHTDiscovery) nodesFilePath() string {
 	return filepath.Join("/var/lib/wgmesh", fmt.Sprintf("%s-%s-dht.nodes", d.config.InterfaceName, networkTag))
 }
 
-func (d *DHTDiscovery) loadPersistedNodes() {
-	if d.server == nil {
+func (d *DHTDiscovery) loadPersistedNodes(server *dht.Server) {
+	if server == nil {
 		return
 	}
 
 	file := d.nodesFilePath()
-	added, err := d.server.AddNodesFromFile(file)
+	added, err := server.AddNodesFromFile(file)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			log.Printf("[DHT] Failed to load persisted nodes from %s: %v", file, err)
@@ -696,12 +732,12 @@ func (d *DHTDiscovery) loadPersistedNodes() {
 	}
 }
 
-func (d *DHTDiscovery) persistNodes() {
-	if d.server == nil {
+func (d *DHTDiscovery) persistNodes(server *dht.Server) {
+	if server == nil {
 		return
 	}
 
-	nodes := d.server.Nodes()
+	nodes := server.Nodes()
 	if len(nodes) == 0 {
 		return
 	}
@@ -747,7 +783,7 @@ func (d *DHTDiscovery) announce() {
 
 	port := d.exchange.Port()
 
-	log.Printf("[DHT] Announcing to network ID %x on exchange port %d (DHT port %d)", current[:8], port, d.dhtPort)
+	log.Printf("[DHT] Announcing to network ID %x on exchange port %d (DHT port %d)", current[:8], port, d.dhtPortNow())
 
 	// Announce to current network ID
 	d.announceToInfohash(current, port)
@@ -761,10 +797,14 @@ func (d *DHTDiscovery) announce() {
 
 // announceToInfohash announces our port to a specific infohash
 func (d *DHTDiscovery) announceToInfohash(infohash [20]byte, port int) {
+	server := d.dhtServer()
+	if server == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(d.runCtx(), 30*time.Second)
 	defer cancel()
 
-	announce, err := d.server.Announce(infohash, port, false)
+	announce, err := server.Announce(infohash, port, false)
 	if err != nil {
 		log.Printf("[DHT] Failed to start announce: %v", err)
 		return
@@ -825,7 +865,10 @@ func (d *DHTDiscovery) queryPeers() {
 		return
 	}
 
-	log.Printf("[DHT] Querying network ID %x (DHT has %d nodes)", current[:8], d.server.NumNodes())
+	if d.dhtServer() == nil {
+		return
+	}
+	log.Printf("[DHT] Querying network ID %x (DHT has %d nodes)", current[:8], d.dhtServer().NumNodes())
 
 	// Query current network ID
 	d.queryInfohash(current)
@@ -838,10 +881,14 @@ func (d *DHTDiscovery) queryPeers() {
 
 // queryInfohash queries a specific infohash for peers
 func (d *DHTDiscovery) queryInfohash(infohash [20]byte) {
+	server := d.dhtServer()
+	if server == nil {
+		return
+	}
 	ctx, cancel := context.WithTimeout(d.runCtx(), 30*time.Second)
 	defer cancel()
 
-	peers, err := d.server.Announce(infohash, 0, false) // port=0, false = get_peers only, no announce
+	peers, err := server.Announce(infohash, 0, false) // port=0, false = get_peers only, no announce
 	if err != nil {
 		log.Printf("[DHT] Failed to query peers: %v", err)
 		return
