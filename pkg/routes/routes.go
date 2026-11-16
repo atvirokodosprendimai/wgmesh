@@ -251,7 +251,7 @@ func Resolve(adv []Advertiser, own []string, current map[string]string) map[stri
 		}
 		if best.fresh {
 			for _, c := range cands {
-				if c.fresh && c.key == observed[network] {
+				if o, ok := observed[network]; c.fresh && ok && c.key == o {
 					best = c
 					break
 				}

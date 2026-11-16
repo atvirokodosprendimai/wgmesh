@@ -480,3 +480,14 @@ func TestCalculateDiffDuplicateDesiredStable(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveUnobservedNetworkIgnoresEmptyKey(t *testing.T) {
+	t.Parallel()
+	adv := []Advertiser{
+		{Key: "", MeshIP: "10.99.0.99", Fresh: true, Networks: []string{sharedNet}},
+		{Key: "b", MeshIP: "10.99.0.1", Fresh: true, Networks: []string{sharedNet}},
+	}
+	if got := resolveAll(t, adv, nil, nil); got[sharedNet] != "b" {
+		t.Errorf("Resolve = %v, want b (an unobserved network must not match an empty key)", got)
+	}
+}
