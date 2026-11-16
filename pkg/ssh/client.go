@@ -19,8 +19,12 @@ type Client struct {
 }
 
 // dialAddr formats host and port for dialing and known_hosts lookups; IPv6
-// hosts come out bracketed ("[::1]:22").
+// hosts come out bracketed ("[::1]:22"). A host already written in brackets
+// ("[::1]", the only IPv6 form that dialed before) is accepted too.
 func dialAddr(host string, port int) string {
+	if strings.HasPrefix(host, "[") && strings.HasSuffix(host, "]") {
+		host = host[1 : len(host)-1]
+	}
 	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 

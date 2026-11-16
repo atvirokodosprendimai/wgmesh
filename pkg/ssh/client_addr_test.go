@@ -14,6 +14,7 @@ func TestDialAddr(t *testing.T) {
 		{"node1.example.com", 2222, "node1.example.com:2222"},
 		{"::1", 22, "[::1]:22"},
 		{"2001:db8::5", 2222, "[2001:db8::5]:2222"},
+		{"[2001:db8::5]", 22, "[2001:db8::5]:22"},
 	}
 	for _, tt := range tests {
 		if got := dialAddr(tt.host, tt.port); got != tt.want {
