@@ -483,3 +483,33 @@ func TestForwardNoIptablesLogOnceAcrossReadError(t *testing.T) {
 		t.Errorf("a missing iptables was logged %d times over 3 ticks with a read error on tick 2, want 1; log: %q", got, ls.lines)
 	}
 }
+
+// A target that was not observed (not wanted) is not "recovered".
+func TestForwardRecoveryNotLoggedWhileNotWanted(t *testing.T) {
+	enforceForwardScope(t, true)
+	h := &fakeHost{iptablesPresent: true, readErr: errors.New("permission denied")}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+	advertise := func(routes []string) {
+		d.configMu.Lock()
+		d.config.AdvertiseRoutes = routes
+		d.configMu.Unlock()
+	}
+
+	advertise([]string{"192.168.50.0/24"})
+	tick(t, d, 1)
+	if got := ls.count("Cannot read the forwarding state"); got != 1 {
+		t.Fatalf("the read error was logged %d times, want 1; log: %q", got, ls.lines)
+	}
+	advertise(nil)
+	tick(t, d, 2)
+	if got := ls.count("works again"); got != 0 {
+		t.Errorf("'works again' logged while the target was not observed: %q", ls.lines)
+	}
+	h.set(func(h *fakeHost) { h.readErr = nil })
+	advertise([]string{"192.168.50.0/24"})
+	tick(t, d, 1)
+	if got := ls.count("works again"); got != 1 {
+		t.Errorf("recovery logged %d times once the read worked, want 1; log: %q", got, ls.lines)
+	}
+}

@@ -224,7 +224,9 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	ds := d.desire(peers, obs.handshakes(), obs.owners())
 	d.noteForwardScope(ds.Forward)
 	d.observeForward(ds.Forward, &obs)
-	d.noteForwardObserve(obs.Errs[targetForward])
+	if ds.Forward.Wanted {
+		d.noteForwardObserve(obs.Errs[targetForward])
+	}
 	plan := planKernel(ds.Peers, obs, d.pushedLocked(), d.config.DisableIPv6)
 	results := d.applyKernel(plan)
 	results = append(results, d.applyForward(planForward(ds.Forward, obs), ds.Forward.Wanted && obs.Errs[targetForward] == nil)...)
