@@ -76,6 +76,11 @@ func buildPeerCache(peerStore *PeerStore) *PeerCache {
 		// connected by handshakes is saved with a fresh time while a restored
 		// peer never heard from keeps its cache time and expires on schedule;
 		// the field and its type are unchanged, an older version reads it as before.
+		// A time in the future (the clock jumped back) is saved as now.
+		contact := p.LastContact()
+		if contact.After(now) {
+			contact = now
+		}
 		cache.Peers = append(cache.Peers, PeerCacheEntry{
 			WGPubKey:         p.WGPubKey,
 			Hostname:         p.Hostname,
@@ -85,7 +90,7 @@ func buildPeerCache(peerStore *PeerStore) *PeerCache {
 			Introducer:       p.Introducer,
 			RoutableNetworks: p.RoutableNetworks,
 			NATType:          p.NATType,
-			LastSeen:         p.LastContact().Unix(),
+			LastSeen:         contact.Unix(),
 		})
 	}
 	return cache
@@ -135,6 +140,10 @@ func restorePeers(cache *PeerCache, peerStore *PeerStore) int {
 		// Skip expired entries
 		if now.Sub(lastSeen) > CacheExpiration {
 			continue
+		}
+		// A time in the future (the clock jumped back) counts as now.
+		if lastSeen.After(now) {
+			lastSeen = now
 		}
 
 		peer := &PeerInfo{
