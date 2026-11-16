@@ -16,7 +16,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 EnvironmentFile=/etc/wgmesh/secret.env
-ExecStart=/bin/sh -c 'exec {{.ExecStart}}'
+ExecStart=/bin/sh -c "exec {{.ExecStart}}"
 Restart=always
 RestartSec=5
 LimitNOFILE=65535
@@ -32,10 +32,28 @@ WantedBy=multi-user.target
 `
 
 // shellQuoteSystemd wraps s in single quotes for safe interpolation into
-// shell commands (the systemd unit's ExecStart uses sh -c). Any embedded
-// single quotes are escaped as '\”.
+// the shell command run by the unit's ExecStart (sh -c). An embedded single
+// quote closes the quoting, is emitted backslash-escaped, and reopens it. The
+// result is then escaped for the unit file by systemdEscapeDoubleQuoted, so
+// quote every variable argument with this.
 func shellQuoteSystemd(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// systemdEscapeDoubleQuoted escapes s for use inside a double-quoted word of
+// an ExecStart= line. systemd strips quotes and backslash escapes itself and
+// expands %-specifiers and $VAR before the shell runs, so a shell-quoted
+// argument must not be placed in the unit as-is: systemd would consume its
+// single quotes and the shell would see the bare value.
+func systemdEscapeDoubleQuoted(s string) string {
+	return strings.NewReplacer(
+		`\`, `\\`,
+		`"`, `\"`,
+		"\n", `\n`,
+		"\r", `\r`,
+		"%", "%%",
+		"$", "$$",
+	).Replace(s)
 }
 
 // SystemdServiceConfig holds configuration for generating the systemd service
@@ -73,20 +91,20 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 	// Build ExecStart command. The secret is not passed as an argument (argv is
 	// world-readable via ps//proc); join reads WGMESH_SECRET from the
 	// environment, which systemd loads from the root-only EnvironmentFile.
-	args := []string{cfg.BinaryPath, "join"}
+	args := []string{shellQuoteSystemd(cfg.BinaryPath), "join"}
 
 	if cfg.InterfaceName != "" && cfg.InterfaceName != DefaultInterface {
-		// Shell-quote the interface name because ExecStart runs inside sh -c.
+		// Shell-quote every variable argument because ExecStart runs inside sh -c.
 		args = append(args, "--interface", shellQuoteSystemd(cfg.InterfaceName))
 	}
 	if cfg.ListenPort != 0 && cfg.ListenPort != DefaultWGPort {
 		args = append(args, "--listen-port", fmt.Sprintf("%d", cfg.ListenPort))
 	}
 	if len(cfg.AdvertiseRoutes) > 0 {
-		args = append(args, "--advertise-routes", strings.Join(cfg.AdvertiseRoutes, ","))
+		args = append(args, "--advertise-routes", shellQuoteSystemd(strings.Join(cfg.AdvertiseRoutes, ",")))
 	}
 	if len(cfg.AcceptRoutes) > 0 {
-		args = append(args, "--accept-routes", strings.Join(cfg.AcceptRoutes, ","))
+		args = append(args, "--accept-routes", shellQuoteSystemd(strings.Join(cfg.AcceptRoutes, ",")))
 	}
 	if cfg.Privacy {
 		args = append(args, "--privacy")
@@ -110,13 +128,13 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 		args = append(args, "--introducer")
 	}
 	if cfg.MeshSubnet != "" {
-		args = append(args, "--mesh-subnet", cfg.MeshSubnet)
+		args = append(args, "--mesh-subnet", shellQuoteSystemd(cfg.MeshSubnet))
 	}
 
 	data := struct {
 		ExecStart string
 	}{
-		ExecStart: strings.Join(args, " "),
+		ExecStart: systemdEscapeDoubleQuoted(strings.Join(args, " ")),
 	}
 
 	tmpl, err := template.New("systemd").Parse(systemdUnitTemplate)

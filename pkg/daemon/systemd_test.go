@@ -3,6 +3,7 @@ package daemon
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -135,7 +136,7 @@ func TestGenerateSystemdUnitWithRoutes(t *testing.T) {
 		t.Fatalf("GenerateSystemdUnit failed: %v", err)
 	}
 
-	if !strings.Contains(unit, "--advertise-routes 192.168.0.0/24,10.0.0.0/8") {
+	if !strings.Contains(unit, "--advertise-routes '192.168.0.0/24,10.0.0.0/8'") {
 		t.Error("Unit should contain advertise routes")
 	}
 }
@@ -152,7 +153,7 @@ func TestGenerateSystemdUnitAcceptRoutes(t *testing.T) {
 		t.Fatalf("GenerateSystemdUnit failed: %v", err)
 	}
 
-	if !strings.Contains(unit, "--accept-routes 192.168.0.0/16,10.0.0.0/8") {
+	if !strings.Contains(unit, "--accept-routes '192.168.0.0/16,10.0.0.0/8'") {
 		t.Errorf("Unit should contain accept routes:\n%s", unit)
 	}
 
@@ -500,6 +501,137 @@ func TestUninstallSystemdService_ExecCommands(t *testing.T) {
 		}
 		if !found {
 			t.Errorf("expected command %q in %v", want, calledCmds)
+		}
+	}
+}
+
+// systemdUnquoteExecStart undoes what systemd does to an
+// ExecStart=/bin/sh -c "<script>" line before sh runs: it takes the script out
+// of the double quotes, resolves backslash escapes and turns %% and $$ into
+// % and $. A bare " % or $ inside the script is an error, because systemd would
+// treat it as a quote end, a specifier or a variable.
+func systemdUnquoteExecStart(t *testing.T, unit string) string {
+	t.Helper()
+	const prefix = `ExecStart=/bin/sh -c "`
+	var line string
+	for _, l := range strings.Split(unit, "\n") {
+		if strings.HasPrefix(l, "ExecStart=") {
+			line = l
+		}
+	}
+	if !strings.HasPrefix(line, prefix) || !strings.HasSuffix(line, `"`) {
+		t.Fatalf("ExecStart is not /bin/sh -c \"...\": %s", line)
+	}
+	body := line[len(prefix) : len(line)-1]
+	var out strings.Builder
+	for i := 0; i < len(body); i++ {
+		c := body[i]
+		next := byte(0)
+		if i+1 < len(body) {
+			next = body[i+1]
+		}
+		switch {
+		case c == '\\' && next == '\\', c == '\\' && next == '"':
+			out.WriteByte(next)
+			i++
+		case c == '\\' && next == 'n':
+			out.WriteByte('\n')
+			i++
+		case c == '\\' && next == 'r':
+			out.WriteByte('\r')
+			i++
+		case (c == '%' || c == '$') && next == c:
+			out.WriteByte(c)
+			i++
+		default:
+			if c == '\\' || c == '"' || c == '%' || c == '$' {
+				t.Fatalf("unescaped %q at %d in ExecStart body %q", c, i, body)
+			}
+			out.WriteByte(c)
+		}
+	}
+	return out.String()
+}
+
+// TestGenerateSystemdUnitHostileArgsStayOneArgument runs the generated
+// ExecStart script through sh, with a recorder in place of wgmesh, and checks
+// that every operator-supplied value arrives as exactly one argument and no
+// injected command runs.
+func TestGenerateSystemdUnitHostileArgsStayOneArgument(t *testing.T) {
+	t.Parallel()
+
+	hostile := []string{
+		"10.0.0.0/8;touch PWNED",
+		"10.0.0.0/8 && touch PWNED",
+		"$(touch PWNED)",
+		"`touch PWNED`",
+		"a b\tc",
+		"it's \"quoted\" \\ back",
+		"%h %n %% $HOME ${HOME} $$",
+		"line1\nline2; touch PWNED",
+		"*",
+	}
+	fields := []struct {
+		name string
+		set  func(cfg *SystemdServiceConfig, v string)
+		flag string
+	}{
+		{"binary path", func(c *SystemdServiceConfig, v string) {}, ""},
+		{"interface", func(c *SystemdServiceConfig, v string) { c.InterfaceName = v }, "--interface"},
+		{"advertise-routes", func(c *SystemdServiceConfig, v string) { c.AdvertiseRoutes = []string{v} }, "--advertise-routes"},
+		{"accept-routes", func(c *SystemdServiceConfig, v string) { c.AcceptRoutes = []string{v} }, "--accept-routes"},
+		{"mesh-subnet", func(c *SystemdServiceConfig, v string) { c.MeshSubnet = v }, "--mesh-subnet"},
+	}
+
+	for _, f := range fields {
+		for i, v := range hostile {
+			t.Run(fmt.Sprintf("%s/%d", f.name, i), func(t *testing.T) {
+				dir := t.TempDir()
+				argsFile := filepath.Join(dir, "args")
+				recorder := filepath.Join(dir, "rec")
+				if f.flag == "" {
+					// Hostile binary path: a real directory whose name is the
+					// value (minus "/" and newline, which a name cannot hold).
+					sub := filepath.Join(dir, strings.NewReplacer("\n", "_", "/", "_").Replace(v))
+					if err := os.Mkdir(sub, 0o755); err != nil {
+						t.Fatal(err)
+					}
+					recorder = filepath.Join(sub, "rec")
+				}
+				script := "#!/bin/sh\nprintf '%s\\0' \"$@\" > '" + argsFile + "'\n"
+				if err := os.WriteFile(recorder, []byte(script), 0o755); err != nil {
+					t.Fatal(err)
+				}
+
+				cfg := SystemdServiceConfig{Secret: "s", BinaryPath: recorder}
+				f.set(&cfg, v)
+				unit, err := GenerateSystemdUnit(cfg)
+				if err != nil {
+					t.Fatalf("GenerateSystemdUnit: %v", err)
+				}
+				body := systemdUnquoteExecStart(t, unit)
+
+				cmd := exec.Command("/bin/sh", "-c", body)
+				cmd.Dir = dir // an injected "touch PWNED" would land here
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("sh -c %q: %v\n%s", body, err, out)
+				}
+				if _, err := os.Stat(filepath.Join(dir, "PWNED")); err == nil {
+					t.Fatalf("injected command ran for %q:\n%s", v, body)
+				}
+				raw, err := os.ReadFile(argsFile)
+				if err != nil {
+					t.Fatalf("recorder did not run: %v\nscript: %s", err, body)
+				}
+				got := strings.Split(strings.TrimSuffix(string(raw), "\x00"), "\x00")
+				want := []string{"join"}
+				if f.flag != "" {
+					want = append(want, f.flag, v)
+				}
+				if strings.Join(got, "\x00") != strings.Join(want, "\x00") {
+					t.Errorf("args = %q, want %q\nscript: %s", got, want, body)
+				}
+			})
 		}
 	}
 }

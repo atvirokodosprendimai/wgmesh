@@ -123,21 +123,9 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 	}
 
 	// Parse and validate custom subnet if provided
-	customSubnet, err := crypto.ParseSubnetOrDefault(opts.MeshSubnet)
+	customSubnet, err := ParseMeshSubnet(opts.MeshSubnet)
 	if err != nil {
-		return nil, fmt.Errorf("invalid mesh subnet: %w", err)
-	}
-	if customSubnet != nil {
-		if customSubnet.IP.To4() == nil {
-			return nil, fmt.Errorf("mesh subnet must be an IPv4 CIDR, got %q", customSubnet.String())
-		}
-		ones, bits := customSubnet.Mask.Size()
-		if bits != 32 {
-			return nil, fmt.Errorf("mesh subnet must be an IPv4 CIDR, got %q", customSubnet.String())
-		}
-		if bits-ones < 2 {
-			return nil, fmt.Errorf("mesh subnet /%d is too small (need at least /30 for 2 host addresses)", ones)
-		}
+		return nil, err
 	}
 
 	advertiseRoutes, err := NormalizeRoutes(opts.AdvertiseRoutes)
@@ -145,7 +133,7 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		return nil, fmt.Errorf("invalid advertise-routes: %w", err)
 	}
 
-	acceptRoutes, err := parseAcceptRoutes(opts.AcceptRoutes)
+	acceptRoutes, err := ParseAcceptRoutes(opts.AcceptRoutes)
 	if err != nil {
 		return nil, err
 	}
@@ -167,6 +155,30 @@ func NewConfig(opts DaemonOpts) (*Config, error) {
 		DisablePunching: opts.DisablePunching,
 		CustomSubnet:    customSubnet,
 	}, nil
+}
+
+// ParseMeshSubnet parses and validates the --mesh-subnet value exactly as join
+// does: an IPv4 CIDR no smaller than /30. The empty string means the default
+// subnet and returns nil.
+func ParseMeshSubnet(cidr string) (*net.IPNet, error) {
+	subnet, err := crypto.ParseSubnetOrDefault(cidr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid mesh subnet: %w", err)
+	}
+	if subnet == nil {
+		return nil, nil
+	}
+	if subnet.IP.To4() == nil {
+		return nil, fmt.Errorf("mesh subnet must be an IPv4 CIDR, got %q", subnet.String())
+	}
+	ones, bits := subnet.Mask.Size()
+	if bits != 32 {
+		return nil, fmt.Errorf("mesh subnet must be an IPv4 CIDR, got %q", subnet.String())
+	}
+	if bits-ones < 2 {
+		return nil, fmt.Errorf("mesh subnet /%d is too small (need at least /30 for 2 host addresses)", ones)
+	}
+	return subnet, nil
 }
 
 // NormalizeRoutes trims and validates advertised routes. Empty entries are
@@ -214,13 +226,13 @@ func NormalizeRoutes(routes []string) ([]string, error) {
 	return out, nil
 }
 
-// parseAcceptRoutes validates the operator's accept-routes list. It is the one
+// ParseAcceptRoutes validates the operator's accept-routes list. It is the one
 // place the list is parsed, for the flag, the config and the reload file; it
 // shares the parser of advertise-routes. The single empty string is the empty
 // list (unset on the flag, clear on the reload file); a list that had entries
 // but none survived (",", " , ") is an error, because it would silently become
 // the empty list and open the node.
-func parseAcceptRoutes(routes []string) ([]string, error) {
+func ParseAcceptRoutes(routes []string) ([]string, error) {
 	out, err := NormalizeRoutes(routes)
 	if err != nil {
 		return nil, fmt.Errorf("invalid accept-routes: %w", err)
@@ -304,7 +316,7 @@ func LoadReloadFile(path string) (DaemonOpts, error) {
 			}
 			opts.AdvertiseRoutes = routes
 		case "accept-routes":
-			routes, err := parseAcceptRoutes(strings.Split(val, ","))
+			routes, err := ParseAcceptRoutes(strings.Split(val, ","))
 			if err != nil {
 				return DaemonOpts{}, err
 			}
