@@ -5,7 +5,7 @@
 **Estimated scope:** S (few files)
 **Owner:** unassigned
 **Produces:** none
-**Consumes:** `RestoredAt` and `LastAlive` in the cache file (T3); `DHTDiscovery.OnResume` and `daemon.EndpointSTUNResume` (T5); `daemon.EnforceRelayProbe`, `wgmesh_relay_route_age_seconds` (T6)
+**Consumes:** `RestoredAt` and `PeerInfo.LastContact` in the cache file (T3); `DHTDiscovery.OnResume` and `daemon.EndpointSTUNResume` (T5); `daemon.EnforceRelayProbe`, `wgmesh_relay_route_age_seconds` (T6)
 **Data dependency:** hermetic
 **Proof map:** v1
 
@@ -18,11 +18,13 @@ The peer store and daemon support specs and a release note describe `Assess`, th
 | File | Change | Why |
 |------|--------|-----|
 | `eidos/spec - peer store - thread-safe registry with endpoint ranking and pub-sub.md` | edit | `Assess`, `Alive`, the four evidence times, `GetProbeable`, `ObserveDataPlane` |
-| `eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md` | edit | the restore grace, `LastAlive` in the cache file, the resume loop and grace, probe-only relayed peers |
+| `eidos/spec - daemon support - cache persistence collision resolution epoch management route sync and systemd.md` | edit | the restore grace, `LastContact` in the cache file, the resume loop and grace, probe-only relayed peers |
 | `eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md` | edit | the `stun-resume` source (`daemon.EndpointSTUNResume`) and `DHTDiscovery.OnResume`; the spec already names `ObserveEndpoint` and is read by `spec_admit_test.go:21`, so this edit lands in a section that test reads |
 | `README.md`, `docs/envelope-rollout.md` | edit | one link each to the new note |
 | `docs/liveness-rollout.md` | add | operator and release note for N, N+1 and N+2: what each switch does; `wgmesh_liveness_disagree_total{site}` read as the N+1 go/no-go; `wgmesh_relay_route_age_seconds` read before N+2; `wgmesh_resume_detected_total`; the keepalive cost of probe-only peers; the 60-second wake grace; what a restored peer looks like in `daemon.status`; the `NATType` guard added by T5 (`BACKLOG.md:18` known limit, closed or reworded) |
-| `docs/adr/BACKLOG.md`, `docs/admit-rollout.md` | edit | rows for N+1, N+2, OS power events through cgo or a helper, and rebinding the transport socket on a wake; `BACKLOG.md:19` and `docs/admit-rollout.md:24` say "ADR-0004 M5 will add / is planned to add a `stun-resume` source": once T5 has landed they say it adds one (this is the one exception to the rule that this task does not edit ADR-0002's lines: ADR-0002 R7 and these two sentences describe the same case, and M confirmed it on 2026-11-15 22:46); `BACKLOG.md:18` is reworded if T5 guarded `NATType` |
+| `docs/adr/BACKLOG.md`, `docs/admit-rollout.md` | edit | rows for N+1, N+2, OS power events through cgo or a helper, and rebinding the transport socket on a wake; `BACKLOG.md:19` and `docs/admit-rollout.md:24` say "ADR-0004 M5 will add / is planned to add a `stun-resume` source": once T5 has landed they say it adds one (this is the one exception to the rule that this task does not edit ADR-0002's lines: ADR-0002 R7 and these two sentences describe the same case, and M confirmed it on 2026-11-15 22:46); `BACKLOG.md:18` is reworded: T5 closed the `NATType` half (every access behind `GetNATType`/`SetNATType`), the `Policy.Local` read stays open |
+| `eidos/spec - daemon health - dual signal health monitoring with eviction and temporary offline.md` | edit | line 60 names `buildDesiredPeerConfigs`, which T2 deleted (`planPeers` and `buildDesiredPeerConfigsWithHandshakes` replace it); `checkPeerHealth` is split into the wg read and `evaluatePeerHealth`; the health skip for relay-routed peers (T6) and the wake grace (T4) |
+| `docs/adr/ADR-0002-admit-step/ADR-0002-admit-step.md` | edit | the R7 row (line 85) and the T11 note (line 190) say ADR-0004 M5 "will add" / "planned" a `stun-resume` source: they say it adds one (the second exception to the rule above, same case, M 2026-11-15 22:46) |
 | `pkg/node/spec_liveness_test.go` | add | the specs, the note and the backlog must name the pieces; modelled on `pkg/node/spec_admit_test.go` (same file reading and missing-name reporting) |
 
 ## Ordered Steps
@@ -37,7 +39,7 @@ The peer store and daemon support specs and a release note describe `Assess`, th
 
 ```bash
 set -o pipefail
-n=$(go test ./pkg/node -run '^TestSpecNamesLiveness$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 1 ] && test -f docs/liveness-rollout.md && grep -c 'ADR-0004' docs/adr/BACKLOG.md | grep -qv '^0$' && ! grep -rnE 'ADR-0004 M5 (is planned to|will) add' docs/admit-rollout.md docs/adr/BACKLOG.md && adr-debt docs/adr
+n=$(go test ./pkg/node -run '^TestSpecNamesLiveness$' -count=1 -v 2>&1 | tee /dev/stderr | grep -c '^--- PASS') && [ "$n" -ge 1 ] && test -f docs/liveness-rollout.md && grep -c 'ADR-0004' docs/adr/BACKLOG.md | grep -qv '^0$' && ! grep -rnE 'ADR-0004 M5 (is planned to|will) add|planned .stun-resume|will add a .stun-resume' docs/admit-rollout.md docs/adr/BACKLOG.md docs/adr/ADR-0002-admit-step/ADR-0002-admit-step.md && adr-debt docs/adr
 ```
 
 ## Tests
