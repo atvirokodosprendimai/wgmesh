@@ -127,6 +127,11 @@ func (ps *PeerStore) merge(c Candidate) (eventKey string, eventKind PeerEventKin
 
 	existing, exists := ps.peers[info.WGPubKey]
 	if !exists {
+		// Evidence is measured here, never taken from a caller's claim: the
+		// stored copy starts without data-plane, restore or resume times.
+		info.LastDataPlane = time.Time{}
+		info.RestoredAt = time.Time{}
+		info.resumedAt = time.Time{}
 		if info.LastSeen.IsZero() {
 			info.LastSeen = now
 		}
