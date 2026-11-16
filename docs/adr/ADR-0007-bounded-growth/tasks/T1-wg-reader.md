@@ -128,3 +128,4 @@ Stop and ask if `wg show <iface> dump` differs between the `wg` builds the proje
 - 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:16017
 - 2026-11-15 · a07e465* · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:11019
 - 2026-11-16 · b6554cc · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:7878
+- 2026-11-16 · 7004197 · exit 0 · `set -o pipefail …` · acceptance-sha256:16c9fc522d71f9ee59b585ad496978aef113c2dc33b726854196606a71c0dbd1 · ms:8555
