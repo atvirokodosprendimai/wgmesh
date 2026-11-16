@@ -117,3 +117,4 @@ Stop and ask if the library version in `go.mod` is not `v2.23.0` at execution, o
 - 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:2f87d03d7e645b458084ca8ad1f14f764439a70eca620503988544c5fa9f2a21 · ms:11209
 - 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:2f87d03d7e645b458084ca8ad1f14f764439a70eca620503988544c5fa9f2a21 · ms:13720
 - 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:2f87d03d7e645b458084ca8ad1f14f764439a70eca620503988544c5fa9f2a21 · ms:9426
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:2f87d03d7e645b458084ca8ad1f14f764439a70eca620503988544c5fa9f2a21 · ms:9326

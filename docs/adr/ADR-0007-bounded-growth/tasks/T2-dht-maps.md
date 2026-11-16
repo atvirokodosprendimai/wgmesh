@@ -140,3 +140,4 @@ Stop and ask if ADR-0002's tasks have changed `markContacted`, `checkStaleHandsh
 - 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11177
 - 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:11662
 - 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:7745
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:7112c7a0c9e635e61c6f62f1bf6e21d211dd21d0dd16ae98883abcabaebb798d · ms:14282

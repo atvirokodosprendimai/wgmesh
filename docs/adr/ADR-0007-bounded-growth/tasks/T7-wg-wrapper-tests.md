@@ -68,6 +68,11 @@ Merge note (2026-11-16): ADR-0006 deleted `shellQuote` from `pkg/wireguard/apply
 - 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/keys.go` · pubkey failure ignored: TestGenerateKeyPairReportsFailure red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
 - 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/keys.go` · genkey failure ignored: TestGenerateKeyPairReportsGenkeyFailure red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
 - 2026-11-15 · 84172d7* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · empty endpoint written: TestGenerateWgQuickConfigPeerWithoutOptionalFields red · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514
+- 2026-11-16 · c0ad7db* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · preshared key moved to argv: TestSetPeerPassesPresharedKeyOnStdinNotArgv red · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b
+- 2026-11-16 · c0ad7db* · mutant killed · exit 1 · `pkg/wireguard/apply.go` · persistent-keepalive dropped: TestSetPeerArgsOrder red · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b
+- 2026-11-16 · c0ad7db* · mutant killed · exit 1 · `pkg/wireguard/keys.go` · pubkey failure ignored: TestGenerateKeyPairReportsFailure red · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b
+- 2026-11-16 · c0ad7db* · mutant killed · exit 1 · `pkg/wireguard/keys.go` · genkey failure ignored: TestGenerateKeyPairReportsGenkeyFailure red · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b
+- 2026-11-16 · c0ad7db* · mutant killed · exit 1 · `pkg/wireguard/persist.go` · empty endpoint written: TestGenerateWgQuickConfigPeerWithoutOptionalFields red · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b
 
 ## Invariants
 
@@ -108,3 +113,10 @@ Stop and ask if a test shows a defect in `SetPeer` or `GenerateKeyPair` that cha
 - 2026-11-16 · b6554cc* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4179
 - 2026-11-16 · 7004197* · exit 0 · `set -o pipefail …` · acceptance-sha256:04f6cebba12817d6d0e1ffecc2668d03e85cb9ddc687e545858686b9917f2514 · ms:4174
 - 2026-11-16 · 820cfe4* · exit 0 · `adr-verify --relock --replace-hashes` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:0 · test-lock-sha256:80429201db54248f9c01b35ef920cf68208cea82194961238ce8938b9dfc2544 · test-lock-file:docs/adr/locks/80429201db54248f9c01b35ef920cf68208cea82194961238ce8938b9dfc2544.lock · test-lock-kind:replace
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:5544
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:5066
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:5072
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:4922
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:4938
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:4226
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:072709e39e8de0a848c32f5e5bf4a9078e3b4f876a0fc69053e4312ba740bf5b · ms:4042

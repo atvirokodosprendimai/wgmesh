@@ -115,3 +115,4 @@ Stop and ask if a documented invocation (README, `docs/`, packaging unit files, 
 - 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:32559
 - 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:31472
 - 2026-11-16 · aa38078* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:29748
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:db74c1f8ec6738f416bac4bd3f03898c8865fc552b171c4c0eb088a56ff28f85 · ms:30253

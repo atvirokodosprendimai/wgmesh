@@ -138,3 +138,4 @@ Stop and ask if a documented invocation relies on `WGMESH_SECRET_FILE` being ign
 - 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:34418
 - 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:39050
 - 2026-11-16 · a686785* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:35003
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:97d9fa802eccfedb6835021b2b956b1b9390a2be7e3110db9c584f25dee10b96 · ms:29820

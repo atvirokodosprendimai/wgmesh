@@ -130,3 +130,4 @@ Stop and ask if the guard cannot read `../discovery` from `pkg/daemon` under the
 - 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:16343
 - 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:10580
 - 2026-11-16 · 7fd9ed8* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:13085
+- 2026-11-16 · c0ad7db* · exit 0 · `set -o pipefail …` · acceptance-sha256:b363e0b9223057feab8f0c209116ffa3b00dc7bd511f2b31393b26442c664036 · ms:13022
