@@ -466,6 +466,9 @@ func (d *DHTDiscovery) refreshSTUNOnce(src daemon.EndpointSource) {
 	}
 
 	natType, ip, err := d.stunFn()
+	if d.ctx.Err() != nil {
+		return // the layer was stopped during the query: its answer is stale
+	}
 	if err != nil {
 		log.Printf("[STUN] Refresh failed: %v", err)
 		return
@@ -548,6 +551,9 @@ func (d *DHTDiscovery) OnResume() {
 	log.Printf("[Resume] Wake detected: refreshing STUN endpoint and announcing")
 	go func() {
 		defer d.resumeWG.Done()
+		if d.ctx.Err() != nil {
+			return
+		}
 		d.refreshSTUNOnce(daemon.EndpointSTUNResume)
 		if d.ctx.Err() != nil {
 			return
