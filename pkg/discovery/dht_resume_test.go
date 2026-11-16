@@ -372,3 +372,51 @@ func TestOnResumeStopWhileSTUNBlockedKeepsEndpoint(t *testing.T) {
 		t.Fatalf("announce() calls = %d, want 0 after Stop", got)
 	}
 }
+
+// Wake events can come in bursts: while one STUN+announce pass is running a
+// further OnResume only clears the back-off; it starts no second pass.
+func TestOnResumeCoalescesWhileAPassRuns(t *testing.T) {
+	d, p := resumeDHT(t)
+	started := make(chan struct{}, 32)
+	release := make(chan struct{})
+	d.stunFn = func() (NATType, net.IP, error) {
+		p.stun.Add(1)
+		started <- struct{}{}
+		<-release
+		return NATCone, net.ParseIP(resumeNewIP), nil
+	}
+
+	d.OnResume()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first pass never reached the STUN query")
+	}
+	d.mu.Lock()
+	d.rendezvousBackoff["peer-x"] = backoffEntry{nextAttempt: time.Now().Add(time.Hour), duration: time.Hour}
+	d.mu.Unlock()
+	for i := 0; i < 20; i++ {
+		d.OnResume()
+	}
+	if !d.canAttemptRendezvous("peer-x") {
+		t.Fatal("a coalesced OnResume did not clear the rendezvous back-off")
+	}
+	close(release)
+	d.resumeWG.Wait()
+
+	if got := p.stun.Load(); got != 1 {
+		t.Fatalf("STUN passes = %d, want 1 for 21 OnResume calls during one pass", got)
+	}
+	if got := p.announce.Load(); got != 1 {
+		t.Fatalf("announce() calls = %d, want 1", got)
+	}
+
+	d.OnResume()
+	d.resumeWG.Wait()
+	if got := p.stun.Load(); got != 2 {
+		t.Fatalf("STUN passes after the pass ended = %d, want 2 (a new OnResume runs again)", got)
+	}
+	if got := p.announce.Load(); got != 2 {
+		t.Fatalf("announce() calls after the pass ended = %d, want 2", got)
+	}
+}
