@@ -59,6 +59,21 @@ type Daemon struct {
 	localSubnetsFn         func() []*net.IPNet
 	// reconcileMu serialises reconcile: the ticker and handleSIGHUP call it.
 	reconcileMu sync.Mutex
+	// convergeMu serialises every write to the WireGuard peers of the kernel
+	// (see converge.go) and guards pushedEndpoint, lastResults and
+	// observeErrLogged. Lock order: reconcileMu, then convergeMu; the health
+	// paths (attemptPeerReconnect, evictPeerFromPool, staleCleanupLoop) take
+	// only convergeMu; never the reverse.
+	convergeMu       sync.Mutex
+	pushedEndpoint   map[string]string // peer key -> endpoint last pushed with wg set
+	lastResults      map[string]string // item -> last failure text, for log on change
+	observeErrLogged string            // last observe error text, for log once
+	// Seams of the kernel and the log, set at construction; nil means the
+	// real wireguard functions and log.Printf (see converge.go).
+	setPeerFn    func(iface, pubKey string, psk [32]byte, endpoint, allowedIPs string) error
+	removePeerFn func(iface, pubKey string) error
+	dumpFn       func(iface string) (wireguard.DumpPeers, error)
+	logFn        func(format string, args ...any)
 	// sharedLogMu guards sharedLogged, the last logged owner of each shared network.
 	sharedLogMu           sync.Mutex
 	sharedLogged          map[string]string

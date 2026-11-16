@@ -58,6 +58,15 @@ var (
 		Help: "Cases where an admit rule would act once enforced, by rule; counted each time an offer or a collision comparison meets the case, so a standing case counts again on every announcement and every collision pass, per observer",
 	}, []string{"rule"})
 
+	kernelChanges = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_kernel_changes_total",
+		Help: "Writes that changed the kernel state of this node, by target; flat in a steady state",
+	}, []string{"target"})
+	kernelWarnings = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "wgmesh_kernel_warnings_total",
+		Help: "Cases where a kernel rule would act once enforced, by rule",
+	}, []string{"rule"})
+
 	goCollector      = collectors.NewGoCollector()
 	processCollector = collectors.NewProcessCollector(collectors.ProcessCollectorOpts{})
 )
@@ -90,6 +99,9 @@ func registerMetrics(reg prometheus.Registerer) {
 	reg.MustRegister(natTraversalSuccesses)
 	reg.MustRegister(admitWarnings)
 	admitWarnings.WithLabelValues("winner-differs")
+	reg.MustRegister(kernelChanges)
+	kernelChanges.WithLabelValues("peer")
+	reg.MustRegister(kernelWarnings)
 	reg.MustRegister(goCollector)
 	reg.MustRegister(processCollector)
 }
@@ -154,6 +166,11 @@ func RecordNATTraversalAttempt(method string) {
 // RecordNATTraversalSuccess increments the success counter for the given method.
 func RecordNATTraversalSuccess(method string) {
 	natTraversalSuccesses.WithLabelValues(method).Inc()
+}
+
+// RecordKernelChange counts one write that changed the kernel, by target.
+func RecordKernelChange(target string) {
+	kernelChanges.WithLabelValues(target).Inc()
 }
 
 // RecordAdmitWarning counts one case where an admit rule would act once enforced.

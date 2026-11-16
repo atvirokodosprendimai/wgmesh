@@ -1,0 +1,63 @@
+package daemon
+
+import (
+	"strings"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/routes"
+)
+
+// targetPeers names the WireGuard peers in an observe error and a metric label.
+const targetPeers = "peer"
+
+// observedPeer is what the kernel holds for one peer.
+type observedPeer struct {
+	// Allowed is the canonical AllowedIPs set.
+	Allowed map[string]struct{}
+	// Handshake is the latest handshake, unix seconds, 0 = never.
+	Handshake int64
+}
+
+// kernelObserved is what one tick read from the kernel. A target that could
+// not be read has an entry in Errs and must not be read as empty.
+type kernelObserved struct {
+	Peers map[string]observedPeer
+	Errs  map[string]error
+}
+
+// observeKernel reads the kernel once (peer target only for now).
+func (d *Daemon) observeKernel() kernelObserved {
+	return kernelObserved{}
+}
+
+// canonicalCIDR is the form in which the kernel's and the desired AllowedIPs are compared.
+func canonicalCIDR(cidr string) string {
+	return routes.Canonical(cidr, strings.Contains(cidr, ":"))
+}
+
+// handshakes is public key -> latest handshake, from the same dump as the peers.
+func (k kernelObserved) handshakes() map[string]int64 {
+	out := make(map[string]int64, len(k.Peers))
+	for key, p := range k.Peers {
+		out[key] = p.Handshake
+	}
+	return out
+}
+
+// owners is canonical network -> key of the peer that holds it in the kernel.
+// A network held by several peers is observed nowhere.
+func (k kernelObserved) owners() map[string]string {
+	out := make(map[string]string)
+	held := make(map[string]int)
+	for key, p := range k.Peers {
+		for network := range p.Allowed {
+			held[network]++
+			out[network] = key
+		}
+	}
+	for network, n := range held {
+		if n > 1 {
+			delete(out, network)
+		}
+	}
+	return out
+}
