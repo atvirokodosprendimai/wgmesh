@@ -950,3 +950,11 @@ func TestDarwinParseErrorRowIsAFamilyErrorEndToEnd(t *testing.T) {
 		t.Errorf("ticks 2 and 3 logged %d more lines, want none", got-afterFirst)
 	}
 }
+
+func TestRouteAdapterIsOneDecisionPerOS(t *testing.T) {
+	for goos, want := range map[string]routeAdapter{"linux": routesLinux, "darwin": routesDarwin, "plan9": routesNone, "windows": routesNone} {
+		if got := (&Daemon{goos: goos}).routeAdapter(); got != want {
+			t.Errorf("routeAdapter on %s = %d, want %d", goos, got, want)
+		}
+	}
+}

@@ -78,7 +78,7 @@ func (d *Daemon) desire(peers []*PeerInfo, handshakes map[string]int64, observed
 	warned := make(map[string]struct{})
 	// macOS has no old behaviour to keep: the attached-network rule is
 	// enforced there from the first release, whatever the switch says.
-	darwin := d.osName() == "darwin"
+	darwin := d.routeAdapter() == routesDarwin
 	enforceGuard := EnforceRouteGuard.Load() || darwin
 	now := time.Now()
 	localSubnets := d.getLocalSubnets()
@@ -264,9 +264,7 @@ func prefixOf(n *net.IPNet) (netip.Prefix, bool) {
 // route inside the mesh is the mesh's; nor is a link-local subnet, which
 // belongs to the link. Linux and macOS; no other OS has routes.
 func (d *Daemon) attachedSubnet(canonical string, localSubnets []*net.IPNet) *net.IPNet {
-	switch d.osName() {
-	case "linux", "darwin":
-	default:
+	if d.routeAdapter() == routesNone {
 		return nil
 	}
 	prefix, err := netip.ParsePrefix(canonical)

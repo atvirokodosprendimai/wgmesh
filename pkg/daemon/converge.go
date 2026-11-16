@@ -345,10 +345,10 @@ func (d *Daemon) noteHostDefault(want []routes.Entry, plan routePlan) {
 // time, with the adapter of the OS (Linux `ip`, macOS `route`); another OS has
 // no route target. The caller holds convergeMu.
 func (d *Daemon) convergeRoutes(ds *desiredState, obs kernelObserved) []itemResult {
-	switch d.osName() {
-	case "linux":
+	switch d.routeAdapter() {
+	case routesLinux:
 		return d.convergeRoutesLinux(ds, obs)
-	case "darwin":
+	case routesDarwin:
 		return d.convergeRoutesDarwin(ds, obs)
 	}
 	return nil
@@ -859,6 +859,28 @@ func (d *Daemon) readFileSeam(path string) ([]byte, error) {
 		return d.readFileFn(path)
 	}
 	return os.ReadFile(path)
+}
+
+// routeAdapter names the kernel adapter of the route target.
+type routeAdapter int
+
+const (
+	routesNone routeAdapter = iota
+	routesLinux
+	routesDarwin
+)
+
+// routeAdapter is the one decision of the OS-to-adapter map of the route
+// target: Linux `ip`, macOS `netstat` and `route`, another OS has none.
+// observeRoutes, convergeRoutes, attachedSubnet and desire all ask it.
+func (d *Daemon) routeAdapter() routeAdapter {
+	switch d.osName() {
+	case "linux":
+		return routesLinux
+	case "darwin":
+		return routesDarwin
+	}
+	return routesNone
 }
 
 // osName is the OS the desired state is computed for.

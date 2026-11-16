@@ -116,10 +116,10 @@ func readRoutes(iface string, ipv6 bool) ([]routes.Entry, error) {
 // family whose read fails is an entry in obs.Errs for that family only; it is
 // never read as "no routes".
 func (d *Daemon) observeRoutes(obs *kernelObserved) {
-	switch d.osName() {
-	case "linux":
+	switch d.routeAdapter() {
+	case routesLinux:
 		d.observeRoutesLinux(obs)
-	case "darwin":
+	case routesDarwin:
 		d.observeRoutesDarwin(obs)
 	}
 }
