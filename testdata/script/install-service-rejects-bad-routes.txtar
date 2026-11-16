@@ -1,0 +1,21 @@
+# install-service validates --accept-routes and --mesh-subnet like join does and
+# exits before it writes the unit or the secret file. Every case below fails
+# validation, so nothing under /etc or /var/lib is touched.
+env WGMESH_SECRET=wgmesh://v1/SGVsbG8gV29ybGQhIFRoaXMgaXMgYSB0ZXN0IHNlY3JldCB0aGF0IGlzIGxvbmcgZW5vdWdoIGZvciB0aGUga2V5IGRlcml2YXRpb24u
+
+! exec wgmesh install-service --accept-routes '10.0.0.0/8;touch /tmp/x'
+stderr 'invalid --accept-routes'
+! stdout 'Installing'
+
+! exec wgmesh install-service --accept-routes ','
+stderr 'invalid --accept-routes'
+
+! exec wgmesh install-service --mesh-subnet '10.0.0.0/8;touch /tmp/x'
+stderr 'invalid --mesh-subnet'
+! stdout 'Installing'
+
+! exec wgmesh install-service --mesh-subnet 'fd00::/64'
+stderr 'invalid --mesh-subnet'
+
+! exec wgmesh install-service --mesh-subnet '192.168.100.0/31'
+stderr 'invalid --mesh-subnet'

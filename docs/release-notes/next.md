@@ -20,6 +20,7 @@ For operators of existing nodes. This is a release candidate: test it on a few n
 - A corrupt identity file `<iface>.json` is moved to `<iface>.json.corrupt-<unix>` and a NEW identity is created (new key, new mesh IP). An unreadable file stops the daemon. To go back, stop the daemon, rename the `.corrupt-*` file back, start (`docs/state-rollout.md`).
 - Alerts or log greps on `Failed to configure peer`, `Failed to remove obsolete peer`, `Failed to sync peer routes` or `Failed to install relay FORWARD rule` stop matching: the texts are replaced (`docs/kernel-state.md`, Log lines).
 - `--advertise-routes` takes a bare IP as a host route again, `/32` or `/128`, with a warning (#893). A unit with a bare IP crash-looped between #849 and this release.
+- `install-service` validates `--advertise-routes`, `--accept-routes` and `--mesh-subnet` before it writes the unit, and quotes every value in `ExecStart` (now `/bin/sh -c "exec ..."`). Existing units keep the old line until `install-service` is run again.
 - `wgmesh` with no subcommand or an unknown first word prints usage on stderr and exits 2. Before, it fell into the legacy centralized mode. `--version` and `-v` count only as the first argument. Arguments that start with `-` still reach the legacy flags (ADR-0007).
 - `status`, `qr`, `install-service` and `wgmesh service` read the secret the way `join` does: flag, then `WGMESH_SECRET`, then `WGMESH_SECRET_FILE` (#891).
 - Docker Compose examples pass `WGMESH_SECRET` from `MESH_SECRET`, and compose fails at once when `MESH_SECRET` is unset (#882).
@@ -105,6 +106,5 @@ All switches below are Go package variables compiled into the binary, `false` in
 - #859 (open): advertised routes with several advertisers (duplicate subnets, default route) can flap every reconcile; failover is not reliable. ADR-0003 chooses one owner per node, but this is not verified on a real mesh.
 - The grinding limit: a member who holds the secret can generate key pairs until one derives to a victim's address (IP binding ties an address to a key and the secret, not to the key's owner).
 - A `wg` call without a deadline remains in the 37 `ip`, `iptables` and `systemctl` calls.
-- `install-service` does not validate `--accept-routes` or `--advertise-routes`: a bad list is first refused when the service starts, and `install-service` reports success while the unit restarts every 5 seconds.
 - The lock files are never removed. NFS, some FUSE mounts and Docker Desktop bind mounts on macOS may not exclude.
 - Other known limits are in the Known limits sections of each rollout page and in `docs/adr/BACKLOG.md`.

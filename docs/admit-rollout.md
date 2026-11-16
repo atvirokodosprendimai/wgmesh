@@ -61,7 +61,6 @@ Binding has no new wire bytes, so it ties an address to a key and the secret, no
 - The list judges first-hand and restored routes. A second-hand mention is not judged for approval.
 - Staged: in N a network the list would drop is counted as `route-not-approved` and kept; at N+2 it is dropped. Configure the list in N and watch the counter.
 - Reload: an empty value (`accept-routes=`) clears the list; a removed line keeps the old list; a reload file with an invalid line is refused whole, the old lists stay and the reason is logged. A reload narrows future offers only: routes already stored change when the peer next announces.
-- `install-service` does not validate `--accept-routes` or `--advertise-routes` when it installs: a bad list is first refused when the service starts (BACKLOG).
 
 ## Known limits
 

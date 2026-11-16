@@ -920,12 +920,23 @@ func installServiceCmd() {
 		}
 	}
 
+	// Same parsers as join, so install-service rejects what join would reject.
 	var accept []string
 	if *acceptRoutes != "" {
-		accept = strings.Split(*acceptRoutes, ",")
-		for i, r := range accept {
-			accept[i] = strings.TrimSpace(r)
+		var err error
+		accept, err = daemon.ParseAcceptRoutes(strings.Split(*acceptRoutes, ","))
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: invalid --accept-routes: %v\n", err)
+			os.Exit(1)
 		}
+	}
+
+	var subnet string
+	if n, err := daemon.ParseMeshSubnet(*meshSubnet); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: invalid --mesh-subnet: %v\n", err)
+		os.Exit(1)
+	} else if n != nil {
+		subnet = n.String()
 	}
 
 	cfg := daemon.SystemdServiceConfig{
@@ -941,7 +952,7 @@ func installServiceCmd() {
 		ForceRelay:          *forceRelay,
 		DisablePunching:     *noPunching,
 		Introducer:          *introducerMode,
-		MeshSubnet:          *meshSubnet,
+		MeshSubnet:          subnet,
 	}
 
 	fmt.Println("Installing wgmesh systemd service...")
