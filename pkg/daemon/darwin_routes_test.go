@@ -6,6 +6,7 @@ import (
 	"net/netip"
 	"os"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -630,9 +631,13 @@ func TestDarwinObserveFailureRemovesNothing(t *testing.T) {
 // reconcile runs from the ticker and from handleSIGHUP under reconcileMu, and
 // the route target of one tick under convergeMu: two ticks at once never
 // overlap in the kernel commands, so the second sees the first's route and
-// writes nothing. Run with -race.
+// writes nothing. The first command blocks until the second goroutine is
+// inside reconcile (seen in the goroutine stacks), so the overlap is forced,
+// not hoped for; every wait is bounded. Run with -race.
 func TestDarwinRouteTickRaceFree(t *testing.T) {
+	const bound = 10 * time.Second
 	dh := newDarwinHost()
+	release, blocked := make(chan struct{}), make(chan struct{})
 	var inside, maxInside, calls atomic.Int32
 	dh.hold = func() {
 		n := inside.Add(1)
@@ -644,23 +649,43 @@ func TestDarwinRouteTickRaceFree(t *testing.T) {
 			}
 		}
 		if calls.Add(1) == 1 {
-			time.Sleep(50 * time.Millisecond)
+			close(blocked)
+			select {
+			case <-release:
+			case <-time.After(bound):
+			}
 		}
 	}
 	d := newDarwinDaemon(t, dh, &logSink{}, newFakeKernel())
 	d.peerStore.Update(darwinPeer("keyA", "10.99.0.2", "", "192.168.50.0/24"), "test")
 	var wg sync.WaitGroup
-	for g := 0; g < 2; g++ {
+	start := func() {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			d.reconcile()
 		}()
 	}
-	wg.Wait()
-	if calls.Load() == 0 {
-		t.Fatal("no command ran")
+	start()
+	select {
+	case <-blocked:
+	case <-time.After(bound):
+		close(release)
+		t.Fatal("the first tick ran no command")
 	}
+	start()
+	insideReconcile := func() int {
+		buf := make([]byte, 1<<20)
+		return strings.Count(string(buf[:runtime.Stack(buf, true)]), "(*Daemon).reconcile(")
+	}
+	for deadline := time.Now().Add(bound); insideReconcile() < 2; runtime.Gosched() {
+		if time.Now().After(deadline) {
+			close(release)
+			t.Fatal("the second goroutine never entered reconcile")
+		}
+	}
+	close(release)
+	wg.Wait()
 	if m := maxInside.Load(); m != 1 {
 		t.Errorf("%d commands ran at the same time, want 1", m)
 	}
