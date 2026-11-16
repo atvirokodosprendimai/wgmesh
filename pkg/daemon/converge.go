@@ -392,15 +392,99 @@ type addressPlan struct {
 	Add, Remove []netip.Prefix
 }
 
-// planAddresses is pure.
+// planAddresses is pure: a desired address the interface does not hold (same
+// address and same prefix length) is added; a held address that is not
+// desired and lies inside a mesh network (the masked prefix of a desired
+// address, same family) is removed; every other address is left alone. A
+// target whose observe failed, or that is not wanted, plans nothing.
 func planAddresses(want addressDesired, k kernelObserved) addressPlan {
-	return addressPlan{}
+	var plan addressPlan
+	if !want.Wanted || k.Errs[targetAddress] != nil {
+		return plan
+	}
+	wanted := make(map[netip.Prefix]bool, len(want.Addrs))
+	for _, a := range want.Addrs {
+		wanted[a] = true
+	}
+	held := make(map[netip.Prefix]bool, len(k.Addrs))
+	for _, a := range k.Addrs {
+		held[a] = true
+	}
+	for _, a := range want.Addrs {
+		if !held[a] {
+			plan.Add = append(plan.Add, a)
+		}
+	}
+	for a := range held {
+		if wanted[a] {
+			continue
+		}
+		for _, w := range want.Addrs {
+			if w.Masked().Contains(a.Addr()) {
+				plan.Remove = append(plan.Remove, a)
+				break
+			}
+		}
+	}
+	sort.Slice(plan.Remove, func(i, j int) bool { return plan.Remove[i].String() < plan.Remove[j].String() })
+	return plan
 }
 
-// applyAddresses writes the address plan, one item at a time. The caller holds
-// convergeMu.
+// applyAddresses writes the address plan, one item at a time: the adds first,
+// so the node is never left without its address, then the removals. A failure
+// of one is a result, never an abort; "File exists" on an add is success. An
+// operator's address inside the mesh network is removed too: the rule of this
+// target, so the removal says why. The caller holds convergeMu.
 func (d *Daemon) applyAddresses(plan addressPlan) []itemResult {
-	return nil
+	iface := d.config.InterfaceName
+	var results []itemResult
+	for _, p := range plan.Add {
+		out, err := cmdExecutor.Command("ip", "addr", "add", p.String(), "dev", iface).CombinedOutput()
+		switch {
+		case err != nil && strings.Contains(string(out), "File exists"):
+			err = nil
+		case err != nil:
+			err = commandFailure(out, err)
+		default:
+			RecordKernelChange(targetAddress)
+		}
+		results = append(results, itemResult{Target: targetAddress, Op: "add", Key: p.String(), Err: err})
+	}
+	for _, p := range plan.Remove {
+		r := itemResult{Target: targetAddress, Op: "del", Key: p.String()}
+		if _, failing := d.lastResults[r.id()]; !failing {
+			d.logf("removing %s: inside the mesh network and not this node's address", p)
+		}
+		out, err := cmdExecutor.Command("ip", "addr", "del", p.String(), "dev", iface).CombinedOutput()
+		if err != nil {
+			r.Err = commandFailure(out, err)
+		} else {
+			RecordKernelChange(targetAddress)
+		}
+		results = append(results, r)
+	}
+	return results
+}
+
+// noteAddressObserve logs a failed address read once, and the recovery once.
+// The caller holds convergeMu.
+func (d *Daemon) noteAddressObserve(err error) {
+	if err == nil {
+		if d.addressObserveErr != "" {
+			d.logf("Reading the addresses of %s works again", d.config.InterfaceName)
+			d.addressObserveErr = ""
+		}
+		return
+	}
+	if msg := err.Error(); msg != d.addressObserveErr {
+		d.logf("Cannot read the addresses of %s, skipping them this tick: %v", d.config.InterfaceName, err)
+		d.addressObserveErr = msg
+	}
+}
+
+// id names an item in the result log.
+func (r itemResult) id() string {
+	return r.Target + " " + r.Op + " " + r.Key
 }
 
 // converge runs one tick against the kernel and returns the desired state it
@@ -427,12 +511,16 @@ func (d *Daemon) converge(peers []*PeerInfo) *desiredState {
 	if ds.Forward.Wanted {
 		d.noteForwardObserve(obs.Errs[targetForward])
 	}
+	if ds.Addresses.Wanted {
+		d.noteAddressObserve(obs.Errs[targetAddress])
+	}
 	plan := planKernel(ds.Peers, obs, d.pushedLocked(), d.config.DisableIPv6)
 	results := d.applyKernel(plan)
+	// The addresses come before the routes: a gateway is reached over the
+	// connected route of the interface's address.
+	results = append(results, d.applyAddresses(planAddresses(ds.Addresses, obs))...)
 	results = append(results, d.applyForward(planForward(ds.Forward, obs), ds.Forward.Wanted && obs.Errs[targetForward] == nil)...)
 	results = append(results, d.convergeRoutes(ds, obs)...)
-	results = append(results, d.applyAddresses(planAddresses(ds.Addresses, obs))...)
-	d.logResults(results)
 	return ds
 }
 
@@ -514,7 +602,7 @@ func (d *Daemon) logResults(results []itemResult) {
 	}
 	seen := make(map[string]struct{}, len(results))
 	for _, r := range results {
-		id := r.Target + " " + r.Op + " " + r.Key
+		id := r.id()
 		seen[id] = struct{}{}
 		prev, failedBefore := d.lastResults[id]
 		if r.Err != nil {

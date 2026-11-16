@@ -41,7 +41,7 @@ func (r *routeHost) addrExec(line string, args []string) (bool, []byte, error) {
 		r.ifAddrs = nil
 		return true, nil, nil
 	}
-	if len(args) != 4 || args[0] != "addr" || args[3] != "wg0" {
+	if len(args) != 5 || args[0] != "addr" || args[3] != "dev" || args[4] != "wg0" {
 		return false, nil, nil
 	}
 	r.mu.Lock()
