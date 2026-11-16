@@ -71,6 +71,16 @@ a=$(go test ./pkg/wireguard -run '^TestParseDump$' -count=1 -v 2>&1 | tee /dev/s
 | 4 — it is used | every tick, and the health, eviction and stale-cleanup paths |
 
 ## Mutation Log
+- 2026-11-16 · ed18ca4* · mutant killed · exit 1 · `pkg/daemon/converge.go` · kernel set not compared: TestPlanPeersAllowedIPsDriftReapplies must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · ed18ca4* · mutant killed · exit 1 · `pkg/daemon/converge.go` · growing first: TestPlanPeersFailoverMovesNetwork must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · ed18ca4* · mutant killed · exit 1 · `pkg/daemon/observe.go` · error becomes empty kernel: TestObserveFailureSkipsApply must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · ed18ca4* · mutant killed · exit 1 · `pkg/daemon/converge.go` · endpoint always pushed: TestEndpointPushedOnlyWhenDesiredChanges must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · ed18ca4* · mutant inconclusive · exit 1 · `pkg/daemon/converge.go` · failure logged every tick: TestResultLoggedOnChangeOnly must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+  ```
+  the fence failed on a build/parse error, not an assertion
+  ```
+- 2026-11-16 · ed18ca4* · mutant killed · exit 1 · `pkg/daemon/converge.go` · convergeMu removed from converge: TestConvergeConcurrentWithHealthWrites must go red under -race · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
+- 2026-11-16 · ed18ca4* · mutant killed · exit 1 · `pkg/daemon/converge.go` · relayed peer set directly: TestReconnectOnlyTouchesPeerWithOwnEntry must go red · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a
 
 ## Invariants
 
@@ -97,3 +107,21 @@ Stop and ask if a peer test in `pkg/daemon` needs a changed expectation, or if `
 - Changing `GetPeerTransfers` or the health loop (permanent: boundary: liveness is owned by another group).
 
 ## Verification Log
+- 2026-11-16 · ed18ca4* · exit 1 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:836 · test-lock-sha256:2f375e5fc5c6265d5f7dcc14b1b4d8c5597136a339d2417519834a7358f7263c · test-lock-file:docs/adr/locks/2f375e5fc5c6265d5f7dcc14b1b4d8c5597136a339d2417519834a7358f7263c.lock
+  ```
+  --- last 6 line(s) of stderr
+  === RUN   TestParseDump
+      dump_test.go:16: ParseDump(fixture): ParseDump: not implemented
+  --- FAIL: TestParseDump (0.00s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/wireguard	0.004s
+  FAIL
+  ```
+- 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11369
+- 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:9462
+- 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11766
+- 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11104
+- 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:12013
+- 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11854
+- 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:11733
+- 2026-11-16 · ed18ca4* · exit 0 · `set -o pipefail …` · acceptance-sha256:253f9195de820b35b2dac8f777e0468fb8166f647bb1a11755bf2e06da81557a · ms:6709
