@@ -42,7 +42,11 @@ func (d *Daemon) inResumeGrace(now time.Time) bool {
 		return false
 	}
 	at := d.peerStore.ResumedAt()
-	return !at.IsZero() && now.Round(0).Sub(at.Round(0)) < ResumeGrace
+	if at.IsZero() {
+		return false
+	}
+	since := now.Round(0).Sub(at.Round(0))
+	return since >= 0 && since < ResumeGrace
 }
 
 // resumeGraceBlocks says whether a decision that would evict a peer or choose

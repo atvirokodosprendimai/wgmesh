@@ -32,7 +32,7 @@ Selection: `Run` and `RunWithDHTDiscovery` start the loop; a mutant that does no
 3. [S3] From the loop call `NoteResume`, signal the reconcile channel and call the `Resumer` on `d.dhtDiscovery`; these act from N (additive, local).
 4. [S4] Add the grace to the four sites, active only with `node.EnforceLiveness`; with the switch off, count `wgmesh_liveness_disagree_total{site="resume-grace"}` when the grace would have blocked an eviction.
 5. [S5] Run the mutants with `adr-verify --mutant`: `DetectResume` uses the monotonic reading; the grace is never applied; the grace never ends; the loop does not call `NoteResume`; the loop calls `reconcile()` directly instead of signalling; one run path does not start the loop. [proof: mutation]
-6. [S6] On a Mac with an established mesh link, run `pmset sleepnow`, wake, and time to the first successful ping to a peer; record the time and the host. [proof: human: the sleep path cannot be reproduced hermetically; adr-verify cannot see this number and the ADR states none]
+6. [S6] On a Mac with an established mesh link, run `pmset sleepnow`, wake, and time to the first successful ping to a peer; record the time and the host. [proof: human: the sleep path cannot be reproduced hermetically; adr-verify cannot see this number and the ADR states none]. NOT RECORDED (2026-11-16): it needs a real macOS machine with a live mesh and someone to time it; the automated fence below is green without it, so T4 is done on the fence and S6 stays open for M.
 
 ## Acceptance
 

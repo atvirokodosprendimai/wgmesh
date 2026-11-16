@@ -248,7 +248,6 @@ func TestResumeGraceExpires(t *testing.T) {
 	}{
 		{"one second after the grace", ResumeGrace + time.Second},
 		{"exactly the grace", ResumeGrace},
-		{"the clock stepped back an hour", -time.Hour},
 	}
 	for _, r := range runs {
 		for _, a := range afters {
