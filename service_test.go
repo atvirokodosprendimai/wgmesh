@@ -338,9 +338,9 @@ func TestDeriveMeshIPForServiceUsesPersistedState(t *testing.T) {
 		subnet *net.IPNet
 		want   string // "" means: derived from wg_pubkey in the custom subnet
 	}{
-		{"persisted mesh_ip kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, nil, "10.200.3.4"},
-		{"non-10/8 mesh_ip without custom subnet is kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.100.7"}`, nil, "192.168.100.7"},
-		{"IPv4-mapped mesh_ip is normalized", `{"wg_pubkey":"PUBKEY","mesh_ip":"::ffff:10.0.0.5"}`, nil, "10.0.0.5"},
+		{"persisted mesh_ip inside the secret /16 kept", fmt.Sprintf(`{"wg_pubkey":"PUBKEY","mesh_ip":"10.%d.3.4"}`, keys.MeshSubnet[0]), nil, fmt.Sprintf("10.%d.3.4", keys.MeshSubnet[0])},
+		{"mesh_ip outside the secret /16 is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.100.7"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},
+		{"IPv4-mapped mesh_ip is normalized", fmt.Sprintf(`{"wg_pubkey":"PUBKEY","mesh_ip":"::ffff:10.%d.0.5"}`, keys.MeshSubnet[0]), nil, fmt.Sprintf("10.%d.0.5", keys.MeshSubnet[0])},
 		{"mesh_ip outside custom subnet is re-derived", `{"wg_pubkey":"PUBKEY","mesh_ip":"10.200.3.4"}`, custom, ""},
 		{"mesh_ip inside custom subnet kept", `{"wg_pubkey":"PUBKEY","mesh_ip":"192.168.50.9"}`, custom, "192.168.50.9"},
 		{"no mesh_ip derives from wg_pubkey", `{"wg_pubkey":"PUBKEY"}`, nil, crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)},
@@ -390,6 +390,28 @@ func TestServiceAddReadsResolvedIP(t *testing.T) {
 	}
 	if got := deriveMeshIPForService(keys, secret, nil, dir); got != resolved {
 		t.Errorf("got %s, want the resolved address %s (natural %s)", got, resolved, natural)
+	}
+}
+
+// TestServiceAddRederivesIPOutsideSecretSubnet: a persisted address outside
+// the current secret's /16 is not reported (#890); registration follows the
+// daemon and reports the derived one.
+func TestServiceAddRederivesIPOutsideSecretSubnet(t *testing.T) {
+	secret := "wgmesh://v1/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	keys, err := crypto.DeriveKeys(secret)
+	if err != nil {
+		t.Fatalf("DeriveKeys: %v", err)
+	}
+	outside := fmt.Sprintf("10.%d.5.9", keys.MeshSubnet[0]^1)
+
+	dir := t.TempDir()
+	state := fmt.Sprintf(`{"wg_pubkey":"PUBKEY","wg_private_key":"x","mesh_ip":%q}`, outside)
+	if err := os.WriteFile(filepath.Join(dir, "wg0.json"), []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	want := crypto.DeriveMeshIP(keys.MeshSubnet, "PUBKEY", secret)
+	if got := deriveMeshIPForService(keys, secret, nil, dir); got != want {
+		t.Errorf("got %s, want the derived address %s, not the persisted %s", got, want, outside)
 	}
 }
 

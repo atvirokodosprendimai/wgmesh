@@ -339,14 +339,15 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: true,
 		},
 		{
-			// Rotating the secret derives another /16; the persisted address is kept.
-			name:   "legacy other /16 is kept after secret rotation",
+			// Rotating the secret derives another /16; the persisted address
+			// outside it is not kept (#890).
+			name:   "legacy other /16 is rederived after secret rotation",
 			meshIP: "10.99.1.1",
 			cfg: &Config{
 				Keys:         &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
 				CustomSubnet: nil,
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name:   "custom subnet match",
@@ -367,12 +368,12 @@ func TestMeshIPInSubnet(t *testing.T) {
 			want: false,
 		},
 		{
-			name:   "no custom subnet keeps an IP outside 10.0.0.0/8",
+			name:   "no custom subnet rejects an IP outside the secret /16",
 			meshIP: "192.168.100.7",
 			cfg: &Config{
 				Keys: &crypto.DerivedKeys{MeshSubnet: [2]byte{42, 0}},
 			},
-			want: true,
+			want: false,
 		},
 		{
 			name:   "IPv6 address is not a mesh IPv4",

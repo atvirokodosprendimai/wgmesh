@@ -467,7 +467,7 @@ func deriveMeshIPForService(keys *crypto.DerivedKeys, secret string, customSubne
 		if json.Unmarshal(data, &nodeState) == nil && nodeState.PublicKey != "" {
 			// Same rule as the daemon (daemon.MeshIPKept): registration must
 			// report the persisted address, not a re-derived one (issue #827).
-			if daemon.MeshIPKept(nodeState.MeshIP, customSubnet) {
+			if daemon.MeshIPKept(nodeState.MeshIP, daemon.MeshNetwork(keys, customSubnet)) {
 				return net.ParseIP(nodeState.MeshIP).String()
 			}
 			if customSubnet != nil {
