@@ -674,3 +674,17 @@ func TestReconnectPeerGuards(t *testing.T) {
 		}
 	})
 }
+
+// A reconnect is a kernel write and is counted like every other one.
+func TestReconnectCountsKernelChange(t *testing.T) {
+	k := newFakeKernel()
+	d := newConvergeDaemon(t, k, &logSink{})
+	p := testPeer("keyA", "10.99.0.2", "203.0.113.2:51820")
+	before := testutil.ToFloat64(kernelChanges.WithLabelValues("peer"))
+	if err := d.reconnectPeerInKernel(p, []*PeerInfo{p}); err != nil {
+		t.Fatal(err)
+	}
+	if got := testutil.ToFloat64(kernelChanges.WithLabelValues("peer")) - before; got != 1 {
+		t.Errorf("wgmesh_kernel_changes_total rose by %v, want 1", got)
+	}
+}

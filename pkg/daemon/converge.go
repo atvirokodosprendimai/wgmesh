@@ -197,6 +197,7 @@ func (d *Daemon) reconnectPeerInKernel(peer *PeerInfo, peers []*PeerInfo) error 
 		return err
 	}
 	d.pushedLocked()[peer.WGPubKey] = ep
+	RecordKernelChange(targetPeers)
 	return nil
 }
 
