@@ -100,6 +100,29 @@ func TestExitRestoresHostDefault(t *testing.T) {
 		}
 	})
 
+	// A host default of the recorded metric that is back by the time of the
+	// restore (an IPv6 router advertisement, a DHCP renewal with a new
+	// gateway) is live: the stale record must not replace it.
+	t.Run("host default back with a new gateway, not replaced", func(t *testing.T) {
+		rh := convergedHost()
+		rh.add("default", "192.168.1.1", "eth0")
+		ls := &logSink{}
+		d := newRouteDaemon(t, rh, ls, newFakeKernel())
+		ticks(t, d, rh, []*PeerInfo{testPeer("keyA", "10.99.0.2", "203.0.113.2:51820", "0.0.0.0/0")}, 2)
+		rh.add("default", "192.168.1.254", "eth0")
+		before := len(rh.routeWrites())
+		d.revertKernel()
+		if got := rh.routeWrites()[before:]; len(got) != 0 {
+			t.Errorf("exit wrote %q over a live host default", got)
+		}
+		if !rh.has("default", "192.168.1.254", "eth0") || rh.has("default", "192.168.1.1", "eth0") {
+			t.Errorf("the live host default was replaced by the stale record: %q", rh.routeWrites())
+		}
+		if ls.count("default route again") != 1 {
+			t.Errorf("want one line saying the host default is back: %q", ls.lines)
+		}
+	})
+
 	t.Run("already restored by a tick, nothing at exit", func(t *testing.T) {
 		rh := convergedHost()
 		rh.add("default", "192.168.1.1", "eth0")

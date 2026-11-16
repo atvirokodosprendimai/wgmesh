@@ -422,7 +422,7 @@ func hasNetwork(entries []routes.Entry, canonical string) bool {
 // then would make it fail.
 type hostRoute struct {
 	Dev, Via string
-	Metric   int
+	Metric   int64
 	Onlink   bool
 }
 
@@ -463,7 +463,7 @@ func restoreHostDefault(r hostRoute, ipv6 bool) itemResult {
 	if r.Onlink {
 		args = append(args, "onlink")
 	}
-	args = append(args, "metric", strconv.Itoa(r.Metric))
+	args = append(args, "metric", strconv.FormatInt(r.Metric, 10))
 	out, err := cmdExecutor.Command("ip", args...).CombinedOutput()
 	if err != nil {
 		err = fmt.Errorf("failed to restore the host default route dev %s: %w", r.Dev, commandFailure(out, err))
@@ -530,9 +530,9 @@ func (d *Daemon) noteHostDefault(want []routes.Entry, plan routePlan, obs kernel
 		}
 		RecordKernelWarning("host-default")
 		d.hostDefaultWarned[f.name] = struct{}{}
-		if mesh := defaultMetric(f.ipv6); host.Metric != mesh {
+		if mesh := defaultMetric(f.ipv6); host.Metric != int64(mesh) {
 			delete(d.hostDefaults, f.name)
-			d.logf("host-default: this host already has an %s default route on %s (metric %d); the mesh's %s default route on %s (metric %d) is added next to it and wins while it is installed, the host's stays", f.name, host.Dev, host.Metric, f.name, d.config.InterfaceName, mesh)
+			d.logf("host-default: this host already has an %s default route on %s (metric %d); the mesh's %s default route on %s (metric %d) is added next to it, the lower metric wins, and the host's stays", f.name, host.Dev, host.Metric, f.name, d.config.InterfaceName, mesh)
 			continue
 		}
 		d.logf("host-default: this host already has an %s default route on %s; the mesh's %s default route on %s replaces it (same route key) and the daemon puts it back when the mesh default route is removed or the daemon exits", f.name, host.Dev, f.name, d.config.InterfaceName)
@@ -553,6 +553,13 @@ func (d *Daemon) restoreHostDefaults(removed []routes.Entry, when string) []item
 			continue
 		}
 		delete(d.hostDefaults, f.name)
+		// The host may have a default of that metric again (an IPv6 router
+		// advertisement re-adds its own; DHCP renewed): replacing it with the
+		// old record would swap a live route for a stale static copy.
+		if now, err := hostDefaultElsewhere(d.config.InterfaceName, f.ipv6); err == nil && now.Dev != "" && now.Metric == host.Metric {
+			d.logf("host-default: the host has its %s default route again (dev %s metric %d), nothing to restore %s", f.name, now.Dev, now.Metric, when)
+			continue
+		}
 		res := restoreHostDefault(host, f.ipv6)
 		if res.Err == nil {
 			d.logf("host-default: restored the host's %s default route via %q dev %s metric %d %s", f.name, host.Via, host.Dev, host.Metric, when)

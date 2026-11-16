@@ -213,7 +213,7 @@ func hostDefaultElsewhere(iface string, ipv6 bool) (hostRoute, error) {
 		if len(parts) == 0 || parts[0] != "default" {
 			continue
 		}
-		r := hostRoute{Metric: defaultMetric(ipv6)}
+		r := hostRoute{Metric: int64(defaultMetric(ipv6))}
 		for i, part := range parts {
 			if part == "onlink" {
 				r.Onlink = true
@@ -227,7 +227,7 @@ func hostDefaultElsewhere(iface string, ipv6 bool) (hostRoute, error) {
 			case "via":
 				r.Via = parts[i+1]
 			case "metric":
-				m, err := strconv.Atoi(parts[i+1])
+				m, err := strconv.ParseInt(parts[i+1], 10, 64)
 				if err != nil {
 					return hostRoute{}, fmt.Errorf("parse default route %q: bad metric: %w", line, err)
 				}
@@ -237,7 +237,7 @@ func hostDefaultElsewhere(iface string, ipv6 bool) (hostRoute, error) {
 		if r.Dev == "" || r.Dev == iface {
 			continue
 		}
-		if r.Metric == defaultMetric(ipv6) {
+		if r.Metric == int64(defaultMetric(ipv6)) {
 			return r, nil
 		}
 		if first.Dev == "" {
