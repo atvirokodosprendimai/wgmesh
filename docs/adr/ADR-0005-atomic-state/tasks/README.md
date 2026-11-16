@@ -30,7 +30,7 @@ README must be regenerated.
 | T8 | Put the local node's mutable fields under one lock | done | — | four named tests under `-race`, build, vet, then `-race` on three packages |
 | T9 | Register every exchange caller's reply channel separately (#855) | done | — | four named tests, then `-race` |
 | T10 | Make `PeerExchange` and `DHTDiscovery` restart after `Stop` (#863, the part PR #884 left) | done | — | four named tests, then `-race` |
-| T11 | Amend the specs, write the release note and the backlog rows | pending | — | `go test ./pkg/atomicfile -run TestSpecNamesAtomicState`, note exists, `adr-debt` reports no unreceipted row |
+| T11 | Amend the specs, write the release note and the backlog rows | done | — | `go test ./pkg/atomicfile -run TestSpecNamesAtomicState`, note exists, `adr-debt` reports no unreceipted row |
 
 ## Contract Coupling
 

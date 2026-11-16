@@ -58,6 +58,9 @@ n=$(go test ./pkg/atomicfile -run '^TestSpecNamesAtomicState$' -count=1 -v 2>&1 
 | 4 — it is used | nothing measures this yet |
 
 ## Mutation Log
+- 2026-11-16 · 2c46f56* · mutant killed · exit 1 · `eidos/spec - daemon lifecycle - secret-derived identity with interface setup and hot-reload.md` · the lifecycle spec no longer names ErrStateCorrupt: TestSpecNamesAtomicState must go red · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2
+- 2026-11-16 · 2c46f56* · mutant killed · exit 1 · `docs/adr/BACKLOG.md` · the backlog row for N+1 no longer names RefuseCorruptState: TestSpecNamesAtomicState must go red · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2
+- 2026-11-16 · 2c46f56* · mutant killed · exit 1 · `eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md` · the exchange spec no longer names registerReply: TestSpecNamesAtomicState must go red · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2
 
 ## Invariants
 
@@ -79,3 +82,21 @@ Stop and ask if a spec section named here does not exist in the file (the file n
 - Flipping `RefuseCorruptState` (deferred: docs/adr/BACKLOG.md).
 
 ## Verification Log
+- 2026-11-16 · 2c46f56* · exit 1 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:536 · test-lock-sha256:49567656b4288b2060db62fa2711476a79cd570d56b60575f7022e9cc87f32b4 · test-lock-file:docs/adr/locks/49567656b4288b2060db62fa2711476a79cd570d56b60575f7022e9cc87f32b4.lock
+  ```
+  --- last 10 line(s) of stderr (of 17 after folding 17 raw)
+      spec_test.go:58: eidos/spec - rpc - unix socket json-rpc server and client for peer and daemon queries.md: does not name ".lock"
+      spec_test.go:58: eidos/spec - discovery peer exchange - udp advertisement rendezvous and hole-punching.md: does not name "registerReply"
+      spec_test.go:58: eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md: does not name "parentCtx"
+      spec_test.go:58: eidos/spec - discovery dht core - bittorent mainline dht announce query persistence and endpoint detection.md: does not name "beginRun"
+      spec_test.go:53: docs/state-rollout.md: cannot be read: open /claude/scratch/2026-11-15/adr-g4/docs/state-rollout.md: no such file or directory
+      spec_test.go:58: docs/adr/BACKLOG.md: does not name "RefuseCorruptState"
+  --- FAIL: TestSpecNamesAtomicState (0.01s)
+  FAIL
+  FAIL	github.com/atvirokodosprendimai/wgmesh/pkg/atomicfile	0.015s
+  FAIL
+  ```
+- 2026-11-16 · 2c46f56* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:973
+- 2026-11-16 · 2c46f56* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:1329
+- 2026-11-16 · 2c46f56* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:1124
+- 2026-11-16 · 2c46f56* · exit 0 · `set -o pipefail …` · acceptance-sha256:d5ecdfdefb3cf141226849db388a21596385a8df9994d39ff4f5d7cae6f7d5c2 · ms:1678
