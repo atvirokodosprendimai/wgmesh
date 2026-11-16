@@ -763,6 +763,7 @@ func (d *DHTDiscovery) queryLoop() {
 		case <-d.ctx.Done():
 			return
 		case <-ticker.C:
+			d.sweepPeerKeyed()
 			d.queryPeers()
 
 			// Slow down queries once we have enough peers
