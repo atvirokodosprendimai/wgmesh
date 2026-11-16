@@ -1018,7 +1018,8 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 	}
 
 	// Skip peers we already have a recent WG handshake with — no rendezvous needed.
-	hs := getPeerHandshakeTS(d.config.InterfaceName, peer.WGPubKey)
+	// Up to ReconcileInterval (5 s) old: hs is compared with the 2 minute window below, so one snapshot serves every peer of the sweep.
+	hs := getPeerHandshakeTS(d.config.InterfaceName, peer.WGPubKey, daemon.ReconcileInterval)
 	if hs > 0 && time.Since(time.Unix(hs, 0)) < 2*time.Minute {
 		return
 	}
@@ -1104,7 +1105,8 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 	log.Printf("[NAT] Event-driven punch: %s via %s (no introducer)", shortKey(peer.WGPubKey), targetControlEndpoint)
 
 	go func(endpoint string, target *daemon.PeerInfo) {
-		baseline := getPeerHandshakeTS(d.config.InterfaceName, target.WGPubKey)
+		// Punch baseline: fresh read (maxAge 0), a stale one could count an old handshake as new.
+		baseline := getPeerHandshakeTS(d.config.InterfaceName, target.WGPubKey, 0)
 		peerInfo, err := d.exchange.ExchangeWithPeer(endpoint)
 		if err != nil {
 			if !strings.Contains(err.Error(), "timeout") {
@@ -1114,7 +1116,7 @@ func (d *DHTDiscovery) tryRendezvousForPeer(peer *daemon.PeerInfo) {
 			return
 		}
 		if peerInfo != nil {
-			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, handshakeWaitTimeout)
+			newHandshake := waitForPeerHandshake(d.config.InterfaceName, target.WGPubKey, baseline, time.Duration(handshakeWaitTimeout.Load()))
 			if newHandshake <= baseline {
 				log.Printf("[NAT] Control path reached %s via %s but WG handshake not established", shortKey(target.WGPubKey), endpoint)
 				d.recordRendezvousAttempt(target.WGPubKey, false)
@@ -1197,18 +1199,36 @@ func (d *DHTDiscovery) admitPunchReply(peerInfo *daemon.PeerInfo, source daemon.
 	d.peerStore.Offer(daemon.Candidate{Info: peerInfo, Source: source, Hand: daemon.FirstHand})
 }
 
-// peerHandshakes and handshakeWaitTimeout are test seams: production values are
-// wireguard.GetLatestHandshakes and HandshakeWaitTimeout.
+// readWGState and handshakeWaitTimeout are test seams: production values are
+// wireguard.ReadState and HandshakeWaitTimeout. Production goroutines read
+// them while a test may write, so both are atomic.
 var (
-	peerHandshakes       = wireguard.GetLatestHandshakes
-	handshakeWaitTimeout = HandshakeWaitTimeout
+	readWGState          atomic.Pointer[func(iface string, maxAge time.Duration) (*wireguard.State, error)]
+	handshakeWaitTimeout atomic.Int64 // nanoseconds
 )
 
-func getPeerHandshakeTS(iface, peerPubKey string) int64 {
+func init() {
+	f := wireguard.ReadState
+	readWGState.Store(&f)
+	handshakeWaitTimeout.Store(int64(HandshakeWaitTimeout))
+}
+
+// readHandshakes returns the latest handshake of every peer from one
+// snapshot no older than maxAge (0 = fork now). Each caller names its own
+// staleness at the call.
+func readHandshakes(iface string, maxAge time.Duration) (map[string]int64, error) {
+	st, err := (*readWGState.Load())(iface, maxAge)
+	if err != nil {
+		return nil, err
+	}
+	return st.Handshakes(), nil
+}
+
+func getPeerHandshakeTS(iface, peerPubKey string, maxAge time.Duration) int64 {
 	if iface == "" || peerPubKey == "" {
 		return 0
 	}
-	hs, err := peerHandshakes(iface)
+	hs, err := readHandshakes(iface, maxAge)
 	if err != nil {
 		return 0
 	}
@@ -1218,13 +1238,14 @@ func getPeerHandshakeTS(iface, peerPubKey string) int64 {
 func waitForPeerHandshake(iface, peerPubKey string, baseline int64, timeout time.Duration) int64 {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		current := getPeerHandshakeTS(iface, peerPubKey)
+		// Punch wait: fresh read (maxAge 0) on each poll, a new handshake must show within one HandshakePollInterval.
+		current := getPeerHandshakeTS(iface, peerPubKey, 0)
 		if current > baseline {
 			return current
 		}
 		time.Sleep(HandshakePollInterval)
 	}
-	return getPeerHandshakeTS(iface, peerPubKey)
+	return getPeerHandshakeTS(iface, peerPubKey, 0)
 }
 
 func (d *DHTDiscovery) setControlEndpoint(peerPubKey, endpoint string) {
@@ -1369,8 +1390,10 @@ func (d *DHTDiscovery) selectRendezvousIntroducers(remoteKey string, peers []*da
 		isExplicit      bool
 	}
 
-	// Fetch handshakes once for all candidates (D6: avoid forking wg show per peer)
-	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
+	// Fetch handshakes once for all candidates (D6: avoid forking wg show per peer).
+	// Up to ReconcileInterval (5 s) old: ts is compared with the 2 minute window in isAutoIntroducerCandidate.
+	st, _ := wireguard.ReadState(d.config.InterfaceName, daemon.ReconcileInterval)
+	handshakes := st.Handshakes()
 
 	candidates := make([]introducerCandidate, 0, len(peers))
 	for _, p := range peers {
