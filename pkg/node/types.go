@@ -23,6 +23,9 @@ type PeerInfo struct {
 	Introducer       bool
 	RoutableNetworks []string
 	LastSeen         time.Time
+	LastDataPlane    time.Time      // newest WireGuard handshake or successful mesh probe, measured by this node; never a claim (ADR-0004)
+	RestoredAt       time.Time      // when the cache restored the entry (ADR-0004)
+	resumedAt        time.Time      // store-wide wake time stamped into every copy the store returns; memory only
 	DiscoveredVia    []string       // ["lan", "dht", "gossip"]
 	Latency          *time.Duration // measured via WG handshake
 	NATType          string         // "cone", "symmetric", or "unknown"
