@@ -123,3 +123,4 @@ Stop and ask if an existing test in `pkg/ssh` or `pkg/mesh` needs a changed expe
 - 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:6274
 - 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:6200
 - 2026-11-16 · 57a41f0* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:4589
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:7f886b4aa8cd7891ac3c9d97080b37542b53f52ec01f01a3009b0ca6a5f445e2 · ms:8458

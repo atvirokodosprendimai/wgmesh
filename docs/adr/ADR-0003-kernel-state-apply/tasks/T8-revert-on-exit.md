@@ -121,3 +121,4 @@ Stop and ask if `Run` has more than one exit path that skips the deferred calls.
 - 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:10692
 - 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:11867
 - 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:7304
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:324916049229918bc172c9b2f592c0edaf0111b59b96bbf9f32cc19670339dbc · ms:7831

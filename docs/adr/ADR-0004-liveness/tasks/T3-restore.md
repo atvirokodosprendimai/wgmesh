@@ -133,3 +133,4 @@ Stop and ask if the `Restored` merge has no place that knows the key is new, so 
 - 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:14731
 - 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:12370
 - 2026-11-16 · 344480c* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:8823
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:6ca2c73c128ba53cf007dc8d363eb6037fb716e29ec4eb9c375d8a340d435623 · ms:10849

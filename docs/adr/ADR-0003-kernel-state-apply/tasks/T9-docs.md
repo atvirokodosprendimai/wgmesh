@@ -106,3 +106,4 @@ Stop and ask if a spec section named here does not exist in the file (the sectio
 - 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:2484
 - 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:2731
 - 2026-11-16 · 0f45e87* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:1246
+- 2026-11-16 · 7c1d459* · exit 0 · `set -o pipefail …` · acceptance-sha256:a06123c62eaffd073098a3fbf51e5be235a25467594d20492449373834533e78 · ms:1580
