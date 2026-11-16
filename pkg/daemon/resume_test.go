@@ -319,17 +319,19 @@ func TestNoGraceWhileLivenessNotEnforced(t *testing.T) {
 	}
 }
 
-func TestResumeGraceStaleHandshakeKeepsRelayDecision(t *testing.T) {
+func TestResumeGraceStaleHandshakeRelayChoice(t *testing.T) {
 	tests := []struct {
 		name        string
 		enforce     bool
+		transitive  bool
 		after       time.Duration
 		wantRelayed bool
 		wantCounted float64
 	}{
-		{"on, inside the grace: no relay from a handshake age", true, 10 * time.Second, false, 0},
-		{"on, after the grace: the stale handshake relays", true, ResumeGrace + time.Second, true, 0},
-		{"off, inside the grace: relays as before and is counted", false, 10 * time.Second, true, 1},
+		{"on, inside the grace: no relay from a handshake age", true, false, 10 * time.Second, false, 0},
+		{"on, after the grace: the stale handshake relays", true, false, ResumeGrace + time.Second, true, 0},
+		{"off, inside the grace: relays as before and is counted", false, false, 10 * time.Second, true, 1},
+		{"on, inside the grace, dht-transitive: the entry is present, so no transitive relay", true, true, 10 * time.Second, false, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -339,6 +341,9 @@ func TestResumeGraceStaleHandshakeKeepsRelayDecision(t *testing.T) {
 			d := graceDaemon(t, "peer-grace", tt.after)
 			peer, _ := d.peerStore.Get("peer-grace")
 			peer.Endpoint = "172.20.2.20:51820"
+			if tt.transitive {
+				peer.DiscoveredVia = []string{"dht-transitive"}
+			}
 			relay := &PeerInfo{WGPubKey: "relay-pubkey", MeshIP: "10.250.0.1", Introducer: true, LastSeen: time.Now()}
 			hs := map[string]int64{"peer-grace": time.Now().Add(-4 * time.Minute).Unix()}
 			before := disagreeCount(SiteResumeGrace)

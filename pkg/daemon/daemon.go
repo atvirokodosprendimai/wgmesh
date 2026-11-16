@@ -850,9 +850,11 @@ func (d *Daemon) shouldRelayPeerWithSubnets(peer *PeerInfo, relayCandidates []*P
 			//
 			// The relay→direct hysteresis (RelayHysteresisThreshold cycles) will
 			// transition back to direct once a fresh handshake is confirmed.
-			// A wake makes the handshake age meaningless (the stale handshake
-			// includes the time asleep): for ResumeGrace judge as if there were no
-			// handshake data, by the cases below.
+			// A wake makes the handshake age meaningless (it includes the time
+			// asleep): for ResumeGrace the stale handshake does not choose the
+			// relay, and the decision falls through the cases below with the
+			// handshake entry still present, so the dht-transitive case, which
+			// needs no entry, does not apply either.
 			if !d.resumeGraceBlocks(d.now()) {
 				return true
 			}
