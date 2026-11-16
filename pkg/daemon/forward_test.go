@@ -513,3 +513,30 @@ func TestForwardRecoveryNotLoggedWhileNotWanted(t *testing.T) {
 		t.Errorf("recovery logged %d times once the read worked, want 1; log: %q", got, ls.lines)
 	}
 }
+
+// The forward-scope line says which roles keep forwarding, which interface and
+// what to do about it, on one line.
+func TestForwardScopeLogNamesRoleAndRemedy(t *testing.T) {
+	enforceForwardScope(t, false)
+	h := &fakeHost{iptablesPresent: true}
+	ls := &logSink{}
+	d := newForwardDaemon(t, h, ls)
+	tick(t, d, 1)
+
+	var line string
+	ls.mu.Lock()
+	for _, l := range ls.lines {
+		if strings.Contains(l, "forward-scope") {
+			line = l
+		}
+	}
+	ls.mu.Unlock()
+	for _, part := range []string{"introducer", "advertise-routes", "--introducer", "wgmesh-t3-none", "EnforceForwardScope", "a later release"} {
+		if !strings.Contains(line, part) {
+			t.Errorf("forward-scope line lacks %q: %q", part, line)
+		}
+	}
+	if strings.Contains(line, "\n") {
+		t.Errorf("forward-scope line is not one line: %q", line)
+	}
+}

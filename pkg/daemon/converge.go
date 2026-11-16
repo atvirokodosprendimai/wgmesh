@@ -201,7 +201,7 @@ func (d *Daemon) noteForwardObserve(err error) {
 func (d *Daemon) noteForwardScope(f forwardDesired) {
 	warn := f.Wanted && !f.Needed
 	if warn && !d.forwardScopeWarned {
-		d.logf("forward-scope: this node neither relays nor advertises routes, yet ip_forward and the FORWARD rule are still forced on it; the next release stops (EnforceForwardScope)")
+		d.logf("forward-scope: this node neither relays (introducer) nor advertises routes (advertise-routes), yet ip_forward and the FORWARD rule on %s are still forced; a later release stops forcing them (EnforceForwardScope); set --introducer or advertise-routes if this node must forward", d.config.InterfaceName)
 		RecordKernelWarning("forward-scope")
 	}
 	d.forwardScopeWarned = warn
