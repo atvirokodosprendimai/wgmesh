@@ -460,9 +460,7 @@ func (d *Daemon) applyAddresses(plan addressPlan) []itemResult {
 	if EnforceAddressRemoval.Load() {
 		for _, p := range plan.Remove {
 			r := itemResult{Target: targetAddress, Op: "del", Key: p.String()}
-			if _, failing := d.lastResults[r.id()]; !failing {
-				d.logf("removing %s: inside the mesh network and not this node's address", p)
-			}
+			d.logf("removing %s: inside the mesh network and not this node's address", p)
 			out, err := cmdExecutor.Command("ip", "addr", "del", p.String(), "dev", iface).CombinedOutput()
 			if err != nil {
 				r.Err = commandFailure(out, err)

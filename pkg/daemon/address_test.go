@@ -326,6 +326,22 @@ func TestStaleMeshAddressWarnsAtN(t *testing.T) {
 	}
 }
 
+// The removal line is printed on every attempt, so an operator reading the log
+// of a removal that keeps failing sees what is being tried; the failure itself
+// is logged once by the result log.
+func TestFailingRemovalIsLoggedEveryAttempt(t *testing.T) {
+	enforceAddressRemoval(t, true)
+	d, rh, ls := newAddrDaemon(t, "10.99.0.1/16", "10.99.7.7/16")
+	rh.addrDelErr["10.99.7.7/16"] = exitError{1}
+	tick(t, d, 3)
+	if n := ls.count("removing 10.99.7.7/16: inside the mesh network and not this node's address"); n != 3 {
+		t.Errorf("the removal line was logged %d times over 3 failing ticks, want 3", n)
+	}
+	if n := ls.count("Failed to del address"); n != 1 {
+		t.Errorf("the failure was logged %d times, want once", n)
+	}
+}
+
 func TestAddressSteadyStateQuiet(t *testing.T) {
 	before := addressChanges()
 	d, rh, ls := newAddrDaemon(t, "10.99.0.1/16", "fd99::1/64", "192.168.1.5/24")
