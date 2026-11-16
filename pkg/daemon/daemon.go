@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -84,7 +85,8 @@ type Daemon struct {
 	rpcServer RPCServer
 
 	// startTime is recorded when the daemon starts, used for uptime reporting.
-	startTime time.Time
+	// Run writes it and the RPC goroutine reads it, so it is atomic.
+	startTime atomic.Pointer[time.Time]
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -1964,17 +1966,20 @@ func (d *Daemon) SetRPCServer(server RPCServer) {
 
 // markStarted records the start time that GetUptime reports from.
 func (d *Daemon) markStarted() {
-	d.startTime = time.Now()
+	now := time.Now()
+	d.startTime.Store(&now)
 }
 
 // GetUptime returns the daemon uptime
 func (d *Daemon) GetUptime() time.Duration {
-	if d.startTime.IsZero() {
+	start := d.startTime.Load()
+	if start == nil {
 		// Lazily initialize startTime to avoid incorrect uptime when it was not set on startup
-		d.startTime = time.Now()
+		now := time.Now()
+		d.startTime.CompareAndSwap(nil, &now)
 		return 0
 	}
-	return time.Since(d.startTime)
+	return time.Since(*start)
 }
 
 // GetInterfaceName returns the WireGuard interface name
