@@ -1640,7 +1640,11 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 		if err := d.rpcServer.Start(); err != nil {
 			log.Printf("Warning: failed to start RPC server: %v", err)
 		} else {
-			defer d.rpcServer.Stop()
+			defer func() {
+				if err := d.rpcServer.Stop(); err != nil {
+					log.Printf("Warning: failed to stop RPC server: %v", err)
+				}
+			}()
 		}
 	}
 

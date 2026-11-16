@@ -1038,7 +1038,13 @@ func createRPCServer(d *daemon.Daemon, socketPath string) (daemon.RPCServer, err
 		},
 	}
 
-	return rpc.NewServer(config)
+	// Not `return rpc.NewServer(config)`: a failed NewServer returns a nil
+	// *rpc.Server, which would become a non-nil daemon.RPCServer.
+	s, err := rpc.NewServer(config)
+	if err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // peersCmd handles the "peers" subcommand for querying the daemon via RPC

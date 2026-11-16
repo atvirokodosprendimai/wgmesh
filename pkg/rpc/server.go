@@ -105,7 +105,9 @@ func NewServer(config ServerConfig) (*Server, error) {
 			if holder == "" {
 				holder = "unknown"
 			}
-			return nil, fmt.Errorf("RPC socket %s is in use by another daemon (pid %s): %w", config.SocketPath, holder, err)
+			// %w wraps the sentinel, not the HeldError: the pid is already in
+			// the text (not printed twice) and errors.Is(ErrHeld) holds.
+			return nil, fmt.Errorf("RPC socket %s is in use by another daemon (pid %s): run the second daemon with --socket-path (or WGMESH_SOCKET) pointing at a different file (%w)", config.SocketPath, holder, flock.ErrHeld)
 		}
 		return nil, fmt.Errorf("lock RPC socket %s: %w", config.SocketPath, err)
 	}
