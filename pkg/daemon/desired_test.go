@@ -149,26 +149,49 @@ func TestDesireRelayedOwnerGoesToRelay(t *testing.T) {
 	}
 }
 
+// wireReconnectKernel points d's kernel seams at a fresh fakeKernel.
+func wireReconnectKernel(t *testing.T, d *Daemon) *fakeKernel {
+	d.config.Keys = makeTestKeys(t)
+	k := newFakeKernel()
+	d.setPeerFn = k.set
+	d.removePeerFn = k.remove
+	d.dumpFn = k.dump
+	d.logFn = (&logSink{}).printf
+	return k
+}
+
 func TestReconnectAllowedMatchesDesired(t *testing.T) {
 	const shared = "192.168.50.0/24"
-	d := makeRelayTestDaemon()
-	pa := &PeerInfo{WGPubKey: "pa", MeshIP: "10.0.0.30", LastSeen: time.Now(), RoutableNetworks: []string{shared, "192.168.70.0/24"}}
-	pb := &PeerInfo{WGPubKey: "pb", MeshIP: "10.0.0.20", LastSeen: time.Now(), RoutableNetworks: []string{shared}}
-	peers := []*PeerInfo{pa, pb}
-	ds := d.desire(peers, nil, map[string]string{})
+	newPeers := func() (*PeerInfo, *PeerInfo) {
+		pa := &PeerInfo{WGPubKey: "pa", MeshIP: "10.0.0.30", Endpoint: "5.6.7.30:51820", LastSeen: time.Now(), RoutableNetworks: []string{shared, "192.168.70.0/24"}}
+		pb := &PeerInfo{WGPubKey: "pb", MeshIP: "10.0.0.20", Endpoint: "5.6.7.20:51820", LastSeen: time.Now(), RoutableNetworks: []string{shared}}
+		return pa, pb
+	}
+	pa, pb := newPeers()
+	ds := makeRelayTestDaemon().desire([]*PeerInfo{pa, pb}, nil, map[string]string{})
 
-	for _, p := range peers {
+	reconnectOf := func(target *PeerInfo) []setCall {
+		d := makeRelayTestDaemon()
+		k := wireReconnectKernel(t, d)
+		pa, pb := newPeers()
+		if err := d.reconnectPeerInKernel(target, []*PeerInfo{pa, pb}); err != nil {
+			t.Fatal(err)
+		}
+		return k.setCalls()
+	}
+	for _, p := range []*PeerInfo{pa, pb} {
 		want := strings.Join(mapKeysSorted(allowedOf(ds, p.WGPubKey)), ",")
-		if got := d.reconnectAllowedCSV(p, peers, nil); got != want {
-			t.Errorf("reconnectAllowedCSV(%s) = %q, desired = %q", p.WGPubKey, got, want)
+		got := reconnectOf(p)
+		if len(got) != 1 || got[0].key != p.WGPubKey || got[0].allowed != want {
+			t.Errorf("reconnect of %s sent %v, desired list = %q", p.WGPubKey, got, want)
 		}
 	}
 	// pa is not the owner of the shared network: its reconnect list must not carry it.
-	if got, want := d.reconnectAllowedCSV(pa, peers, nil), "10.0.0.30/32,192.168.70.0/24"; got != want {
-		t.Errorf("non-owner reconnect = %q, want %q", got, want)
+	if got := reconnectOf(pa); len(got) != 1 || got[0].allowed != "10.0.0.30/32,192.168.70.0/24" {
+		t.Errorf("non-owner reconnect sent %v, want 10.0.0.30/32,192.168.70.0/24", got)
 	}
-	if got, want := d.reconnectAllowedCSV(pb, peers, nil), "10.0.0.20/32,"+shared; got != want {
-		t.Errorf("owner reconnect = %q, want %q", got, want)
+	if got := reconnectOf(pb); len(got) != 1 || got[0].allowed != "10.0.0.20/32,"+shared {
+		t.Errorf("owner reconnect sent %v, want 10.0.0.20/32,%s", got, shared)
 	}
 }
 
@@ -277,16 +300,16 @@ func TestReconcileRunsSerialised(t *testing.T) {
 }
 
 // A peer carried by a relay, or one temporarily offline, has no entry of its
-// own in the desired state: a forced reconnect must give it its mesh addresses
-// and nothing else.
+// own in the desired state: a forced reconnect must not write it at all (its
+// networks sit under its relay, or it is hidden).
 func TestReconnectAllowedRelayedPeer(t *testing.T) {
-	const want = "10.0.0.20/32,fd00::20/128"
 	newTarget := func() *PeerInfo {
 		return &PeerInfo{WGPubKey: "peer1", MeshIP: "10.0.0.20", MeshIPv6: "fd00::20", Endpoint: "5.6.7.8:51820", LastSeen: time.Now(), RoutableNetworks: []string{"192.168.50.0/24"}}
 	}
 
 	t.Run("relayed", func(t *testing.T) {
 		d := makeRelayTestDaemon()
+		k := wireReconnectKernel(t, d)
 		d.config.ForceRelay = true
 		relay := &PeerInfo{WGPubKey: "relay1", MeshIP: "10.0.0.10", Endpoint: "1.2.3.4:51820", Introducer: true, LastSeen: time.Now()}
 		target := newTarget()
@@ -294,21 +317,28 @@ func TestReconnectAllowedRelayedPeer(t *testing.T) {
 		if _, ok := d.desire(peers, nil, map[string]string{}).Peers[target.WGPubKey]; ok {
 			t.Fatal("precondition: relayed peer has its own desired entry")
 		}
-		if got := d.reconnectAllowedCSV(target, peers, nil); got != want {
-			t.Errorf("reconnectAllowedCSV = %q, want %q", got, want)
+		if err := d.reconnectPeerInKernel(target, peers); err != nil {
+			t.Fatal(err)
+		}
+		if got := k.setCalls(); len(got) != 0 {
+			t.Errorf("reconnect of a relayed peer wrote %v", got)
 		}
 	})
 
 	t.Run("temporarily offline", func(t *testing.T) {
 		d := makeRelayTestDaemon()
+		k := wireReconnectKernel(t, d)
 		target := newTarget()
 		d.temporaryOffline[target.WGPubKey] = time.Now().Add(time.Hour)
 		peers := []*PeerInfo{target}
 		if _, ok := d.desire(peers, nil, map[string]string{}).Peers[target.WGPubKey]; ok {
 			t.Fatal("precondition: offline peer has its own desired entry")
 		}
-		if got := d.reconnectAllowedCSV(target, peers, nil); got != want {
-			t.Errorf("reconnectAllowedCSV = %q, want %q", got, want)
+		if err := d.reconnectPeerInKernel(target, peers); err != nil {
+			t.Fatal(err)
+		}
+		if got := k.setCalls(); len(got) != 0 {
+			t.Errorf("reconnect of an offline peer wrote %v", got)
 		}
 	})
 }

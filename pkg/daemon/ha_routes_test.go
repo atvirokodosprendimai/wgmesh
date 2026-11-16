@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"os"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -98,14 +99,18 @@ func TestSharedSubnetNotRelayedThroughMesh(t *testing.T) {
 
 func TestReconnectAllowedCSVExcludesOwnNetworks(t *testing.T) {
 	d := makeRelayTestDaemon()
+	k := wireReconnectKernel(t, d)
 	d.localNode.RoutableNetworks = []string{"192.168.10.0/24"}
 	peer := &PeerInfo{
-		WGPubKey: "peer1", MeshIP: "10.0.0.20",
+		WGPubKey: "peer1", MeshIP: "10.0.0.20", Endpoint: "5.6.7.8:51820",
 		RoutableNetworks: []string{"192.168.10.0/24", "192.168.20.0/24"},
 	}
-	got := d.reconnectAllowedCSV(peer, []*PeerInfo{peer}, nil)
-	if want := "10.0.0.20/32,192.168.20.0/24"; got != want {
-		t.Errorf("reconnectAllowedCSV() = %q, want %q", got, want)
+	if err := d.reconnectPeerInKernel(peer, []*PeerInfo{peer}); err != nil {
+		t.Fatal(err)
+	}
+	want := []setCall{{"peer1", "5.6.7.8:51820", "10.0.0.20/32,192.168.20.0/24"}}
+	if got := k.setCalls(); !reflect.DeepEqual(got, want) {
+		t.Errorf("reconnect sent %v, want %v", got, want)
 	}
 }
 

@@ -1364,24 +1364,6 @@ func shouldTreatPeerAsStale(handshakeTS int64, prevTransferTotal, currentTransfe
 	return currentTransferTotal <= prevTransferTotal
 }
 
-// reconnectAllowedCSV builds the allowed-ips list for a forced reconnect of
-// peer: its entry in the desired state of peers. A relayed peer has none (its
-// networks sit under the relay), so it gets its mesh addresses only.
-func (d *Daemon) reconnectAllowedCSV(peer *PeerInfo, peers []*PeerInfo, handshakes map[string]int64) string {
-	allowed := make(map[string]struct{})
-	if cfg, ok := d.desire(peers, handshakes, map[string]string{}).Peers[peer.WGPubKey]; ok {
-		allowed = cfg.allowed
-	} else {
-		if peer.MeshIP != "" {
-			allowed[peer.MeshIP+"/32"] = struct{}{}
-		}
-		if peer.MeshIPv6 != "" {
-			allowed[peer.MeshIPv6+"/128"] = struct{}{}
-		}
-	}
-	return strings.Join(mapKeysSorted(allowed), ",")
-}
-
 func (d *Daemon) attemptPeerReconnect(peer *PeerInfo) {
 	if peer == nil || peer.WGPubKey == "" {
 		return
