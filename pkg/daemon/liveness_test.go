@@ -191,21 +191,35 @@ func TestProbeSuccessRecordsDataPlane(t *testing.T) {
 	}
 }
 
+// disagreeCount reads one series of wgmesh_liveness_disagree_total.
+func disagreeCount(site string) float64 {
+	return testutil.ToFloat64(LivenessDisagreeCounter(site))
+}
+
 func TestRelayCandidateUsesAlive(t *testing.T) {
 	now := time.Now()
 	tests := []struct {
 		name          string
+		enforce       bool
 		lastSeen      time.Time
 		lastDataPlane time.Time
 		wantRelayed   bool
+		wantDisagree  float64
 	}{
-		{"old LastSeen and a fresh data-plane time", now.Add(-10 * time.Minute), now.Add(-30 * time.Second), true},
-		{"old LastSeen and a data-plane time past 90 seconds", now.Add(-10 * time.Minute), now.Add(-2 * time.Minute), false},
-		{"old LastSeen and no data-plane time", now.Add(-10 * time.Minute), time.Time{}, false},
-		{"fresh LastSeen and no data-plane time", now.Add(-30 * time.Second), time.Time{}, true},
+		{"off: old LastSeen and a fresh data-plane time stays legacy and is counted", false, now.Add(-10 * time.Minute), now.Add(-30 * time.Second), false, 1},
+		{"on: old LastSeen and a fresh data-plane time is a candidate", true, now.Add(-10 * time.Minute), now.Add(-30 * time.Second), true, 0},
+		{"on: data-plane time past 90 seconds is not a candidate", true, now.Add(-10 * time.Minute), now.Add(-2 * time.Minute), false, 0},
+		{"on: data-plane time at 80 seconds is a candidate", true, now.Add(-10 * time.Minute), now.Add(-80 * time.Second), true, 0},
+		{"on: data-plane time at 100 seconds is not a candidate", true, now.Add(-10 * time.Minute), now.Add(-100 * time.Second), false, 0},
+		{"off: data-plane time past 90 seconds, both rules refuse, nothing counted", false, now.Add(-10 * time.Minute), now.Add(-2 * time.Minute), false, 0},
+		{"on: old LastSeen and no data-plane time is not a candidate", true, now.Add(-10 * time.Minute), time.Time{}, false, 0},
+		{"off: fresh LastSeen and no data-plane time is a candidate", false, now.Add(-30 * time.Second), time.Time{}, true, 0},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.enforce {
+				enforceLiveness(t)
+			}
 			d := livenessDaemon(t)
 			d.config.ForceRelay = true
 			introducer := &PeerInfo{
@@ -216,12 +230,16 @@ func TestRelayCandidateUsesAlive(t *testing.T) {
 				WGPubKey: "nodeb-pubkey", MeshIP: "10.250.0.3", Endpoint: "172.20.2.20:51820",
 				DiscoveredVia: []string{"gossip"}, LastSeen: now,
 			}
+			before := disagreeCount(SiteRelayCandidate)
 
 			_, relayRoutes, _ := d.buildDesiredPeerConfigsWithHandshakes([]*PeerInfo{introducer, target}, nil)
 
 			relay, relayed := relayRoutes["nodeb-pubkey"]
 			if relayed != tt.wantRelayed || (relayed && relay != "intro-pubkey") {
 				t.Errorf("relayRoutes[nodeb] = %q, %v; want relayed = %v via intro-pubkey", relay, relayed, tt.wantRelayed)
+			}
+			if got := disagreeCount(SiteRelayCandidate) - before; got != tt.wantDisagree {
+				t.Errorf("relay-candidate disagreements = %v, want %v", got, tt.wantDisagree)
 			}
 		})
 	}
@@ -254,6 +272,41 @@ func TestProbeLoopVisitsSuspectPeers(t *testing.T) {
 			alive := peer.Alive(time.Now()) == node.Alive
 			if alive != (tt.wantPings == 1) {
 				t.Errorf("Alive after the loop = %v, want %v", alive, tt.wantPings == 1)
+			}
+		})
+	}
+}
+
+func TestProbeEnforceKeepsLegacyUntilEnforced(t *testing.T) {
+	tests := []struct {
+		name         string
+		enforce      bool
+		wantPings    int32
+		wantDisagree float64
+	}{
+		{"off: 7 minutes of silence is enforced as before and counted", false, 1, 1},
+		{"on: a 10-second-old data-plane time is not enforced", true, 0, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.enforce {
+				enforceLiveness(t)
+			}
+			d := livenessDaemon(t)
+			now := time.Now()
+			seedLivenessPeer(d, "peer-pe", "10.250.0.2", now.Add(-7*time.Minute))
+			d.peerStore.ObserveDataPlane("peer-pe", now.Add(-10*time.Second))
+			session, pings := pipeSession(t, "pong")
+			d.probeSessions["peer-pe"] = session
+			before := disagreeCount(SiteProbeEnforce)
+
+			d.probePeersOverMesh()
+
+			if got := pings.Load(); got != tt.wantPings {
+				t.Errorf("pings = %d, want %d", got, tt.wantPings)
+			}
+			if got := disagreeCount(SiteProbeEnforce) - before; got != tt.wantDisagree {
+				t.Errorf("probe-enforce disagreements = %v, want %v", got, tt.wantDisagree)
 			}
 		})
 	}
@@ -303,7 +356,7 @@ func TestLivenessDisagreeSeriesExistAtZero(t *testing.T) {
 			}
 		}
 	}
-	for _, site := range []string{"get-active", "cleanup", "is-dead"} {
+	for _, site := range LivenessDisagreeSites {
 		v, ok := seen[site]
 		if !ok {
 			t.Errorf("no wgmesh_liveness_disagree_total{site=%q} series before the first disagreement", site)

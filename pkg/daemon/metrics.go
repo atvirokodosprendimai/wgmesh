@@ -96,7 +96,7 @@ func registerMetrics(reg prometheus.Registerer) {
 	reg.MustRegister(admitWarnings)
 	admitWarnings.WithLabelValues("winner-differs")
 	reg.MustRegister(livenessDisagree)
-	for _, site := range []string{"get-active", "cleanup", "is-dead"} {
+	for _, site := range LivenessDisagreeSites {
 		livenessDisagree.WithLabelValues(site)
 	}
 	reg.MustRegister(goCollector)
@@ -174,4 +174,23 @@ func RecordAdmitWarning(rule string) {
 // peer that the liveness verdict keeps; it is the body of the store's hook.
 func recordLivenessDisagree(site string) {
 	livenessDisagree.WithLabelValues(site).Inc()
+}
+
+// The sites of wgmesh_liveness_disagree_total: the three store readers (named
+// in pkg/node) and the four readers outside it.
+const (
+	SiteRelayCandidate      = "relay-candidate"
+	SiteProbeEnforce        = "probe-enforce"
+	SiteRendezvousSkip      = "rendezvous-skip"
+	SiteIntroducerCandidate = "introducer-candidate"
+)
+
+// LivenessDisagreeSites lists every site label of the counter; registerMetrics
+// pre-seeds each at 0 and the tests walk the same list.
+var LivenessDisagreeSites = []string{"get-active", "cleanup", "is-dead", SiteRelayCandidate, SiteProbeEnforce, SiteRendezvousSkip, SiteIntroducerCandidate}
+
+// LivenessDisagreeCounter returns the counter series of site, for tests of
+// readers in other packages.
+func LivenessDisagreeCounter(site string) prometheus.Counter {
+	return livenessDisagree.WithLabelValues(site)
 }
