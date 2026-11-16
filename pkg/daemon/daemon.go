@@ -718,7 +718,7 @@ func (d *Daemon) buildDesiredPeerConfigsWithHandshakes(peers []*PeerInfo, handsh
 		if d.isTemporarilyOffline(p.WGPubKey) {
 			continue
 		}
-		if p.Introducer && p.Endpoint != "" && now.Sub(p.LastSeen) <= RelayCandidateMaxAge {
+		if p.Introducer && p.Endpoint != "" && now.Sub(p.LastAlive(now)) <= RelayCandidateMaxAge {
 			relayCandidates = append(relayCandidates, p)
 		}
 	}
@@ -1232,7 +1232,7 @@ func (d *Daemon) probePeersOverMesh() {
 
 		// Avoid evicting brand-new peers too early, but still enforce for relay-routed
 		// peers (no direct handshake entry by design) and for stale entries.
-		enforce := ts > 0 || d.isRelayRoutedPeer(p.WGPubKey) || time.Since(p.LastSeen) > 45*time.Second
+		enforce := ts > 0 || d.isRelayRoutedPeer(p.WGPubKey) || now.Sub(p.LastAlive(now)) > 45*time.Second
 		if !enforce {
 			d.probeMu.Lock()
 			d.probeFailures[p.WGPubKey] = 0

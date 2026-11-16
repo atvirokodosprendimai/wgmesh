@@ -869,7 +869,8 @@ func (d *DHTDiscovery) handlePeerEvent(ev daemon.PeerEvent) {
 	}
 
 	// Skip if recently established via rendezvous
-	if hasDiscoveryMethod(peer.DiscoveredVia, "dht-rendezvous") && time.Since(peer.LastSeen) < 2*time.Minute {
+	now := time.Now()
+	if hasDiscoveryMethod(peer.DiscoveredVia, "dht-rendezvous") && now.Sub(peer.LastAlive(now)) < 2*time.Minute {
 		return
 	}
 
@@ -1267,7 +1268,8 @@ func (d *DHTDiscovery) isAutoIntroducerCandidate(p *daemon.PeerInfo, handshakes 
 	if p == nil {
 		return false
 	}
-	if time.Since(p.LastSeen) > 2*time.Minute {
+	now := time.Now()
+	if now.Sub(p.LastAlive(now)) > 2*time.Minute {
 		return false
 	}
 	d.mu.RLock()
