@@ -238,3 +238,39 @@ func TestStaleHandshakeCheckReadsAtReconcileInterval(t *testing.T) {
 		t.Fatalf("maxAges = %v, want [%v] (one skip-check read at ReconcileInterval)", ages, daemon.ReconcileInterval)
 	}
 }
+
+// TestIntroducerRankingReadsSnapshotWithinReconcileInterval: selectRendezvousIntroducers
+// over several candidates forks wg show at most once, and a second call
+// inside ReconcileInterval reuses that snapshot (a read with maxAge 0 would
+// fork again).
+func TestIntroducerRankingReadsSnapshotWithinReconcileInterval(t *testing.T) {
+	dir := installFakeWG(t)
+	cfg, err := daemon.NewConfig(daemon.DaemonOpts{Secret: "wgmesh-test-fork-introducers-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := NewDHTDiscovery(context.Background(), cfg, &daemon.LocalNode{WGPubKey: aadKey(1), MeshIP: "10.0.0.1"}, daemon.NewPeerStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var peers []*daemon.PeerInfo
+	hs := map[string]int64{}
+	for i := 3; i < 8; i++ {
+		key := aadKey(byte(i))
+		hs[key] = time.Now().Unix()
+		peers = append(peers, &daemon.PeerInfo{
+			WGPubKey: key, MeshIP: fmt.Sprintf("10.0.1.%d", i), Endpoint: "203.0.113.5:51820",
+			DiscoveredVia: []string{DHTMethod}, LastSeen: time.Now(),
+		})
+	}
+	writeDump(t, dir, cfg.InterfaceName, hs)
+
+	d.selectRendezvousIntroducers(aadKey(2), peers, 3)
+	if got := showForks(t, dir); got != 1 {
+		t.Fatalf("show forks for one ranking over %d candidates = %d, want 1", len(peers), got)
+	}
+	d.selectRendezvousIntroducers(aadKey(2), peers, 3)
+	if got := showForks(t, dir); got != 1 {
+		t.Fatalf("show forks after a second ranking inside ReconcileInterval = %d, want still 1", got)
+	}
+}
