@@ -68,7 +68,7 @@ The five supporting mechanisms that complement the daemon core: persistence, IP 
 - Generates a systemd unit file from daemon options. The secret is stored in `/etc/wgmesh/secret.env` (mode 0600) and referenced as `${WGMESH_SECRET}` — it never appears in the process list.
 - Unit hardening: `NoNewPrivileges=yes`, `ProtectSystem=full`, `ProtectHome=true`, `ReadWritePaths=/var/lib/wgmesh`.
 - `InstallSystemdService`: writes unit + secret env, creates `/var/lib/wgmesh` (required by `ReadWritePaths`), runs `systemctl enable + start`.
-- The unit and `secret.env` are still written with a plain `os.WriteFile`, so a crash can leave a short file (re-running `install-service` repairs it); they are the two allowlisted calls of `systemd.go` in `TestNoInPlaceStateWrite`. `install-service` also reports success while the unit crash-loops when the interface lock is held. Both are rows in `docs/adr/BACKLOG.md` (ADR-0005).
+- The unit is still written with a plain `os.WriteFile`, so a crash can leave a short file (re-running `install-service` repairs it); it is the one allowlisted call of `systemd.go` in `TestNoInPlaceStateWrite`. `secret.env` is written through `atomicfile.WriteFile` with mode 0600 on every run. `install-service` also reports success while the unit crash-loops when the interface lock is held. Both are rows in `docs/adr/BACKLOG.md` (ADR-0005).
 - `UninstallSystemdService`: stops, disables, removes unit and secret files.
 
 ## Design

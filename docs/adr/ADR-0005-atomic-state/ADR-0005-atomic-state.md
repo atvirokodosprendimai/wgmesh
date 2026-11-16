@@ -148,7 +148,7 @@ See `tasks/README.md`. Eleven tasks: T1 the atomic write step, T2 the four in-pl
 - A lock around `Mesh.Save` read-modify-write across CLI invocations (two `addnode` runs lose one node): a lost update, not a torn write (deferred: docs/adr/BACKLOG.md).
 - The pipeline that pushes configs by SSH, #865, #866, #867, #868: they act on `pkg/ssh` and the apply step, `Mesh.Save` here is only the file write (permanent: boundary: another group owns the centralized pipeline).
 - Deleting an interface the daemon adopted instead of created at shutdown (`daemon.go:503-515`): with the lock the second daemon no longer reaches it; whether a restart should leave an adopted interface alone is a lifecycle decision (deferred: docs/adr/BACKLOG.md).
-- `install-service` writing `secret.env` and the unit atomically (`pkg/daemon/systemd.go:156`, `:162`): re-running the command repairs a short file (deferred: docs/adr/BACKLOG.md).
+- `install-service` writing the unit atomically (`pkg/daemon/systemd.go`): re-running the command repairs a short file (deferred: docs/adr/BACKLOG.md). `secret.env` is written atomically since the rc4 fix "enforce 0600 on secret.env".
 - Deciding when to restart discovery after sleep or wake, #829, and peer liveness (permanent: boundary: another group owns liveness; T10 only makes `Start` after `Stop` safe).
 - Mesh IP persistence of the collision result: ADR-0002 T5 (permanent: boundary: owned by ADR-0002; this record only changes how `saveLocalNode` writes).
 - Admit rules and the `Offer` path: ADR-0002 (permanent: boundary: owned by ADR-0002).

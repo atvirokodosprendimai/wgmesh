@@ -135,6 +135,8 @@ func GenerateSystemdUnit(cfg SystemdServiceConfig) (string, error) {
 }
 
 // writeSecretEnv writes the systemd environment file that carries the secret.
+// The file is replaced through atomicfile, not rewritten in place: that is
+// what makes the 0600 mode apply to a file that already exists.
 // The value is quoted for safe systemd environment file parsing.
 func writeSecretEnv(path, secret string) error {
 	escaped := strings.ReplaceAll(secret, `\`, `\\`)
