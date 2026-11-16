@@ -676,6 +676,8 @@ func (d *Daemon) reconcileLoop() {
 			return
 		case <-ticker.C:
 			d.reconcile()
+		case <-d.resumeCh:
+			d.reconcile()
 		}
 	}
 }

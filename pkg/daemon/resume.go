@@ -3,6 +3,8 @@ package daemon
 import (
 	"log"
 	"time"
+
+	"github.com/atvirokodosprendimai/wgmesh/pkg/node"
 )
 
 const (
@@ -65,11 +67,22 @@ func (d *Daemon) resumeLoop(ticks <-chan time.Time) {
 	}
 }
 
-// handleResume acts on a detected wake. It never calls reconcile: that has one
-// caller at a time, reconcileLoop.
+// handleResume acts on a detected wake: the store takes the wake as evidence
+// for every peer, reconcileLoop is asked for a pass and the discovery layer, if
+// it is a node.Resumer, runs its own wake actions. It never calls reconcile:
+// that has one caller at a time, reconcileLoop. The daemon does not import
+// discovery, so the layer is reached through the interface.
 func (d *Daemon) handleResume(now time.Time, gap time.Duration) {
 	log.Printf("[Resume] wall clock jumped %s", gap.Round(time.Second))
 	resumeDetected.Inc()
+	d.peerStore.NoteResume(now)
+	select {
+	case d.resumeCh <- struct{}{}:
+	default: // a pass is already requested
+	}
+	if r, ok := d.dhtDiscovery.(node.Resumer); ok {
+		r.OnResume()
+	}
 }
 
 // startResumeLoop starts the resume loop; both run paths call it.
