@@ -5,6 +5,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -424,5 +426,52 @@ func TestResumeLoopStateIsRaceFree(t *testing.T) {
 	case <-loopDone:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the resume loop did not stop on cancel")
+	}
+}
+
+// TestOnlyReconcileLoopCallsReconcile pins the invariant that reconcile has
+// one caller at a time: the resume code asks reconcileLoop for a pass through
+// resumeCh and never calls reconcile itself. The one other caller is the
+// SIGHUP handler, which predates the resume loop.
+func TestOnlyReconcileLoopCallsReconcile(t *testing.T) {
+	t.Parallel()
+	files, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed := map[string]bool{"reconcileLoop": true, "handleSIGHUP": true}
+	called := map[string]bool{}
+	parsed := 0
+	for _, name := range files {
+		if strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatalf("parse %s: %v", name, err)
+		}
+		parsed++
+		for _, decl := range file.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				if call, ok := n.(*ast.CallExpr); ok {
+					if sel, ok := call.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "reconcile" {
+						called[fn.Name.Name] = true
+					}
+				}
+				return true
+			})
+		}
+	}
+	if parsed == 0 || !called["reconcileLoop"] {
+		t.Fatalf("parsed %d files and found reconcileLoop calling reconcile = %v: the walk sees nothing", parsed, called["reconcileLoop"])
+	}
+	for fn := range called {
+		if !allowed[fn] {
+			t.Errorf("%s calls reconcile: only reconcileLoop (and handleSIGHUP) may", fn)
+		}
 	}
 }
