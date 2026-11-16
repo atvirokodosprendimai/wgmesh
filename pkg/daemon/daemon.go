@@ -1864,17 +1864,21 @@ func (d *Daemon) RunWithDHTDiscovery() error {
 // cancelled when the daemon shuts down.
 type DHTDiscoveryFactory func(ctx context.Context, config *Config, localNode *LocalNode, peerStore *PeerStore) (DiscoveryLayer, error)
 
-var dhtDiscoveryFactory DHTDiscoveryFactory
+// dhtDiscoveryFactory is atomic: the setter is public and Run reads it.
+var dhtDiscoveryFactory atomic.Pointer[DHTDiscoveryFactory]
 
 // SetDHTDiscoveryFactory sets the factory function for creating DHT discovery
 // This is called by the discovery package to avoid circular imports
 func SetDHTDiscoveryFactory(factory DHTDiscoveryFactory) {
-	dhtDiscoveryFactory = factory
+	dhtDiscoveryFactory.Store(&factory)
 }
 
 // GetDHTDiscoveryFactory returns the current DHT discovery factory
 func GetDHTDiscoveryFactory() DHTDiscoveryFactory {
-	return dhtDiscoveryFactory
+	if f := dhtDiscoveryFactory.Load(); f != nil {
+		return *f
+	}
+	return nil
 }
 
 // handleSIGHUP reads the reload file for the current interface and applies
