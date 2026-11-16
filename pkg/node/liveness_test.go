@@ -1,13 +1,18 @@
 package node
 
 import (
+	"sort"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 )
 
-// livenessNow has no monotonic reading, so every age in these tests is wall time.
-var livenessNow = time.Date(2030, 1, 1, 12, 0, 0, 0, time.UTC)
+// livenessNow has no monotonic reading, so every age in these tests is wall
+// time. It lies years before the real clock: a reader that calls time.Now()
+// instead of the store clock sees every peer seeded here as decades old, so
+// TestLivenessUsesStoreClock fails for it.
+var livenessNow = time.Date(2000, 1, 1, 12, 0, 0, 0, time.UTC)
 
 // enforceLiveness sets the process-wide switch for one test and restores it
 // off. Tests that set it do not call t.Parallel: parallel tests resume only
@@ -111,22 +116,37 @@ func TestAssessNewestEvidenceWins(t *testing.T) {
 func TestAssessIgnoresMonotonicReading(t *testing.T) {
 	t.Parallel()
 	withMono := time.Now()
+	if !strings.Contains(withMono.String(), "m=") {
+		t.Fatal("test setup: time.Now() should carry a monotonic reading")
+	}
+	if s := (Evidence{LastSeen: withMono}).newest().String(); strings.Contains(s, "m=") {
+		t.Fatalf("newest kept the monotonic reading: %s", s)
+	}
 	wallOnly := time.Unix(0, withMono.UnixNano())
-	if withMono.Equal(wallOnly) == false {
+	if !withMono.Equal(wallOnly) {
 		t.Fatal("test setup: the two instants must be equal")
 	}
-	for _, age := range []time.Duration{time.Minute, 5 * time.Minute, 7 * time.Minute, 10*time.Minute + time.Second} {
+	tests := []struct {
+		age  time.Duration
+		want Liveness
+	}{
+		{time.Minute, Alive},
+		{5 * time.Minute, Suspect},
+		{7 * time.Minute, Suspect},
+		{10*time.Minute + time.Second, Dead},
+	}
+	for _, tc := range tests {
 		// now is advanced by wall time only (no monotonic reading).
-		now := wallOnly.Add(age)
-		a := Assess(Evidence{LastSeen: withMono}, now)
-		b := Assess(Evidence{LastSeen: wallOnly}, now)
-		if a != b {
-			t.Fatalf("age %v: monotonic LastSeen gives %v, wall-only gives %v", age, a, b)
+		now := wallOnly.Add(tc.age)
+		if got := Assess(Evidence{LastSeen: withMono}, now); got != tc.want {
+			t.Fatalf("age %v: monotonic LastSeen gives %v, want %v", tc.age, got, tc.want)
+		}
+		if got := Assess(Evidence{LastSeen: wallOnly}, now); got != tc.want {
+			t.Fatalf("age %v: wall-only LastSeen gives %v, want %v", tc.age, got, tc.want)
 		}
 		// and with a monotonic now too.
-		a = Assess(Evidence{LastSeen: withMono}, withMono.Add(age))
-		if a != b {
-			t.Fatalf("age %v: monotonic now gives %v, wall-only gives %v", age, a, b)
+		if got := Assess(Evidence{LastSeen: withMono}, withMono.Add(tc.age)); got != tc.want {
+			t.Fatalf("age %v: monotonic now gives %v, want %v", tc.age, got, tc.want)
 		}
 	}
 }
@@ -307,14 +327,21 @@ func TestLastAliveIsNewestEvidence(t *testing.T) {
 		})
 	}
 
-	for _, age := range []time.Duration{4*time.Minute + 59*time.Second, 5 * time.Minute, 10 * time.Minute, 10*time.Minute + time.Second} {
-		p := PeerInfo{LastSeen: livenessNow.Add(-time.Hour), LastDataPlane: livenessNow.Add(-age)}
-		want := Assess(Evidence{LastSeen: p.LastSeen, LastDataPlane: p.LastDataPlane}, livenessNow)
-		if got := p.Alive(livenessNow); got != want {
-			t.Fatalf("age %v: Alive = %v, Assess = %v", age, got, want)
+	for _, tc := range []struct {
+		age  time.Duration
+		want Liveness
+	}{
+		{4*time.Minute + 59*time.Second, Alive},
+		{5 * time.Minute, Suspect},
+		{10 * time.Minute, Suspect},
+		{10*time.Minute + time.Second, Dead},
+	} {
+		p := PeerInfo{LastSeen: livenessNow.Add(-time.Hour), LastDataPlane: livenessNow.Add(-tc.age)}
+		if got := p.Alive(livenessNow); got != tc.want {
+			t.Fatalf("age %v: Alive = %v, want %v", tc.age, got, tc.want)
 		}
-		if got := livenessNow.Sub(p.LastAlive(livenessNow)); got != age {
-			t.Fatalf("age %v: now - LastAlive = %v", age, got)
+		if got := livenessNow.Sub(p.LastAlive(livenessNow)); got != tc.age {
+			t.Fatalf("age %v: now - LastAlive = %v", tc.age, got)
 		}
 	}
 }
@@ -359,8 +386,10 @@ func TestLivenessStateIsRaceFree(t *testing.T) {
 			}
 		}()
 	}
-	run(func(i int) { ps.ObserveDataPlane("k1", livenessNow.Add(time.Duration(i)*time.Second)) })
-	run(func(i int) { ps.NoteResume(livenessNow.Add(time.Duration(i) * time.Second)) })
+	// Times are in the past of the store clock (they would be clamped otherwise);
+	// each writer is sequential, so its last write is the maximum.
+	run(func(i int) { ps.ObserveDataPlane("k1", livenessNow.Add(-time.Duration(300-i)*time.Second)) })
+	run(func(i int) { ps.NoteResume(livenessNow.Add(-time.Duration(300-i) * time.Second)) })
 	run(func(i int) { ps.SetLivenessDisagreeHook(log.hook) })
 	run(func(i int) { ps.SetLivenessDisagreeHook(nil) })
 	run(func(i int) { _ = ps.GetActive() })
@@ -369,6 +398,13 @@ func TestLivenessStateIsRaceFree(t *testing.T) {
 	run(func(i int) { EnforceLiveness.Store(i%2 == 0) })
 	run(func(i int) { _ = EnforceLiveness.Load() })
 	wg.Wait()
+	last := livenessNow.Add(-time.Second)
+	if got := ps.ResumedAt(); !got.Equal(last) {
+		t.Fatalf("ResumedAt = %v after concurrent NoteResume, want the maximum %v (lost update)", got, last)
+	}
+	if p, _ := ps.Get("k1"); !p.LastDataPlane.Equal(last) {
+		t.Fatalf("LastDataPlane = %v after concurrent ObserveDataPlane, want the maximum %v (lost update)", p.LastDataPlane, last)
+	}
 }
 
 // movableStore is a store whose clock is *cur; the test moves it.
@@ -450,5 +486,91 @@ func TestOfferedEvidenceIsNotTrusted(t *testing.T) {
 	got, _ := ps.Get("k1")
 	if !got.LastDataPlane.IsZero() || !got.RestoredAt.IsZero() {
 		t.Fatalf("stored LastDataPlane %v, RestoredAt %v, want zero (measured here only)", got.LastDataPlane, got.RestoredAt)
+	}
+}
+
+func TestEnforcedSuspectPeerIsNotActiveNotRemoved(t *testing.T) {
+	enforceLiveness(t, true)
+	ps := clockStore()
+	seedPeer(ps, "k1", livenessNow.Add(-7*time.Minute))
+
+	if hasKey(ps.GetActive(), "k1") {
+		t.Fatal("GetActive contains a Suspect peer")
+	}
+	if removed := ps.CleanupStale(); len(removed) != 0 {
+		t.Fatalf("CleanupStale removed %v, want nothing for a Suspect peer", removed)
+	}
+	if ps.IsDead("k1") {
+		t.Fatal("IsDead is true for a Suspect peer")
+	}
+	if ps.Count() != 1 {
+		t.Fatalf("Count = %d, want 1", ps.Count())
+	}
+}
+
+func TestEnforcedDeadPeerIsRemovedAndTombstoned(t *testing.T) {
+	enforceLiveness(t, true)
+	ps := clockStore()
+	ps.SetPeerDirectly("first", &PeerInfo{WGPubKey: "first", LastSeen: livenessNow.Add(-3 * time.Hour), heardFirstHand: true})
+	ps.SetPeerDirectly("second", &PeerInfo{WGPubKey: "second", LastSeen: livenessNow.Add(-3 * time.Hour)})
+
+	for _, k := range []string{"first", "second"} {
+		if !ps.IsDead(k) {
+			t.Fatalf("IsDead(%s) is false for a 3h old peer", k)
+		}
+	}
+	removed := ps.CleanupStale()
+	sort.Strings(removed)
+	if len(removed) != 2 || removed[0] != "first" || removed[1] != "second" {
+		t.Fatalf("CleanupStale removed %v, want [first second]", removed)
+	}
+	if _, ok := ps.tombstones["first"]; !ok {
+		t.Fatal("a first-hand peer removed as Dead left no tombstone")
+	}
+	if _, ok := ps.tombstones["second"]; ok {
+		t.Fatal("a second-hand peer removed as Dead was tombstoned")
+	}
+}
+
+func TestDisagreementHookIsSilentWhenAssessAgrees(t *testing.T) {
+	enforceLiveness(t, false)
+	ps := clockStore()
+	var log siteLog
+	ps.SetLivenessDisagreeHook(log.hook)
+	seedPeer(ps, "k1", livenessNow.Add(-time.Hour))
+
+	if hasKey(ps.GetActive(), "k1") {
+		t.Fatal("legacy age test kept an hour old peer in GetActive")
+	}
+	if !ps.IsDead("k1") {
+		t.Fatal("legacy age test: IsDead is false for an hour old peer")
+	}
+	if removed := ps.CleanupStale(); len(removed) != 1 {
+		t.Fatalf("CleanupStale removed %v, want [k1]", removed)
+	}
+	if got := log.got(); len(got) != 0 {
+		t.Fatalf("hook heard %v where Assess agrees with the legacy test, want silence", got)
+	}
+}
+
+func TestDisagreementHookIsCalledPerDisagreeingPeer(t *testing.T) {
+	enforceLiveness(t, false)
+	ps := clockStore()
+	var log siteLog
+	ps.SetLivenessDisagreeHook(log.hook)
+	for _, k := range []string{"k1", "k2"} {
+		seedPeer(ps, k, livenessNow.Add(-time.Hour))
+		ps.ObserveDataPlane(k, livenessNow.Add(-time.Minute))
+	}
+
+	_ = ps.GetActive()
+	if got := log.got(); len(got) != 2 || got[0] != "get-active" || got[1] != "get-active" {
+		t.Fatalf("hook after GetActive = %v, want two get-active", got)
+	}
+	if removed := ps.CleanupStale(); len(removed) != 2 {
+		t.Fatalf("CleanupStale removed %v, want both peers", removed)
+	}
+	if got := log.got(); len(got) != 4 || got[2] != "cleanup" || got[3] != "cleanup" {
+		t.Fatalf("hook after CleanupStale = %v, want two more cleanup", got)
 	}
 }
