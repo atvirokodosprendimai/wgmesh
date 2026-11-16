@@ -672,9 +672,9 @@ func (d *Daemon) reconcileLoop() {
 func (d *Daemon) reconcile() {
 	start := time.Now()
 
-	// One wg show per pass: the handshakes are recorded as evidence first, so a
-	// peer whose only sign of life is a handshake is already Alive when the
-	// active set and the desired set are built.
+	// The handshakes are read first and recorded as evidence, so a peer whose
+	// only sign of life is a handshake is already Alive when the active set and
+	// the desired set are built. The probe loop reads its own handshakes.
 	handshakes, _ := wireguard.GetLatestHandshakes(d.config.InterfaceName)
 	peers, desired, relayRoutes, directStable := d.planPeers(handshakes, start)
 	d.relayMu.Lock()
@@ -1200,9 +1200,8 @@ func (d *Daemon) meshProbeLoop() {
 }
 
 func (d *Daemon) probePeersOverMesh() {
-	// GetProbeable adds the Suspect peers (silent 5 to 10 minutes) to what the
-	// loop used to visit. That is additive at N: a Suspect peer is probed only
-	// while it is still configured or relay-routed, and a pong makes it Alive.
+	// Suspect peers are visited only while configured or relay-routed; peers
+	// kept Alive by evidence are visited too. A pong makes a peer Alive again.
 	peers := d.peerStore.GetProbeable()
 	now := time.Now()
 	activeSet := make(map[string]struct{}, len(peers))
